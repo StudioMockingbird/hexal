@@ -8,7 +8,7 @@ import (
 )
 
 func TestGenerateADTDefinitionAndConstruction(t *testing.T) {
-	program := checkedGeneratorSource(t, "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end shape: Shape := Shape.Circle(r = 10)")
+	program := checkedGeneratorSource(t, "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end let shape: Shape = Shape.Circle(r = 10)")
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {
@@ -22,7 +22,7 @@ func TestGenerateADTDefinitionAndConstruction(t *testing.T) {
 }
 
 func TestGenerateADTUnitVariantsHaveNoPayload(t *testing.T) {
-	program := checkedGeneratorSource(t, "type Direction is union | East | West end heading: Direction := Direction.East()")
+	program := checkedGeneratorSource(t, "type Direction is union | East | West end let heading: Direction = Direction.East()")
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {
@@ -44,7 +44,7 @@ func TestGenerateADTUnitVariantsHaveNoPayload(t *testing.T) {
 }
 
 func TestGenerateMatchTypeMode(t *testing.T) {
-	program := checkedGeneratorSource(t, "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end shape: Shape := Shape.Circle(r = 10) area: Int32 := match shape is\n| Shape.Circle then shape.r\n| Shape.Square then 0\nend")
+	program := checkedGeneratorSource(t, "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end let shape: Shape = Shape.Circle(r = 10) let area: Int32 = match shape is\n| Shape.Circle then shape.r\n| Shape.Square then 0\nend")
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC := files["modules/app.c"]
 	if err != nil {
@@ -56,7 +56,7 @@ func TestGenerateMatchTypeMode(t *testing.T) {
 }
 
 func TestGenerateMatchValueMode(t *testing.T) {
-	program := checkedGeneratorSource(t, "ready: Bool := true label: Int32 := match ready\n| true then 1\n| false then 0\nend")
+	program := checkedGeneratorSource(t, "let ready: Bool = true let label: Int32 = match ready\n| true then 1\n| false then 0\nend")
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC := files["modules/app.c"]
 	if err != nil {
@@ -68,7 +68,7 @@ func TestGenerateMatchValueMode(t *testing.T) {
 }
 
 func TestGenerateMatchUnionMembers(t *testing.T) {
-	program := checkedGeneratorSource(t, "value: Int32 | Float32 | Nil := nil label: Int32 := match value is\n| Int32 then 1\n| Float32 then 2\n| Nil then 0\nend")
+	program := checkedGeneratorSource(t, "let value: Int32 | Float32 | Nil = nil let label: Int32 = match value is\n| Int32 then 1\n| Float32 then 2\n| Nil then 0\nend")
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC := files["modules/app.c"]
 	if err != nil {

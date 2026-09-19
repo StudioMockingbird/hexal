@@ -235,6 +235,12 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			return "", unknownExpressionDiagnostic("deferred method call without a captured receiver")
 		}
 		methodArguments := renderRestSliceArgument(&node, arguments[1:])
+		if state.envMethods[node.Name] {
+			if state.envPointer == "" {
+				return "", unknownExpressionDiagnostic("deferred call to an environment-dependent method without an environment")
+			}
+			methodArguments = append([]string{state.envPointer}, methodArguments...)
+		}
 		return methodCName(node.Owner, node.Name, moduleOwner(node.Owner.ModuleID, state.owner)) + "(" + strings.Join(append([]string{arguments[0]}, methodArguments...), ", ") + ")", nil
 	case checker.CallExpression:
 		if node.Operand == nil {
@@ -245,6 +251,12 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 				return "", unknownExpressionDiagnostic("deferred call without a checked function callee")
 			}
 			callArguments := renderRestSliceArgument(&node, arguments)
+			if state.envFunctions[node.Operand.Name] {
+				if state.envPointer == "" {
+					return "", unknownExpressionDiagnostic("deferred call to an environment-dependent function without an environment")
+				}
+				callArguments = append([]string{state.envPointer}, callArguments...)
+			}
 			return privateCName(functionNameKind, node.Operand.Name, moduleOwner(node.Operand.Module, state.owner)) + "(" + strings.Join(callArguments, ", ") + ")", nil
 		}
 		// A Fun<>-valued callee was captured at registration; the call is the

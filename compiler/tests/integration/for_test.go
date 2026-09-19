@@ -7,7 +7,7 @@ import (
 )
 
 func TestForInSequenceLoops(t *testing.T) {
-	result := compileSource("fun demo() do\n    fixed: Array<Int32, 3> := [10, 20, 30]\n    mut total: Int32 := 0\n    for value in fixed do\n        total = total + value\n    end\n    for i, value in fixed do\n        total = total + value + i.to<Int32>()\n    end\n    view: Slice<Int32> := fixed.slice(0, 2)\n    for value in view do\n        total = total + value\n    end\nend\nfun list_sum(h: Heap): Int32 do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    mut total: Int32 := 0\n    for i, value in values do\n        total = total + value + i.to<Int32>()\n    end\n    return total\nend")
+	result := compileSource("fun demo() do\n    let fixed: Array<Int32, 3> = [10, 20, 30]\n    let mut total: Int32 = 0\n    for value in fixed do\n        total = total + value\n    end\n    for i, value in fixed do\n        total = total + value + i.to<Int32>()\n    end\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    for value in view do\n        total = total + value\n    end\nend\nfun list_sum(h: Heap): Int32 do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    let mut total: Int32 = 0\n    for i, value in values do\n        total = total + value + i.to<Int32>()\n    end\n    return total\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -26,7 +26,7 @@ func TestForInSequenceLoops(t *testing.T) {
 }
 
 func TestForInTemporaryArraySource(t *testing.T) {
-	result := compileSource("fun make_fixed(): Array<Int32, 2> do\n    return [1, 2]\nend\nfun demo() do\n    mut total: Int32 := 0\n    for value in make_fixed() do\n        total = total + value\n    end\nend")
+	result := compileSource("fun make_fixed(): Array<Int32, 2> do\n    return [1, 2]\nend\nfun demo() do\n    let mut total: Int32 = 0\n    for value in make_fixed() do\n        total = total + value\n    end\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -36,7 +36,7 @@ func TestForInTemporaryArraySource(t *testing.T) {
 }
 
 func TestForInTextRunes(t *testing.T) {
-	result := compileSource("fun demo() do\n    text: String := \"café\"\n    mut count: Int32 := 0\n    for rune in text do\n        count = count + 1\n    end\n    for i, rune in text do\n        count = count + 1\n    end\n    strand: Strand := \"hi\"\n    for i, rune in strand do\n        count = count + 1\n    end\nend")
+	result := compileSource("fun demo() do\n    let text: String = \"café\"\n    let mut count: Int32 = 0\n    for rune in text do\n        count = count + 1\n    end\n    for i, rune in text do\n        count = count + 1\n    end\n    let strand: Strand = \"hi\"\n    for i, rune in strand do\n        count = count + 1\n    end\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -55,7 +55,7 @@ func TestForInTextRunes(t *testing.T) {
 }
 
 func TestForInDictEntries(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    mut total: Int32 := 0\n    for key, value in scores do\n        total = total + key + value\n    end\n    for i, key, value in scores do\n        total = total + value + i.to<Int32>()\n    end\nend")
+	result := compileSource("fun demo(h: Heap) do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    let mut total: Int32 = 0\n    for key, value in scores do\n        total = total + key + value\n    end\n    for i, key, value in scores do\n        total = total + value + i.to<Int32>()\n    end\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -74,7 +74,7 @@ func TestForInDictEntries(t *testing.T) {
 }
 
 func TestForInBinderShadowingAndImmutability(t *testing.T) {
-	result := compileSource("fun demo() do\n    fixed: Array<Int32, 2> := [1, 2]\n    value: Int32 := 100\n    for value in fixed do\n        current: Int32 := value\n    end\n    for value in fixed do\n        value = 10\n    end\nend")
+	result := compileSource("fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let value: Int32 = 100\n    for value in fixed do\n        let current: Int32 = value\n    end\n    for value in fixed do\n        value = 10\n    end\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "loop binder value is immutable") {
 		t.Fatalf("Compile stderr = %#v, want binder immutability diagnostic", result.Stderr)
 	}
@@ -86,11 +86,11 @@ func TestForInDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"not iterable", "fun demo() do\n    count: Int32 := 3\n    for value in count do\n    end\nend", "value of type Int32 is not iterable"},
-		{"sequence arity", "fun demo() do\n    fixed: Array<Int32, 2> := [1, 2]\n    for a, b, c in fixed do\n    end\nend", "sequence iteration requires one value binder or index and value binders"},
-		{"dict arity", "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n    for key in scores do\n    end\nend", "dictionary iteration requires key and value binders or index, key, and value binders"},
-		{"excess binders", "fun demo(h: Heap) do\n    scores: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n    for i, key, value, extra in scores do\n    end\nend", "a for-in loop takes at most 3 binders"},
-		{"duplicate binder", "fun demo() do\n    fixed: Array<Int32, 2> := [1, 2]\n    for value, value in fixed do\n    end\nend", "duplicate loop binder name value"},
+		{"not iterable", "fun demo() do\n    let count: Int32 = 3\n    for value in count do\n    end\nend", "value of type Int32 is not iterable"},
+		{"sequence arity", "fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    for a, b, c in fixed do\n    end\nend", "sequence iteration requires one value binder or index and value binders"},
+		{"dict arity", "fun demo(h: Heap) do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    for key in scores do\n    end\nend", "dictionary iteration requires key and value binders or index, key, and value binders"},
+		{"excess binders", "fun demo(h: Heap) do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    for i, key, value, extra in scores do\n    end\nend", "a for-in loop takes at most 3 binders"},
+		{"duplicate binder", "fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    for value, value in fixed do\n    end\nend", "duplicate loop binder name value"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			result := compileSource(testCase.source)
@@ -119,7 +119,7 @@ func TestForInParserErrors(t *testing.T) {
 }
 
 func TestForInSourceEvaluatedOnce(t *testing.T) {
-	result := compileSource("fun count_calls(): Array<Int32, 2> do\n    return [1, 2]\nend\nfun demo() do\n    mut total: Int32 := 0\n    for value in count_calls() do\n        total = total + value\n    end\nend")
+	result := compileSource("fun count_calls(): Array<Int32, 2> do\n    return [1, 2]\nend\nfun demo() do\n    let mut total: Int32 = 0\n    for value in count_calls() do\n        total = total + value\n    end\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -137,7 +137,7 @@ func TestForInRejectsKnownCollectionMutations(t *testing.T) {
 		{
 			name: "list push",
 			source: "fun demo(h: Heap) do\n" +
-				"    values: List<Int32> := List<Int32>(h)\n" +
+				"    let values: List<Int32> = List<Int32>(h)\n" +
 				"    values.push(1)\n" +
 				"    for value in values do\n" +
 				"        values.push(value)\n" +
@@ -148,7 +148,7 @@ func TestForInRejectsKnownCollectionMutations(t *testing.T) {
 		{
 			name: "list free",
 			source: "fun demo(h: Heap) do\n" +
-				"    values: List<Int32> := List<Int32>(h)\n" +
+				"    let values: List<Int32> = List<Int32>(h)\n" +
 				"    values.push(1)\n" +
 				"    for value in values do\n" +
 				"        values.free(h)\n" +
@@ -159,7 +159,7 @@ func TestForInRejectsKnownCollectionMutations(t *testing.T) {
 		{
 			name: "dict insert",
 			source: "fun demo(h: Heap) do\n" +
-				"    values: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n" +
+				"    let values: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n" +
 				"    values.insert(1, 10)\n" +
 				"    for key, value in values do\n" +
 				"        values.insert(key, value)\n" +
@@ -170,7 +170,7 @@ func TestForInRejectsKnownCollectionMutations(t *testing.T) {
 		{
 			name: "dict free",
 			source: "fun demo(h: Heap) do\n" +
-				"    values: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n" +
+				"    let values: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n" +
 				"    values.insert(1, 10)\n" +
 				"    for key, value in values do\n" +
 				"        values.free(h)\n" +
@@ -192,18 +192,18 @@ func TestForInRejectsAliasedFreeAndUnprovenCalls(t *testing.T) {
 		"    return 0\n" +
 		"end\n" +
 		"fun demo(h: Heap) do\n" +
-		"    values: List<Int32> := List<Int32>(h)\n" +
-		"    alias: List<Int32> := values\n" +
+		"    let values: List<Int32> = List<Int32>(h)\n" +
+		"    let alias: List<Int32> = values\n" +
 		"    values.push(1)\n" +
 		"    for value in values do\n" +
-		"        ignored: Int32 := release(alias, h)\n" +
+		"        let ignored: Int32 = release(alias, h)\n" +
 		"    end\n" +
 		"end"
 	assertRejects(t, source, "cannot pass traversed collection to call during iteration")
 
 	freeSource := "fun demo(h: Heap) do\n" +
-		"    values: List<Int32> := List<Int32>(h)\n" +
-		"    alias: List<Int32> := values\n" +
+		"    let values: List<Int32> = List<Int32>(h)\n" +
+		"    let alias: List<Int32> = values\n" +
 		"    values.push(1)\n" +
 		"    for value in values do\n" +
 		"        alias.free(h)\n" +
@@ -213,7 +213,7 @@ func TestForInRejectsAliasedFreeAndUnprovenCalls(t *testing.T) {
 }
 
 func TestForInCopiedMutationUsesVersionCheck(t *testing.T) {
-	result := assertCompiles(t, "fun demo(h: Heap) do\n"+"    values: List<Int32> := List<Int32>(h)\n"+"    alias: List<Int32> := values\n"+"    values.push(1)\n"+"    for value in values do\n"+"        alias.push(value)\n"+"    end\n"+"end")
+	result := assertCompiles(t, "fun demo(h: Heap) do\n"+"    let values: List<Int32> = List<Int32>(h)\n"+"    let alias: List<Int32> = values\n"+"    values.push(1)\n"+"    for value in values do\n"+"        alias.push(value)\n"+"    end\n"+"end")
 	c := rootC(t, result)
 	version := strings.Index(c, "if (hex_for_1->version != hex_for_1_version)")
 	access := strings.Index(c, "hex_list_at_Int32(hex_for_1")
@@ -224,7 +224,7 @@ func TestForInCopiedMutationUsesVersionCheck(t *testing.T) {
 }
 
 func TestForInDictChecksVersionBeforeBuckets(t *testing.T) {
-	result := assertCompiles(t, "fun demo(h: Heap) do\n"+"    values: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n"+"    values.insert(1, 10)\n"+"    for key, value in values do\n"+"        total: Int32 := key + value\n"+"    end\n"+"end")
+	result := assertCompiles(t, "fun demo(h: Heap) do\n"+"    let values: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n"+"    values.insert(1, 10)\n"+"    for key, value in values do\n"+"        let total: Int32 = key + value\n"+"    end\n"+"end")
 	c := rootC(t, result)
 	version := strings.Index(c, "if (hex_for_1->version != hex_for_1_version)")
 	active := strings.Index(c, "if (!hex_for_1->buckets[hex_for_1_bucket].active)")
@@ -235,7 +235,7 @@ func TestForInDictChecksVersionBeforeBuckets(t *testing.T) {
 
 func TestForInNestedTraversalsCaptureIndependentVersions(t *testing.T) {
 	result := assertCompiles(t, "fun demo(h: Heap) do\n"+
-		"    outer: List<Int32> := List<Int32>(h)\n"+"    inner: List<Int32> := List<Int32>(h)\n"+"    outer.push(1)\n"+"    inner.push(2)\n"+"    for a in outer do\n"+"        for b in inner do\n"+"            total: Int32 := a + b\n"+"        end\n"+"    end\n"+"end")
+		"    let outer: List<Int32> = List<Int32>(h)\n"+"    let inner: List<Int32> = List<Int32>(h)\n"+"    outer.push(1)\n"+"    inner.push(2)\n"+"    for a in outer do\n"+"        for b in inner do\n"+"            let total: Int32 = a + b\n"+"        end\n"+"    end\n"+"end")
 	c := rootC(t, result)
 	if !strings.Contains(c, "hex_for_1_version") || !strings.Contains(c, "hex_for_2_version") {
 		t.Fatalf("modules/app.c = %q, want independent List traversal versions", c)

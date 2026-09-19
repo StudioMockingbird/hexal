@@ -14,7 +14,7 @@ import (
 // owns the definitions, hexal.h keeps none of the family, and the using
 // module header includes only the component it needs.
 func TestStringComponentEmitsHeaderAndSource(t *testing.T) {
-	program := checkedGeneratorSource(t, "greeting: String := \"hello\"\nfarewell: String := \"bye\"\n")
+	program := checkedGeneratorSource(t, "let greeting: String = \"hello\"\nlet farewell: String = \"bye\"\n")
 	files := generateOne(t, program)
 	header, exists := files["hexal/string.h"]
 	if !exists {
@@ -87,7 +87,7 @@ func TestStringComponentEmitsHeaderAndSource(t *testing.T) {
 // allocations: literals omit the zero-valued field, all four direct
 // allocation sites mark owned, and free traps on anything else.
 func TestStringStorageKindDiscriminator(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    text: String := String.interpolate(h, \"n={{ 1 }}\")\n    text.free(h)\nend\n")
+	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    let text: String = String.interpolate(h, \"n={{ 1 }}\")\n    text.free(h)\nend\n")
 	files := generateOne(t, program)
 	header, exists := files["hexal/string.h"]
 	if !exists {
@@ -125,7 +125,7 @@ func TestStringStorageKindDiscriminator(t *testing.T) {
 // Strand selection adds the hex_strand representation and the strand
 // operations to the pair; a String-only program keeps the strand surface out.
 func TestStringComponentStrandSurface(t *testing.T) {
-	program := checkedGeneratorSource(t, "label: Strand := \"hexal\"\n")
+	program := checkedGeneratorSource(t, "let label: Strand = \"hexal\"\n")
 	files := generateOne(t, program)
 	header, source := files["hexal/string.h"], files["hexal/string.c"]
 	if !strings.Contains(header, "typedef struct hex_strand {\n    uint8_t data[32];\n} hex_strand;") {
@@ -139,7 +139,7 @@ func TestStringComponentStrandSurface(t *testing.T) {
 		t.Fatalf("hexal/string.c = %q, want the strand operation bodies", source)
 	}
 
-	program = checkedGeneratorSource(t, "text: String := \"x\"\n")
+	program = checkedGeneratorSource(t, "let text: String = \"x\"\n")
 	files = generateOne(t, program)
 	if strings.Contains(files["hexal/string.h"], "hex_strand") {
 		t.Fatalf("String-only hexal/string.h carries the strand surface: %q", files["hexal/string.h"])
@@ -152,7 +152,7 @@ func TestStringComponentStrandSurface(t *testing.T) {
 // A scalar-only program selects no string artifact and no module includes
 // the component.
 func TestStringComponentAbsentWithoutStrings(t *testing.T) {
-	program := checkedGeneratorSource(t, "x: Int32 := 1\n")
+	program := checkedGeneratorSource(t, "let x: Int32 = 1\n")
 	files := generateOne(t, program)
 	for _, key := range []string{"hexal/string.h", "hexal/string.c"} {
 		if _, exists := files[key]; exists {
@@ -170,8 +170,8 @@ func TestStringComponentAbsentWithoutStrings(t *testing.T) {
 func TestStringComponentSelectionIsModuleLocal(t *testing.T) {
 	parsed := make(map[string]parser.Program, 2)
 	for key, source := range map[string]string{
-		"app.hex":  "import\n    Math from \"./math\"\nend\nresult: Int32 := Math.compute()\n",
-		"math.hex": "fun compute(): Int32 do\n    text: String := \"hello\"\n    return 1\nend\nexport\n    compute\nend\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\nlet result: Int32 = Math.compute()\n",
+		"math.hex": "fun compute(): Int32 do\n    let text: String = \"hello\"\n    return 1\nend\nexport\n    compute\nend\n",
 	} {
 		tokens, err := lexer.Lex(source)
 		if err != nil {
@@ -328,7 +328,7 @@ func TestStringTemplateMissingFieldFailsClosed(t *testing.T) {
 // A program using String equality emits the equality helper in string.h and
 // string.c with external linkage.
 func TestStringComponentEqualityEmittedForComparison(t *testing.T) {
-	program := checkedGeneratorSource(t, "a: String := \"hello\"\nb: String := \"world\"\nc: Bool := a == b\n")
+	program := checkedGeneratorSource(t, "let a: String = \"hello\"\nlet b: String = \"world\"\nlet c: Bool = a == b\n")
 	files := generateOne(t, program)
 	header := files["hexal/string.h"]
 	source := files["hexal/string.c"]
@@ -347,7 +347,7 @@ func TestStringComponentEqualityEmittedForComparison(t *testing.T) {
 // A program using String ordering emits the ordering helper in string.h and
 // string.c with external linkage.
 func TestStringComponentOrderingEmittedForComparison(t *testing.T) {
-	program := checkedGeneratorSource(t, "a: String := \"hello\"\nb: String := \"world\"\nc: Bool := a < b\n")
+	program := checkedGeneratorSource(t, "let a: String = \"hello\"\nlet b: String = \"world\"\nlet c: Bool = a < b\n")
 	files := generateOne(t, program)
 	header := files["hexal/string.h"]
 	source := files["hexal/string.c"]
@@ -366,7 +366,7 @@ func TestStringComponentOrderingEmittedForComparison(t *testing.T) {
 // String use without equality or ordering comparison emits neither comparison
 // helper.
 func TestStringComponentNoOrderingWithoutComparison(t *testing.T) {
-	program := checkedGeneratorSource(t, "text: String := \"hello\"\n")
+	program := checkedGeneratorSource(t, "let text: String = \"hello\"\n")
 	files := generateOne(t, program)
 	header := files["hexal/string.h"]
 	source := files["hexal/string.c"]
@@ -384,7 +384,7 @@ func TestStringComponentNoOrderingWithoutComparison(t *testing.T) {
 // Strand ordering is lowered directly through memcmp and does not select the
 // String component's ordering helper.
 func TestStringComponentOrderingIndependentOfEquality(t *testing.T) {
-	program := checkedGeneratorSource(t, "a: Strand := \"hello\"\nb: Strand := \"world\"\nc: Bool := a < b\n")
+	program := checkedGeneratorSource(t, "let a: Strand = \"hello\"\nlet b: Strand = \"world\"\nlet c: Bool = a < b\n")
 	files := generateOne(t, program)
 	header := files["hexal/string.h"]
 	source := files["hexal/string.c"]

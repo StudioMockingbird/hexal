@@ -48,7 +48,7 @@ func TestImplOwnModuleTypeStillDeclaresMethods(t *testing.T) {
 // recorded methods and checks against its resolved signature.
 func TestImportedMethodCallResolvesExportedMethod(t *testing.T) {
 	checked, err := checkModules(t,
-		"import\n    Math from \"./math\"\nend\np: Math.Point := Math.origin()\narea: Int32 := p.length_squared()\n",
+		"import\n    Math from \"./math\"\nend\nlet p: Math.Point = Math.origin()\nlet area: Int32 = p.length_squared()\n",
 		"type Point is struct x: Int32, y: Int32 end\nmethod Point.length_squared(): Int32 do\n    return (self.x * self.x) + (self.y * self.y)\nend\nfun origin(): Point do\n    return Point(x = 3, y = 4)\nend\nexport\n    Point,\n    Point.length_squared,\n    origin\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the imported method call: %v", err)
@@ -67,7 +67,7 @@ func TestImportedMethodCallResolvesExportedMethod(t *testing.T) {
 // failure at the method, even when the receiver type is exported.
 func TestImportedMethodCallRejectsPrivateMethod(t *testing.T) {
 	_, err := checkModules(t,
-		"import\n    Math from \"./math\"\nend\np: Math.Point := Math.origin()\narea: Int32 := p.length_squared()\n",
+		"import\n    Math from \"./math\"\nend\nlet p: Math.Point = Math.origin()\nlet area: Int32 = p.length_squared()\n",
 		"type Point is struct x: Int32, y: Int32 end\nmethod Point.length_squared(): Int32 do\n    return self.x\nend\nfun origin(): Point do\n    return Point(x = 3, y = 4)\nend\nexport\n    Point,\n    origin\nend\n")
 	requireMessage(t, err, "declaration length_squared is private to module math")
 }
@@ -78,7 +78,7 @@ func TestImportedMethodCallRejectsPrivateMethod(t *testing.T) {
 // signature, and the requesting module's output carries none of them.
 func TestImportedGenericSpecializationsLandInDefiningModule(t *testing.T) {
 	checked, err := checkModules(t,
-		"import\n    Math from \"./math\"\nend\na: Int32 := Math.identity<Int32>(1)\nb: Float64 := Math.identity<Float64>(2.0)\nc: Int32 := Math.identity<Int32>(3)\n",
+		"import\n    Math from \"./math\"\nend\nlet a: Int32 = Math.identity<Int32>(1)\nlet b: Float64 = Math.identity<Float64>(2.0)\nlet c: Int32 = Math.identity<Int32>(3)\n",
 		"fun identity<T>(value: T): T do\n    return value\nend\nexport\n    identity\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the imported generic calls: %v", err)
@@ -108,7 +108,7 @@ func TestImportedGenericSpecializationsLandInDefiningModule(t *testing.T) {
 // exactly one entry in the defining module's output.
 func TestImportedGenericRepeatedRequestDeduplicates(t *testing.T) {
 	checked, err := checkModules(t,
-		"import\n    Math from \"./math\"\nend\na: Int32 := Math.identity<Int32>(1)\nb: Float64 := Math.identity<Float64>(2.0)\nc: Int32 := Math.identity<Int32>(3)\nd: Float64 := Math.identity<Float64>(4.0)\n",
+		"import\n    Math from \"./math\"\nend\nlet a: Int32 = Math.identity<Int32>(1)\nlet b: Float64 = Math.identity<Float64>(2.0)\nlet c: Int32 = Math.identity<Int32>(3)\nlet d: Float64 = Math.identity<Float64>(4.0)\n",
 		"fun identity<T>(value: T): T do\n    return value\nend\nexport\n    identity\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the imported generic calls: %v", err)

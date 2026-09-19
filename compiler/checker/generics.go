@@ -545,7 +545,7 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 		// block's local map, not the module frame; only a scope chained to
 		// names can reach it, and the same chain is what gives its body the
 		// closed-function capture rule every other local declaration has.
-		body = ctx.names.closureRootScope(specialized.Name)
+		body = ctx.names.closureRootScope(specialized.Name, ctx.names.isEntryModule())
 	} else {
 		body = &scope{
 			module:     ctx.names.module,
@@ -560,6 +560,13 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 			logicalKey: ctx.names.logicalKey,
 		}
 		body.owner = specialized.Name
+		if ctx.names.isEntryModule() {
+			body.capture = &captureState{allowed: true, bindings: make(map[string]binding)}
+		}
+		body.rootIndex = ctx.rootIndex
+		body.envDependent = ctx.names.envDependent
+		body.envCaptures = ctx.names.envCaptures
+		body.initializedRoots = ctx.names.initializedRoots
 	}
 	body.result = result
 	body.resultUse = resultUse
@@ -578,6 +585,10 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 		return FunctionDeclaration{}, diagnosticAt(typeErrorAt(open.Declaration.End, fmt.Sprintf("returning %s may fall through without returning %s", specialized.Name, result.Name)))
 	}
 	specialized.Body = statements
+	specialized.Captures = capturesOf(body.capture)
+	specialized.EnvDependent = len(specialized.Captures) > 0
+	specialized.DirectCallees = directCallees(open.Declaration.Body)
+	inheritEnvironment(&specialized.EnvDependent, &specialized.Captures, specialized.DirectCallees, ctx.names)
 	collection[key] = specialized
 	return specialized, nil
 }
@@ -670,6 +681,10 @@ func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.Obj
 		return MethodDeclaration{}, diagnosticAt(typeErrorAt(open.Declaration.End, fmt.Sprintf("returning %s may fall through without returning %s", methodName, result.Name)))
 	}
 	specialized.Body = statements
+	specialized.Captures = capturesOf(body.capture)
+	specialized.EnvDependent = len(specialized.Captures) > 0
+	specialized.DirectCallees = directCallees(open.Declaration.Body)
+	inheritEnvironment(&specialized.EnvDependent, &specialized.Captures, specialized.DirectCallees, ctx.names)
 	collection[key] = specialized
 	return specialized, nil
 }

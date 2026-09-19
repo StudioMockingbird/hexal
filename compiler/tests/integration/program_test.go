@@ -23,12 +23,12 @@ func TestCorelibImportResolutionDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"import\n    X from \"other/thing\"\nend\nvalue: Int32 := 1\n", "quoted import paths must begin with ./ or ../"},
-		{"import\n  X from std.nope\nend\nvalue: Int32 := 1\n", "unknown stdlib module std.nope"},
-		{"import\n    X from \"std/program.hex\"\nend\nvalue: Int32 := 1\n", "standard-library imports use dotted paths; write std.program.hex"},
-		{programImport + "x := Prog.nope()\n", "nope"},
-		{programImport + "x := Prog.current_directory()\n", "current_directory expects 1 argument(s); got 0"},
-		{programImport + "x := Prog.available_parallelism(1)\n", "available_parallelism expects 0 argument(s); got 1"},
+		{"import\n    X from \"other/thing\"\nend\nlet value: Int32 = 1\n", "quoted import paths must begin with ./ or ../"},
+		{"import\n  X from std.nope\nend\nlet value: Int32 = 1\n", "unknown stdlib module std.nope"},
+		{"import\n    X from \"std/program.hex\"\nend\nlet value: Int32 = 1\n", "standard-library imports use dotted paths; write std.program.hex"},
+		{programImport + "let x = Prog.nope()\n", "nope"},
+		{programImport + "let x = Prog.current_directory()\n", "current_directory expects 1 argument(s); got 0"},
+		{programImport + "let x = Prog.available_parallelism(1)\n", "available_parallelism expects 0 argument(s); got 1"},
 	} {
 		assertRejects(t, testCase.source, testCase.want)
 	}
@@ -39,11 +39,11 @@ func TestCorelibImportResolutionDiagnostics(t *testing.T) {
 // header.
 func TestProgramPathQueriesSelectOneComponent(t *testing.T) {
 	source := programImport +
-		"h: Heap := Heap()\n" +
-		"cwd := Prog.current_directory(h)\n" +
-		"home := Prog.home_directory(h)\n" +
-		"tmp := Prog.temporary_directory(h)\n" +
-		"exe := Prog.executable_path(h)\n"
+		"let h: Heap = Heap()\n" +
+		"let cwd = Prog.current_directory(h)\n" +
+		"let home = Prog.home_directory(h)\n" +
+		"let tmp = Prog.temporary_directory(h)\n" +
+		"let exe = Prog.executable_path(h)\n"
 	result := assertCompiles(t, source)
 	programC := moduleFile(t, result, "hexal/program.c")
 	programH := moduleFile(t, result, "hexal/program.h")
@@ -78,7 +78,7 @@ func TestProgramPathQueriesSelectOneComponent(t *testing.T) {
 // available_parallelism is a stateless Size query: it emits the program
 // component but no result union, no adapter, and no event bridge.
 func TestProgramAvailableParallelismIsDirect(t *testing.T) {
-	result := assertCompiles(t, programImport+"count: Size := Prog.available_parallelism()\n")
+	result := assertCompiles(t, programImport+"let count: Size = Prog.available_parallelism()\n")
 	root := rootC(t, result)
 	if !strings.Contains(root, "hex_program_available_parallelism()") {
 		t.Errorf("root module lacks a direct parallelism call:\n%s", root)
@@ -97,7 +97,7 @@ func TestProgramAvailableParallelismIsDirect(t *testing.T) {
 // arguments alone selects the snapshot path: no libuv, no uv_setup_args, and
 // a host-neutral entry that widens only under #if !defined(_WIN32).
 func TestProgramArgumentsSnapshot(t *testing.T) {
-	result := assertCompiles(t, programImport+"args := Prog.arguments()\n")
+	result := assertCompiles(t, programImport+"let args = Prog.arguments()\n")
 	if slices.Contains(dependencyNames(result), "libuv") {
 		t.Fatalf("arguments alone must not select libuv; got %v", dependencyNames(result))
 	}
@@ -130,7 +130,7 @@ func TestProgramArgumentsSnapshot(t *testing.T) {
 }
 
 func TestProgramArgumentsUseRuntimeNonOwningStrings(t *testing.T) {
-	result := assertCompiles(t, programImport+"args := Prog.arguments()\n")
+	result := assertCompiles(t, programImport+"let args = Prog.arguments()\n")
 	programC := moduleFile(t, result, "hexal/program.c")
 	if !strings.Contains(programC, "HEX_STRING_NONOWNING") {
 		t.Errorf("argument snapshot must mark copied strings non-owning:\n%s", programC)
@@ -144,7 +144,7 @@ func TestProgramArgumentsUseRuntimeNonOwningStrings(t *testing.T) {
 // executable_path demand runs the native bootstrap, then exactly one
 // uv_setup_args, before the first query, and widens the entry.
 func TestProgramExecutablePathWidensEntry(t *testing.T) {
-	result := assertCompiles(t, programImport+"h: Heap := Heap()\nexe := Prog.executable_path(h)\n")
+	result := assertCompiles(t, programImport+"let h: Heap = Heap()\nlet exe = Prog.executable_path(h)\n")
 	if !slices.Contains(dependencyNames(result), "libuv") {
 		t.Fatalf("executable path must select libuv; got %v", dependencyNames(result))
 	}
@@ -171,7 +171,7 @@ func TestProgramExecutablePathWidensEntry(t *testing.T) {
 // A qualified Windows profile always keeps int main(void) and reads the CRT
 // globals, even when arguments are reachable.
 func TestProgramWindowsTargetKeepsMainVoid(t *testing.T) {
-	result := compiler.Compile(map[string]string{rootSourceKey: programImport + "args := Prog.arguments()\n"}, rootSourceKey, compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
+	result := compiler.Compile(map[string]string{rootSourceKey: programImport + "let args = Prog.arguments()\n"}, rootSourceKey, compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("windows target arguments compile failed: %v", result.Stderr)
 	}
@@ -188,11 +188,11 @@ func TestProgramWindowsTargetKeepsMainVoid(t *testing.T) {
 // the chunk bound and the failure mapper are runtime-owned.
 func TestEntropyFillDirectAndTask(t *testing.T) {
 	fill := entropyImport +
-		"h: Heap := Heap()\n" +
-		"p: Ptr<mut Byte> := h.allocate<Byte>(8)\n" +
+		"let h: Heap = Heap()\n" +
+		"let p: Ptr<mut Byte> = h.allocate<Byte>(8)\n" +
 		"unsafe do\n" +
-		"    view: Slice<mut Byte> := Slice<mut Byte>.from_pointer(p, 8)\n" +
-		"    result := Ent.fill(view)\n" +
+		"    let view: Slice<mut Byte> = Slice<mut Byte>.from_pointer(p, 8)\n" +
+		"    let result = Ent.fill(view)\n" +
 		"end\n"
 
 	direct := assertCompiles(t, fill)
@@ -230,9 +230,9 @@ func TestEntropyFillDirectAndTask(t *testing.T) {
 func TestCorelibMigrationDiagnostics(t *testing.T) {
 	for _, testCase := range []struct{ source, want string }{
 		{"fun f(x: File) do\nend\n", "File is declared in std/fs; add `Fs from std.fs` to the import block"},
-		{"x := File.open(\"a\", 1)\n", "File.open is now open in std/fs; add `Fs from std.fs` and call `Fs.open`"},
-		{"x: Dns := 1\n", "Dns is removed; resolve is a function in std/net"},
-		{"x := Signals(0)\n", "Signals is now subscribe in std/signal; add `Sig from std.signal` and call `Sig.subscribe`"},
+		{"let x = File.open(\"a\", 1)\n", "File.open is now open in std/fs; add `Fs from std.fs` and call `Fs.open`"},
+		{"let x: Dns = 1\n", "Dns is removed; resolve is a function in std/net"},
+		{"let x = Signals(0)\n", "Signals is now subscribe in std/signal; add `Sig from std.signal` and call `Sig.subscribe`"},
 		{"fun f() do\n    Task.sleep(5)\nend\n", "Task.sleep is now sleep in std/time; add `Time from std.time` and call `Time.sleep`"},
 	} {
 		assertRejects(t, testCase.source, testCase.want)
@@ -244,7 +244,7 @@ func TestCorelibMigrationDiagnostics(t *testing.T) {
 
 // Importing a core library without calling it emits no component.
 func TestCorelibImportAloneEmitsNothing(t *testing.T) {
-	result := assertCompiles(t, "import\n  Prog from std.program,\n  Ent from std.entropy\nend\nvalue: Int32 := 1\n")
+	result := assertCompiles(t, "import\n  Prog from std.program,\n  Ent from std.entropy\nend\nlet value: Int32 = 1\n")
 	for _, key := range []string{"hexal/program.c", "hexal/entropy.c", "hexal/event.c"} {
 		if _, exists := result.Files[key]; exists {
 			t.Errorf("unused core-library import emitted %s", key)

@@ -39,6 +39,13 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 			return checkedExpression{token: expression.Name, diagnostic: &diagnostic}
 		}
 		if binding.kind == functionBinding {
+			// An environment-dependent function is valid only as the direct
+			// target of a call; a value position would expose it without its
+			// environment.
+			if ctx.names.envDependent[expression.Name.Lexeme] {
+				diagnostic := typeErrorAt(expression.Name, "function "+expression.Name.Lexeme+" uses the entry environment and is valid only as a direct entry-module call")
+				return checkedExpression{token: expression.Name, diagnostic: &diagnostic}
+			}
 			// A declared function is not storage: it is neither addressable nor
 			// writable, and its name reads as the matching Fun<...> value.
 			return checkedExpression{
@@ -54,7 +61,7 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 			}
 		}
 		if binding.kind == moduleValueBinding {
-			// A local static module value: Module stays empty, matching
+			// A local module constant: Module stays empty, matching
 			// FunctionReferenceExpression's own-module convention, and the
 			// generator qualifies it with the generating module's own owner.
 			return checkedExpression{

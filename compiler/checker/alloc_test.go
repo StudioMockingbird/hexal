@@ -24,7 +24,7 @@ func requireExactlyOneDiagnostic(t *testing.T, source, want string) {
 }
 
 func TestCheckHeapNewProducesHeapValue(t *testing.T) {
-	checked, err := Check(parseProgram(t, "h: Heap := Heap()"))
+	checked, err := Check(parseProgram(t, "let h: Heap = Heap()"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +35,7 @@ func TestCheckHeapNewProducesHeapValue(t *testing.T) {
 }
 
 func TestCheckHeapAllocateReturnsMutPtr(t *testing.T) {
-	checked, err := Check(parseProgram(t, "h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0)"))
+	checked, err := Check(parseProgram(t, "let h: Heap = Heap() let p: Ptr<mut Int32> = h.allocate<Int32>(0)"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,9 +46,9 @@ func TestCheckHeapAllocateReturnsMutPtr(t *testing.T) {
 }
 
 func TestCheckHeapFreeAcceptsPtrAndMutPtr(t *testing.T) {
-	requireAccepted(t, "h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) h.free(p)")
-	requireAccepted(t, "h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) defer h.free(p)")
-	requireAccepted(t, "h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) reader: Ptr<Int32> := p defer h.free(reader)")
+	requireAccepted(t, "let h: Heap = Heap() let p: Ptr<mut Int32> = h.allocate<Int32>(0) h.free(p)")
+	requireAccepted(t, "let h: Heap = Heap() let p: Ptr<mut Int32> = h.allocate<Int32>(0) defer h.free(p)")
+	requireAccepted(t, "let h: Heap = Heap() let p: Ptr<mut Int32> = h.allocate<Int32>(0) let reader: Ptr<Int32> = p defer h.free(reader)")
 }
 
 func TestCheckHeapFreeRejectsLocalStoragePointers(t *testing.T) {
@@ -58,11 +58,11 @@ func TestCheckHeapFreeRejectsLocalStoragePointers(t *testing.T) {
 	}{
 		{
 			name:   "direct reference",
-			source: "h: Heap := Heap() mut x: Int32 := 1 h.free(@x)",
+			source: "let h: Heap = Heap() let mut x: Int32 = 1 h.free(@x)",
 		},
 		{
 			name:   "reference binding",
-			source: "h: Heap := Heap() mut x: Int32 := 1 p: Ptr<mut Int32> := @x h.free(p)",
+			source: "let h: Heap = Heap() let mut x: Int32 = 1 let p: Ptr<mut Int32> = @x h.free(p)",
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -79,23 +79,23 @@ func TestCheckHeapFreeRejectsFreedStorage(t *testing.T) {
 	}{
 		{
 			name:   "double free",
-			source: "h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) h.free(p) h.free(p)",
+			source: "let h: Heap = Heap() let p: Ptr<mut Int32> = h.allocate<Int32>(0) h.free(p) h.free(p)",
 			want:   "free releases storage already released on every path to this point",
 		},
 		{
 			name:   "use after free",
-			source: "h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) h.free(p) value: Int32 := ^p",
+			source: "let h: Heap = Heap() let p: Ptr<mut Int32> = h.allocate<Int32>(0) h.free(p) let value: Int32 = ^p",
 			want:   "this pointer's storage was released on every path to this point",
 		},
 		{
 			name:   "both branches free",
-			source: "h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) flag: Bool := true if flag then h.free(p) else h.free(p) end h.free(p)",
+			source: "let h: Heap = Heap() let p: Ptr<mut Int32> = h.allocate<Int32>(0) let flag: Bool = true if flag then h.free(p) else h.free(p) end h.free(p)",
 			want:   "free releases storage already released on every path to this point",
 		},
 		{
 			name: "outer defer after terminating branches",
 			source: `fun finish(flag: Bool, h: Heap): Int32 do
-	p: Ptr<mut Int32> := h.allocate<Int32>(0)
+	let p: Ptr<mut Int32> = h.allocate<Int32>(0)
 	defer h.free(p)
 	if flag then
 		h.free(p)
@@ -115,18 +115,18 @@ end`,
 }
 
 func TestCheckHeapFreeClearsFreedStateAfterReallocation(t *testing.T) {
-	requireAccepted(t, "h: Heap := Heap() mut p: Ptr<mut Int32> := h.allocate<Int32>(0) h.free(p) p = h.allocate<Int32>(1) h.free(p)")
+	requireAccepted(t, "let h: Heap = Heap() let mut p: Ptr<mut Int32> = h.allocate<Int32>(0) h.free(p) p = h.allocate<Int32>(1) h.free(p)")
 }
 
 func TestCheckHeapFreeDefersValidationUntilScopeExit(t *testing.T) {
-	requireAccepted(t, "h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) defer h.free(p)")
-	requireAccepted(t, "h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) defer h.free(p) value: Int32 := ^p")
+	requireAccepted(t, "let h: Heap = Heap() let p: Ptr<mut Int32> = h.allocate<Int32>(0) defer h.free(p)")
+	requireAccepted(t, "let h: Heap = Heap() let p: Ptr<mut Int32> = h.allocate<Int32>(0) defer h.free(p) let value: Int32 = ^p")
 }
 
 func TestCheckDeferredExpressionChecksStateAtScopeExit(t *testing.T) {
-	requireAccepted(t, "h: Heap := Heap() mut p: Ptr<mut Int32> := h.allocate<Int32>(0) h.free(p) defer ^p p = h.allocate<Int32>(1)")
-	requireDiagnostic(t, "h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) h.free(p) defer ^p", "this pointer's storage was released on every path to this point")
-	requireDiagnostic(t, "h: Heap := Heap() p: Ptr<mut UInt32> := h.allocate<UInt32>(0) h.free(p) defer p.read_volatile() + 1", "this pointer's storage was released on every path to this point")
+	requireAccepted(t, "let h: Heap = Heap() let mut p: Ptr<mut Int32> = h.allocate<Int32>(0) h.free(p) defer ^p p = h.allocate<Int32>(1)")
+	requireDiagnostic(t, "let h: Heap = Heap() let p: Ptr<mut Int32> = h.allocate<Int32>(0) h.free(p) defer ^p", "this pointer's storage was released on every path to this point")
+	requireDiagnostic(t, "let h: Heap = Heap() let p: Ptr<mut UInt32> = h.allocate<UInt32>(0) h.free(p) defer p.read_volatile() + 1", "this pointer's storage was released on every path to this point")
 }
 
 func TestCheckDeferredExpressionChecksVolatilePointeeKinds(t *testing.T) {
@@ -145,19 +145,19 @@ func TestCheckDeferredExpressionChecksVolatilePointeeKinds(t *testing.T) {
 }
 
 func TestCheckHeapFreeRejectsDeferredFreeAfterExplicitFree(t *testing.T) {
-	requireDiagnostic(t, "h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) defer h.free(p) h.free(p)", "free releases storage already released on every path to this point")
+	requireDiagnostic(t, "let h: Heap = Heap() let p: Ptr<mut Int32> = h.allocate<Int32>(0) defer h.free(p) h.free(p)", "free releases storage already released on every path to this point")
 }
 
 func TestCheckHeapFreeRejectsDeferredCaptureAfterReallocation(t *testing.T) {
-	requireDiagnostic(t, "h: Heap := Heap() mut p: Ptr<mut Int32> := h.allocate<Int32>(0) defer h.free(p) h.free(p) p = h.allocate<Int32>(1)", "free releases storage already released on every path to this point")
+	requireDiagnostic(t, "let h: Heap = Heap() let mut p: Ptr<mut Int32> = h.allocate<Int32>(0) defer h.free(p) h.free(p) p = h.allocate<Int32>(1)", "free releases storage already released on every path to this point")
 }
 
 func TestCheckHeapFreePreservesDeferredReleaseAcrossBranches(t *testing.T) {
-	requireDiagnostic(t, `h: Heap := Heap()
-mut p: Ptr<mut Int32> := h.allocate<Int32>(0)
+	requireDiagnostic(t, `let h: Heap = Heap()
+let mut p: Ptr<mut Int32> = h.allocate<Int32>(0)
 defer h.free(p)
 h.free(p)
-flag: Bool := true
+let flag: Bool = true
 if flag then
 	p = h.allocate<Int32>(1)
 else
@@ -168,7 +168,7 @@ end
 
 func TestCheckHeapFreeReportsOneDiagnosticForTerminatingReturnPaths(t *testing.T) {
 	requireExactlyOneDiagnostic(t, `fun finish(flag: Bool, h: Heap): Int32 do
-	p: Ptr<mut Int32> := h.allocate<Int32>(0)
+	let p: Ptr<mut Int32> = h.allocate<Int32>(0)
 	defer h.free(p)
 	if flag then
 		h.free(p)
@@ -183,7 +183,7 @@ end
 
 func TestCheckHeapFreeIgnoresDeferredActionAfterUnreachableReturn(t *testing.T) {
 	requireAccepted(t, `fun finish(h: Heap): Int32 do
-	p: Ptr<mut Int32> := h.allocate<Int32>(0)
+	let p: Ptr<mut Int32> = h.allocate<Int32>(0)
 	h.free(p)
 	return 1
 	defer h.free(p)
@@ -197,37 +197,37 @@ func TestCheckHeapFreeRejectsFreedPointerMethodReceiver(t *testing.T) {
 method Point.read(): Int32 do
 	return ^self
 end
-h: Heap := Heap()
-p: Ptr<mut Point> := h.allocate<Point>(Point(value = 1,))
+let h: Heap = Heap()
+let p: Ptr<mut Point> = h.allocate<Point>(Point(value = 1,))
 h.free(p)
-value: Int32 := p.read()
+let value: Int32 = p.read()
 `, "this pointer's storage was released on every path to this point")
 }
 
 func TestCheckHeapFreeRejectsFreedPointerVolatileAccess(t *testing.T) {
 	for _, source := range []string{
-		"h: Heap := Heap() p: Ptr<mut UInt32> := h.allocate<UInt32>(0) h.free(p) value: UInt32 := p.read_volatile()",
-		"h: Heap := Heap() p: Ptr<mut UInt32> := h.allocate<UInt32>(0) h.free(p) p.write_volatile(1)",
+		"let h: Heap = Heap() let p: Ptr<mut UInt32> = h.allocate<UInt32>(0) h.free(p) let value: UInt32 = p.read_volatile()",
+		"let h: Heap = Heap() let p: Ptr<mut UInt32> = h.allocate<UInt32>(0) h.free(p) p.write_volatile(1)",
 	} {
 		requireDiagnostic(t, source, "this pointer's storage was released on every path to this point")
 	}
 }
 
 func TestCheckHeapFreeRequiresHeapReceiver(t *testing.T) {
-	requireDiagnostic(t, "h: Heap := Heap() mut v: Int32 := 1 h.free(v)", "value is not an allocation produced by this Heap")
+	requireDiagnostic(t, "let h: Heap = Heap() let mut v: Int32 = 1 h.free(v)", "value is not an allocation produced by this Heap")
 }
 
 func TestCheckHeapAllocateRejectsIncompleteAndFunctionTypes(t *testing.T) {
-	requireDiagnostic(t, "h: Heap := Heap() p: Ptr<mut Unknown> := h.allocate<Unknown>(nil)", "allocation requires a complete finite type")
-	requireDiagnostic(t, "fun f(): Int32 do return 1 end h: Heap := Heap() p: Ptr<mut Fun<(Int32) : Int32>> := h.allocate<Fun<(Int32) : Int32>>(f)", "allocation requires a complete finite type")
+	requireDiagnostic(t, "let h: Heap = Heap() let p: Ptr<mut Unknown> = h.allocate<Unknown>(nil)", "allocation requires a complete finite type")
+	requireDiagnostic(t, "fun f(): Int32 do return 1 end let h: Heap = Heap() let p: Ptr<mut Fun<(Int32) : Int32>> = h.allocate<Fun<(Int32) : Int32>>(f)", "allocation requires a complete finite type")
 }
 
 func TestCheckHeapAllocateRequiresExplicitInitializer(t *testing.T) {
-	requireDiagnostic(t, "h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>()", "allocation requires an explicit initializer")
+	requireDiagnostic(t, "let h: Heap = Heap() let p: Ptr<mut Int32> = h.allocate<Int32>()", "allocation requires an explicit initializer")
 }
 
 func TestCheckDeferCapturesDirectCall(t *testing.T) {
-	checked, err := Check(parseProgram(t, "fun record(value: Int32) do end mut value: Int32 := 1 defer record(value) value = 2"))
+	checked, err := Check(parseProgram(t, "fun record(value: Int32) do end let mut value: Int32 = 1 defer record(value) value = 2"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +238,7 @@ func TestCheckDeferCapturesDirectCall(t *testing.T) {
 }
 
 func TestCheckDeferDefersNonCallExpression(t *testing.T) {
-	checked, err := Check(parseProgram(t, "mut value: Int32 := 1 defer value"))
+	checked, err := Check(parseProgram(t, "let mut value: Int32 = 1 defer value"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestCheckDeferDefersNonCallExpression(t *testing.T) {
 }
 
 func TestCheckDeferInsideBranchIsBranchScoped(t *testing.T) {
-	checked, err := Check(parseProgram(t, "h: Heap := Heap() flag: Bool := true if flag then p: Ptr<mut Int32> := h.allocate<Int32>(0) defer h.free(p) end"))
+	checked, err := Check(parseProgram(t, "let h: Heap = Heap() let flag: Bool = true if flag then let p: Ptr<mut Int32> = h.allocate<Int32>(0) defer h.free(p) end"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestCheckDeferInsideBranchIsBranchScoped(t *testing.T) {
 }
 
 func TestCheckDeferLoopBodyIterationScoped(t *testing.T) {
-	checked, err := Check(parseProgram(t, "h: Heap := Heap() mut flag: Bool := true while flag do p: Ptr<mut Int32> := h.allocate<Int32>(0) defer h.free(p) flag = false end"))
+	checked, err := Check(parseProgram(t, "let h: Heap = Heap() let mut flag: Bool = true while flag do let p: Ptr<mut Int32> = h.allocate<Int32>(0) defer h.free(p) flag = false end"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestCheckDeferLoopBodyIterationScoped(t *testing.T) {
 }
 
 func TestCheckDeferRejectsDeclarationBody(t *testing.T) {
-	tokens, err := lexer.Lex("h: Heap := Heap() defer p: Int32 := 1")
+	tokens, err := lexer.Lex("let h: Heap = Heap() defer let p: Int32 = 1")
 	if err != nil {
 		t.Fatal(err)
 	}

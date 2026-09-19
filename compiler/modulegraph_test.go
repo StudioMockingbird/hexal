@@ -117,7 +117,7 @@ func TestDottedStdlibReferenceCanonicalizes(t *testing.T) {
 func TestModuleGraphInvariants(t *testing.T) {
 	sources := map[string]string{
 		"graphics/app.hex": "import\n    Shapes from \"./shapes\"\n,\n    Tools from \"../shared/tools\"\nend\n" +
-			"result: Int32 := Shapes.corners() + Tools.value()\n",
+			"let result: Int32 = Shapes.corners() + Tools.value()\n",
 		"graphics/shapes.hex": "import\n    Tools from \"../shared/tools\"\nend\n" +
 			"fun corners(): Int32 do\n    return Tools.value()\nend\nexport\n    corners\nend\n",
 		"shared/tools.hex": "fun value(): Int32 do\n    return 1\nend\nexport\n    value\nend\n",

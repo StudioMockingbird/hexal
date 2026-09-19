@@ -8,12 +8,12 @@
       "description": "Declares representative signed, unsigned, floating-point, boolean, and size values, then combines them in a small calculation.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fan_speed: Int16:= -5",
-        "power_level: UInt8:= 42",
-        "balance: Float32:= 0.75",
-        "enabled: Bool:= true",
-        "steps: Size:= 4",
-        "mut adjusted: Float64:= balance.to<Float64>() + power_level.to<Float64>()",
+        "let fan_speed: Int16= -5",
+        "let power_level: UInt8= 42",
+        "let balance: Float32= 0.75",
+        "let enabled: Bool= true",
+        "let steps: Size= 4",
+        "let mut adjusted: Float64= balance.to\u003cFloat64\u003e() + power_level.to\u003cFloat64\u003e()",
         "if enabled then",
         "    adjusted = adjusted + steps.to<Float64>()",
         "end",
@@ -29,13 +29,13 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun total_after_steps(seed: Int32): Int32 do",
-        "    mut total: Int32:= seed",
+        "    let mut total: Int32= seed",
         "    total = total + 5",
         "    total = total * 2",
         "    total = total - 3",
         "    return total",
         "end",
-        "result: Int32:= total_after_steps(10)"
+        "let result: Int32= total_after_steps(10)"
       ]},
       "features": ["bindings", "functions"],
       "reservedWords": ["fun", "mut", "return", "end", "do"]
@@ -46,13 +46,13 @@
       "description": "Decodes flags using hexadecimal, binary, octal, and separated integer literals.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "version: UInt8:= 0x04",
-        "flags: UInt8:= 0b1010_0101",
-        "mode: UInt8:= 0o17",
-        "port: UInt16:= 0x1F_90",
-        "low: UInt8:= flags & 0x0F",
-        "high: UInt8:= flags >> 4",
-        "total: UInt32:= version.to<UInt32>() + low.to<UInt32>() + high.to<UInt32>() + mode.to<UInt32>() + port.to<UInt32>()"
+        "let version: UInt8= 0x04",
+        "let flags: UInt8= 0b1010_0101",
+        "let mode: UInt8= 0o17",
+        "let port: UInt16= 0x1F_90",
+        "let low: UInt8= flags \u0026 0x0F",
+        "let high: UInt8= flags \u003e\u003e 4",
+        "let total: UInt32= version.to\u003cUInt32\u003e() + low.to\u003cUInt32\u003e() + high.to\u003cUInt32\u003e() + mode.to\u003cUInt32\u003e() + port.to\u003cUInt32\u003e()"
       ]},
       "features": ["literals", "bitwise"]
     },
@@ -63,10 +63,10 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Entry is struct name: Strand, note: String, first: Rune, kind: Byte end",
-        "entry: Entry:= Entry(name = \"hexal\", note = \"hi\", first = 'h', kind = b'\\x01')",
-        "initial: Rune:= entry.first",
-        "header: Size:= entry.name.length()",
-        "kind_value: Byte:= entry.kind"
+        "let entry: Entry= Entry(name = \"hexal\", note = \"hi\", first = 'h', kind = b'\\x01')",
+        "let initial: Rune= entry.first",
+        "let header: Size= entry.name.length()",
+        "let kind_value: Byte= entry.kind"
       ]},
       "features": ["objects", "text", "literals"],
       "reservedWords": ["type", "struct", "end"]
@@ -78,9 +78,9 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Marker is struct end",
-        "first: Marker:= Marker()",
-        "second: Marker:= Marker()",
-        "same: Bool:= first == second"
+        "let first: Marker= Marker()",
+        "let second: Marker= Marker()",
+        "let same: Bool= first == second"
       ]},
       "features": ["objects"],
       "reservedWords": ["type", "struct", "end"]
@@ -92,10 +92,10 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Meter is struct mut reading: Int32, unit: Strand end",
-        "mut live: Meter:= Meter(reading = 10, unit = \"kwh\")",
-        "snapshot: Meter:= live",
+        "let mut live: Meter= Meter(reading = 10, unit = \"kwh\")",
+        "let snapshot: Meter= live",
         "live.reading = 42",
-        "saved: Int32:= snapshot.reading"
+        "let saved: Int32= snapshot.reading"
       ]},
       "features": ["objects", "copying"],
       "reservedWords": ["type", "mut"]
@@ -108,7 +108,7 @@
       "sources": {"app.hex": [
         "type Score is Int32",
         "type Match is struct mut home: Score, mut away: Score end",
-        "mut game: Match:= Match(home = 2, away = 1)",
+        "let mut game: Match= Match(home = 2, away = 1)",
         "game.home = game.home + 1"
       ]},
       "features": ["aliases", "objects"],
@@ -120,11 +120,11 @@
       "description": "Combines comparisons with and, or, and boolean negation to choose a policy.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "age: Int32:= 21",
-        "has_ticket: Bool:= true",
-        "vip: Bool:= false",
-        "mut admitted: Bool:= ((age >= 18) and has_ticket) or vip",
-        "mut rejected: Bool:= !admitted",
+        "let age: Int32= 21",
+        "let has_ticket: Bool= true",
+        "let vip: Bool= false",
+        "let mut admitted: Bool= ((age \u003e= 18) and has_ticket) or vip",
+        "let mut rejected: Bool= !admitted",
         "rejected = rejected and (age < 16)"
       ]},
       "features": ["bindings", "truthiness"],
@@ -137,10 +137,10 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Entry is struct tag: UInt8, value: Float64 end",
-        "entry: Entry:= Entry(tag = 1, value = 0.5)",
-        "size: Size:= size_of<Entry>()",
-        "alignment: Size:= align_of<Entry>()",
-        "total: Size:= size + alignment"
+        "let entry: Entry= Entry(tag = 1, value = 0.5)",
+        "let size: Size= size_of\u003cEntry\u003e()",
+        "let alignment: Size= align_of\u003cEntry\u003e()",
+        "let total: Size= size + alignment"
       ]},
       "features": ["objects", "layout"],
       "reservedWords": ["type"]
@@ -153,11 +153,11 @@
       "sources": {"app.hex": [
         "--- Render settings",
         "--[ These values drive the default render. ]--",
-        "mut width: Int32:= 800",
-        "mut height: Int32:= 600",
+        "let mut width: Int32= 800",
+        "let mut height: Int32= 600",
         "--- Two halves of the canvas",
-        "left: Int32:= width / 2",
-        "right: Int32:= height / 2"
+        "let left: Int32= width / 2",
+        "let right: Int32= height / 2"
       ]},
       "features": ["comments", "bindings"],
       "reservedWords": ["mut"]
@@ -168,11 +168,11 @@
       "description": "Uses escaped strings, bytes, runes, and numeric separators together in a normalized value.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "greeting: String:= \"a\\\"b\\\\c\\nd\\te\"",
-        "marker: Byte:= b'\\x41'",
-        "symbol: Rune:= '\\u{03BB}'",
-        "mask: UInt32:= 0xFF00_FF00",
-        "combined: UInt32:= mask + symbol.to<UInt32>()"
+        "let greeting: String= \"a\\\"b\\\\c\\nd\\te\"",
+        "let marker: Byte= b'\\x41'",
+        "let symbol: Rune= '\\u{03BB}'",
+        "let mask: UInt32= 0xFF00_FF00",
+        "let combined: UInt32= mask + symbol.to\u003cUInt32\u003e()"
       ]},
       "features": ["literals", "text"]
     }

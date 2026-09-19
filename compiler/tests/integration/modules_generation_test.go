@@ -42,7 +42,7 @@ func TestModuleGenerationEmitsOnePairPerModule(t *testing.T) {
 
 func TestModuleGenerationSymbolsAndGuards(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "import\n    Math from \"./math\"\nend\nresult: Int32 := Math.add(2, 3)\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\nlet result: Int32 = Math.add(2, 3)\n",
 		"math.hex": "fun add(a: Int32, b: Int32): Int32 do\n    return a + b\nend\nexport\n    add\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -76,7 +76,7 @@ func TestModuleGenerationSymbolsAndGuards(t *testing.T) {
 
 func TestModuleGenerationPrivateStaysStatic(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "import\n    Math from \"./math\"\nend\nresult: Int32 := Math.secret(1)\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\nlet result: Int32 = Math.secret(1)\n",
 		"math.hex": "fun secret(a: Int32): Int32 do\n    return a\nend\n",
 	}
 	// The private call fails at checking before generation.
@@ -128,7 +128,7 @@ func TestModuleGenerationLineDirectivesPerModule(t *testing.T) {
 
 func TestModuleGenerationDeterministic(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "import\n    Math from \"./math\"\nend\nresult: Int32 := Math.add(2, 3)\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\nlet result: Int32 = Math.add(2, 3)\n",
 		"math.hex": "fun add(a: Int32, b: Int32): Int32 do\n    return a + b\nend\nexport\n    add\nend\n",
 	}
 	first := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -169,7 +169,7 @@ func TestModuleGenerationUnreachableModulesProduceNoArtifacts(t *testing.T) {
 // non-root pair mentions it.
 func TestModuleGenerationEntryOnlyInRootPair(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "import\n    Math from \"./math\"\nend\nresult: Int32 := Math.add(2, 3)\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\nlet result: Int32 = Math.add(2, 3)\n",
 		"math.hex": "fun add(a: Int32, b: Int32): Int32 do\n    return a + b\nend\nexport\n    add\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -215,8 +215,8 @@ func TestModuleGenerationEntryOnlyInRootPair(t *testing.T) {
 // only its own user content plus inline helpers.
 func TestModuleGenerationBuiltinMachineryProgramWide(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "import\n    Math from \"./math\"\nend\nresult: Int32 := Math.compute()\n",
-		"math.hex": "fun compute(): Int32 do\n    items: List<Int32> := List<Int32>(Heap())\n    items.push(7)\n    print(\"hello\")\n    return items[0]\nend\nexport\n    compute\nend\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\nlet result: Int32 = Math.compute()\n",
+		"math.hex": "fun compute(): Int32 do\n    let items: List<Int32> = List<Int32>(Heap())\n    items.push(7)\n    print(\"hello\")\n    return items[0]\nend\nexport\n    compute\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -253,8 +253,8 @@ func TestModuleGenerationBuiltinMachineryProgramWide(t *testing.T) {
 // frame live beside the spawned function's own definition.
 func TestModuleGenerationConcurrencyOwnedByDefiningModule(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "import\n    Math from \"./math\"\nend\nx: Int32 | Error := Math.compute()\n",
-		"math.hex": "fun double(v: Int32): Int32 do\n    return v * 2\nend\nfun compute(): Int32 | Error do\n    task: Task<Int32> := try spawn double(21)\n    return task.join()\nend\nexport\n    compute\nend\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\nlet x: Int32 | Error = Math.compute()\n",
+		"math.hex": "fun double(v: Int32): Int32 do\n    return v * 2\nend\nfun compute(): Int32 | Error do\n    let task: Task<Int32> = try spawn double(21)\n    return task.join()\nend\nexport\n    compute\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -297,8 +297,8 @@ func TestModuleGenerationLiteralOrder(t *testing.T) {
 	// The root source places "root" before the imported source's "imported";
 	// dependency-first discovery must still emit math's literals first.
 	sources := map[string]string{
-		"app.hex":  "import\n    Math from \"./math\"\nend\nroot: String := \"root\"\nshared: String := \"shared\"\nresult: String := Math.text()\n",
-		"math.hex": "fun text(): String do\n    imported: String := \"imported\"\n    shared: String := \"shared\"\n    return shared\nend\nexport\n    text\nend\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\nlet root: String = \"root\"\nlet shared: String = \"shared\"\nlet result: String = Math.text()\n",
+		"math.hex": "fun text(): String do\n    let imported: String = \"imported\"\n    let shared: String = \"shared\"\n    return shared\nend\nexport\n    text\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -346,9 +346,9 @@ func TestModuleGenerationConcurrencyLiteralHandles(t *testing.T) {
 	// app.hex repeats it. That earlier global entry shifts every generated
 	// concurrency literal in the non-root math module.
 	sources := map[string]string{
-		"app.hex":  "import\n    Root from \"./root\",\n    Math from \"./math\"\nend\nroot: String := \"root\"\nx: Int32 | Error := Math.compute()\n",
-		"root.hex": "fun text(): String do\n    root: String := \"root\"\n    return root\nend\nexport\n    text\nend\n",
-		"math.hex": "fun double(v: Int32): Int32 do\n    return v * 2\nend\nfun compute(): Int32 | Error do\n    task: Task<Int32> := try spawn double(21)\n    return task.join()\nend\nexport\n    compute\nend\n",
+		"app.hex":  "import\n    Root from \"./root\",\n    Math from \"./math\"\nend\nlet root: String = \"root\"\nlet x: Int32 | Error = Math.compute()\n",
+		"root.hex": "fun text(): String do\n    let root: String = \"root\"\n    return root\nend\nexport\n    text\nend\n",
+		"math.hex": "fun double(v: Int32): Int32 do\n    return v * 2\nend\nfun compute(): Int32 | Error do\n    let task: Task<Int32> = try spawn double(21)\n    return task.join()\nend\nexport\n    compute\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -373,7 +373,7 @@ func TestModuleGenerationConcurrencyLiteralHandles(t *testing.T) {
 	if !strings.Contains(mathH, "static inline hex_t_Error hex_sched_error(hex_t_ErrorKind kind, size_t line, size_t column, const hex_string *message) {") {
 		t.Fatalf("math.h does not declare the shared scheduler error helper:\n%s", mathH)
 	}
-	if !strings.Contains(mathC, "hex_sched_error((hex_t_ErrorKind){ .tag = hex_tag_ErrorKind_ResourceExhausted }, 5, 30, &hex_lit_2)") {
+	if !strings.Contains(mathC, "hex_sched_error((hex_t_ErrorKind){ .tag = hex_tag_ErrorKind_ResourceExhausted }, 5, 33, &hex_lit_2)") {
 		t.Fatalf("math.c does not use the shifted program-wide spawn failure literal with its ResourceExhausted kind:\n%s", mathC)
 	}
 	for _, file := range []struct {

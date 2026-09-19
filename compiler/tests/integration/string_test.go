@@ -9,7 +9,7 @@ import (
 // stringH returns the generated hexal/string.h component artifact.
 // stringC returns the generated hexal/string.c component artifact.
 func TestStringLiteralBinding(t *testing.T) {
-	result := compileSource("greeting: String := \"hello\"")
+	result := compileSource("let greeting: String = \"hello\"")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -42,7 +42,7 @@ func TestStringLiteralBinding(t *testing.T) {
 }
 
 func TestStringLiteralEscapes(t *testing.T) {
-	result := compileSource("text: String := \"a\\\"b\\\\c\\nd\\te\\rf\"")
+	result := compileSource("let text: String = \"a\\\"b\\\\c\\nd\\te\\rf\"")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -52,7 +52,7 @@ func TestStringLiteralEscapes(t *testing.T) {
 }
 
 func TestStringBytesAndSlice(t *testing.T) {
-	result := compileSource("fun demo() do\n    text: String := \"hello\"\n    raw: Slice<UInt8> := text.bytes()\n    first: UInt8 := raw[0]\n    part: Slice<UInt8> := text.slice(1, 3)\n    second: UInt8 := part[0]\nend")
+	result := compileSource("fun demo() do\n    let text: String = \"hello\"\n    let raw: Slice<UInt8> = text.bytes()\n    let first: UInt8 = raw[0]\n    let part: Slice<UInt8> = text.slice(1, 3)\n    let second: UInt8 = part[0]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -69,7 +69,7 @@ func TestStringBytesAndSlice(t *testing.T) {
 }
 
 func TestStringOwningLifecycle(t *testing.T) {
-	result := compileSource("fun make_text(h: Heap): String do\n    return \"ready\".to_string(h)\nend\nfun demo(h: Heap) do\n    text: String := make_text(h)\n    defer text.free(h)\n    loud: String := text.concat(h, \"!\")\n    loud.free(h)\nend")
+	result := compileSource("fun make_text(h: Heap): String do\n    return \"ready\".to_string(h)\nend\nfun demo(h: Heap) do\n    let text: String = make_text(h)\n    defer text.free(h)\n    let loud: String = text.concat(h, \"!\")\n    loud.free(h)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -87,7 +87,7 @@ func TestStringOwningLifecycle(t *testing.T) {
 }
 
 func TestStringFromBytes(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    text: String := \"abc\"\n    raw: Slice<UInt8> := text.bytes()\n    copy: String := String.from_bytes(h, raw)\n    copy.free(h)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    let text: String = \"abc\"\n    let raw: Slice<UInt8> = text.bytes()\n    let copy: String = String.from_bytes(h, raw)\n    copy.free(h)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -100,7 +100,7 @@ func TestStringFromBytes(t *testing.T) {
 // payload + terminator chain with ckd_add before the raw allocator sees any
 // sum, and each overflow stage selects its exact message.
 func TestStringAllocationSizeArithmetic(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    text: String := \"abc\"\n    raw: Slice<UInt8> := text.bytes()\n    copy: String := String.from_bytes(h, raw)\n    copy.free(h)\n    runes: Array<Rune, 1> := ['a']\n    rune_view: Slice<Rune> := runes.slice(0, 1)\n    encoded: String := String.from_runes(h, rune_view)\n    encoded.free(h)\n    loud: String := text.concat(h, \"!\")\n    loud.free(h)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    let text: String = \"abc\"\n    let raw: Slice<UInt8> = text.bytes()\n    let copy: String = String.from_bytes(h, raw)\n    copy.free(h)\n    let runes: Array<Rune, 1> = ['a']\n    let rune_view: Slice<Rune> = runes.slice(0, 1)\n    let encoded: String = String.from_runes(h, rune_view)\n    encoded.free(h)\n    let loud: String = text.concat(h, \"!\")\n    loud.free(h)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -156,17 +156,17 @@ func TestStringAllocationSizeArithmetic(t *testing.T) {
 // opaque handles still free at runtime.
 func TestStringShallowCopySemantics(t *testing.T) {
 	for _, source := range []string{
-		"fun demo(h: Heap) do\n    owned: String := \"x\".to_string(h)\n    other: String := owned\nend",
-		"fun demo(h: Heap) do\n    owned: String := \"x\".to_string(h)\nend",
-		"fun demo(h: Heap) do\n    owned: String := \"x\".to_string(h)\n    owned.free(h)\n    owned.free(h)\nend",
-		"fun demo(h: Heap) do\n    mut owned: String := \"x\".to_string(h)\n    owned = \"y\".to_string(h)\nend",
-		"fun demo(h: Heap) do\n    mut owned: String := \"x\".to_string(h)\n    owned.free(h)\n    owned = \"y\"\nend",
+		"fun demo(h: Heap) do\n    let owned: String = \"x\".to_string(h)\n    let other: String = owned\nend",
+		"fun demo(h: Heap) do\n    let owned: String = \"x\".to_string(h)\nend",
+		"fun demo(h: Heap) do\n    let owned: String = \"x\".to_string(h)\n    owned.free(h)\n    owned.free(h)\nend",
+		"fun demo(h: Heap) do\n    let mut owned: String = \"x\".to_string(h)\n    owned = \"y\".to_string(h)\nend",
+		"fun demo(h: Heap) do\n    let mut owned: String = \"x\".to_string(h)\n    owned.free(h)\n    owned = \"y\"\nend",
 		"fun make_text(h: Heap): String do\n    return \"ready\"\nend",
 		"fun make_text(h: Heap, source: String): String do\n    return source\nend",
-		"owned: String := \"x\"",
+		"let owned: String = \"x\"",
 		"fun demo(h: Heap, source: String) do\n    source.free(h)\nend",
-		"fun demo(h: Heap, release: Bool) do\n    owned: String := \"x\".to_string(h)\n    if release then\n        owned.free(h)\n    end\n    owned.free(h)\nend",
-		"fun demo(h: Heap, release: Bool) do\n    owned: String := \"x\".to_string(h)\n    if release then\n        defer owned.free(h)\n    else\n        defer owned.free(h)\n    end\nend",
+		"fun demo(h: Heap, release: Bool) do\n    let owned: String = \"x\".to_string(h)\n    if release then\n        owned.free(h)\n    end\n    owned.free(h)\nend",
+		"fun demo(h: Heap, release: Bool) do\n    let owned: String = \"x\".to_string(h)\n    if release then\n        defer owned.free(h)\n    else\n        defer owned.free(h)\n    end\nend",
 	} {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("Compile(%q) exit code = %d (%v), want 0", source, result.ExitCode, result.Stderr)
@@ -175,7 +175,7 @@ func TestStringShallowCopySemantics(t *testing.T) {
 }
 
 func TestStringReturnHandoff(t *testing.T) {
-	result := compileSource("fun make_text(h: Heap): String do\n    owned: String := \"x\".to_string(h)\n    return owned\nend\nfun demo(h: Heap) do\n    text: String := make_text(h)\n    text.free(h)\nend")
+	result := compileSource("fun make_text(h: Heap): String do\n    let owned: String = \"x\".to_string(h)\n    return owned\nend\nfun demo(h: Heap) do\n    let text: String = make_text(h)\n    text.free(h)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -188,15 +188,15 @@ func TestStringReturnHandoff(t *testing.T) {
 // at runtime instead.
 func TestStringLiteralFreeRejected(t *testing.T) {
 	rejected := []string{
-		"fun demo(h: Heap) do\n    text: String := \"x\"\n    text.free(h)\nend",
-		"fun demo(h: Heap) do\n    text: String := r\"x\"\n    text.free(h)\nend",
-		"fun demo(h: Heap) do\n    text: String := \"x\"\n    alias: String := text\n    alias.free(h)\nend",
-		"type Box is struct text: String end\nfun demo(h: Heap) do\n    box: Box := Box(text = \"x\")\n    box.text.free(h)\nend",
-		"type W is union | A as text: String end | B as x: Int32 end end\nh: Heap := Heap()\nw: W := W.A(text = \"x\")\nlabel: Int32 := match w is\n| W.A then w.text.free(h)\n| W.B then 0\nend",
-		"fun demo(h: Heap) do\n    texts: Array<String, 2> := [\"a\", \"b\"]\n    texts[0].free(h)\nend",
-		"fun demo(h: Heap) do\n    mut text: String := \"x\".to_string(h)\n    text = \"y\"\n    text.free(h)\nend",
-		"fun demo(h: Heap, release: Bool) do\n    mut text: String := \"x\".to_string(h)\n    if release then\n        text = \"y\"\n    end\n    text.free(h)\nend",
-		"fun demo(h: Heap) do\n    mut texts: Array<String, 2> := [\"a\".to_string(h), \"b\".to_string(h)]\n    i: Size := 0\n    texts[i] = \"lit\"\n    texts[0].free(h)\nend",
+		"fun demo(h: Heap) do\n    let text: String = \"x\"\n    text.free(h)\nend",
+		"fun demo(h: Heap) do\n    let text: String = r\"x\"\n    text.free(h)\nend",
+		"fun demo(h: Heap) do\n    let text: String = \"x\"\n    let alias: String = text\n    alias.free(h)\nend",
+		"type Box is struct text: String end\nfun demo(h: Heap) do\n    let box: Box = Box(text = \"x\")\n    box.text.free(h)\nend",
+		"type W is union | A as text: String end | B as x: Int32 end end\nlet h: Heap = Heap()\nlet w: W = W.A(text = \"x\")\nlet label: Int32 = match w is\n| W.A then w.text.free(h)\n| W.B then 0\nend",
+		"fun demo(h: Heap) do\n    let texts: Array<String, 2> = [\"a\", \"b\"]\n    texts[0].free(h)\nend",
+		"fun demo(h: Heap) do\n    let mut text: String = \"x\".to_string(h)\n    text = \"y\"\n    text.free(h)\nend",
+		"fun demo(h: Heap, release: Bool) do\n    let mut text: String = \"x\".to_string(h)\n    if release then\n        text = \"y\"\n    end\n    text.free(h)\nend",
+		"fun demo(h: Heap) do\n    let mut texts: Array<String, 2> = [\"a\".to_string(h), \"b\".to_string(h)]\n    let i: Size = 0\n    texts[i] = \"lit\"\n    texts[0].free(h)\nend",
 	}
 	for _, source := range rejected {
 		if result := compileSource(source); result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "cannot free a String literal") {
@@ -204,12 +204,12 @@ func TestStringLiteralFreeRejected(t *testing.T) {
 		}
 	}
 	accepted := []string{
-		"fun demo(h: Heap) do\n    mut text: String := \"x\"\n    text = \"y\".to_string(h)\n    text.free(h)\nend",
+		"fun demo(h: Heap) do\n    let mut text: String = \"x\"\n    text = \"y\".to_string(h)\n    text.free(h)\nend",
 		"fun demo(h: Heap, source: String) do\n    source.free(h)\nend",
-		"fun make_text(): String do\n    return \"ready\"\nend\nfun demo(h: Heap) do\n    text: String := make_text()\n    text.free(h)\nend",
-		"fun demo(h: Heap) do\n    values: List<String> := List<String>(h)\n    values.push(\"lit\")\n    first: String := values[0]\n    first.free(h)\nend",
-		"fun demo(h: Heap) do\n    raw: Slice<Byte> := \"hi\".bytes()\n    text: String := String.from_bytes(h, raw)\n    text.free(h)\nend",
-		"fun demo(h: Heap) do\n    text: String := String.interpolate(h, \"n={{ 1 }}\")\n    text.free(h)\nend",
+		"fun make_text(): String do\n    return \"ready\"\nend\nfun demo(h: Heap) do\n    let text: String = make_text()\n    text.free(h)\nend",
+		"fun demo(h: Heap) do\n    let values: List<String> = List<String>(h)\n    values.push(\"lit\")\n    let first: String = values[0]\n    first.free(h)\nend",
+		"fun demo(h: Heap) do\n    let raw: Slice<Byte> = \"hi\".bytes()\n    let text: String = String.from_bytes(h, raw)\n    text.free(h)\nend",
+		"fun demo(h: Heap) do\n    let text: String = String.interpolate(h, \"n={{ 1 }}\")\n    text.free(h)\nend",
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
@@ -219,7 +219,7 @@ func TestStringLiteralFreeRejected(t *testing.T) {
 }
 
 func TestStringStaticReassignment(t *testing.T) {
-	result := compileSource("fun demo() do\n    mut greeting: String := \"hello\"\n    greeting = \"world\"\nend")
+	result := compileSource("fun demo() do\n    let mut greeting: String = \"hello\"\n    greeting = \"world\"\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -227,8 +227,8 @@ func TestStringStaticReassignment(t *testing.T) {
 
 func TestStringParameterCopiesAreValid(t *testing.T) {
 	for _, source := range []string{
-		"fun demo(source: String) do\n    other: String := source\nend",
-		"fun demo(source: String) do\n    mut copy: String := \"x\"\n    copy = source\nend",
+		"fun demo(source: String) do\n    let other: String = source\nend",
+		"fun demo(source: String) do\n    let mut copy: String = \"x\"\n    copy = source\nend",
 	} {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("Compile(%q) exit code = %d (%v), want 0", source, result.ExitCode, result.Stderr)
@@ -239,7 +239,7 @@ func TestStringParameterCopiesAreValid(t *testing.T) {
 func TestStringInArrayIsStoredAndCopiedShallow(t *testing.T) {
 	// Array<String, N> is valid; element copies share the String handle,
 	// and the array never frees a stored literal.
-	result := compileSource("fun demo() do\n    texts: Array<String, 2> := [\"a\", \"b\"]\n    copy: Array<String, 2> := texts\n    first: String := texts[0]\nend")
+	result := compileSource("fun demo() do\n    let texts: Array<String, 2> = [\"a\", \"b\"]\n    let copy: Array<String, 2> = texts\n    let first: String = texts[0]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

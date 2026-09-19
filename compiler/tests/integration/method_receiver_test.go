@@ -38,7 +38,7 @@ func TestGenericReceiverRejectsNonCopyableSpecialization(t *testing.T) {
 	assertChecked(t,
 		"type Holder<T> is struct value: T, end\n"+
 			"method Holder<T>.get(): T do\n    return self.value\nend\n"+
-			"fun demo(): Int32 do\n    h: Holder<Int32> := Holder<Int32>(value = 3)\n    return h.get()\nend\n")
+			"fun demo(): Int32 do\n    let h: Holder<Int32> = Holder<Int32>(value = 3)\n    return h.get()\nend\n")
 	assertRejectsAnyDiagnostic(t,
 		"type Holder<T> is struct mut value: T, end\n"+
 			"method Holder<T>.get(): Int32 do\n    return 0\nend\n"+
@@ -58,7 +58,7 @@ func TestMethodsOnAnEmptyStructAreAccepted(t *testing.T) {
 	assertChecked(t,
 		"type Marker is struct end\n"+
 			"method Marker.value(): Int32 do\n    return 1\nend\n"+
-			"fun demo(): Int32 do\n    m: Marker := Marker()\n    return m.value()\nend\n")
+			"fun demo(): Int32 do\n    let m: Marker = Marker()\n    return m.value()\nend\n")
 }
 
 // A transparent alias names the same struct; it never creates a second
@@ -68,7 +68,7 @@ func TestTransparentAliasShareOneMethodNamespace(t *testing.T) {
 		"type Point is struct x: Int32, end\n"+
 			"type Coord is Point\n"+
 			"method Coord.read(): Int32 do\n    return self.x\nend\n"+
-			"fun demo(): Int32 do\n    p: Point := Point(x = 1)\n    return p.read()\nend\n")
+			"fun demo(): Int32 do\n    let p: Point = Point(x = 1)\n    return p.read()\nend\n")
 	assertRejectsAnyDiagnostic(t,
 		"type Point is struct x: Int32, end\n"+
 			"type Coord is Point\n"+

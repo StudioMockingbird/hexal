@@ -377,8 +377,8 @@ func checkDeclaration(declaration parser.Declaration, ctx checkContext, itemInde
 	// checking can select one.
 	inferred := declaration.Type == nil
 	if inferred && isContextualForInference(declaration.Initializer) {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.Operator,
-			"`:=` requires an initializer whose type does not depend on context; annotate the binding instead"))
+		diagnostics = append(diagnostics, typeErrorAt(declaration.Keyword,
+			"`let` requires an initializer whose type does not depend on context; annotate the binding instead"))
 	}
 
 	initializer := checkInitializerRest(declaration.Initializer, declaredUse, declaration.Name, ctx, true)

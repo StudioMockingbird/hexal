@@ -77,6 +77,16 @@ func checkCall(call parser.CallExpression, expectedType compilerTypes.Type, ctx 
 		diagnostic := moduleDataDiagnostic(ctx.names.owner, name, callee.Name)
 		return checkedExpression{token: callee.Name, diagnostic: &diagnostic}
 	}
+	// A root direct call may enter an environment-dependent call graph only
+	// after every binding that graph captures is initialized.
+	if !ctx.names.inFunction() && bound.kind == functionBinding && ctx.names.envDependent[name] {
+		for capture := range ctx.names.envCaptures[name] {
+			if !ctx.names.initializedRoots[capture] {
+				diagnostic := typeErrorAt(callee.Name, "function "+name+" may access entry binding "+capture+" before "+capture+" is initialized")
+				return checkedExpression{token: callee.Name, diagnostic: &diagnostic}
+			}
+		}
+	}
 	if bound.kind == genericFunctionBinding {
 		return checkGenericCall(call, bound, name, callee.Name, ctx)
 	}

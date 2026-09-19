@@ -8,7 +8,7 @@ import (
 )
 
 func TestResolveTypeUseKeepsWrittenOrderThroughAliases(t *testing.T) {
-	checked, err := Check(parseProgram(t, "type Number is union Int64 | Int32 end value: Number := 1"))
+	checked, err := Check(parseProgram(t, "type Number is union Int64 | Int32 end let value: Number = 1"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,7 +19,7 @@ func TestResolveTypeUseKeepsWrittenOrderThroughAliases(t *testing.T) {
 }
 
 func TestResolveTypeUseFlattensAliasCandidatesInOuterUnion(t *testing.T) {
-	checked, err := Check(parseProgram(t, "type Number is union Int64 | Int32 end value: Number | Nil := 1"))
+	checked, err := Check(parseProgram(t, "type Number is union Int64 | Int32 end let value: Number | Nil = 1"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestResolveTypeUseFlattensAliasCandidatesInOuterUnion(t *testing.T) {
 }
 
 func TestResolveTypeUseKeepsNestedPointerCandidates(t *testing.T) {
-	checked, err := Check(parseProgram(t, "value: Ptr<mut UInt16 | UInt8> := nil"))
+	checked, err := Check(parseProgram(t, "let value: Ptr<mut UInt16 | UInt8> = nil"))
 	if err == nil {
 		t.Fatal("Check accepted a Nil initializer for a non-null pointer")
 	}
@@ -43,7 +43,7 @@ func TestResolveTypeUseKeepsNestedPointerCandidates(t *testing.T) {
 }
 
 func TestCheckUnionContextUsesWrittenOrder(t *testing.T) {
-	checked, err := Check(parseProgram(t, "a: UInt8 | UInt16 := 7 b: Int64 | Int32 := 7"))
+	checked, err := Check(parseProgram(t, "let a: UInt8 | UInt16 = 7 let b: Int64 | Int32 = 7"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestCheckUnionContextUsesWrittenOrder(t *testing.T) {
 }
 
 func TestCheckUnionContextRetriesAfterRangeFailure(t *testing.T) {
-	checked, err := Check(parseProgram(t, "value: UInt8 | UInt16 := 256"))
+	checked, err := Check(parseProgram(t, "let value: UInt8 | UInt16 = 256"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,14 +69,14 @@ func TestCheckUnionContextRetriesAfterRangeFailure(t *testing.T) {
 }
 
 func TestCheckUnionContextRetainsUnknownDiagnostic(t *testing.T) {
-	_, err := Check(parseProgram(t, "value: UInt8 | UInt16 := missing + 1"))
+	_, err := Check(parseProgram(t, "let value: UInt8 | UInt16 = missing + 1"))
 	if err == nil || !strings.Contains(err.Error(), "unknown variable missing") {
 		t.Fatalf("error = %v, want earliest unknown-variable diagnostic", err)
 	}
 }
 
 func TestCheckUnionInjectsAlreadyTypedMember(t *testing.T) {
-	checked, err := Check(parseProgram(t, "value: Int32 | Bool := true"))
+	checked, err := Check(parseProgram(t, "let value: Int32 | Bool = true"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestCheckUnionInjectsAlreadyTypedMember(t *testing.T) {
 }
 
 func TestCheckUnionWidensSourceUnion(t *testing.T) {
-	checked, err := Check(parseProgram(t, "small: Int32 | Bool := true wide: Int32 | Bool | Nil := small"))
+	checked, err := Check(parseProgram(t, "let small: Int32 | Bool = true let wide: Int32 | Bool | Nil = small"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestCheckUnionWidensSourceUnion(t *testing.T) {
 }
 
 func TestCheckUnionIsTest(t *testing.T) {
-	checked, err := Check(parseProgram(t, "value: Int32 | Float64 := 1 active: Bool := value is Int32"))
+	checked, err := Check(parseProgram(t, "let value: Int32 | Float64 = 1 let active: Bool = value is Int32"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,13 +113,13 @@ func TestCheckUnionRejectsDuplicateMembers(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"x: Int32 | Nil | Int32 := 0", "union member Int32 appears more than once"},
-		{"y: Int32 | Nil | Nil := nil", "union member Nil appears more than once"},
-		{"type Bad is union Ptr<Int32> | Nil | Nil end value: Bad := nil", "union member Nil appears more than once"},
-		{"x: Int32 | Float64 | Int32 | Nil := 1", "union member Int32 appears more than once"},
-		{"type Score is Int32 x: Int32 | Nil | Score := 0", "union member Int32 appears more than once"},
-		{"type MaybeScore is union Int32 | Nil end x: Bool | MaybeScore | Int32 := true", "union member Int32 appears more than once"},
-		{"type M<T> is union T | Int32 end x: M<Int32> := 0", "union member Int32 appears more than once"},
+		{"let x: Int32 | Nil | Int32 = 0", "union member Int32 appears more than once"},
+		{"let y: Int32 | Nil | Nil = nil", "union member Nil appears more than once"},
+		{"type Bad is union Ptr<Int32> | Nil | Nil end let value: Bad = nil", "union member Nil appears more than once"},
+		{"let x: Int32 | Float64 | Int32 | Nil = 1", "union member Int32 appears more than once"},
+		{"type Score is Int32 let x: Int32 | Nil | Score = 0", "union member Int32 appears more than once"},
+		{"type MaybeScore is union Int32 | Nil end let x: Bool | MaybeScore | Int32 = true", "union member Int32 appears more than once"},
+		{"type M<T> is union T | Int32 end let x: M<Int32> = 0", "union member Int32 appears more than once"},
 	} {
 		_, err := Check(parseProgram(t, testCase.source))
 		if err == nil || !strings.Contains(err.Error(), testCase.want) {
@@ -129,7 +129,7 @@ func TestCheckUnionRejectsDuplicateMembers(t *testing.T) {
 }
 
 func TestCheckUnionDuplicateDoesNotAlsoReportMemberCount(t *testing.T) {
-	_, err := Check(parseProgram(t, "x: Int32 | Int32 := 0"))
+	_, err := Check(parseProgram(t, "let x: Int32 | Int32 = 0"))
 	if err == nil {
 		t.Fatal("Check accepted a union with a repeated member")
 	}
@@ -142,7 +142,7 @@ func TestCheckUnionDuplicateDoesNotAlsoReportMemberCount(t *testing.T) {
 }
 
 func TestCheckUnionAcceptsDistinctEquivalentWritings(t *testing.T) {
-	_, err := Check(parseProgram(t, "x: Int32 | Nil := 0 y: Int32 | Nil := nil z: Nil | Int32 := 0"))
+	_, err := Check(parseProgram(t, "let x: Int32 | Nil = 0 let y: Int32 | Nil = nil let z: Nil | Int32 = 0"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,9 +153,9 @@ func TestCheckUnionRejectsInvalidIsQueries(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"value: Int32 | Float64 := 1 bad: Bool := value is Bool", "Bool is not a member"},
-		{"value: Int32 | Float64 := 1 bad: Bool := value is Int32 | Float64", "one exact member"},
-		{"maybe: Int32 | Nil := 1 bad: Bool := maybe is Int32", "redundant"},
+		{"let value: Int32 | Float64 = 1 let bad: Bool = value is Bool", "Bool is not a member"},
+		{"let value: Int32 | Float64 = 1 let bad: Bool = value is Int32 | Float64", "one exact member"},
+		{"let maybe: Int32 | Nil = 1 let bad: Bool = maybe is Int32", "redundant"},
 	} {
 		_, err := Check(parseProgram(t, testCase.source))
 		if err == nil || !strings.Contains(err.Error(), testCase.want) {
@@ -165,7 +165,7 @@ func TestCheckUnionRejectsInvalidIsQueries(t *testing.T) {
 }
 
 func TestCheckUnionNullTestAndEquality(t *testing.T) {
-	checked, err := Check(parseProgram(t, "value: Int32 | Float64 | Nil := nil present: Bool := value != nil left: Int32 | Bool := true right: Bool | Int32 := false same: Bool := left == right"))
+	checked, err := Check(parseProgram(t, "let value: Int32 | Float64 | Nil = nil let present: Bool = value != nil let left: Int32 | Bool = true let right: Bool | Int32 = false let same: Bool = left == right"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestCheckUnionNullTestAndEquality(t *testing.T) {
 }
 
 func TestCheckUnionRejectsOrdering(t *testing.T) {
-	_, err := Check(parseProgram(t, "left: Int32 | Bool := true right: Int32 | Bool := false ordered: Bool := left < right"))
+	_, err := Check(parseProgram(t, "let left: Int32 | Bool = true let right: Int32 | Bool = false let ordered: Bool = left < right"))
 	if err == nil || !strings.Contains(err.Error(), "ordered") {
 		t.Fatalf("error = %v, want union ordering diagnostic", err)
 	}
@@ -187,28 +187,28 @@ func TestCheckUnionRejectsOrdering(t *testing.T) {
 func TestCheckUnionIsNarrowsIfElseAndElseIf(t *testing.T) {
 	// The else arm narrows value to Nil, which is
 	// printable but cannot initialize a standalone Nil binding.
-	_, err := Check(parseProgram(t, "value: Int32 | Float64 | Nil := 1 if value is Int32 then integer: Int32 := value elseif value != nil then floating: Float64 := value else print(value) end"))
+	_, err := Check(parseProgram(t, "let value: Int32 | Float64 | Nil = 1 if value is Int32 then let integer: Int32 = value elseif value != nil then let floating: Float64 = value else print(value) end"))
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestCheckUnionIsNarrowsWhileBody(t *testing.T) {
-	_, err := Check(parseProgram(t, "mut value: Int32 | Float64 := 1 while value is Int32 do integer: Int32 := value value = 2 end"))
+	_, err := Check(parseProgram(t, "let mut value: Int32 | Float64 = 1 while value is Int32 do let integer: Int32 = value value = 2 end"))
 	if err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestCheckUnionWritableEscapePreventsNarrowing(t *testing.T) {
-	_, err := Check(parseProgram(t, "mut value: Int32 | Bool := true writer: Ptr<mut Int32 | Bool> := @value if value is Int32 then bad: Int32 := value end"))
+	_, err := Check(parseProgram(t, "let mut value: Int32 | Bool = true let writer: Ptr<mut Int32 | Bool> = @value if value is Int32 then let bad: Int32 = value end"))
 	if err == nil || !strings.Contains(err.Error(), "cannot be narrowed") {
 		t.Fatalf("error = %v, want writable-escape narrowing diagnostic", err)
 	}
 }
 
 func TestCheckUnionNarrowedReadUsesPayloadNode(t *testing.T) {
-	checked, err := Check(parseProgram(t, "value: Int32 | Float64 := 1 if value is Int32 then result: Int32 := value end"))
+	checked, err := Check(parseProgram(t, "let value: Int32 | Float64 = 1 if value is Int32 then let result: Int32 = value end"))
 	if err != nil {
 		t.Fatal(err)
 	}

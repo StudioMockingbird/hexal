@@ -13,7 +13,7 @@ import (
 // implementation: inactive POSIX branches and headers are absent from the
 // generated runtime components, while Windows paths remain.
 func TestExplicitProfileOmitsPosixBranches(t *testing.T) {
-	sources := map[string]string{"app.hex": "fun worker(): Int32 do\n    return 1\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn worker()\n    return task.join()\nend\noutcome: Int32 | Error := run()\nvalue: Int32 := match outcome is\n| Int32 then outcome\n| Error then 0\nend\nprint(value)\n"}
+	sources := map[string]string{"app.hex": "fun worker(): Int32 do\n    return 1\nend\nfun run(): Int32 | Error do\n    let task: Task<Int32> = try spawn worker()\n    return task.join()\nend\nlet outcome: Int32 | Error = run()\nlet value: Int32 = match outcome is\n| Int32 then outcome\n| Error then 0\nend\nprint(value)\n"}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("explicit-profile compile failed: %v", result.Stderr)
@@ -48,7 +48,7 @@ func TestExplicitProfileOmitsPosixBranches(t *testing.T) {
 // so a Windows branch that remains in the text stays behind `#if defined(_WIN32)`
 // and is never compiled on Linux.
 func TestExplicitLinuxProfileSelectsPosixEntrypoint(t *testing.T) {
-	concurrent := map[string]string{"app.hex": "fun worker(): Int32 do\n    return 1\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn worker()\n    return task.join()\nend\noutcome: Int32 | Error := run()\nvalue: Int32 := match outcome is\n| Int32 then outcome\n| Error then 0\nend\nprint(value)\n"}
+	concurrent := map[string]string{"app.hex": "fun worker(): Int32 do\n    return 1\nend\nfun run(): Int32 | Error do\n    let task: Task<Int32> = try spawn worker()\n    return task.join()\nend\nlet outcome: Int32 | Error = run()\nlet value: Int32 = match outcome is\n| Int32 then outcome\n| Error then 0\nend\nprint(value)\n"}
 	result := compiler.Compile(concurrent, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("explicit Linux-profile compile failed: %v", result.Stderr)
@@ -60,7 +60,7 @@ func TestExplicitLinuxProfileSelectsPosixEntrypoint(t *testing.T) {
 		}
 	}
 
-	arguments := map[string]string{"app.hex": "import\n  Prog from std.program\nend\nfun demo(): Bool | Error do\n    args := Prog.arguments()\n    if args is Error then\n        return false\n    end\n    return true\nend\noutcome: Bool | Error := demo()\nif outcome is Error then\n    return 1\nend\nprint(outcome)\n"}
+	arguments := map[string]string{"app.hex": "import\n  Prog from std.program\nend\nfun demo(): Bool | Error do\n    let args = Prog.arguments()\n    if args is Error then\n        return false\n    end\n    return true\nend\nlet outcome: Bool | Error = demo()\nif outcome is Error then\n    return 1\nend\nprint(outcome)\n"}
 	linux := compiler.Compile(arguments, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU})
 	if linux.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("argument-demand Linux-profile compile failed: %v", linux.Stderr)
@@ -80,7 +80,7 @@ func TestExplicitLinuxProfileSelectsPosixEntrypoint(t *testing.T) {
 // The host-neutral zero value retains both platform paths selected at
 // C-compile time; an explicit profile never leaks into it.
 func TestHostNeutralRetainsBothBranches(t *testing.T) {
-	sources := map[string]string{"app.hex": "fun worker(): Int32 do\n    return 1\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn worker()\n    return task.join()\nend\noutcome: Int32 | Error := run()\nvalue: Int32 := match outcome is\n| Int32 then outcome\n| Error then 0\nend\nprint(value)\n"}
+	sources := map[string]string{"app.hex": "fun worker(): Int32 do\n    return 1\nend\nfun run(): Int32 | Error do\n    let task: Task<Int32> = try spawn worker()\n    return task.join()\nend\nlet outcome: Int32 | Error = run()\nlet value: Int32 = match outcome is\n| Int32 then outcome\n| Error then 0\nend\nprint(value)\n"}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("host-neutral compile failed: %v", result.Stderr)

@@ -51,21 +51,21 @@ func generateProgram(seed uint64) generatedProgram {
 		"import\n    Lib from \"./lib\"\nend\n"+
 			"type GenSignal is union | GenAlpha | GenBeta as level: Int32 end end\n"+
 			"fun run(h: Heap): Int32 do\n"+
-			"    point: Lib.GenPoint := Lib.GenMakePoint()\n"+
-			"    signal: GenSignal := %s\n"+
-			"    label: Int32 := match signal is\n"+
+			"    let point: Lib.GenPoint = Lib.GenMakePoint()\n"+
+			"    let signal: GenSignal = %s\n"+
+			"    let label: Int32 = match signal is\n"+
 			"    | GenSignal.GenAlpha then 0\n"+
 			"    | GenSignal.GenBeta then signal.level\n"+
 			"    end\n"+
-			"    numbers: List<Int32> := List<Int32>(h)\n"+
+			"    let numbers: List<Int32> = List<Int32>(h)\n"+
 			"    defer numbers.free(h)\n"+
 			"    numbers.push(point.x + label)\n"+
-			"    value: %s := Lib.GenIdentity<%s>(%s)\n"+
-			"    maybe: Int32 | Nil := label\n"+
+			"    let value: %s = Lib.GenIdentity<%s>(%s)\n"+
+			"    let maybe: Int32 | Nil = label\n"+
 			"    return numbers.length().to<Int32>()\n"+
 			"end\n"+
-			"h: Heap := Heap()\n"+
-			"total: Int32 := run(h)\n",
+			"let h: Heap = Heap()\n"+
+			"let total: Int32 = run(h)\n",
 		signalConstruct, genericType, genericType, literal,
 	)
 	lib := "type GenPoint is struct x: Int32, y: Int32 end\n" +

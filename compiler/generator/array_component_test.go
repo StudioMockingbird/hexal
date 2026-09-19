@@ -10,7 +10,7 @@ import (
 // hexal.h and slice.h includes, and exactly one trailing newline; the owning
 // module header includes the component.
 func TestArrayComponentEmitsReachableSpecializationsOnce(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo() do\n    fixed: Array<Int32, 3> := [1, 2, 3]\n    bytes: Array<UInt8, 2> := [4, 5]\n    first: Int32 := fixed[0]\nend")
+	program := checkedGeneratorSource(t, "fun demo() do\n    let fixed: Array<Int32, 3> = [1, 2, 3]\n    let bytes: Array<UInt8, 2> = [4, 5]\n    let first: Int32 = fixed[0]\nend")
 	files := generateOne(t, program)
 	arrayH := files["hexal/array.h"]
 	if arrayH == "" {
@@ -52,7 +52,7 @@ func TestArrayComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 // access and the demand filter drops it: the golden covers both directions of
 // the demand rule at once.
 func TestArrayComponentHexalHeaderOwnsNoArrayText(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(i: Size) do\n    fixed: Array<Int32, 3> := [1, 2, 3]\n    view: Slice<Int32> := fixed.slice(0, 2)\n    first: Int32 := fixed[i]\nend")
+	program := checkedGeneratorSource(t, "fun demo(i: Size) do\n    let fixed: Array<Int32, 3> = [1, 2, 3]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    let first: Int32 = fixed[i]\nend")
 	files := generateOne(t, program)
 	if strings.Contains(files["hexal.h"], "hex_array_") {
 		t.Fatalf("hexal.h = %q, array definitions must live in hexal/array.h", files["hexal.h"])
@@ -100,7 +100,7 @@ static inline hex_slice_Int32 hex_array_slice_Int32_3(const hex_array_Int32_3 *a
 // A program whose only specializations are module-typed therefore emits no
 // component artifact and no include for one.
 func TestArrayModuleOwnedElementSpecializationLivesInModuleHeader(t *testing.T) {
-	program := checkedGeneratorSource(t, "type Point is struct\n    x: Int32,\nend\nfun demo() do\n    fixed: Array<Point, 2> := [Point(x = 1), Point(x = 2)]\n    first: Int32 := fixed[0].x\nend")
+	program := checkedGeneratorSource(t, "type Point is struct\n    x: Int32,\nend\nfun demo() do\n    let fixed: Array<Point, 2> = [Point(x = 1), Point(x = 2)]\n    let first: Int32 = fixed[0].x\nend")
 	files := generateOne(t, program)
 	if got := files["hexal/array.h"]; got != "" {
 		t.Fatalf("hexal/array.h = %q, want no component artifact: its only specialization is module-typed", got)

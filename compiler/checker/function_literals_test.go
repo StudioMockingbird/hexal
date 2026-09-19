@@ -12,7 +12,7 @@ func TestBareLiteralExpressionChecksAsFunctionLiteralExpression(t *testing.T) {
 		"fun apply(callback: Fun<(Int32) : Int32>, value: Int32): Int32 do\n"+
 			"    return callback(value)\n"+
 			"end\n"+
-			"result: Int32 := apply(fun (value: Int32): Int32 do\n"+
+			"let result: Int32 = apply(fun (value: Int32): Int32 do\n"+
 			"    return value * value\n"+
 			"end, 5)\n")
 	declaration, ok := checked.Statements[1].(Declaration)
@@ -36,7 +36,7 @@ func TestBareLiteralExpressionChecksAsFunctionLiteralExpression(t *testing.T) {
 
 func TestTypedLiteralBindingIsRuntimeData(t *testing.T) {
 	checked := requireAccepted(t,
-		"op: Fun<(Int32) : Int32> := fun (value: Int32): Int32 do\n"+
+		"let op: Fun<(Int32) : Int32> = fun (value: Int32): Int32 do\n"+
 			"    return value\n"+
 			"end\n")
 	declaration, ok := checked.Statements[0].(Declaration)
@@ -53,13 +53,13 @@ func TestTypedLiteralBindingIsRuntimeData(t *testing.T) {
 
 func TestDirectInferredLiteralIsDeclarationSugar(t *testing.T) {
 	checked := requireAccepted(t,
-		"factorial := fun (value: Int32): Int32 do\n"+
+		"let factorial = fun (value: Int32): Int32 do\n"+
 			"    if value == 0 then\n"+
 			"        return 1\n"+
 			"    end\n"+
 			"    return value * factorial(value - 1)\n"+
 			"end\n"+
-			"x: Int32 := factorial(5)\n")
+			"let x: Int32 = factorial(5)\n")
 	declaration, ok := checked.Statements[0].(FunctionDeclaration)
 	if !ok {
 		t.Fatalf("statement 0 = %T, want FunctionDeclaration (declaration sugar)", checked.Statements[0])
@@ -74,7 +74,7 @@ func TestDirectInferredLiteralIsDeclarationSugar(t *testing.T) {
 
 func TestGroupingOnlyParensPreserveDeclarationSugar(t *testing.T) {
 	checked := requireAccepted(t,
-		"square := ((fun (value: Int32): Int32 do\n"+
+		"let square = ((fun (value: Int32): Int32 do\n"+
 			"    return value * value\n"+
 			"end))\n")
 	if _, ok := checked.Statements[0].(FunctionDeclaration); !ok {
@@ -87,7 +87,7 @@ func TestCallSuffixOnInitializerIsRuntimeData(t *testing.T) {
 	// direct literal initializer: x holds the returned value, not a
 	// function, so it must not become declaration sugar.
 	checked := requireAccepted(t,
-		"x := fun (value: Int32): Int32 do\n"+
+		"let x = fun (value: Int32): Int32 do\n"+
 			"    return value\n"+
 			"end(5)\n")
 	if _, ok := checked.Statements[0].(FunctionDeclaration); ok {
@@ -103,7 +103,7 @@ func TestMutableLiteralBindingIsNotSelfRecursive(t *testing.T) {
 	// stable self identity; referring to it from the literal remains an
 	// invalid capture, so it simply does not exist yet at that point.
 	requireDiagnostic(t,
-		"mut op: Fun<(Int32) : Int32> := fun (value: Int32): Int32 do\n"+
+		"let mut op: Fun<(Int32) : Int32> = fun (value: Int32): Int32 do\n"+
 			"    return op(value)\n"+
 			"end\n",
 		"unknown function op; functions must be declared before use")
@@ -116,8 +116,8 @@ func TestLocalLiteralBindingCannotBeUsedBeforeItsDeclaration(t *testing.T) {
 	// binding a later statement declares, unlike a module-level function.
 	requireDiagnostic(t,
 		"fun outer(): Int32 do\n"+
-			"    x: Int32 := helper()\n"+
-			"    helper: Fun<(): Int32> := fun(): Int32 do\n"+
+			"    let x: Int32 = helper()\n"+
+			"    let helper: Fun<(): Int32> = fun(): Int32 do\n"+
 			"        return 1\n"+
 			"    end\n"+
 			"    return x\n"+
@@ -131,7 +131,7 @@ func TestFunctionLiteralInsideAFunctionRejectsParameterCapture(t *testing.T) {
 	// closes over nothing from its enclosing function.
 	requireDiagnostic(t,
 		"fun calculate(factor: Int32): Int32 do\n"+
-			"    operation := fun (value: Int32): Int32 do\n"+
+			"    let operation = fun (value: Int32): Int32 do\n"+
 			"        return value * factor\n"+
 			"    end\n"+
 			"    return operation(2)\n"+
@@ -143,7 +143,7 @@ func TestLiteralInsideMethodRejectsSelf(t *testing.T) {
 	requireDiagnostic(t,
 		"type T is struct n: Int32, end\n"+
 			"method T.compute(): Int32 do\n"+
-			"    literal := fun (): Int32 do\n"+
+			"    let literal = fun (): Int32 do\n"+
 			"        return self.n\n"+
 			"    end\n"+
 			"    return literal()\n"+
@@ -153,9 +153,9 @@ func TestLiteralInsideMethodRejectsSelf(t *testing.T) {
 
 func TestFunctionLiteralAndModuleDataShareTheClosedFunctionRule(t *testing.T) {
 	requireDiagnostic(t,
-		"count: Int32 := 5\n"+
+		"let count: Int32 = 5\n"+
 			"fun outer(): Int32 do\n"+
-			"    inner := fun (): Int32 do\n"+
+			"    let inner = fun (): Int32 do\n"+
 			"        return count\n"+
 			"    end\n"+
 			"    return inner()\n"+
@@ -165,7 +165,7 @@ func TestFunctionLiteralAndModuleDataShareTheClosedFunctionRule(t *testing.T) {
 
 func TestGenericAnonymousLiteralContextualSpecialization(t *testing.T) {
 	checked := requireAccepted(t,
-		"callback: Fun<(Int32) : Int32> := fun<T>(value: T): T do\n"+
+		"let callback: Fun<(Int32) : Int32> = fun<T>(value: T): T do\n"+
 			"    return value\n"+
 			"end\n")
 	declaration := checked.Statements[0].(Declaration)
@@ -176,16 +176,16 @@ func TestGenericAnonymousLiteralContextualSpecialization(t *testing.T) {
 
 func TestGenericAnonymousLiteralWithoutExpectedTypeRejected(t *testing.T) {
 	requireDiagnostic(t,
-		"identity := fun<T>(value: T): T do\n"+
+		"let identity = fun<T>(value: T): T do\n"+
 			"    return value\n"+
 			"end\n"+
-			"alias := identity\n",
+			"let alias = identity\n",
 		"cannot infer generic parameter for identity")
 }
 
 func TestGenericLiteralDirectInvocationInfersFromArguments(t *testing.T) {
 	checked := requireAccepted(t,
-		"y: Int32 := (fun<T>(value: T): T do\n"+
+		"let y: Int32 = (fun<T>(value: T): T do\n"+
 			"    return value\n"+
 			"end)(21)\n")
 	declaration := checked.Statements[0].(Declaration)
@@ -203,23 +203,23 @@ func TestNestedGenericLiteralUsesEnclosingTypeParameter(t *testing.T) {
 	// other type name visible at that point in the body.
 	requireAccepted(t,
 		"fun apply<T>(value: T): T do\n"+
-			"    holder: Fun<(T) : T> := fun (input: T): T do\n"+
+			"    let holder: Fun<(T) : T> = fun (input: T): T do\n"+
 			"        return input\n"+
 			"    end\n"+
 			"    return holder(value)\n"+
 			"end\n"+
-			"x: Int32 := apply<Int32>(5)\n")
+			"let x: Int32 = apply<Int32>(5)\n")
 }
 
 func TestGenericLiteralRejectsEnclosingTypeParameterName(t *testing.T) {
 	requireDiagnostic(t,
 		"fun outer<T>(value: T): T do\n"+
-			"    inner: Fun<(Int32) : Int32> := fun<T>(value: T): T do\n"+
+			"    let inner: Fun<(Int32) : Int32> = fun<T>(value: T): T do\n"+
 			"        return value\n"+
 			"    end\n"+
 			"    return value\n"+
 			"end\n"+
-			"x: Int32 := outer<Int32>(5)\n",
+			"let x: Int32 = outer<Int32>(5)\n",
 		"generic parameter T is already declared by an enclosing function")
 }
 
@@ -229,7 +229,7 @@ func TestDirectLiteralInvocation(t *testing.T) {
 	// this stage adds, since the callee is neither a name nor a method
 	// selection.
 	checked := requireAccepted(t,
-		"y: Int32 := (fun (value: Int32): Int32 do\n"+
+		"let y: Int32 = (fun (value: Int32): Int32 do\n"+
 			"    return value * 2\n"+
 			"end)(21)\n")
 	declaration := checked.Statements[0].(Declaration)
@@ -245,6 +245,6 @@ func TestCallingANonFunctionExpressionIsStillRejected(t *testing.T) {
 	// The indirect-call path must not weaken the existing rejection of a
 	// callee that resolves to no Fun<...> type at all.
 	requireDiagnostic(t,
-		"x: Int32 := (5)(3)\n",
+		"let x: Int32 = (5)(3)\n",
 		"a call's callee must be a function name or a method selection")
 }

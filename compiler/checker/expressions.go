@@ -297,6 +297,9 @@ func checkValue(expression parser.Expression, ctx checkContext) checkedExpressio
 type checkContext struct {
 	names           *scope
 	typeEnvironment *compilerTypes.Environment
+	// rootIndex is the source item index of the declaration being checked, so
+	// capture visibility can compare it against a root binding's own index.
+	rootIndex int
 }
 
 func checkExpression(expression parser.Expression, context expressionContext, ctx checkContext) checkedExpression {

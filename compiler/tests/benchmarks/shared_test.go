@@ -59,7 +59,7 @@ var benchmarkPrograms = []benchmarkProgram{
 		name: "scalar",
 		sources: map[string]string{
 			"app.hex": `fun sum_sequence(seed: Int32): Int32 do
-    mut total: Int32 := seed
+    let mut total: Int32 = seed
     if seed > 0 then
         total = total + 10
     else
@@ -72,7 +72,7 @@ var benchmarkPrograms = []benchmarkProgram{
     end
     return total + 1
 end
-result: Int32 := sum_sequence(21)`,
+let result: Int32 = sum_sequence(21)`,
 		},
 		entrypoint: "app.hex",
 	},
@@ -86,36 +86,36 @@ type Box<T> is struct value: T end
 method Box<T>.get(): T do
     return self.value
 end
-i32: Int32 := 1
-i64: Int64 := 2
-u32: UInt32 := 3
-u16: UInt16 := 4
-u8: UInt8 := 5
-f64: Float64 := 6.5
-f32: Float32 := 7.5
-strand: Strand := "a"
-flag: Bool := true
-i16: Int16 := 10
-a1: Int32 := identity(i32)
-a2: Int64 := identity(i64)
-a3: UInt32 := identity(u32)
-a4: UInt16 := identity(u16)
-a5: UInt8 := identity(u8)
-a6: Float64 := identity(f64)
-a7: Float32 := identity(f32)
-a8: Strand := identity(strand)
-a9: Bool := identity(flag)
-a10: Int16 := identity(i16)
-box1: Box<Int32> := Box(value = i32)
-b1: Int32 := box1.get()
-box2: Box<Int64> := Box(value = i64)
-b2: Int64 := box2.get()
-box3: Box<UInt32> := Box(value = u32)
-b3: UInt32 := box3.get()
-box4: Box<Float64> := Box(value = f64)
-b4: Float64 := box4.get()
-box5: Box<Strand> := Box(value = strand)
-b5: Strand := box5.get()`,
+let i32: Int32 = 1
+let i64: Int64 = 2
+let u32: UInt32 = 3
+let u16: UInt16 = 4
+let u8: UInt8 = 5
+let f64: Float64 = 6.5
+let f32: Float32 = 7.5
+let strand: Strand = "a"
+let flag: Bool = true
+let i16: Int16 = 10
+let a1: Int32 = identity(i32)
+let a2: Int64 = identity(i64)
+let a3: UInt32 = identity(u32)
+let a4: UInt16 = identity(u16)
+let a5: UInt8 = identity(u8)
+let a6: Float64 = identity(f64)
+let a7: Float32 = identity(f32)
+let a8: Strand = identity(strand)
+let a9: Bool = identity(flag)
+let a10: Int16 = identity(i16)
+let box1: Box<Int32> = Box(value = i32)
+let b1: Int32 = box1.get()
+let box2: Box<Int64> = Box(value = i64)
+let b2: Int64 = box2.get()
+let box3: Box<UInt32> = Box(value = u32)
+let b3: UInt32 = box3.get()
+let box4: Box<Float64> = Box(value = f64)
+let b4: Float64 = box4.get()
+let box5: Box<Strand> = Box(value = strand)
+let b5: Strand = box5.get()`,
 		},
 		entrypoint: "app.hex",
 	},
@@ -130,12 +130,12 @@ b5: Strand := box5.get()`,
     F from "./extra/f",
     G from "./extra/g"
 end
-answer: Int32 := A.run() + B.run() + D.run() + E.run() + F.run() + G.run()`,
+let answer: Int32 = A.run() + B.run() + D.run() + E.run() + F.run() + G.run()`,
 			"a.hex": `import
     C from "./util/c"
 end
 fun run(): Int32 do
-    origin: C.Point := C.origin()
+    let origin: C.Point = C.origin()
     return origin.width() + 1
 end
 export
@@ -200,21 +200,21 @@ end`,
 		name: "collections",
 		sources: map[string]string{
 			"app.hex": `fun demo(h: Heap): Int32 do
-    values: List<Int32> := List<Int32>(h)
+    let values: List<Int32> = List<Int32>(h)
     defer values.free(h)
     values.push(3)
     values.push(6)
-    totals: Dict<Int32, Int64> := Dict<Int32, Int64>(h)
+    let totals: Dict<Int32, Int64> = Dict<Int32, Int64>(h)
     defer totals.free(h)
     totals.insert(1, 90)
     totals.insert(2, 75)
-    fixed: Array<Float64, 4> := [1.5, 2.5, 3.5, 4.5]
-    view: Slice<Float64> := fixed.slice(0, 4)
-    names: List<Strand> := List<Strand>(h)
+    let fixed: Array<Float64, 4> = [1.5, 2.5, 3.5, 4.5]
+    let view: Slice<Float64> = fixed.slice(0, 4)
+    let names: List<Strand> = List<Strand>(h)
     defer names.free(h)
     names.push("alpha")
     names.push("beta")
-    mut total: Int32 := values[0] + totals.get(1).to<Int32>() + view[0].to<Int32>()
+    let mut total: Int32 = values[0] + totals.get(1).to<Int32>() + view[0].to<Int32>()
     for name in names do
         total = total + name.length().to<Int32>()
     end
@@ -227,10 +227,10 @@ end`,
 		name: "text",
 		sources: map[string]string{
 			"app.hex": `fun count_letters(text: String): Int32 do
-    cursor: RuneCursor := text.rune_cursor()
-    mut letters: Int32 := 0
+    let cursor: RuneCursor = text.rune_cursor()
+    let mut letters: Int32 = 0
     while cursor.has_next() do
-        value: Rune := cursor.next()
+        let value: Rune = cursor.next()
         if value == ' ' then
             continue
         end
@@ -239,11 +239,11 @@ end`,
     return letters
 end
 fun demo(h: Heap): Int32 do
-    text: String := "caf\u{00E9} finale \u{03BB}"
-    raw: Slice<Byte> := text.bytes()
-    label: Strand := "hexal"
-    runtime: String := label.to_string(h)
-    mut total: Int32 := count_letters(text) + raw[1].to<Int32>() + runtime.length().to<Int32>()
+    let text: String = "caf\u{00E9} finale \u{03BB}"
+    let raw: Slice<Byte> = text.bytes()
+    let label: Strand = "hexal"
+    let runtime: String = label.to_string(h)
+    let mut total: Int32 = count_letters(text) + raw[1].to<Int32>() + runtime.length().to<Int32>()
     runtime.free(h)
     return total
 end`,
@@ -258,20 +258,20 @@ fun square(value: Int32): Int32 do
     return value * value
 end
 fun run(h: Heap): Int32 | Error do
-    task: Task<Int32> := try spawn square(6)
-    channel: Channel<Int32> := try Channel<Int32>(h, 4)
+    let task: Task<Int32> = try spawn square(6)
+    let channel: Channel<Int32> = try Channel<Int32>(h, 4)
     defer channel.free(h)
     channel.send(task.join())
     channel.close()
-    step: Int32 | EoS := channel.receive()
-    mut total: Int32 := 0
+    let step: Int32 | EoS = channel.receive()
+    let mut total: Int32 = 0
     if step is Int32 then
         total = total + step
     end
-    mutex: Mutex := try Mutex(h)
+    let mutex: Mutex = try Mutex(h)
     defer mutex.free(h)
     mutex.lock()
-    mut shared: Shared := Shared(count = Atomic<Int32>(0))
+    let mut shared: Shared = Shared(count = Atomic<Int32>(0))
     shared.count.fetch_add(1)
     mutex.unlock()
     total = total + shared.count.load()
@@ -292,15 +292,15 @@ fun level3(): Int32 | Error do
 end
 fun level2(): Int32 | Error do
     errdefer rollback()
-    value: Int32 := try level3()
+    let value: Int32 = try level3()
     return value + 1
 end
 fun level1(): Int32 | Error do
     defer spill(1)
-    value: Int32 := try level2()
+    let value: Int32 = try level2()
     return value + 1
 end
-result: Int32 | Error := level1()`,
+let result: Int32 | Error = level1()`,
 		},
 		entrypoint: "app.hex",
 	},

@@ -1,7 +1,7 @@
 # RFC 0218: `let` Declarations and `=` Binding
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; not scheduled
+- Status: Implemented
 - Created: 2026-09-18
 - Updated: 2026-09-19
 - Scope: replace the `:=` value-binding operator with a mandatory `let`

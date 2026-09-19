@@ -1,9 +1,9 @@
 package generator
 
-// Static module values: program-lifetime storage lowered directly to C
-// static storage. One definition lives in its owning module's C file; an
-// exported value additionally gets one extern declaration in that module's
-// header. No module-init function or accessor wrapper exists.
+// Module constants: one immutable owner-qualified object per constant. A
+// private constant is `static const` in its owning module's C file; an exported
+// constant is `const` there plus one `extern const` declaration in that
+// module's header. No module-init function or accessor wrapper exists.
 
 import (
 	"fmt"
@@ -12,52 +12,39 @@ import (
 	"hexal/compiler/checker"
 )
 
-// moduleValueCName is the module value's owner-qualified generated symbol,
-// used identically for its definition, its extern declaration, and every
-// qualified read, write, or address-of.
+// moduleValueCName is the constant's owner-qualified generated symbol, used
+// identically for its definition, its extern declaration, and every qualified
+// read or address-of.
 func moduleValueCName(name, owner string) string {
 	return "hex_v_" + owner + "_" + name
 }
 
-// moduleValueDefinition renders one module value's C definition. declaration
-// already carries `const` for a fixed value and omits it for `mut`; the
-// direct fixed Atomic exception is handled the same way declaration handles
-// every other Atomic-typed binding, keeping its `_Atomic` spelling without
-// `const`.
-//
-// A module value is C static storage, so its initializer must be a C
-// constant expression. Every other checked source in the static-initializer
-// allowlist already renders as one, but Atomic<T>(initial) renders as a call
-// to hex_atomic_T_new, a function that exists only to give construction a
-// uniform call shape (its body is exactly `return value;`); a static
-// initializer calling it is invalid C ("initializer element is not a
-// compile-time constant"). The checker already restricts a fixed Atomic
-// module value to exactly one AtomicConstructorExpression source (see
-// checkModuleValueDeclaration), so its one checked argument is used as the
-// initializer directly instead, which is the same constant the wrapper call
-// would have passed through unchanged.
+// moduleValueDefinition renders one constant's C definition. declaration
+// already carries `const`; a private constant additionally has internal
+// linkage. Every accepted initializer is a C constant expression, so it
+// renders directly.
 func moduleValueDefinition(value checker.ModuleValueDeclaration, owner string, state *expressionValidation) (string, error) {
 	name := moduleValueCName(value.Name, owner)
-	source := value.Source
-	if value.Atomic {
-		source = value.Source.Node.Arguments[0]
-	}
-	initializer, err := renderOperandWithState(source, state)
+	initializer, err := renderOperandWithState(value.Source, state)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%s = %s;\n", declaration(value.Type, name, value.Mutable), initializer), nil
+	linkage := ""
+	if !value.Exported {
+		linkage = "static "
+	}
+	return fmt.Sprintf("%s%s = %s;\n", linkage, declaration(value.Type, name, false), initializer), nil
 }
 
-// moduleValueExternDeclaration renders one module value's header
+// moduleValueExternDeclaration renders one exported constant's header
 // declaration: the same storage, `extern`-qualified.
 func moduleValueExternDeclaration(value checker.ModuleValueDeclaration, owner string) string {
 	name := moduleValueCName(value.Name, owner)
-	return "extern " + declaration(value.Type, name, value.Mutable) + ";\n"
+	return "extern " + declaration(value.Type, name, false) + ";\n"
 }
 
-// writeModuleValueDefinitions emits every module value's C definition, in
-// checked declaration order, into the owning module's C file.
+// writeModuleValueDefinitions emits every constant's C definition, in checked
+// declaration order, into the owning module's C file.
 func writeModuleValueDefinitions(result *strings.Builder, values []checker.ModuleValueDeclaration, owner string, state *expressionValidation) error {
 	for _, value := range values {
 		definition, err := moduleValueDefinition(value, owner, state)
@@ -69,9 +56,8 @@ func writeModuleValueDefinitions(result *strings.Builder, values []checker.Modul
 	return nil
 }
 
-// writeExportedModuleValueDeclarations emits every exported module value's
-// extern declaration, in checked declaration order, into the owning
-// module's header.
+// writeExportedModuleValueDeclarations emits every exported constant's extern
+// declaration, in checked declaration order, into the owning module's header.
 func writeExportedModuleValueDeclarations(result *strings.Builder, values []checker.ModuleValueDeclaration, owner string) {
 	for _, value := range values {
 		if !value.Exported {

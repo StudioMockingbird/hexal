@@ -83,7 +83,7 @@ func TestModeOptionsReachTheBackendExactly(t *testing.T) {
 			dir := t.TempDir()
 			// A heap program selects the mimalloc runtime dependency, so the
 			// pack include root must reach generated compiles.
-			writeSource(t, dir, "main.hex", "fun demo(h: Heap): Int32 do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(7)\n    return values[0]\nend\nprint(demo(Heap()))\n")
+			writeSource(t, dir, "main.hex", "fun demo(h: Heap): Int32 do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(7)\n    return values[0]\nend\nprint(demo(Heap()))\n")
 			result := buildInMode(t, dir, mode)
 			options := Options(mode)
 
@@ -137,7 +137,7 @@ func TestModeOptionsReachTheBackendExactly(t *testing.T) {
 // bytes rather than trusting the type.
 func TestGeneratedCIsByteIdenticalAcrossModes(t *testing.T) {
 	requireBackend(t)
-	sources := map[string]string{"app.hex": "fun demo(h: Heap): Int32 do\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(7)\n    return values[0]\nend\nprint(demo(Heap()))\n"}
+	sources := map[string]string{"app.hex": "fun demo(h: Heap): Int32 do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(7)\n    return values[0]\nend\nprint(demo(Heap()))\n"}
 	first := compiler.Compile(sources, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU})
 	second := compiler.Compile(sources, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU})
 	if len(first.Files) != len(second.Files) || len(first.Files) == 0 {
@@ -163,7 +163,7 @@ func TestGeneratedCIsByteIdenticalAcrossModes(t *testing.T) {
 func TestModesProduceIdenticalProgramBehavior(t *testing.T) {
 	requireBackend(t)
 	const program = "fun demo(h: Heap): Int32 do\n" +
-		"    values: List<Int32> := List<Int32>(h)\n" +
+		"    let values: List<Int32> = List<Int32>(h)\n" +
 		"    defer values.free(h)\n" +
 		"    values.push(7)\n" +
 		"    values.push(35)\n" +
@@ -208,7 +208,7 @@ func TestReleaseIsSmallerAndCarriesNoDebugInformation(t *testing.T) {
 	sizes := map[BuildMode]int64{}
 	for _, mode := range []BuildMode{ModeDebug, ModeRelease} {
 		dir := t.TempDir()
-		writeSource(t, dir, "main.hex", "values: Array<Int32, 2> := [1, 2]\nprint(values[0])\n")
+		writeSource(t, dir, "main.hex", "let values: Array<Int32, 2> = [1, 2]\nprint(values[0])\n")
 		result := buildInMode(t, dir, mode)
 		info, err := os.Stat(result.Executable)
 		if err != nil {

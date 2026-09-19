@@ -39,7 +39,7 @@ func seedSources(f *testing.F) []string {
 var rejectedSeeds = []string{
 	"",
 	"fun (",
-	"x: := 1",
+	"let x: = 1",
 	"module M = import \"",
 	"\x00\x01\xff",
 }

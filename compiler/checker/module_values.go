@@ -1,9 +1,9 @@
 package checker
 
-// Static module values: the `static [mut] name [: type] := expr` top-level
-// declaration. Module storage introduces no executable initializer, so the
-// accepted initializer set is a closed allowlist the compiler can lower
-// directly to C static storage.
+// Module constants: a fixed top-level `let` in a non-entry module, lowered to
+// one immutable owner-qualified C object. The accepted initializer set is a
+// closed allowlist the compiler can lower directly to a C constant, and no
+// binding reference is part of it.
 
 import (
 	"hexal/compiler/lexer"
@@ -11,19 +11,28 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// moduleDataDiagnostic already exists for the unreachable-module-data case;
-// staticInitializerDiagnostic is this feature's own rejection.
-func staticInitializerDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
-	return typeErrorAt(token, "module value initializer requires a static value")
+// moduleConstantInitializerDiagnostic rejects an initializer outside the
+// closed static set.
+func moduleConstantInitializerDiagnostic(name lexer.Token) compilerTypes.Diagnostic {
+	return typeErrorAt(name, "module constant "+name.Lexeme+" must be statically initialized")
 }
 
-// checkModuleValueDeclaration checks one top-level `static` declaration: its
-// type (declared or inferred), its initializer against the static-value
-// allowlist, and registers it as module storage rather than a lexical local.
-func checkModuleValueDeclaration(declaration parser.ModuleValueDeclaration, ctx checkContext) (ModuleValueDeclaration, compilerTypes.Diagnostics) {
+// checkModuleConstant checks one fixed top-level declaration in a non-entry
+// module as a module constant: its type, its initializer against the closed
+// static-value allowlist, and its Atomic containment. A mutable declaration is
+// rejected before its initializer is checked.
+func checkModuleConstant(declaration parser.Declaration, moduleID string, ctx checkContext, itemIndex int, typeIndexByName map[string]int) (ModuleValueDeclaration, compilerTypes.Diagnostics) {
+	if declaration.Mutable {
+		return ModuleValueDeclaration{}, compilerTypes.Diagnostics{
+			moduleErrorAt(declaration.Name, "imported module "+moduleID+" cannot declare mutable top-level binding "+declaration.Name.Lexeme+"; pass explicit state instead"),
+		}
+	}
 	var expectedUse compilerTypes.TypeUse
 	hasExpected := false
 	if declaration.Type != nil {
+		if token, tooLate := firstTypeNameDeclaredAtOrAfter(declaration.Type, itemIndex, typeIndexByName); tooLate {
+			return ModuleValueDeclaration{}, compilerTypes.Diagnostics{typeErrorAt(token, "unknown type "+token.Lexeme)}
+		}
 		use, diagnostic := resolveTypeUse(declaration.Type, declaration.Name, ctx.typeEnvironment, ctx.names.generics)
 		if diagnostic != nil {
 			return ModuleValueDeclaration{}, compilerTypes.Diagnostics{*diagnostic}
@@ -43,35 +52,25 @@ func checkModuleValueDeclaration(declaration parser.ModuleValueDeclaration, ctx 
 	if hasExpected && !assignable(expectedUse.Type, checked.typ) {
 		return ModuleValueDeclaration{}, compilerTypes.Diagnostics{typeMismatchDiagnostic(expectedUse.Type, checked.typ, checked.token)}
 	}
-
-	// The direct fixed Atomic<T> module value is the one constructed-value
-	// exception: it is accepted only as a fixed (non-mut) binding whose
-	// initializer is exactly Atomic<T>(literal).
-	isAtomic := checked.typ.Atomic != nil
-	if isAtomic {
-		if declaration.Mutable {
-			return ModuleValueDeclaration{}, compilerTypes.Diagnostics{typeErrorAt(declaration.Name, "a mut Atomic module value is invalid; Atomic mutation belongs to its own operations")}
+	// An Atomic is mutable runtime state even when its binding is fixed, so a
+	// constant type may not contain one directly or through any aggregate.
+	if compilerTypes.ContainsAtomic(checked.typ) {
+		return ModuleValueDeclaration{}, compilerTypes.Diagnostics{
+			typeErrorAt(declaration.Name, "module constant "+declaration.Name.Lexeme+" cannot contain mutable Atomic state; pass explicit state instead"),
 		}
-		if checked.source.Node.Kind != AtomicConstructorExpression {
-			return ModuleValueDeclaration{}, compilerTypes.Diagnostics{staticInitializerDiagnostic(checked.token)}
-		}
-	} else if !isStaticInitializerOperand(checked.source) {
-		return ModuleValueDeclaration{}, compilerTypes.Diagnostics{staticInitializerDiagnostic(checked.token)}
 	}
-
-	binding := ctx.names.newBindingID()
-	result := ModuleValueDeclaration{
+	if !isStaticInitializerOperand(checked.source) {
+		return ModuleValueDeclaration{}, compilerTypes.Diagnostics{moduleConstantInitializerDiagnostic(declaration.Name)}
+	}
+	return ModuleValueDeclaration{
 		Name:         declaration.Name.Lexeme,
-		Binding:      binding,
+		Binding:      ctx.names.newBindingID(),
 		Type:         checked.typ,
 		TypeUse:      checked.use,
 		Source:       checked.source,
-		Mutable:      declaration.Mutable,
-		Atomic:       isAtomic,
 		SourceLine:   declaration.Name.Line,
 		SourceColumn: declaration.Name.Column,
-	}
-	return result, nil
+	}, nil
 }
 
 // isStaticInitializerOperand reports whether operand is built entirely from

@@ -8,7 +8,7 @@ import (
 // A program using a checked conversion emits hexal/numeric.h containing that
 // helper; a scalar-only program emits no numeric component.
 func TestNumericComponentEmitsConversionHelper(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo() do\n    x: Float64 := 42.0\n    y: Int32 := x.to<Int32>()\nend")
+	program := checkedGeneratorSource(t, "fun demo() do\n    let x: Float64 = 42.0\n    let y: Int32 = x.to<Int32>()\nend")
 	files := generateOne(t, program)
 	numeric, exists := files["hexal/numeric.h"]
 	if !exists {
@@ -43,7 +43,7 @@ func TestNumericComponentEmitsDivisionHelpers(t *testing.T) {
 
 // A direct-only conversion program emits no numeric component.
 func TestNumericComponentAbsentForDirectConversions(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo() do\n    x: Int32 := 42\n    y: Float64 := x.to<Float64>()\nend")
+	program := checkedGeneratorSource(t, "fun demo() do\n    let x: Int32 = 42\n    let y: Float64 = x.to<Float64>()\nend")
 	files := generateOne(t, program)
 	if _, exists := files["hexal/numeric.h"]; exists {
 		t.Fatalf("direct-conversion program emitted hexal/numeric.h")
@@ -55,7 +55,7 @@ func TestNumericComponentAbsentForDirectConversions(t *testing.T) {
 
 // Equivalent compilations render identical numeric artifacts.
 func TestNumericTemplatesRenderDeterministic(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo() do\n    x: Float64 := 42.0\n    y: Int32 := x.to<Int32>()\nend")
+	program := checkedGeneratorSource(t, "fun demo() do\n    let x: Float64 = 42.0\n    let y: Int32 = x.to<Int32>()\nend")
 	first := generateOne(t, program)
 	second := generateOne(t, program)
 	if first["hexal/numeric.h"] != second["hexal/numeric.h"] {

@@ -317,8 +317,8 @@ func TestMonomorphizationUniqueness(t *testing.T) {
 		"fun runB(): Int32 do\n" +
 		"    return Lib.GenIdentity<Int32>(4)\n" +
 		"end\n" +
-		"a: Int32 := runA()\n" +
-		"b: Int32 := runB()\n"
+		"let a: Int32 = runA()\n" +
+		"let b: Int32 = runB()\n"
 	lib := "fun GenIdentity<T>(value: T): T do\n" +
 		"    return value\n" +
 		"end\n" +

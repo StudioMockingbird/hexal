@@ -7,7 +7,7 @@ import (
 )
 
 func TestLosslessNumericComparisonWidening(t *testing.T) {
-	result := compileSource("fun demo() do\n    i32: Int32 := 1\n    i64: Int64 := 2\n    u32: UInt32 := 3\n    f32: Float32 := 1.5\n    same: Bool := i32 == i64\n    cross: Bool := i32 == u32\n    order: Bool := i32 < f32\n    small: Int16 := 1\n    tiny: UInt8 := 2\n    narrow: Bool := small == tiny\nend")
+	result := compileSource("fun demo() do\n    let i32: Int32 = 1\n    let i64: Int64 = 2\n    let u32: UInt32 = 3\n    let f32: Float32 = 1.5\n    let same: Bool = i32 == i64\n    let cross: Bool = i32 == u32\n    let order: Bool = i32 < f32\n    let small: Int16 = 1\n    let tiny: UInt8 = 2\n    let narrow: Bool = small == tiny\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -28,9 +28,9 @@ func TestLosslessNumericComparisonRejections(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"fun demo() do\n    i64: Int64 := 1\n    u64: UInt64 := 2\n    bad: Bool := i64 == u64\nend", "comparison has no lossless common numeric type"},
-		{"fun demo() do\n    i64: Int64 := 1\n    u64: UInt64 := 2\n    bad: Bool := i64 < u64\nend", "comparison has no lossless common numeric type"},
-		{"fun demo() do\n    f32: Float32 := 1.5\n    i64: Int64 := 1\n    bad: Bool := f32 == i64\nend", "comparison has no lossless common numeric type"},
+		{"fun demo() do\n    let i64: Int64 = 1\n    let u64: UInt64 = 2\n    let bad: Bool = i64 == u64\nend", "comparison has no lossless common numeric type"},
+		{"fun demo() do\n    let i64: Int64 = 1\n    let u64: UInt64 = 2\n    let bad: Bool = i64 < u64\nend", "comparison has no lossless common numeric type"},
+		{"fun demo() do\n    let f32: Float32 = 1.5\n    let i64: Int64 = 1\n    let bad: Bool = f32 == i64\nend", "comparison has no lossless common numeric type"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
@@ -40,7 +40,7 @@ func TestLosslessNumericComparisonRejections(t *testing.T) {
 }
 
 func TestPointerIdentityEquality(t *testing.T) {
-	result := compileSource("fun demo() do\n    mut value: Int32 := 1\n    left: Ptr<Int32> := @value\n    right: Ptr<Int32> := left\n    same: Bool := left == right\n    different: Bool := left != right\nend")
+	result := compileSource("fun demo() do\n    let mut value: Int32 = 1\n    let left: Ptr<Int32> = @value\n    let right: Ptr<Int32> = left\n    let same: Bool = left == right\n    let different: Bool = left != right\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -50,14 +50,14 @@ func TestPointerIdentityEquality(t *testing.T) {
 }
 
 func TestPointerEqualityRejectsStrengthening(t *testing.T) {
-	result := compileSource("fun demo() do\n    mut value: Int32 := 1\n    left: Ptr<Int32> := @value\n    right: Ptr<mut Int32> := @value\n    bad: Bool := left == right\nend")
+	result := compileSource("fun demo() do\n    let mut value: Int32 = 1\n    let left: Ptr<Int32> = @value\n    let right: Ptr<mut Int32> = @value\n    let bad: Bool = left == right\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "pointer equality requires identical pointer types") {
 		t.Fatalf("Compile stderr = %#v, want pointer-identity diagnostic", result.Stderr)
 	}
 }
 
 func TestObjectEquality(t *testing.T) {
-	result := compileSource("type Point is struct x: Int32, y: Int32, end\nfun demo() do\n    left: Point := Point(x = 1, y = 2, )\n    right: Point := Point(x = 1, y = 2, )\n    same: Bool := left == right\n    different: Bool := left != right\nend")
+	result := compileSource("type Point is struct x: Int32, y: Int32, end\nfun demo() do\n    let left: Point = Point(x = 1, y = 2, )\n    let right: Point = Point(x = 1, y = 2, )\n    let same: Bool = left == right\n    let different: Bool = left != right\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -78,13 +78,13 @@ func TestEqualityUnavailable(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"fun helper(value: Int32) do\nend\nfun demo() do\n    callback: Fun<(Int32)> := helper\n    other: Fun<(Int32)> := callback\n    bad: Bool := callback == other\nend", "function values are not equality-comparable"},
-		{"fun helper(value: Int32) do\nend\nfun demo() do\n    mixed: Fun<(Int32)> | Int32 := helper\n    other: Fun<(Int32)> | Int32 := mixed\n    bad: Bool := mixed == other\nend", "union member Fun<(Int32)> does not support equality"},
+		{"fun helper(value: Int32) do\nend\nfun demo() do\n    let callback: Fun<(Int32)> = helper\n    let other: Fun<(Int32)> = callback\n    let bad: Bool = callback == other\nend", "function values are not equality-comparable"},
+		{"fun helper(value: Int32) do\nend\nfun demo() do\n    let mixed: Fun<(Int32)> | Int32 = helper\n    let other: Fun<(Int32)> | Int32 = mixed\n    let bad: Bool = mixed == other\nend", "union member Fun<(Int32)> does not support equality"},
 		// An Array/Slice/List element that cannot compare must name its
 		// element type; it must never fall back to an empty member name,
 		// which is what "member  does not support ==" would render as.
-		{"fun helper(x: Int32): Int32 do return x end\na: Array<Fun<(Int32) : Int32>, 1> := [helper]\nb: Array<Fun<(Int32) : Int32>, 1> := [helper]\nx: Bool := a == b\n", "element type Fun<(Int32) : Int32> does not support =="},
-		{"h1: Array<Heap, 1> := [Heap()]\nh2: Array<Heap, 1> := [Heap()]\nx: Bool := h1 == h2\n", "element type Heap does not support =="},
+		{"fun helper(x: Int32): Int32 do return x end\nlet a: Array<Fun<(Int32) : Int32>, 1> = [helper]\nlet b: Array<Fun<(Int32) : Int32>, 1> = [helper]\nlet x: Bool = a == b\n", "element type Fun<(Int32) : Int32> does not support =="},
+		{"let h1: Array<Heap, 1> = [Heap()]\nlet h2: Array<Heap, 1> = [Heap()]\nlet x: Bool = h1 == h2\n", "element type Heap does not support =="},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
@@ -94,7 +94,7 @@ func TestEqualityUnavailable(t *testing.T) {
 }
 
 func TestStringEqualityAndOrdering(t *testing.T) {
-	result := compileSource("fun demo() do\n    left: String := \"abc\"\n    right: String := \"abd\"\n    same: Bool := left == right\n    less: Bool := left < right\n    atMost: Bool := left <= right\n    greater: Bool := left > right\n    atLeast: Bool := left >= right\n    a: Strand := \"abc\"\n    b: Strand := \"abd\"\n    strandLess: Bool := a < b\nend")
+	result := compileSource("fun demo() do\n    let left: String = \"abc\"\n    let right: String = \"abd\"\n    let same: Bool = left == right\n    let less: Bool = left < right\n    let atMost: Bool = left <= right\n    let greater: Bool = left > right\n    let atLeast: Bool = left >= right\n    let a: Strand = \"abc\"\n    let b: Strand = \"abd\"\n    let strandLess: Bool = a < b\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -159,18 +159,18 @@ func TestStringEqualityAndOrdering(t *testing.T) {
 func TestTextEqualityOrderingThroughMemcmp(t *testing.T) {
 	maxPayload := strings.Repeat("a", 31)
 	source := "fun demo() do\n" +
-		"    emptyA: String := \"\"\n" +
-		"    emptyB: String := \"\"\n" +
-		"    sameEmpty: Bool := emptyA == emptyB\n" +
-		"    prefix: String := \"caf\u00E9\"\n" +
-		"    longer: Bool := prefix < \"caf\u00E9!\"\n" +
-		"    full: Strand := \"" + maxPayload + "\"\n" +
-		"    fullSame: Bool := full == full\n" +
-		"    tail: Strand := \"aa\"\n" +
-		"    tailLess: Bool := tail < full\n" +
-		"    emptyStrandA: Strand := \"\"\n" +
-		"    emptyStrandB: Strand := \"\"\n" +
-		"    sameEmptyStrand: Bool := emptyStrandA == emptyStrandB\n" +
+		"    let emptyA: String = \"\"\n" +
+		"    let emptyB: String = \"\"\n" +
+		"    let sameEmpty: Bool = emptyA == emptyB\n" +
+		"    let prefix: String = \"café\"\n" +
+		"    let longer: Bool = prefix < \"café!\"\n" +
+		"    let full: Strand = \"" + maxPayload + "\"\n" +
+		"    let fullSame: Bool = full == full\n" +
+		"    let tail: Strand = \"aa\"\n" +
+		"    let tailLess: Bool = tail < full\n" +
+		"    let emptyStrandA: Strand = \"\"\n" +
+		"    let emptyStrandB: Strand = \"\"\n" +
+		"    let sameEmptyStrand: Bool = emptyStrandA == emptyStrandB\n" +
 		"end"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
@@ -193,7 +193,7 @@ func TestTextEqualityOrderingThroughMemcmp(t *testing.T) {
 }
 
 func TestStrandMemberEqualityUsesMemcmp(t *testing.T) {
-	source := "type Label is struct tag: Strand, end\nfun demo() do\n    left: Label := Label(tag = \"a\")\n    right: Label := Label(tag = \"a\")\n    same: Bool := left == right\nend"
+	source := "type Label is struct tag: Strand, end\nfun demo() do\n    let left: Label = Label(tag = \"a\")\n    let right: Label = Label(tag = \"a\")\n    let same: Bool = left == right\nend"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
@@ -213,14 +213,14 @@ func TestStrandMemberEqualityUsesMemcmp(t *testing.T) {
 }
 
 func TestStringStrandEqualityRejected(t *testing.T) {
-	result := compileSource("fun demo() do\n    text: String := \"abc\"\n    key: Strand := \"abc\"\n    bad: Bool := text == key\nend")
+	result := compileSource("fun demo() do\n    let text: String = \"abc\"\n    let key: Strand = \"abc\"\n    let bad: Bool = text == key\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "equality requires identical canonical non-numeric operand types") {
 		t.Fatalf("Compile stderr = %#v, want strict text-type diagnostic", result.Stderr)
 	}
 }
 
 func TestSequenceEquality(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    fixed: Array<Int32, 2> := [1, 2]\n    other: Array<Int32, 2> := [1, 2]\n    same: Bool := fixed == other\n    values: List<Int32> := List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    view: Slice<Int32> := fixed.slice(0, 2)\n    total: Bool := view == fixed.slice(0, 2)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let other: Array<Int32, 2> = [1, 2]\n    let same: Bool = fixed == other\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    let total: Bool = view == fixed.slice(0, 2)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -242,21 +242,21 @@ func TestSequenceEquality(t *testing.T) {
 
 func TestProgramOwnedEqualitySharedAcrossModules(t *testing.T) {
 	compare := `fun compare(h: Heap): Bool do
-    left: Array<Int32, 2> := [1, 2]
-    right: Array<Int32, 2> := [1, 2]
-    leftView: Slice<Int32> := left.slice(0, 2)
-    rightView: Slice<Int32> := right.slice(0, 2)
-    leftList: List<Int32> := List<Int32>(h)
-    rightList: List<Int32> := List<Int32>(h)
+    let left: Array<Int32, 2> = [1, 2]
+    let right: Array<Int32, 2> = [1, 2]
+    let leftView: Slice<Int32> = left.slice(0, 2)
+    let rightView: Slice<Int32> = right.slice(0, 2)
+    let leftList: List<Int32> = List<Int32>(h)
+    let rightList: List<Int32> = List<Int32>(h)
     leftList.push(1)
     rightList.push(1)
-    leftError: Error := Error(ErrorKind.Other(header = "x"), "y")
-    rightError: Error := Error(ErrorKind.Other(header = "x"), "y")
+    let leftError: Error = Error(ErrorKind.Other(header = "x"), "y")
+    let rightError: Error = Error(ErrorKind.Other(header = "x"), "y")
     return (left == right) and (leftView == rightView) and (leftList == rightList) and (leftError == rightError)
 end
 `
 	result := compiler.Compile(map[string]string{
-		"app.hex":  "import\n    Math from \"./math\"\nend\n" + compare + "root: Bool := compare(Heap())\nother: Bool := Math.compare(Heap())\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\n" + compare + "let root: Bool = compare(Heap())\nlet other: Bool = Math.compare(Heap())\n",
 		"math.hex": compare + "export\n    compare\nend\n",
 	}, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -290,10 +290,10 @@ end
 
 func TestModuleOwnedEqualityCallsProgramOwnedHelper(t *testing.T) {
 	result := compileSource(`fun demo(h: Heap): Bool do
-    leftList: List<Int32> := List<Int32>(h)
-    rightList: List<Int32> := List<Int32>(h)
-    left: List<Int32> | Bool := leftList
-    right: List<Int32> | Bool := rightList
+    let leftList: List<Int32> = List<Int32>(h)
+    let rightList: List<Int32> = List<Int32>(h)
+    let left: List<Int32> | Bool = leftList
+    let right: List<Int32> | Bool = rightList
     return left == right
 end
 `)
@@ -310,21 +310,21 @@ end
 }
 
 func TestSequenceEqualityRequiresSameShape(t *testing.T) {
-	result := compileSource("fun demo() do\n    fixed: Array<Int32, 2> := [1, 2]\n    other: Array<Int32, 3> := [1, 2, 3]\n    bad: Bool := fixed == other\nend")
+	result := compileSource("fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let other: Array<Int32, 3> = [1, 2, 3]\n    let bad: Bool = fixed == other\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "identical canonical non-numeric operand types") {
 		t.Fatalf("Compile stderr = %#v, want shape-mismatch diagnostic", result.Stderr)
 	}
 }
 
 func TestDictionaryEqualityRejected(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    left: Dict<Int32, Int32> := Dict<Int32, Int32>(h)\n    defer left.free(h)\n    right: Dict<Int32, Int32> := left\n    same: Bool := left == right\nend")
+	result := compileSource("fun demo(h: Heap) do\n    let left: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer left.free(h)\n    let right: Dict<Int32, Int32> = left\n    let same: Bool = left == right\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "dictionary equality is not available") {
 		t.Fatalf("Compile stderr = %#v, want dictionary rejection", result.Stderr)
 	}
 }
 
 func TestAdtEquality(t *testing.T) {
-	result := compileSource("type Shape is union | Circle as r: Int32, end | Square as a: Int32, end end\nfun demo() do\n    left: Shape := Shape.Circle(r = 1, )\n    right: Shape := Shape.Circle(r = 1, )\n    same: Bool := left == right\nend")
+	result := compileSource("type Shape is union | Circle as r: Int32, end | Square as a: Int32, end end\nfun demo() do\n    let left: Shape = Shape.Circle(r = 1, )\n    let right: Shape = Shape.Circle(r = 1, )\n    let same: Bool = left == right\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -340,7 +340,7 @@ func TestAdtEquality(t *testing.T) {
 }
 
 func TestUnionEqualityWithObjectMember(t *testing.T) {
-	result := compileSource("type Point is struct x: Int32, end\nfun demo() do\n    left: Point | Bool := Point(x = 1, )\n    right: Point | Bool := Point(x = 1, )\n    same: Bool := left == right\nend")
+	result := compileSource("type Point is struct x: Int32, end\nfun demo() do\n    let left: Point | Bool = Point(x = 1, )\n    let right: Point | Bool = Point(x = 1, )\n    let same: Bool = left == right\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -354,9 +354,9 @@ func TestOrderingRejections(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"fun demo() do\n    left: Bool := true\n    right: Bool := false\n    bad: Bool := left < right\nend", "ordering is unavailable for Bool values"},
-		{"fun demo() do\n    mut value: Int32 := 1\n    left: Ptr<Int32> := @value\n    right: Ptr<Int32> := left\n    bad: Bool := left < right\nend", "ordering is unavailable for Ptr<Int32> values"},
-		{"type Point is struct x: Int32, end\nfun demo() do\n    left: Point := Point(x = 1, )\n    right: Point := left\n    bad: Bool := left < right\nend", "ordering is unavailable for Point values"},
+		{"fun demo() do\n    let left: Bool = true\n    let right: Bool = false\n    let bad: Bool = left < right\nend", "ordering is unavailable for Bool values"},
+		{"fun demo() do\n    let mut value: Int32 = 1\n    let left: Ptr<Int32> = @value\n    let right: Ptr<Int32> = left\n    let bad: Bool = left < right\nend", "ordering is unavailable for Ptr<Int32> values"},
+		{"type Point is struct x: Int32, end\nfun demo() do\n    let left: Point = Point(x = 1, )\n    let right: Point = left\n    let bad: Bool = left < right\nend", "ordering is unavailable for Point values"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
@@ -366,7 +366,7 @@ func TestOrderingRejections(t *testing.T) {
 }
 
 func TestGenericEqualityRecheckedAtSpecialization(t *testing.T) {
-	result := compileSource("fun same<T>(a: T, b: T): Bool do\n    return a == b\nend\nfun demo() do\n    equal: Bool := same(1, 2)\n    matched: Bool := same(\"a\", \"b\")\nend")
+	result := compileSource("fun same<T>(a: T, b: T): Bool do\n    return a == b\nend\nfun demo() do\n    let equal: Bool = same(1, 2)\n    let matched: Bool = same(\"a\", \"b\")\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -380,14 +380,14 @@ func TestGenericEqualityRecheckedAtSpecialization(t *testing.T) {
 func TestNilComparisonRulesPreserved(t *testing.T) {
 	// == nil requires a union containing Nil. A plain pointer has no Nil
 	// member, so the literal gate rejects the comparison.
-	result := compileSource("fun demo() do\n    nilSame: Bool := nil == nil\n    mut value: Int32 := 1\n    pointer: Ptr<Int32> := @value\n    bad: Bool := pointer == nil\nend")
+	result := compileSource("fun demo() do\n    let nilSame: Bool = nil == nil\n    let mut value: Int32 = 1\n    let pointer: Ptr<Int32> = @value\n    let bad: Bool = pointer == nil\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "nil requires an expected union containing Nil") {
 		t.Fatalf("Compile stderr = %#v, want standalone-nil diagnostic", result.Stderr)
 	}
 }
 
 func TestListEqualityAccepted(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    left: List<Int32> := List<Int32>(h)\n    defer left.free(h)\n    left.push(1)\n    right: List<Int32> := left\n    same: Bool := left == right\nend")
+	result := compileSource("fun demo(h: Heap) do\n    let left: List<Int32> = List<Int32>(h)\n    defer left.free(h)\n    left.push(1)\n    let right: List<Int32> = left\n    let same: Bool = left == right\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -401,10 +401,10 @@ func TestManagedHandleEqualityRejected(t *testing.T) {
 		name   string
 		source string
 	}{
-		{"Task", "fun worker(): Bool do\n    return true\nend\nfun f(h: Heap): Int32 | Error do\n    task: Task<Bool> := try spawn worker()\n    same: Bool := task == task\n    return 0\nend\n"},
-		{"Channel", "fun f(h: Heap): Int32 | Error do\n    channel: Channel<Int32> := try Channel<Int32>(h, 4)\n    same: Bool := channel == channel\n    return 0\nend\n"},
-		{"Mutex", "fun f(h: Heap): Int32 | Error do\n    mutex: Mutex := try Mutex(h)\n    same: Bool := mutex == mutex\n    return 0\nend\n"},
-		{"Atomic", "counter: Atomic<Int32> := Atomic<Int32>(0)\nsame: Bool := counter == counter\n"},
+		{"Task", "fun worker(): Bool do\n    return true\nend\nfun f(h: Heap): Int32 | Error do\n    let task: Task<Bool> = try spawn worker()\n    let same: Bool = task == task\n    return 0\nend\n"},
+		{"Channel", "fun f(h: Heap): Int32 | Error do\n    let channel: Channel<Int32> = try Channel<Int32>(h, 4)\n    let same: Bool = channel == channel\n    return 0\nend\n"},
+		{"Mutex", "fun f(h: Heap): Int32 | Error do\n    let mutex: Mutex = try Mutex(h)\n    let same: Bool = mutex == mutex\n    return 0\nend\n"},
+		{"Atomic", "let counter: Atomic<Int32> = Atomic<Int32>(0)\nlet same: Bool = counter == counter\n"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			assertRejects(t, testCase.source, "equality is unavailable")
@@ -416,7 +416,7 @@ func TestManagedHandleEqualityRejected(t *testing.T) {
 // singleton-identity truth and neither rendered binding cascades a spurious
 // diagnostic about itself.
 func TestEosComparesByValue(t *testing.T) {
-	source := "same: Bool := eos == eos\ndifferent: Bool := eos != eos\n"
+	source := "let same: Bool = eos == eos\nlet different: Bool = eos != eos\n"
 	result := assertCompiles(t, source)
 	app := rootC(t, result)
 	for _, want := range []string{"hex_v_same", "= true;", "hex_v_different", "= false;"} {

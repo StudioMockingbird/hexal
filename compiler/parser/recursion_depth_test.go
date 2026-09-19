@@ -18,11 +18,11 @@ import (
 // parse; 128 repetitions is one level past it and must be rejected.
 
 func nestedParens(depth int) string {
-	return "x: Int32 := " + strings.Repeat("(", depth) + "1" + strings.Repeat(")", depth)
+	return "let x: Int32 = " + strings.Repeat("(", depth) + "1" + strings.Repeat(")", depth)
 }
 
 func nestedArrayLiterals(depth int) string {
-	return "x := " + strings.Repeat("[", depth) + "1" + strings.Repeat("]", depth)
+	return "let x = " + strings.Repeat("[", depth) + "1" + strings.Repeat("]", depth)
 }
 
 func nestedMutPtrType(depth int) string {

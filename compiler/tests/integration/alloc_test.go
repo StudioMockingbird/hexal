@@ -7,7 +7,7 @@ import (
 )
 
 func TestHeapNewPerformsNoAllocation(t *testing.T) {
-	result := compileSource("h: Heap := Heap()")
+	result := compileSource("let h: Heap = Heap()")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -20,7 +20,7 @@ func TestHeapNewPerformsNoAllocation(t *testing.T) {
 }
 
 func TestHeapAllocateInitializesAndReturnsWritablePointer(t *testing.T) {
-	result := compileSource("h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) ^p = 42")
+	result := compileSource("let h: Heap = Heap() let p: Ptr<mut Int32> = h.allocate<Int32>(0) ^p = 42")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -33,7 +33,7 @@ func TestHeapAllocateInitializesAndReturnsWritablePointer(t *testing.T) {
 // initializer once. Nothing recovers a header, offset, or allocator, and no
 // zeroing precedes an initializer that writes the complete value.
 func TestHeapAllocationIsHeaderlessAndUnzeroed(t *testing.T) {
-	result := compileSource("h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0)")
+	result := compileSource("let h: Heap = Heap() let p: Ptr<mut Int32> = h.allocate<Int32>(0)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -80,28 +80,28 @@ func TestHeapAllocationIsHeaderlessAndUnzeroed(t *testing.T) {
 }
 
 func TestHeapFreeAcceptsReadOnlyAndWritablePointers(t *testing.T) {
-	result := compileSource("h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) defer h.free(p)")
+	result := compileSource("let h: Heap = Heap() let p: Ptr<mut Int32> = h.allocate<Int32>(0) defer h.free(p)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	if !strings.Contains(rootC(t, result), "hex_heap_free(") {
 		t.Fatalf("generated C = %q, want checked deallocation", rootC(t, result))
 	}
-	result = compileSource("h: Heap := Heap() p: Ptr<mut Int32> := h.allocate<Int32>(0) reader: Ptr<Int32> := p defer h.free(reader)")
+	result = compileSource("let h: Heap = Heap() let p: Ptr<mut Int32> = h.allocate<Int32>(0) let reader: Ptr<Int32> = p defer h.free(reader)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("read-only free exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 }
 
 func TestHeapAllocateRejectsIncompleteAndFunTargets(t *testing.T) {
-	result := compileSource("h: Heap := Heap() p: Ptr<mut Unknown> := h.allocate<Unknown>(nil)")
+	result := compileSource("let h: Heap = Heap() let p: Ptr<mut Unknown> = h.allocate<Unknown>(nil)")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "allocation requires a complete finite type") {
 		t.Fatalf("diagnostics = %#v, want incomplete-type error", result.Stderr)
 	}
 }
 
 func TestDeferCapturesDirectCallArguments(t *testing.T) {
-	result := compileSource("fun record(value: Int32) do end mut value: Int32 := 1 defer record(value) value = 2")
+	result := compileSource("fun record(value: Int32) do end let mut value: Int32 = 1 defer record(value) value = 2")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -111,7 +111,7 @@ func TestDeferCapturesDirectCallArguments(t *testing.T) {
 }
 
 func TestDeferEvaluatesOtherExpressionsAtExit(t *testing.T) {
-	result := compileSource("mut value: Int32 := 1 defer value value = 2")
+	result := compileSource("let mut value: Int32 = 1 defer value value = 2")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -133,7 +133,7 @@ func TestDeferRunsInReverseRegistrationOrder(t *testing.T) {
 }
 
 func TestDeferRunsOnBranchCompletion(t *testing.T) {
-	result := compileSource("fun record(value: Int32) do end h: Heap := Heap() flag: Bool := true if flag then defer record(1) end")
+	result := compileSource("fun record(value: Int32) do end let h: Heap = Heap() let flag: Bool = true if flag then defer record(1) end")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -143,7 +143,7 @@ func TestDeferRunsOnBranchCompletion(t *testing.T) {
 }
 
 func TestDeferRunsOnLoopIterationCompletion(t *testing.T) {
-	result := compileSource("fun record(value: Int32) do end mut flag: Bool := true while flag do defer record(1) flag = false end")
+	result := compileSource("fun record(value: Int32) do end let mut flag: Bool = true while flag do defer record(1) flag = false end")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -153,7 +153,7 @@ func TestDeferRunsOnLoopIterationCompletion(t *testing.T) {
 }
 
 func TestDeferRunsOnReturn(t *testing.T) {
-	result := compileSource("fun record(value: Int32) do end fun run(): Int32 do\nmut flag: Bool := true\nif flag then\n    defer record(1)\n    return 0\nend\nreturn 1\nend")
+	result := compileSource("fun record(value: Int32) do end fun run(): Int32 do\nlet mut flag: Bool = true\nif flag then\n    defer record(1)\n    return 0\nend\nreturn 1\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -163,7 +163,7 @@ func TestDeferRunsOnReturn(t *testing.T) {
 }
 
 func TestDeferRunsOnBreakAndContinue(t *testing.T) {
-	result := compileSource("fun record(value: Int32) do end mut flag: Bool := true while flag do defer record(1) break end")
+	result := compileSource("fun record(value: Int32) do end let mut flag: Bool = true while flag do defer record(1) break end")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -173,7 +173,7 @@ func TestDeferRunsOnBreakAndContinue(t *testing.T) {
 }
 
 func TestDeferNestedScopesUnwindInnerToOuter(t *testing.T) {
-	result := compileSource("fun record(value: Int32) do end fun run(): Int32 do\nmut flag: Bool := true\nif flag then\n    defer record(1)\n    while flag do\n        defer record(2)\n        break\n    end\n    return 0\nend\nreturn 1\nend")
+	result := compileSource("fun record(value: Int32) do end fun run(): Int32 do\nlet mut flag: Bool = true\nif flag then\n    defer record(1)\n    while flag do\n        defer record(2)\n        break\n    end\n    return 0\nend\nreturn 1\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -185,14 +185,14 @@ func TestDeferNestedScopesUnwindInnerToOuter(t *testing.T) {
 }
 
 func TestHeapDiagnosticsFailClosed(t *testing.T) {
-	result := compileSource("h: Heap := Heap() mut v: Int32 := 1 h.free(v)")
+	result := compileSource("let h: Heap = Heap() let mut v: Int32 = 1 h.free(v)")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "value is not an allocation produced by this Heap") {
 		t.Fatalf("diagnostics = %#v, want non-pointer free error", result.Stderr)
 	}
 }
 
 func TestHeapFreeAsBareStatement(t *testing.T) {
-	result := compileSource("fun f(h: Heap) do\n    p: Ptr<mut Int32> := h.allocate<Int32>(0)\n    h.free(p)\nend\n")
+	result := compileSource("fun f(h: Heap) do\n    let p: Ptr<mut Int32> = h.allocate<Int32>(0)\n    h.free(p)\nend\n")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

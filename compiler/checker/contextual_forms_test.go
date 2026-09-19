@@ -127,7 +127,7 @@ func TestUnionInjectionPredicateIsUnchangedByTheInferenceCases(t *testing.T) {
 // smallest declaration that accepts it, then returns the initializer.
 func parseOneExpression(t *testing.T, source string) parser.Expression {
 	t.Helper()
-	program := parseProgram(t, "fun probe(ready: Bool) do\n    value: Int32 := "+source+"\nend")
+	program := parseProgram(t, "fun probe(ready: Bool) do\n    let value: Int32 = "+source+"\nend")
 	for _, item := range program.Items {
 		function, ok := item.(parser.FunctionDeclaration)
 		if !ok {

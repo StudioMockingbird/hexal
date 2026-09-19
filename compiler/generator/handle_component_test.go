@@ -16,7 +16,7 @@ import (
 
 func handleComponentSource(t *testing.T) string {
 	t.Helper()
-	program := checkedGeneratorSource(t, "import\n  Fs from std.fs\nend\nfun f(): Nil | Error do\n    x := try Fs.open(\"a\", Fs.FileMode.Read())\n    try x.close()\n    return nil\nend\nr: Nil | Error := f()\n")
+	program := checkedGeneratorSource(t, "import\n  Fs from std.fs\nend\nfun f(): Nil | Error do\n    let x = try Fs.open(\"a\", Fs.FileMode.Read())\n    try x.close()\n    return nil\nend\nlet r: Nil | Error = f()\n")
 	files := generateOne(t, program)
 	source, ok := files["hexal/handle.c"]
 	if !ok {
@@ -102,7 +102,7 @@ func TestHandleRecycleWaitsForInFlightLeasesToDrain(t *testing.T) {
 }
 
 func TestHandleComponentAbsentWithoutFile(t *testing.T) {
-	program := checkedGeneratorSource(t, "value: Int32 := 1\n")
+	program := checkedGeneratorSource(t, "let value: Int32 = 1\n")
 	files := generateOne(t, program)
 	if _, ok := files["hexal/handle.c"]; ok {
 		t.Fatalf("a program without File must not select the handle registry: %v", files)

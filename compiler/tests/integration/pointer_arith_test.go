@@ -17,14 +17,14 @@ func TestPointerArithmeticOperatorsRejected(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"plus count", "fun demo() do\n    value: Int32 := 1\n    pointer: Ptr<Int32> := @value\n    bad: Ptr<Int32> := pointer + 1\nend", "operator + requires numeric operands"},
-		{"count plus", "fun demo() do\n    value: Int32 := 1\n    pointer: Ptr<Int32> := @value\n    bad: Ptr<Int32> := 1 + pointer\nend", "operator + requires numeric operands"},
-		{"minus count", "fun demo() do\n    value: Int32 := 1\n    pointer: Ptr<Int32> := @value\n    bad: Ptr<Int32> := pointer - 1\nend", "operator - requires numeric operands"},
-		{"distance", "fun demo() do\n    value: Int32 := 1\n    other: Int32 := 2\n    left: Ptr<Int32> := @value\n    right: Ptr<Int32> := @other\n    bad: Int32 := left - right\nend", "operator - requires numeric operands"},
-		{"mut pointer plus", "fun demo() do\n    mut value: Int32 := 1\n    pointer: Ptr<mut Int32> := @value\n    bad: Ptr<mut Int32> := pointer + 1\nend", "operator + requires numeric operands"},
-		{"alias plus", "type Handle is Ptr<Int32>\nfun demo() do\n    value: Int32 := 1\n    pointer: Handle := @value\n    bad: Handle := pointer + 1\nend", "operator + requires numeric operands"},
-		{"nested pointer", "type Node is struct next: Ptr<Node>, end\nfun demo(node: Ptr<Node>) do\n    bad: Ptr<Node> := node.next + 1\nend", "operator + requires numeric operands"},
-		{"inside unsafe", "fun demo() do\n    value: Int32 := 1\n    pointer: Ptr<Int32> := @value\n    unsafe do\n        bad: Ptr<Int32> := pointer + 1\n    end\nend", "operator + requires numeric operands"},
+		{"plus count", "fun demo() do\n    let value: Int32 = 1\n    let pointer: Ptr<Int32> = @value\n    let bad: Ptr<Int32> = pointer + 1\nend", "operator + requires numeric operands"},
+		{"count plus", "fun demo() do\n    let value: Int32 = 1\n    let pointer: Ptr<Int32> = @value\n    let bad: Ptr<Int32> = 1 + pointer\nend", "operator + requires numeric operands"},
+		{"minus count", "fun demo() do\n    let value: Int32 = 1\n    let pointer: Ptr<Int32> = @value\n    let bad: Ptr<Int32> = pointer - 1\nend", "operator - requires numeric operands"},
+		{"distance", "fun demo() do\n    let value: Int32 = 1\n    let other: Int32 = 2\n    let left: Ptr<Int32> = @value\n    let right: Ptr<Int32> = @other\n    let bad: Int32 = left - right\nend", "operator - requires numeric operands"},
+		{"mut pointer plus", "fun demo() do\n    let mut value: Int32 = 1\n    let pointer: Ptr<mut Int32> = @value\n    let bad: Ptr<mut Int32> = pointer + 1\nend", "operator + requires numeric operands"},
+		{"alias plus", "type Handle is Ptr<Int32>\nfun demo() do\n    let value: Int32 = 1\n    let pointer: Handle = @value\n    let bad: Handle = pointer + 1\nend", "operator + requires numeric operands"},
+		{"nested pointer", "type Node is struct next: Ptr<Node>, end\nfun demo(node: Ptr<Node>) do\n    let bad: Ptr<Node> = node.next + 1\nend", "operator + requires numeric operands"},
+		{"inside unsafe", "fun demo() do\n    let value: Int32 = 1\n    let pointer: Ptr<Int32> = @value\n    unsafe do\n        let bad: Ptr<Int32> = pointer + 1\n    end\nend", "operator + requires numeric operands"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			result := compileSource(testCase.source)
@@ -37,7 +37,7 @@ func TestPointerArithmeticOperatorsRejected(t *testing.T) {
 
 func TestPointerOrderingRejected(t *testing.T) {
 	for _, operator := range []string{"<", "<=", ">", ">="} {
-		source := "fun demo() do\n    value: Int32 := 1\n    other: Int32 := 2\n    left: Ptr<Int32> := @value\n    right: Ptr<Int32> := @other\n    bad: Bool := left " + operator + " right\nend"
+		source := "fun demo() do\n    let value: Int32 = 1\n    let other: Int32 = 2\n    let left: Ptr<Int32> = @value\n    let right: Ptr<Int32> = @other\n    let bad: Bool = left " + operator + " right\nend"
 		result := compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "ordering is unavailable for Ptr<Int32>") {
 			t.Fatalf("Compile(%q) stderr = %#v, want ordering rejection", source, result.Stderr)
@@ -52,13 +52,13 @@ func TestFencedPointerOperationsRequireUnsafe(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"offset", "fun demo(p: Ptr<Byte>) do\n    bad: Ptr<Byte> := p.offset(1)\nend\n", "Ptr.offset requires an unsafe do ... end block"},
-		{"mut offset", "fun demo(p: Ptr<mut Byte>) do\n    bad: Ptr<mut Byte> := p.offset(1)\nend\n", "Ptr.offset requires an unsafe do ... end block"},
-		{"index read", "fun demo(p: Ptr<Byte>) do\n    bad: Byte := p[0]\nend\n", "pointer indexing requires an unsafe do ... end block"},
+		{"offset", "fun demo(p: Ptr<Byte>) do\n    let bad: Ptr<Byte> = p.offset(1)\nend\n", "Ptr.offset requires an unsafe do ... end block"},
+		{"mut offset", "fun demo(p: Ptr<mut Byte>) do\n    let bad: Ptr<mut Byte> = p.offset(1)\nend\n", "Ptr.offset requires an unsafe do ... end block"},
+		{"index read", "fun demo(p: Ptr<Byte>) do\n    let bad: Byte = p[0]\nend\n", "pointer indexing requires an unsafe do ... end block"},
 		{"index write", "fun demo(p: Ptr<mut Byte>) do\n    p[0] = 1\nend\n", "pointer indexing requires an unsafe do ... end block"},
-		{"cast", "fun demo(p: Ptr<Byte>) do\n    bad: Ptr<UInt32> := p.cast<UInt32>()\nend\n", "Ptr.cast requires an unsafe do ... end block"},
-		{"mut cast", "fun demo(p: Ptr<mut Byte>) do\n    bad: Ptr<mut UInt32> := p.cast<UInt32>()\nend\n", "Ptr.cast requires an unsafe do ... end block"},
-		{"narrowed nullable index", "fun demo() do\n    value: Int32 := 1\n    mut pointer: Ptr<Int32> | Nil := @value\n    if pointer != nil then\n        bad: Int32 := pointer[0]\n    end\nend", "pointer indexing requires an unsafe do ... end block"},
+		{"cast", "fun demo(p: Ptr<Byte>) do\n    let bad: Ptr<UInt32> = p.cast<UInt32>()\nend\n", "Ptr.cast requires an unsafe do ... end block"},
+		{"mut cast", "fun demo(p: Ptr<mut Byte>) do\n    let bad: Ptr<mut UInt32> = p.cast<UInt32>()\nend\n", "Ptr.cast requires an unsafe do ... end block"},
+		{"narrowed nullable index", "fun demo() do\n    let value: Int32 = 1\n    let mut pointer: Ptr<Int32> | Nil = @value\n    if pointer != nil then\n        let bad: Int32 = pointer[0]\n    end\nend", "pointer indexing requires an unsafe do ... end block"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			result := compileSource(testCase.source)
@@ -72,7 +72,7 @@ func TestFencedPointerOperationsRequireUnsafe(t *testing.T) {
 // Inside the region the three operations preserve the receiver's access mode
 // exactly and lower to plain C.
 func TestFencedPointerOperationsPreserveAccessMode(t *testing.T) {
-	writable := assertCompiles(t, "fun demo(p: Ptr<mut Byte>) do\n    unsafe do\n        next: Ptr<mut Byte> := p.offset(1)\n        value: Byte := p[1]\n        words: Ptr<mut UInt32> := p.cast<UInt32>()\n        p[0] = 5\n    end\nend\n")
+	writable := assertCompiles(t, "fun demo(p: Ptr<mut Byte>) do\n    unsafe do\n        let next: Ptr<mut Byte> = p.offset(1)\n        let value: Byte = p[1]\n        let words: Ptr<mut UInt32> = p.cast<UInt32>()\n        p[0] = 5\n    end\nend\n")
 	for _, want := range []string{
 		"uint8_t *const hex_v_next = (hex_v_p + 1);",
 		"const uint8_t hex_v_value = hex_v_p[1];",
@@ -83,7 +83,7 @@ func TestFencedPointerOperationsPreserveAccessMode(t *testing.T) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, writable), want)
 		}
 	}
-	readOnly := assertCompiles(t, "fun demo(p: Ptr<Byte>) do\n    unsafe do\n        next: Ptr<Byte> := p.offset(1)\n        value: Byte := p[1]\n        words: Ptr<UInt32> := p.cast<UInt32>()\n    end\nend\n")
+	readOnly := assertCompiles(t, "fun demo(p: Ptr<Byte>) do\n    unsafe do\n        let next: Ptr<Byte> = p.offset(1)\n        let value: Byte = p[1]\n        let words: Ptr<UInt32> = p.cast<UInt32>()\n    end\nend\n")
 	for _, want := range []string{
 		"const uint8_t *const hex_v_next = (hex_v_p + 1);",
 		"const uint32_t *const hex_v_words = (const uint32_t *)hex_v_p;",
@@ -103,28 +103,28 @@ func TestFencedPointerOperationsPreserveAccessMode(t *testing.T) {
 // A read-only pointer can never produce a writable one through offset or cast.
 func TestFencedPointerOperationsCannotUpgradeAccess(t *testing.T) {
 	assertRejects(t,
-		"fun demo(p: Ptr<Byte>) do\n    unsafe do\n        bad: Ptr<mut UInt32> := p.cast<UInt32>()\n    end\nend\n",
+		"fun demo(p: Ptr<Byte>) do\n    unsafe do\n        let bad: Ptr<mut UInt32> = p.cast<UInt32>()\n    end\nend\n",
 		"expected Ptr<mut UInt32> initializer; got Ptr<UInt32>")
 	assertRejects(t,
-		"fun demo(p: Ptr<Byte>) do\n    unsafe do\n        bad: Ptr<mut Byte> := p.offset(1)\n    end\nend\n",
+		"fun demo(p: Ptr<Byte>) do\n    unsafe do\n        let bad: Ptr<mut Byte> = p.offset(1)\n    end\nend\n",
 		"expected Ptr<mut UInt8> initializer; got Ptr<UInt8>")
 	assertRejects(t,
 		"fun demo(p: Ptr<Byte>) do\n    unsafe do\n        p[0] = 5\n    end\nend\n",
 		"cannot write through a read-only pointer")
 	// A writable cast result still weakens to the read-only outer form.
-	assertCompiles(t, "fun demo(p: Ptr<mut Byte>) do\n    unsafe do\n        weak: Ptr<UInt32> := p.cast<UInt32>()\n    end\nend\n")
+	assertCompiles(t, "fun demo(p: Ptr<mut Byte>) do\n    unsafe do\n        let weak: Ptr<UInt32> = p.cast<UInt32>()\n    end\nend\n")
 }
 
 // Pointer indexing whose pointee is itself a collection is refused outright:
 // the two possible intents get two distinct spellings instead.
 func TestPointerIndexingOfCollectionPointeeIsAmbiguous(t *testing.T) {
 	assertRejects(t,
-		"fun demo(p: Ptr<Array<Int32, 4>>) do\n    unsafe do\n        bad: Int32 := p[0]\n    end\nend\n",
+		"fun demo(p: Ptr<Array<Int32, 4>>) do\n    unsafe do\n        let bad: Int32 = p[0]\n    end\nend\n",
 		"pointer indexing of Ptr<Array<Int32, 4>> is ambiguous; use (^pointer)[index] to index the collection or pointer.offset(index) to advance the pointer")
 	// Both explicit spellings remain available and keep their own meaning.
-	assertCompiles(t, "fun demo(p: Ptr<Array<Int32, 4>>) do\n    item: Int32 := (^p)[2]\n    unsafe do\n        next: Ptr<Array<Int32, 4>> := p.offset(1)\n    end\nend\n")
+	assertCompiles(t, "fun demo(p: Ptr<Array<Int32, 4>>) do\n    let item: Int32 = (^p)[2]\n    unsafe do\n        let next: Ptr<Array<Int32, 4>> = p.offset(1)\n    end\nend\n")
 	assertRejects(t,
-		"fun demo(p: Ptr<Array<Int32, 4>>) do\n    bad: Int32 := (^p)[9]\nend\n",
+		"fun demo(p: Ptr<Array<Int32, 4>>) do\n    let bad: Int32 = (^p)[9]\nend\n",
 		"out of bounds")
 }
 
@@ -132,17 +132,17 @@ func TestPointerIndexingOfCollectionPointeeIsAmbiguous(t *testing.T) {
 // only operation valid at an erased or incomplete boundary.
 func TestFencedPointerOperationsRequireACompletePointee(t *testing.T) {
 	assertRejects(t,
-		"fun demo(p: Ptr<Unknown>) do\n    unsafe do\n        bad: Ptr<Unknown> := p.offset(1)\n    end\nend\n",
+		"fun demo(p: Ptr<Unknown>) do\n    unsafe do\n        let bad: Ptr<Unknown> = p.offset(1)\n    end\nend\n",
 		"pointer arithmetic requires a complete pointee type; got Unknown")
 	assertRejects(t,
-		"fun demo(p: Ptr<Unknown>) do\n    unsafe do\n        bad: Int32 := p[0]\n    end\nend\n",
+		"fun demo(p: Ptr<Unknown>) do\n    unsafe do\n        let bad: Int32 = p[0]\n    end\nend\n",
 		"pointer arithmetic requires a complete pointee type; got Unknown")
 	assertRejects(t,
-		"fun demo(p: Ptr<Unknown>) do\n    bad: Int32 := ^p\nend\n",
+		"fun demo(p: Ptr<Unknown>) do\n    let bad: Int32 = ^p\nend\n",
 		"Ptr<Unknown> cannot be dereferenced; recover a concrete pointer type first")
 	// Casting to and from an erased pointee succeeds; the recovered concrete
 	// pointer then traverses normally.
-	result := assertCompiles(t, "fun demo(p: Ptr<Unknown>) do\n    unsafe do\n        typed: Ptr<Int32> := p.cast<Int32>()\n        value: Int32 := typed[0]\n        erased: Ptr<Unknown> := typed.cast<Unknown>()\n    end\nend\n")
+	result := assertCompiles(t, "fun demo(p: Ptr<Unknown>) do\n    unsafe do\n        let typed: Ptr<Int32> = p.cast<Int32>()\n        let value: Int32 = typed[0]\n        let erased: Ptr<Unknown> = typed.cast<Unknown>()\n    end\nend\n")
 	if !strings.Contains(rootC(t, result), "(const int32_t *)hex_v_p") {
 		t.Fatalf("modules/app.c = %q, want the recovered pointer cast", rootC(t, result))
 	}
@@ -152,32 +152,32 @@ func TestFencedPointerOperationsRequireACompletePointee(t *testing.T) {
 // converted numeric operand is admitted.
 func TestFencedPointerOperandsRequireSize(t *testing.T) {
 	assertRejects(t,
-		"fun demo(p: Ptr<Byte>, n: Int32) do\n    unsafe do\n        bad: Ptr<Byte> := p.offset(n)\n    end\nend\n",
+		"fun demo(p: Ptr<Byte>, n: Int32) do\n    unsafe do\n        let bad: Ptr<Byte> = p.offset(n)\n    end\nend\n",
 		"offset requires Size; got Int32")
 	assertRejects(t,
-		"fun demo(p: Ptr<Byte>, n: Int64) do\n    unsafe do\n        bad: Byte := p[n]\n    end\nend\n",
+		"fun demo(p: Ptr<Byte>, n: Int64) do\n    unsafe do\n        let bad: Byte = p[n]\n    end\nend\n",
 		"pointer indexing requires Size; got Int64")
-	assertCompiles(t, "fun demo(p: Ptr<Byte>, n: Size) do\n    unsafe do\n        ok: Ptr<Byte> := p.offset(n)\n        value: Byte := p[n]\n    end\nend\n")
+	assertCompiles(t, "fun demo(p: Ptr<Byte>, n: Size) do\n    unsafe do\n        let ok: Ptr<Byte> = p.offset(n)\n        let value: Byte = p[n]\n    end\nend\n")
 }
 
 // A nullable pointer must be narrowed first: the permission region does not
 // make Nil a valid address.
 func TestFencedPointerOperationsRequireNarrowing(t *testing.T) {
 	for _, source := range []string{
-		"fun demo(p: Ptr<Byte> | Nil) do\n    unsafe do\n        bad: Ptr<Byte> := p.offset(1)\n    end\nend\n",
-		"fun demo(p: Ptr<Byte> | Nil) do\n    unsafe do\n        bad: Byte := p[0]\n    end\nend\n",
-		"fun demo(p: Ptr<Byte> | Nil) do\n    unsafe do\n        bad: Ptr<UInt32> := p.cast<UInt32>()\n    end\nend\n",
+		"fun demo(p: Ptr<Byte> | Nil) do\n    unsafe do\n        let bad: Ptr<Byte> = p.offset(1)\n    end\nend\n",
+		"fun demo(p: Ptr<Byte> | Nil) do\n    unsafe do\n        let bad: Byte = p[0]\n    end\nend\n",
+		"fun demo(p: Ptr<Byte> | Nil) do\n    unsafe do\n        let bad: Ptr<UInt32> = p.cast<UInt32>()\n    end\nend\n",
 	} {
 		assertRejects(t, source, "may be Nil; narrow it before dereferencing")
 	}
-	assertCompiles(t, "fun demo(p: Ptr<Byte> | Nil) do\n    if p != nil then\n        unsafe do\n            ok: Ptr<Byte> := p.offset(1)\n            value: Byte := p[0]\n            words: Ptr<UInt32> := p.cast<UInt32>()\n        end\n    end\nend\n")
+	assertCompiles(t, "fun demo(p: Ptr<Byte> | Nil) do\n    if p != nil then\n        unsafe do\n            let ok: Ptr<Byte> = p.offset(1)\n            let value: Byte = p[0]\n            let words: Ptr<UInt32> = p.cast<UInt32>()\n        end\n    end\nend\n")
 }
 
 // Released storage keeps its ordinary locally proved diagnostic.
 func TestFencedPointerOperationsRejectReleasedStorage(t *testing.T) {
 	for _, source := range []string{
-		"fun demo(h: Heap) do\n    p: Ptr<mut Int32> := h.allocate<Int32>(1)\n    h.free(p)\n    unsafe do\n        bad: Ptr<mut Int32> := p.offset(1)\n    end\nend\n",
-		"fun demo(h: Heap) do\n    p: Ptr<mut Int32> := h.allocate<Int32>(1)\n    h.free(p)\n    unsafe do\n        bad: Int32 := p[0]\n    end\nend\n",
+		"fun demo(h: Heap) do\n    let p: Ptr<mut Int32> = h.allocate<Int32>(1)\n    h.free(p)\n    unsafe do\n        let bad: Ptr<mut Int32> = p.offset(1)\n    end\nend\n",
+		"fun demo(h: Heap) do\n    let p: Ptr<mut Int32> = h.allocate<Int32>(1)\n    h.free(p)\n    unsafe do\n        let bad: Int32 = p[0]\n    end\nend\n",
 	} {
 		assertRejects(t, source, "released")
 	}
@@ -186,7 +186,7 @@ func TestFencedPointerOperationsRejectReleasedStorage(t *testing.T) {
 // The receiver and its one operand each evaluate exactly once, in source
 // order, even though C sequences neither `+` nor `[]`.
 func TestFencedPointerOperandsEvaluateOnceInOrder(t *testing.T) {
-	source := "fun bump(): Size do\n    return 1\nend\nfun source(p: Ptr<Byte>): Ptr<Byte> do\n    return p\nend\nfun demo(p: Ptr<Byte>) do\n    unsafe do\n        moved: Ptr<Byte> := source(p).offset(bump())\n        value: Byte := source(p)[bump()]\n    end\nend\n"
+	source := "fun bump(): Size do\n    return 1\nend\nfun source(p: Ptr<Byte>): Ptr<Byte> do\n    return p\nend\nfun demo(p: Ptr<Byte>) do\n    unsafe do\n        let moved: Ptr<Byte> = source(p).offset(bump())\n        let value: Byte = source(p)[bump()]\n    end\nend\n"
 	result := assertCompiles(t, source)
 	generated := rootC(t, result)
 	if got := strings.Count(generated, "hex_f_m3_app_bump()"); got != 2 {
@@ -206,29 +206,29 @@ func TestFencedPointerOperandsEvaluateOnceInOrder(t *testing.T) {
 // A one-past pointer may be formed and compared; nothing new claims it is
 // dereferenceable.
 func TestOnePastPointerMayBeFormedAndCompared(t *testing.T) {
-	assertCompiles(t, "fun demo(p: Ptr<Byte>, n: Size): Bool do\n    unsafe do\n        limit: Ptr<Byte> := p.offset(n)\n        return limit == p\n    end\nend\n")
+	assertCompiles(t, "fun demo(p: Ptr<Byte>, n: Size): Bool do\n    unsafe do\n        let limit: Ptr<Byte> = p.offset(n)\n        return limit == p\n    end\nend\n")
 }
 
 func TestPointerDereferenceThenCheckedIndexIsValid(t *testing.T) {
-	result := compileSource("fun demo() do\n    mut values: Array<Int32, 4> := [10, 20, 30, 40]\n    array_pointer: Ptr<mut Array<Int32, 4>> := @values\n    item: Int32 := (^array_pointer)[2]\n    element: Ptr<mut Int32> := @values[2]\n    copy: Int32 := ^element\nend")
+	result := compileSource("fun demo() do\n    let mut values: Array<Int32, 4> = [10, 20, 30, 40]\n    let array_pointer: Ptr<mut Array<Int32, 4>> = @values\n    let item: Int32 = (^array_pointer)[2]\n    let element: Ptr<mut Int32> = @values[2]\n    let copy: Int32 = ^element\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 }
 
 func TestPointerIdentityEqualityRemainsValid(t *testing.T) {
-	result := compileSource("fun demo() do\n    value: Int32 := 1\n    other: Int32 := 2\n    left: Ptr<Int32> := @value\n    right: Ptr<Int32> := @other\n    same: Bool := left == right\n    different: Bool := left != right\nend")
+	result := compileSource("fun demo() do\n    let value: Int32 = 1\n    let other: Int32 = 2\n    let left: Ptr<Int32> = @value\n    let right: Ptr<Int32> = @other\n    let same: Bool = left == right\n    let different: Bool = left != right\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 }
 
 func TestPointerIntegerConversionsRejected(t *testing.T) {
-	result := compileSource("fun demo() do\n    value: Int32 := 1\n    pointer: Ptr<Int32> := @value\n    bad: UInt64 := pointer\nend")
+	result := compileSource("fun demo() do\n    let value: Int32 = 1\n    let pointer: Ptr<Int32> = @value\n    let bad: UInt64 = pointer\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "expected UInt64 initializer; got Ptr<Int32>") {
 		t.Fatalf("Compile stderr = %#v, want pointer-to-integer rejection", result.Stderr)
 	}
-	result = compileSource("fun demo() do\n    address: UInt64 := 42\n    bad: Ptr<Int32> := address\nend")
+	result = compileSource("fun demo() do\n    let address: UInt64 = 42\n    let bad: Ptr<Int32> = address\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "expected Ptr<Int32> initializer; got UInt64") {
 		t.Fatalf("Compile stderr = %#v, want integer-to-pointer rejection", result.Stderr)
 	}
@@ -236,9 +236,9 @@ func TestPointerIntegerConversionsRejected(t *testing.T) {
 
 func TestPointerCompoundAssignmentsAreSyntaxErrors(t *testing.T) {
 	for _, source := range []string{
-		"fun demo()\n    value: Int32 := 1\n    pointer: Ptr<Int32> := @value\n    pointer += 1\nend",
-		"fun demo()\n    pointer: Ptr<Int32> := nil\n    pointer++\nend",
-		"fun demo()\n    count: Int32 := 1\n    count++\nend",
+		"fun demo()\n    let value: Int32 = 1\n    let pointer: Ptr<Int32> = @value\n    pointer += 1\nend",
+		"fun demo()\n    let pointer: Ptr<Int32> = nil\n    pointer++\nend",
+		"fun demo()\n    let count: Int32 = 1\n    count++\nend",
 	} {
 		result := compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 {
@@ -248,7 +248,7 @@ func TestPointerCompoundAssignmentsAreSyntaxErrors(t *testing.T) {
 }
 
 func TestPointerUnknownErasureAddsNoCapability(t *testing.T) {
-	result := compileSource("fun demo() do\n    value: Int32 := 1\n    pointer: Ptr<Int32> := @value\n    erased: Ptr<Unknown> := pointer\n    unsafe do\n        bad: Int32 := erased[0]\n    end\nend")
+	result := compileSource("fun demo() do\n    let value: Int32 = 1\n    let pointer: Ptr<Int32> = @value\n    let erased: Ptr<Unknown> = pointer\n    unsafe do\n        let bad: Int32 = erased[0]\n    end\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "pointer arithmetic requires a complete pointee type; got Unknown") {
 		t.Fatalf("Compile stderr = %#v, want complete-pointee rejection on erased pointer", result.Stderr)
 	}

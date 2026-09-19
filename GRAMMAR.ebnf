@@ -10,7 +10,7 @@ Program = LexicalSeparation  [ ImportBlock ]  { ExternBlock }
 LexicalSeparation = { whitespace | line_comment | multiline_comment } .
 same_line = "same-line" .
 
-TopLevelItem = DeclarationItem | StaticModuleValue | Statement .
+TopLevelItem = DeclarationItem | Statement .
 ImportBlock = "import"  ImportEntry  { ","  ImportEntry }  "end" .
 ImportEntry = identifier  "from"  ImportModuleReference .
 ImportModuleReference = relative_module_path_literal
@@ -53,8 +53,6 @@ c_identifier_literal = "meta" .
 
 ExportBlock = "export"  ExportEntry  { ","  ExportEntry }  "end" .
 ExportEntry = identifier  [ "."  identifier ] .
-StaticModuleValue = "static"  [ "mut" ]  identifier
-                       ( ":"  TypeExpression  ":=" | ":=" )  Expression .
 DeclarationItem = TypeDeclaration | FunctionDeclaration
                    | MethodDeclaration .
 TypeDeclaration = "type"  identifier  [ GenericParameterList ]
@@ -76,8 +74,8 @@ NonControlStatement = Declaration | Assignment | CallStatement
                         | "break" | "continue"
                         | DeferStatement | ErrdeferStatement .
 Block = { Statement } .
-Declaration = [ "mut" ]  identifier
-               ( ":"  TypeExpression  ":=" | ":=" )  Expression .
+Declaration = "let"  [ "mut" ]  identifier
+               ( ":"  TypeExpression  "=" | "=" )  Expression .
 Assignment = AssignmentTarget  "="  Expression .
 AssignmentTarget = PlaceExpression | "("  Expression  ")"  { PlaceSuffix } .
 CallStatement = "meta" .
@@ -210,8 +208,8 @@ reserved_word = "true" | "false" | "nil" | "eos" | "mut"
                 | "end" | "return" | "if" | "elseif" | "else"
                 | "while" | "break" | "continue" | "defer" | "try"
                 | "errdefer" | "spawn" | "as" | "match" | "then"
-                | "self" | "for" | "in" | "do" | "static" | "import"
-                | "export" .
+                | "self" | "for" | "in" | "do" | "import"
+                | "export" | "let" .
 integer_literal = decimal_integer | hexadecimal_integer
                   | binary_integer | octal_integer .
 decimal_integer = "0" | nonzero_decimal_digit

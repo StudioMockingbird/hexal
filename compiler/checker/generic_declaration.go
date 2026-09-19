@@ -247,6 +247,13 @@ func checkOpenGenericFunction(open *openGenericFunction, ctx checkContext) compi
 	body.owner = open.Name
 	body.result = result
 	body.resultUse = resultUse
+	if ctx.names.isEntryModule() {
+		body.capture = &captureState{allowed: true, bindings: make(map[string]binding)}
+	}
+	body.envDependent = ctx.names.envDependent
+	body.envCaptures = ctx.names.envCaptures
+	body.initializedRoots = ctx.names.initializedRoots
+	body.rootIndex = 1 << 30
 	for index := range parameters {
 		parameters[index].Binding = ctx.names.newBindingID()
 		body.local[parameters[index].Name] = binding{typ: parameters[index].Type, use: parameters[index].TypeUse, parameter: true, id: parameters[index].Binding}
@@ -312,6 +319,13 @@ func checkOpenGenericMethod(open *openGenericMethod, ctx checkContext) compilerT
 		moduleID:   ctx.names.moduleID,
 		logicalKey: ctx.names.logicalKey,
 	}
+	if ctx.names.isEntryModule() {
+		body.capture = &captureState{allowed: true, bindings: make(map[string]binding)}
+	}
+	body.envDependent = ctx.names.envDependent
+	body.envCaptures = ctx.names.envCaptures
+	body.initializedRoots = ctx.names.initializedRoots
+	body.rootIndex = 1 << 30
 	for index := range parameters {
 		parameters[index].Binding = ctx.names.newBindingID()
 		body.local[parameters[index].Name] = binding{typ: parameters[index].Type, use: parameters[index].TypeUse, parameter: true, id: parameters[index].Binding}

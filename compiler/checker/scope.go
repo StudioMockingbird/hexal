@@ -19,7 +19,7 @@ const (
 	functionBinding
 	genericFunctionBinding
 	aliasBinding
-	// moduleValueBinding is a `static` module value: program-lifetime module
+	// moduleValueBinding is an imported-module constant: program-lifetime module
 	// storage visible throughout its defining module independent of textual
 	// position, unlike an ordinary dataBinding root value (main-local,
 	// unreachable from a function body).
@@ -71,6 +71,96 @@ type scope struct {
 	// non-capturing function may call any function visible at its source
 	// position, but may not read an enclosing function's data.
 	closureRoot bool
+	// capture records the entry-root bindings this named entry function or
+	// method captures. It is shared by reference with every nested block
+	// frame, and nil for an anonymous or local function literal, which never
+	// captures.
+	capture *captureState
+	// envDependent names the entry module's environment-dependent functions
+	// and methods; envCaptures maps each to its captured root binding names;
+	// initializedRoots tracks the root bindings already initialized at the
+	// current point in the root script. All three are shared by reference.
+	envDependent     map[string]bool
+	envCaptures      map[string]map[string]bool
+	initializedRoots map[string]bool
+	// rootIndex is this body's source item index, for source-order capture
+	// visibility against a root binding's own index.
+	rootIndex int
+}
+
+// captureState records the root bindings one entry-module named function or
+// method captures, in first-use order. allowed is false for a scope that may
+// not capture at all.
+type captureState struct {
+	allowed  bool
+	bindings map[string]binding
+	order    []string
+}
+
+func (state *captureState) record(name string, bound binding) {
+	if state == nil || !state.allowed {
+		return
+	}
+	if _, seen := state.bindings[name]; !seen {
+		state.order = append(state.order, name)
+	}
+	state.bindings[name] = bound
+}
+
+// capturesOf returns one scope's captures in first-use order.
+func capturesOf(state *captureState) []Capture {
+	if state == nil {
+		return nil
+	}
+	var captures []Capture
+	for _, name := range state.order {
+		bound := state.bindings[name]
+		captures = append(captures, Capture{Name: name, Binding: bound.id, Type: bound.typ, Mutable: bound.mutable})
+	}
+	return captures
+}
+
+// markEntryCaptures records the entry module's captured root bindings in
+// source order and flags their checked declarations, so the generator lowers
+// them as entry-environment fields.
+func markEntryCaptures(checked *Program) {
+	captured := make(map[BindingID]bool)
+	byBinding := make(map[BindingID]Capture)
+	for _, statement := range checked.Statements {
+		switch declaration := statement.(type) {
+		case FunctionDeclaration:
+			for _, capture := range declaration.Captures {
+				captured[capture.Binding] = true
+				byBinding[capture.Binding] = capture
+			}
+		case MethodDeclaration:
+			for _, capture := range declaration.Captures {
+				captured[capture.Binding] = true
+				byBinding[capture.Binding] = capture
+			}
+		}
+	}
+	for _, declaration := range checked.SpecializedFunctions {
+		for _, capture := range declaration.Captures {
+			captured[capture.Binding] = true
+			byBinding[capture.Binding] = capture
+		}
+	}
+	for _, declaration := range checked.SpecializedMethods {
+		for _, capture := range declaration.Captures {
+			captured[capture.Binding] = true
+			byBinding[capture.Binding] = capture
+		}
+	}
+	for index, statement := range checked.Statements {
+		declaration, ok := statement.(Declaration)
+		if !ok || !captured[declaration.Binding] {
+			continue
+		}
+		declaration.Captured = true
+		checked.Statements[index] = declaration
+		checked.EntryCaptures = append(checked.EntryCaptures, byBinding[declaration.Binding])
+	}
 }
 
 // moduleScope builds the root frame of one module. Import aliases are read
@@ -883,6 +973,12 @@ func (names *scope) lookup(name string) (binding, lookupStatus) {
 		}
 	}
 	if bound, ok := names.module[name]; ok && bound.kind != aliasBinding {
+		if names.inFunction() && bound.kind == dataBinding && names.capture != nil && names.capture.allowed && bound.rootIndex < names.rootIndex {
+			// An entry-module named function or method captures an earlier
+			// root binding by reference.
+			names.capture.record(name, bound)
+			return bound, nameFound
+		}
 		if names.inFunction() && bound.kind != functionBinding && bound.kind != genericFunctionBinding &&
 			bound.kind != moduleValueBinding && bound.kind != foreignFunctionBinding &&
 			bound.kind != foreignConstantBinding && bound.kind != foreignGlobalBinding {
@@ -977,43 +1073,54 @@ func (names *scope) define(name string, bound binding) bool {
 // is still the declaring scope, so lookup can find every function visible at
 // this source position while closureRoot blocks everything else beyond this
 // scope's own local map.
-func (names *scope) closureRootScope(owner string) *scope {
-	return &scope{
-		module:      names.module,
-		local:       make(map[string]binding),
-		parent:      names,
-		owner:       owner,
-		methods:     names.methods,
-		function:    true,
-		nextID:      names.nextID,
-		flow:        newFlowState(),
-		generics:    names.generics,
-		registry:    names.registry,
-		moduleID:    names.moduleID,
-		logicalKey:  names.logicalKey,
-		closureRoot: true,
+func (names *scope) closureRootScope(owner string, captureAllowed bool) *scope {
+	body := &scope{
+		module:           names.module,
+		local:            make(map[string]binding),
+		parent:           names,
+		owner:            owner,
+		methods:          names.methods,
+		function:         true,
+		nextID:           names.nextID,
+		flow:             newFlowState(),
+		generics:         names.generics,
+		registry:         names.registry,
+		moduleID:         names.moduleID,
+		logicalKey:       names.logicalKey,
+		closureRoot:      true,
+		envDependent:     names.envDependent,
+		envCaptures:      names.envCaptures,
+		initializedRoots: names.initializedRoots,
 	}
+	if captureAllowed {
+		body.capture = &captureState{allowed: true, bindings: make(map[string]binding)}
+	}
+	return body
 }
 
 func (names *scope) child() *scope {
 	return &scope{
-		module:      names.module,
-		local:       make(map[string]binding),
-		parent:      names,
-		owner:       names.owner,
-		result:      names.result,
-		resultUse:   names.resultUse,
-		methods:     names.methods,
-		self:        names.self,
-		selfID:      names.selfID,
-		function:    names.function,
-		nextID:      names.nextID,
-		flow:        names.flow,
-		generics:    names.generics,
-		registry:    names.registry,
-		moduleID:    names.moduleID,
-		logicalKey:  names.logicalKey,
-		unsafeDepth: names.unsafeDepth,
+		module:           names.module,
+		local:            make(map[string]binding),
+		parent:           names,
+		owner:            names.owner,
+		result:           names.result,
+		resultUse:        names.resultUse,
+		methods:          names.methods,
+		self:             names.self,
+		selfID:           names.selfID,
+		function:         names.function,
+		nextID:           names.nextID,
+		flow:             names.flow,
+		generics:         names.generics,
+		registry:         names.registry,
+		moduleID:         names.moduleID,
+		logicalKey:       names.logicalKey,
+		unsafeDepth:      names.unsafeDepth,
+		capture:          names.capture,
+		envDependent:     names.envDependent,
+		envCaptures:      names.envCaptures,
+		initializedRoots: names.initializedRoots,
 	}
 }
 

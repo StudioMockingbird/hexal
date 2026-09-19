@@ -12,7 +12,7 @@ import (
 func TestCrossModuleGenericFunctionConstructsOwnGenericType(t *testing.T) {
 	sources := map[string]string{
 		"boxes.hex": "type Box<T> is struct\n    item: T,\nend\nfun new_box<T>(value: T): Box<T> do\n    return Box<T>(item = value)\nend\nexport\n    Box, new_box\nend\n",
-		"app.hex":   "import\n    Boxes from \"./boxes\"\nend\nbox := Boxes.new_box<Int32>(1)\nprint(box.item)\n",
+		"app.hex":   "import\n    Boxes from \"./boxes\"\nend\nlet box = Boxes.new_box<Int32>(1)\nprint(box.item)\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -26,7 +26,7 @@ func TestCrossModuleGenericFunctionConstructsOwnGenericType(t *testing.T) {
 func TestCrossModuleGenericFunctionSpecializationIsExternalLinkage(t *testing.T) {
 	sources := map[string]string{
 		"lib.hex": "fun identity<T>(value: T): T do\n    return value\nend\nexport\n    identity\nend\n",
-		"app.hex": "import\n    Lib from \"./lib\"\nend\nresult: Int32 := Lib.identity<Int32>(1)\nprint(result)\n",
+		"app.hex": "import\n    Lib from \"./lib\"\nend\nlet result: Int32 = Lib.identity<Int32>(1)\nprint(result)\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -63,8 +63,8 @@ func standaloneSpellingPrefix(source, symbol string) string {
 // private type does not exist.
 func TestCrossModuleGenericFunctionUsesOwnPrivateType(t *testing.T) {
 	sources := map[string]string{
-		"lib.hex": "type Wrapper is struct\n    value: Int32,\nend\nfun make<T>(seed: T): Int32 do\n    w: Wrapper := Wrapper(value = 1)\n    return w.value\nend\nexport\n    make\nend\n",
-		"app.hex": "import\n    Lib from \"./lib\"\nend\nresult: Int32 := Lib.make<Int32>(1)\nprint(result)\n",
+		"lib.hex": "type Wrapper is struct\n    value: Int32,\nend\nfun make<T>(seed: T): Int32 do\n    let w: Wrapper = Wrapper(value = 1)\n    return w.value\nend\nexport\n    make\nend\n",
+		"app.hex": "import\n    Lib from \"./lib\"\nend\nlet result: Int32 = Lib.make<Int32>(1)\nprint(result)\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -77,7 +77,7 @@ func TestCrossModuleGenericFunctionUsesOwnPrivateType(t *testing.T) {
 func TestCrossModuleGenericFunctionDiagnosticUsesDefiningLogicalKey(t *testing.T) {
 	sources := map[string]string{
 		"lib.hex": "fun broken<T>(value: T): Int32 do\n    return \"not a number\"\nend\nexport\n    broken\nend\n",
-		"app.hex": "import\n    Lib from \"./lib\"\nend\nresult: Int32 := Lib.broken<Int32>(1)\n",
+		"app.hex": "import\n    Lib from \"./lib\"\nend\nlet result: Int32 = Lib.broken<Int32>(1)\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode == compiler.ExitSuccess {
@@ -94,7 +94,7 @@ func TestCrossModuleGenericFunctionDiagnosticUsesDefiningLogicalKey(t *testing.T
 func TestQualifiedGenericTypeWithImporterOwnedArgument(t *testing.T) {
 	sources := map[string]string{
 		"lib.hex": "type Box<T> is struct\n    item: T,\nend\nexport\n    Box\nend\n",
-		"app.hex": "import\n    Lib from \"./lib\"\nend\ntype Point is struct\n    x: Int32,\nend\nbox: Lib.Box<Point> := Lib.Box<Point>(item = Point(x = 1))\nprint(box.item.x)\n",
+		"app.hex": "import\n    Lib from \"./lib\"\nend\ntype Point is struct\n    x: Int32,\nend\nlet box: Lib.Box<Point> = Lib.Box<Point>(item = Point(x = 1))\nprint(box.item.x)\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -107,7 +107,7 @@ func TestQualifiedGenericTypeWithImporterOwnedArgument(t *testing.T) {
 func TestQualifiedGenericMethodOnImportedSpecialization(t *testing.T) {
 	sources := map[string]string{
 		"lib.hex": "type Box<T> is struct\n    item: T,\nend\nmethod Box<T>.get(): T do\n    return self.item\nend\nexport\n    Box, Box.get\nend\n",
-		"app.hex": "import\n    Lib from \"./lib\"\nend\nbox := Lib.Box<Int32>(item = 5)\nresult: Int32 := box.get()\nprint(result)\n",
+		"app.hex": "import\n    Lib from \"./lib\"\nend\nlet box = Lib.Box<Int32>(item = 5)\nlet result: Int32 = box.get()\nprint(result)\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -122,7 +122,7 @@ func TestQualifiedGenericTypeKeepsDistinctNominalIdentity(t *testing.T) {
 		"a.hex": "type Point is struct\n    x: Int32,\nend\nexport\n    Point\nend\n",
 		"b.hex": "type Point is struct\n    y: Int32,\nend\nexport\n    Point\nend\n",
 		"app.hex": "import\n    A from \"./a\",\n    B from \"./b\"\nend\n" +
-			"pa: A.Point := A.Point(x = 1)\npb: B.Point := B.Point(y = 2)\nprint(pa.x)\nprint(pb.y)\n",
+			"let pa: A.Point = A.Point(x = 1)\nlet pb: B.Point = B.Point(y = 2)\nprint(pa.x)\nprint(pb.y)\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
@@ -135,7 +135,7 @@ func TestQualifiedGenericTypeKeepsDistinctNominalIdentity(t *testing.T) {
 func TestQualifiedGenericTypeUnknownNameDiagnostic(t *testing.T) {
 	sources := map[string]string{
 		"lib.hex": "type Box<T> is struct\n    item: T,\nend\nexport\n    Box\nend\n",
-		"app.hex": "import\n    Lib from \"./lib\"\nend\nbox: Lib.Missing<Int32> := box\n",
+		"app.hex": "import\n    Lib from \"./lib\"\nend\nlet box: Lib.Missing<Int32> = box\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode == compiler.ExitSuccess {
@@ -151,7 +151,7 @@ func TestQualifiedGenericTypeUnknownNameDiagnostic(t *testing.T) {
 func TestQualifiedGenericTypeWrongArityDiagnostic(t *testing.T) {
 	sources := map[string]string{
 		"lib.hex": "type Pair<A, B> is struct\n    first: A,\n    second: B,\nend\nexport\n    Pair\nend\n",
-		"app.hex": "import\n    Lib from \"./lib\"\nend\nvalue: Lib.Pair<Int32> := value\n",
+		"app.hex": "import\n    Lib from \"./lib\"\nend\nlet value: Lib.Pair<Int32> = value\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode == compiler.ExitSuccess {

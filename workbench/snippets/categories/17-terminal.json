@@ -28,18 +28,18 @@
           "   Term from std.terminal",
           "end",
           "fun describe(stream: Io.IO): Term.TerminalSize | Error do",
-          "    attached: Bool := try Term.is_attached(stream)",
+          "    let attached: Bool = try Term.is_attached(stream)",
           "    if attached then",
-          "        size: Term.TerminalSize := try Term.size(stream)",
+          "        let size: Term.TerminalSize = try Term.size(stream)",
           "        return size",
           "    end",
           "    return Error(ErrorKind.InvalidInput(), \"not attached\")",
           "end",
           "fun run(): Term.TerminalSize | Error do",
-          "    stream: Io.IO := try Io.stdout()",
+          "    let stream: Io.IO = try Io.stdout()",
           "    return describe(stream)",
           "end",
-          "out: Term.TerminalSize | Error := run()"
+          "let out: Term.TerminalSize | Error = run()"
         ]
       }
     }

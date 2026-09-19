@@ -16,6 +16,10 @@ type Program struct {
 	SpecializedFunctions []FunctionDeclaration
 	SpecializedMethods   []MethodDeclaration
 	Defers               []DeferredAction
+	// EntryCaptures are the entry-root bindings captured by this entry
+	// module's named functions and methods, in first-capture order. It is
+	// empty in an imported module.
+	EntryCaptures []Capture
 	// GenericTypeNames, GenericFunctionNames, and GenericMethodNames name
 	// every module-level open generic type/function/method template this
 	// module declared: an open template carries no canonical
@@ -40,20 +44,16 @@ type Program struct {
 	ForeignRecords   []ForeignRecordDeclaration
 }
 
-// ModuleValueDeclaration is a checked top-level `static` module value:
-// program-lifetime storage lowered directly to C static storage, distinct
-// from Declaration (an executable local, valid only in the entrypoint). It
-// is retained outside the executable statement list exactly like
-// TypeDeclaration. Atomic marks the one direct fixed Atomic<T> exception,
-// whose storage and access rules differ from an ordinary module value.
+// ModuleValueDeclaration is a checked top-level module constant: one immutable
+// program-lifetime object in a non-entry module, distinct from Declaration (an
+// executable local, valid only in the entrypoint). It is retained outside the
+// executable statement list exactly like TypeDeclaration.
 type ModuleValueDeclaration struct {
 	Name         string
 	Binding      BindingID
 	Type         compilerTypes.Type
 	TypeUse      compilerTypes.TypeUse
 	Source       Operand
-	Mutable      bool
-	Atomic       bool
 	Exported     bool // stamped later by applyExportFlags
 	SourceLine   int
 	SourceColumn int
@@ -86,6 +86,19 @@ type Declaration struct {
 	Mutable      bool
 	SourceLine   int
 	SourceColumn int
+	// Captured is true when an entry-module named function or method captures
+	// this root binding, so the generator lowers it as an entry-environment
+	// field rather than an automatic local.
+	Captured bool
+}
+
+// Capture is one entry-root binding captured by an entry-module named function
+// or method.
+type Capture struct {
+	Name    string
+	Binding BindingID
+	Type    compilerTypes.Type
+	Mutable bool
 }
 
 func (Declaration) statementNode() {}
@@ -312,6 +325,9 @@ type binding struct {
 	// moduleID is the target canonical module of an aliasBinding import.
 	// It is empty for every value and function binding.
 	moduleID string
+	// rootIndex is the source item index of an entry-module root binding; a
+	// function body may capture it only when its own index is later.
+	rootIndex int
 	// genericFunction is the open template a genericFunctionBinding refers
 	// to. Resolution reads it directly from the binding rather than a
 	// name-keyed lookup, so a local generic's binding can be found through
@@ -476,6 +492,12 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 	environment := moduleScope(moduleID, logicalKey, registry)
 	typeEnvironment := compilerTypes.NewCompilationEnvironment(arena, moduleID)
 	ctx := checkContext{names: environment, typeEnvironment: typeEnvironment}
+	if moduleID == entrypointCanonical {
+		envAnalysis := analyzeEntryEnvironment(program)
+		environment.envDependent = envAnalysis.envDependent
+		environment.envCaptures = envAnalysis.captures
+		environment.initializedRoots = make(map[string]bool)
+	}
 
 	items := program.Items
 	if items == nil {
@@ -571,22 +593,8 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 		}
 	}
 
-	// Pass 1.5: static module values, fully checked and registered before any
-	// function body. Module values are visible throughout their defining
-	// module independent of textual position, and their initializers cannot
-	// refer to another module value, so no ordering graph is needed here.
-	for _, item := range items {
-		declaration, ok := item.(parser.ModuleValueDeclaration)
-		if !ok {
-			continue
-		}
-		checkedValue, statementDiagnostics := checkModuleValueDeclaration(declaration, ctx)
-		diagnostics = append(diagnostics, statementDiagnostics...)
-		if len(statementDiagnostics) == 0 {
-			environment.define(declaration.Name.Lexeme, binding{typ: checkedValue.Type, use: checkedValue.TypeUse, mutable: checkedValue.Mutable, kind: moduleValueBinding, id: checkedValue.Binding})
-			checked.ModuleValues = append(checked.ModuleValues, checkedValue)
-		}
-	}
+	// Pass 1.5 is intentionally absent: imported-module constants are checked
+	// after function signatures in pass 2.4, below.
 
 	// Pass 2: collect every module-level function and method signature from
 	// the completed type environment, before any body or root executable
@@ -613,6 +621,11 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 				}
 				continue
 			}
+			if moduleID != entrypointCanonical {
+				// An imported module's non-sugar top-level declaration is a
+				// module constant, checked in the constant pass below.
+				continue
+			}
 			rootValueNames[statement.Name.Lexeme] = true
 		case parser.FunctionDeclaration:
 			signature, statementDiagnostics := collectFunctionSignature(statement, ctx, rootValueNames)
@@ -625,6 +638,70 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 && methodChecked.Object != nil {
 				collectedMethods[index] = methodChecked
+			}
+		}
+	}
+
+	// Pass 2.4: imported-module constants, checked after every function
+	// signature so a constructor call in an initializer resolves and a plain
+	// function call is then rejected by the closed static set. A fixed
+	// top-level declaration whose initializer is in the closed static set
+	// becomes one immutable program-lifetime object, visible throughout its
+	// defining module independent of textual position. A mutable top-level
+	// declaration is rejected outright. The entrypoint's own top-level
+	// declarations are runtime bindings and are checked in pass 3 instead.
+	if moduleID != entrypointCanonical {
+		for index, item := range items {
+			declaration, ok := item.(parser.Declaration)
+			if !ok {
+				continue
+			}
+			if _, isSugar := directFunctionLiteralSugar(declaration); isSugar {
+				continue
+			}
+			checkedValue, statementDiagnostics := checkModuleConstant(declaration, moduleID, ctx, index, typeIndexByName)
+			diagnostics = append(diagnostics, statementDiagnostics...)
+			if len(statementDiagnostics) == 0 {
+				environment.define(declaration.Name.Lexeme, binding{typ: checkedValue.Type, use: checkedValue.TypeUse, kind: moduleValueBinding, id: checkedValue.Binding})
+				checked.ModuleValues = append(checked.ModuleValues, checkedValue)
+			}
+		}
+	}
+
+	// Pass 2.45: entry-module root declarations and statements, checked in
+	// source order before any body. Defining root bindings first lets a generic
+	// body (pass 2.5) and every ordinary body (pass 3) capture them, while
+	// keeping declarations and statements interleaved preserves root flow
+	// analysis (free, narrowing) in source order. Function bodies stay in pass
+	// 3; pass 3 reuses these checked items rather than re-checking them.
+	checkedItems := make(map[int]Statement)
+	if moduleID == entrypointCanonical {
+		for index, item := range items {
+			ctx.rootIndex = index
+			switch statement := item.(type) {
+			case parser.TypeDeclaration:
+			case parser.Declaration:
+				if _, isSugar := directFunctionLiteralSugar(statement); isSugar {
+					continue
+				}
+				checkedDeclaration, declaredBinding, statementDiagnostics := checkDeclaration(statement, ctx, index, typeIndexByName)
+				diagnostics = append(diagnostics, statementDiagnostics...)
+				if len(statementDiagnostics) == 0 {
+					declaredBinding.rootIndex = index
+					environment.define(statement.Name.Lexeme, declaredBinding)
+					environment.initializedRoots[statement.Name.Lexeme] = true
+					checkedItems[index] = checkedDeclaration
+				}
+			case parser.FunctionDeclaration, parser.MethodDeclaration:
+			default:
+				checkedStatement, statementDiagnostics := checkRootExecutable(item, ctx)
+				diagnostics = append(diagnostics, statementDiagnostics...)
+				if len(statementDiagnostics) == 0 && checkedStatement != nil {
+					checkedItems[index] = checkedStatement
+					if _, isRoot := checkedStatement.(RootReturnStatement); isRoot {
+						environment.recordReturnFlow()
+					}
+				}
 			}
 		}
 	}
@@ -643,20 +720,37 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 	// signature set pass 2 collected, and every root executable statement
 	// in source order, exactly as before order-independent visibility.
 	for index, item := range items {
+		ctx.rootIndex = index
 		// Only the entrypoint module executes statements; an imported
 		// module's top level is declarations only. The offending statement is
 		// skipped entirely, never partially checked.
 		if moduleID != entrypointCanonical {
-			if token, executable := executableItemToken(item); executable {
-				diagnostics = append(diagnostics, moduleErrorAt(token, "imported module "+moduleID+" contains executable statements"))
+			// A top-level declaration in an imported module is a module
+			// constant or function-literal sugar, both owned elsewhere, so it
+			// is never an executable statement.
+			if _, isDeclaration := item.(parser.Declaration); !isDeclaration {
+				if token, executable := executableItemToken(item); executable {
+					diagnostics = append(diagnostics, moduleErrorAt(token, "imported module "+moduleID+" contains executable statements"))
+					continue
+				}
+			}
+		}
+		if moduleID == entrypointCanonical {
+			// Root declarations and statements were checked in source order in
+			// pass 2.45; only function and method bodies remain here.
+			switch item.(type) {
+			case parser.FunctionDeclaration, parser.MethodDeclaration:
+			case parser.Declaration:
+				if _, isSugar := directFunctionLiteralSugar(item.(parser.Declaration)); !isSugar {
+					continue
+				}
+			default:
 				continue
 			}
 		}
 		switch statement := item.(type) {
 		case parser.TypeDeclaration:
 			// Already fully handled in pass 1.
-		case parser.ModuleValueDeclaration:
-			// Already fully handled in pass 1.5.
 		case parser.Declaration:
 			if literal, isSugar := directFunctionLiteralSugar(statement); isSugar {
 				// A direct inferred fixed literal declaration is checked as
@@ -673,16 +767,16 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 				checkedStatement, statementDiagnostics := checkFunctionBody(asFunctionDeclaration(statement.Name, literal), signature, ctx, !literal.HasSyntaxErrors)
 				diagnostics = append(diagnostics, statementDiagnostics...)
 				if len(statementDiagnostics) == 0 {
-					checked.Statements = append(checked.Statements, checkedStatement)
+					checkedItems[index] = checkedStatement
 				}
 				continue
 			}
-			checkedStatement, declaredBinding, statementDiagnostics := checkDeclaration(statement, ctx, index, typeIndexByName)
-			diagnostics = append(diagnostics, statementDiagnostics...)
-			if len(statementDiagnostics) == 0 {
-				environment.define(statement.Name.Lexeme, declaredBinding)
-				checked.Statements = append(checked.Statements, checkedStatement)
+			if moduleID != entrypointCanonical {
+				// Already handled as a module constant in pass 2.4.
+				continue
 			}
+			// An entry-module non-sugar declaration was checked in pass 2.45.
+			continue
 		case parser.Assignment:
 			checkedStatement, statementDiagnostics := checkAssignment(statement, ctx)
 			diagnostics = append(diagnostics, statementDiagnostics...)
@@ -701,7 +795,7 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			checkedStatement, statementDiagnostics := checkFunctionBody(statement, signature, ctx, !statement.HasSyntaxErrors)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 {
-				checked.Statements = append(checked.Statements, checkedStatement)
+				checkedItems[index] = checkedStatement
 			}
 		case parser.CallExpression:
 			checkedStatement, statementDiagnostics := checkCallStatement(statement, ctx)
@@ -792,13 +886,18 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			checkedStatement, statementDiagnostics := checkMethodBody(statement, methodChecked, ctx, !statement.HasSyntaxErrors)
 			diagnostics = append(diagnostics, statementDiagnostics...)
 			if len(statementDiagnostics) == 0 {
-				checked.Statements = append(checked.Statements, checkedStatement)
+				checkedItems[index] = checkedStatement
 			}
 		default:
 			// Exhaustive over parser.TopLevelItem today; a new item form
 			// reaching this default is a compiler inconsistency and reports
 			// [Unknown Error], never a user category.
 			diagnostics = append(diagnostics, unknownAt(lexer.Token{Line: 1, Column: 1}, "unsupported top-level item"))
+		}
+	}
+	for index := range items {
+		if checkedStatement, ok := checkedItems[index]; ok {
+			checked.Statements = append(checked.Statements, checkedStatement)
 		}
 	}
 	diagnostics = append(diagnostics, validateDeferredActions(environment, !sequenceTerminates(checked.Statements))...)
@@ -841,14 +940,47 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 		// scope and type environment, never the importer's.
 		registry.storeDefiningContext(moduleID, environment, typeEnvironment)
 	}
+	if moduleID == entrypointCanonical {
+		markEntryCaptures(&checked)
+		computeEnvironmentDependence(&checked)
+	}
 	return checked, nil
+}
+
+// checkRootExecutable checks one entry-module root statement. It returns a nil
+// statement when the item is not an executable statement.
+func checkRootExecutable(item parser.TopLevelItem, ctx checkContext) (Statement, compilerTypes.Diagnostics) {
+	switch statement := item.(type) {
+	case parser.Assignment:
+		return checkAssignment(statement, ctx)
+	case parser.CallExpression:
+		return checkCallStatement(statement, ctx)
+	case parser.TryStatement:
+		checkedTry := checkTryExpression(parser.TryExpression{Keyword: statement.Keyword, Operand: statement.Operand}, expressionContext{}, ctx)
+		if errs := initializerDiagnostics(checkedTry); len(errs) > 0 {
+			return nil, errs
+		}
+		return TryStatement{Expression: checkedTry.source, SourceLine: statement.Keyword.Line, SourceColumn: statement.Keyword.Column}, nil
+	case parser.ReturnStatement:
+		return checkReturnStatement(statement, ctx)
+	case parser.IfStatement, parser.WhileStatement, parser.ForStatement, parser.UnsafeStatement, parser.BreakStatement, parser.ContinueStatement:
+		checkedStatement, _, _, statementDiagnostics := checkStatement(statement.(parser.Statement), ctx, 0)
+		if len(statementDiagnostics) > 0 {
+			return nil, statementDiagnostics
+		}
+		return checkedStatement, nil
+	case parser.DeferStatement:
+		return checkDeferStatement(statement, ctx)
+	case parser.ErrdeferStatement:
+		_, statementDiagnostics := checkErrdeferStatement(statement, ctx)
+		return nil, statementDiagnostics
+	}
+	return nil, nil
 }
 
 func topLevelItemToken(item parser.TopLevelItem) (lexer.Token, bool) {
 	switch node := item.(type) {
 	case parser.TypeDeclaration:
-		return node.Name, true
-	case parser.ModuleValueDeclaration:
 		return node.Name, true
 	case parser.FunctionDeclaration:
 		return node.Name, true

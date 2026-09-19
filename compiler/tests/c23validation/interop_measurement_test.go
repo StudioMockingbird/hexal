@@ -41,27 +41,27 @@ func generatedSize(t *testing.T, sources map[string]string, entrypoint string) i
 func TestProgramAndEntropyMeasurements(t *testing.T) {
 	program := map[string]string{"app.hex": "import\n  Prog from std.program\nend\n" +
 		"fun demo(): Bool | Error do\n" +
-		"    h: Heap := Heap()\n" +
-		"    path: String := try Prog.current_directory(h)\n" +
-		"    workers: Size := Prog.available_parallelism()\n" +
-		"    args := Prog.arguments()\n" +
+		"    let h: Heap = Heap()\n" +
+		"    let path: String = try Prog.current_directory(h)\n" +
+		"    let workers: Size = Prog.available_parallelism()\n" +
+		"    let args = Prog.arguments()\n" +
 		"    if args is Error then\n        return false\n    end\n" +
 		"    return (path.length() > 0) and (workers > 0) and (args.length() > 0)\n" +
 		"end\n" +
-		"outcome: Bool | Error := demo()\n" +
+		"let outcome: Bool | Error = demo()\n" +
 		"if outcome is Error then\n    return 1\nend\n" +
 		"print(outcome)\n"}
 	entropy := map[string]string{"app.hex": "import\n  Ent from std.entropy\nend\n" +
 		"fun demo(): Bool | Error do\n" +
-		"    h: Heap := Heap()\n" +
-		"    p: Ptr<mut Byte> := h.allocate<Byte>(8)\n" +
+		"    let h: Heap = Heap()\n" +
+		"    let p: Ptr<mut Byte> = h.allocate<Byte>(8)\n" +
 		"    unsafe do\n" +
-		"        view: Slice<mut Byte> := Slice<mut Byte>.from_pointer(p, 8)\n" +
+		"        let view: Slice<mut Byte> = Slice<mut Byte>.from_pointer(p, 8)\n" +
 		"        try Ent.fill(view)\n" +
 		"    end\n" +
 		"    return true\n" +
 		"end\n" +
-		"outcome: Bool | Error := demo()\n" +
+		"let outcome: Bool | Error = demo()\n" +
 		"if outcome is Error then\n    return 1\nend\n" +
 		"print(outcome)\n"}
 

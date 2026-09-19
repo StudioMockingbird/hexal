@@ -8,9 +8,9 @@
       "description": "Narrows Int32 | Nil before reading the value.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "score: Int32 | Nil:= 42",
+        "let score: Int32 | Nil= 42",
         "if score != nil then",
-        "    display: Int32:= score",
+        "    let display: Int32= score",
         "end"
       ]},
       "features": ["unions", "nullability"],
@@ -22,11 +22,11 @@
       "description": "Distinguishes an Int32 | Bool | Nil union with is.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "value: Int32 | Bool | Nil:= true",
+        "let value: Int32 | Bool | Nil= true",
         "if value is Int32 then",
-        "    number: Int32:= value",
+        "    let number: Int32= value",
         "elseif value != nil then",
-        "    flag: Bool:= value",
+        "    let flag: Bool= value",
         "else",
         "    print(value)",
         "end"
@@ -41,8 +41,8 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Direction is North | East | South | West end",
-        "heading: Direction:= Direction.East()",
-        "step: Int32:= match heading is",
+        "let heading: Direction= Direction.East()",
+        "let step: Int32= match heading is",
         "| Direction.North then 0",
         "| Direction.East then 1",
         "| Direction.South then 2",
@@ -59,8 +59,8 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Command is union | Stop | Move as distance: Int32 end end",
-        "command: Command:= Command.Move(distance = 4)",
-        "label: Int32:= match command is",
+        "let command: Command= Command.Move(distance = 4)",
+        "let label: Int32= match command is",
         "| Command.Stop then 0",
         "| Command.Move then command.distance",
         "end"
@@ -75,8 +75,8 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Shape is union | Circle as radius: Int32 end | Rect as width: Int32, height: Int32 end end",
-        "shape: Shape:= Shape.Circle(radius = 2)",
-        "area: Int32:= match shape is",
+        "let shape: Shape= Shape.Circle(radius = 2)",
+        "let area: Int32= match shape is",
         "| Shape.Circle then shape.radius * shape.radius",
         "| Shape.Rect then shape.width * shape.height",
         "end"
@@ -90,8 +90,8 @@
       "description": "Matches a present configuration value against nil.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "config: Int32 | Nil:= 8",
-        "level: Int32:= match config is",
+        "let config: Int32 | Nil= 8",
+        "let level: Int32= match config is",
         "| Int32 then config",
         "| Nil then 0",
         "end"
@@ -111,7 +111,7 @@
         "    end",
         "    return Error(ErrorKind.Other(header = \"Lookup Error\"), \"unknown key\")",
         "end",
-        "value: Int32 | Error:= lookup(1)"
+        "let value: Int32 | Error= lookup(1)"
       ]},
       "features": ["unions", "errors"],
       "reservedWords": ["fun", "if", "return", "end", "do", "then"]
@@ -123,8 +123,8 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Protocol is Ping | Pong | Quit end",
-        "frame: Protocol:= Protocol.Ping()",
-        "code: Int32:= match frame is",
+        "let frame: Protocol= Protocol.Ping()",
+        "let code: Int32= match frame is",
         "| Protocol.Ping then 1",
         "| Protocol.Pong then 2",
         "| Protocol.Quit then 0",
@@ -140,8 +140,8 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Event is union | Key as code: Int32 end | Move as dx: Int32, dy: Int32 end end",
-        "event: Event:= Event.Move(dx = 3, dy = 4)",
-        "distance: Int32:= match event is",
+        "let event: Event= Event.Move(dx = 3, dy = 4)",
+        "let distance: Int32= match event is",
         "| Event.Key then event.code",
         "| Event.Move then event.dx + event.dy",
         "end"
@@ -155,8 +155,8 @@
       "description": "Selects formatting behavior based on a union member type.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "value: Int32 | Float64:= 1",
-        "label: Strand:= match value is",
+        "let value: Int32 | Float64= 1",
+        "let label: Strand= match value is",
         "| Int32 then \"integer\"",
         "| Float64 then \"float\"",
         "end"

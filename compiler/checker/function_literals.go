@@ -30,7 +30,7 @@ func checkAnonymousFunctionLiteral(expression parser.AnonymousFunctionLiteral, c
 	// two share one hex_fun_<ordinal> stream.
 	ordinal := ctx.names.newBindingID()
 
-	body := ctx.names.closureRootScope("function literal")
+	body := ctx.names.closureRootScope("function literal", false)
 	body.result = signature.result
 	body.resultUse = signature.resultUse
 	statements, bodyDiagnostics := bindParametersAndCheckBody(signature.parameters, expression.Body, ctx.names, body, ctx.typeEnvironment)

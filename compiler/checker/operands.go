@@ -312,7 +312,7 @@ const (
 	// called directly on a classification value. Operand is the ErrorKind
 	// receiver.
 	ErrorKindHeaderExpression
-	// ModuleValueExpression reads a `static` module value's program-lifetime
+	// ModuleValueExpression reads a module constant's program-lifetime
 	// storage. Name is the bare declared name; Module is the defining
 	// module's canonical id for an imported value, empty for one declared in
 	// the generating module itself (matching FunctionReferenceExpression's
@@ -433,7 +433,7 @@ type Expression struct {
 	Name    string
 	Binding BindingID
 	// Mutable belongs to ModuleValueExpression alone: whether the referenced
-	// module value is a `static mut` (writable) or a fixed `static`
+	// module value is mutable or fixed
 	// (read-only). Every other kind leaves it false and unused.
 	Mutable bool
 	// CollectionRoot identifies the copied List or Dict state represented by

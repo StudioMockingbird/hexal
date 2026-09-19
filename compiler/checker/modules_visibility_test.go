@@ -41,7 +41,7 @@ func edgesToMath(program parser.Program) []ModuleEdge {
 // id for the downstream stage.
 func TestQualifiedCallResolvesExportedFunction(t *testing.T) {
 	checked, err := checkModules(t,
-		"import\n    Math from \"./math\"\nend\nresult: Int32 := Math.add(2, 3)\n",
+		"import\n    Math from \"./math\"\nend\nlet result: Int32 = Math.add(2, 3)\n",
 		"fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\nexport\n    add\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the qualified call: %v", err)
@@ -64,7 +64,7 @@ func TestQualifiedCallResolvesExportedFunction(t *testing.T) {
 // visibility failure at the property.
 func TestQualifiedCallRejectsPrivateFunction(t *testing.T) {
 	_, err := checkModules(t,
-		"import\n    Math from \"./math\"\nend\nresult: Int32 := Math.add(2, 3)\n",
+		"import\n    Math from \"./math\"\nend\nlet result: Int32 = Math.add(2, 3)\n",
 		"fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n")
 	requireMessage(t, err, "declaration add is private to module math")
 }
@@ -75,7 +75,7 @@ func TestQualifiedCallRejectsPrivateFunction(t *testing.T) {
 // target's identity (Int32), not the alias name.
 func TestQualifiedTypeResolvesExportedAndRejectsPrivate(t *testing.T) {
 	checked, err := checkModules(t,
-		"import\n    Math from \"./math\"\nend\nshape: Math.Shape := 0\n",
+		"import\n    Math from \"./math\"\nend\nlet shape: Math.Shape = 0\n",
 		"type Shape is Int32\nexport\n    Shape\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the qualified type: %v", err)
@@ -84,14 +84,14 @@ func TestQualifiedTypeResolvesExportedAndRejectsPrivate(t *testing.T) {
 		t.Fatalf("app statement = %#v, want the transparent alias target Int32", declaration)
 	}
 	_, err = checkModules(t,
-		"import\n    Math from \"./math\"\nend\nshape: Math.Shape := 0\n",
+		"import\n    Math from \"./math\"\nend\nlet shape: Math.Shape = 0\n",
 		"type Shape is Int32\n")
 	requireMessage(t, err, "declaration Shape is private to module math")
 }
 
 // An unknown leftmost name keeps the unknown-module-alias error.
 func TestQualifiedTypeKeepsUnknownModuleAlias(t *testing.T) {
-	requireDiagnostic(t, "shape: Nope.Shape := 0\n", "unknown module alias Nope")
+	requireDiagnostic(t, "let shape: Nope.Shape = 0\n", "unknown module alias Nope")
 }
 
 // An exported declaration whose interface reaches a private nominal type is
@@ -145,7 +145,7 @@ func TestExportedClosureAcceptsSpecializedGeneric(t *testing.T) {
 // module's exported ADT; the result carries the target's ADT identity.
 func TestQualifiedVariantResolvesExportedADT(t *testing.T) {
 	checked, err := checkModules(t,
-		"import\n    Math from \"./math\"\nend\ns: Math.Shape := Math.Shape.Circle(x = 1)\nu: Math.Shape := Math.Shape.Square()\n",
+		"import\n    Math from \"./math\"\nend\nlet s: Math.Shape = Math.Shape.Circle(x = 1)\nlet u: Math.Shape = Math.Shape.Square()\n",
 		"type Shape is union | Circle as x: Int32 end | Square end\nexport\n    Shape\nend\n")
 	if err != nil {
 		t.Fatalf("CheckModules rejected the qualified variants: %v", err)
@@ -168,7 +168,7 @@ func TestQualifiedVariantResolvesExportedADT(t *testing.T) {
 // the variant name.
 func TestQualifiedVariantRejectsUnknownVariant(t *testing.T) {
 	_, err := checkModules(t,
-		"import\n    Math from \"./math\"\nend\ns: Math.Shape := Math.Shape.Circle(x = 1)\n",
+		"import\n    Math from \"./math\"\nend\nlet s: Math.Shape = Math.Shape.Circle(x = 1)\n",
 		"type Shape is union | Other as x: Int32 end | Empty end\nexport\n    Shape\nend\n")
 	requireMessage(t, err, "unknown variant Shape.Circle")
 }
@@ -177,7 +177,7 @@ func TestQualifiedVariantRejectsUnknownVariant(t *testing.T) {
 // wrong ADT.
 func TestQualifiedVariantShortFormRejected(t *testing.T) {
 	_, err := checkModules(t,
-		"import\n    Math from \"./math\"\nend\ns: Math.Shape := Math.Circle(x = 1)\n",
+		"import\n    Math from \"./math\"\nend\nlet s: Math.Shape = Math.Circle(x = 1)\n",
 		"type Shape is union | Circle as x: Int32 end | Square end\nexport\n    Shape\nend\n")
 	requireMessage(t, err, "declaration Circle is private to module math")
 }
@@ -186,7 +186,7 @@ func TestQualifiedVariantShortFormRejected(t *testing.T) {
 // there are no wildcard imports.
 func TestUnqualifiedUseOfExportedNameFails(t *testing.T) {
 	_, err := checkModules(t,
-		"import\n    Math from \"./math\"\nend\nresult: Int32 := add(2, 3)\n",
+		"import\n    Math from \"./math\"\nend\nlet result: Int32 = add(2, 3)\n",
 		"fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\nexport\n    add\nend\n")
 	requireMessage(t, err, "unknown function add; functions must be declared before use")
 }
@@ -194,7 +194,7 @@ func TestUnqualifiedUseOfExportedNameFails(t *testing.T) {
 // A dangling alias whose target has no source resolves nowhere: the bare
 // receiver keeps failing as an unknown variable.
 func TestDanglingAliasQualifiedCallKeepsUnknownVariable(t *testing.T) {
-	app := parseProgram(t, "import\n    Math from \"./math\"\nend\nresult: Int32 := Math.add(2, 3)\n")
+	app := parseProgram(t, "import\n    Math from \"./math\"\nend\nlet result: Int32 = Math.add(2, 3)\n")
 	_, err := CheckModules(graphOf("app", []string{"app"}, map[string]parser.Program{"app.hex": app}, map[string][]ModuleEdge{"app": {{Alias: "Math", Target: "math"}}}))
 	requireMessage(t, err, "unknown variable Math")
 }

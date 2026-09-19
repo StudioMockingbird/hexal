@@ -7,7 +7,7 @@ import (
 )
 
 func TestAliasesLowerCanonically(t *testing.T) {
-	result := compileSource("type Coordinate is Int32 type CoordinatePtr is Ptr<Coordinate> mut value: Coordinate := 1 pointer: CoordinatePtr := @value read: Coordinate := ^pointer")
+	result := compileSource("type Coordinate is Int32 type CoordinatePtr is Ptr<Coordinate> let mut value: Coordinate = 1 let pointer: CoordinatePtr = @value let read: Coordinate = ^pointer")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -26,7 +26,7 @@ func TestAliasesLowerCanonically(t *testing.T) {
 }
 
 func TestNestedPointerAliasesLowerCanonically(t *testing.T) {
-	result := compileSource("type Pointer is Ptr<mut Int32> type PointerPointer is Ptr<Pointer> mut value: Int32 := 1 mut pointer: Pointer := @value pointerPointer: PointerPointer := @pointer read: Int32 := ^(^pointerPointer)")
+	result := compileSource("type Pointer is Ptr<mut Int32> type PointerPointer is Ptr<Pointer> let mut value: Int32 = 1 let mut pointer: Pointer = @value let pointerPointer: PointerPointer = @pointer let read: Int32 = ^(^pointerPointer)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -63,7 +63,7 @@ func TestRejectsAliasResolutionErrors(t *testing.T) {
 		{"type Int32 is UInt32", "[Type Error] built-in type Int32 cannot be redeclared at app.hex:1:6"},
 		{"type Ptr is UInt64", "[Type Error] built-in type constructor Ptr cannot be redeclared at app.hex:1:6"},
 		{"type MutPtr is UInt64", "[Type Error] built-in type constructor MutPtr cannot be redeclared at app.hex:1:6"},
-		{"Ptr: Int32 := 1", "[Type Error] built-in type constructor Ptr cannot be redeclared at app.hex:1:1"},
+		{"let Ptr: Int32 = 1", "[Type Error] built-in type constructor Ptr cannot be redeclared at app.hex:1:5"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || result.Stderr[0] != testCase.want {
@@ -74,9 +74,9 @@ func TestRejectsAliasResolutionErrors(t *testing.T) {
 
 func TestRejectsTypeValueCollisions(t *testing.T) {
 	for _, source := range []string{
-		"type Coordinate is Int32 Coordinate: Int32 := 1",
-		"distance: Int32 := 1 type distance is Int32",
-		"Int32: UInt32 := 1",
+		"type Coordinate is Int32 let Coordinate: Int32 = 1",
+		"let distance: Int32 = 1 type distance is Int32",
+		"let Int32: UInt32 = 1",
 	} {
 		result := compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "already declared") {
@@ -86,8 +86,8 @@ func TestRejectsTypeValueCollisions(t *testing.T) {
 }
 
 func TestTypeEnvironmentDoesNotLeakAcrossCompilations(t *testing.T) {
-	first := compileSource("type Pointer is Ptr<mut Int32> mut value: Int32 := 1 pointer: Pointer := @value")
-	second := compileSource("type Pointer is Ptr<mut Bool> mut value: Bool := true pointer: Pointer := @value")
+	first := compileSource("type Pointer is Ptr<mut Int32> let mut value: Int32 = 1 let pointer: Pointer = @value")
+	second := compileSource("type Pointer is Ptr<mut Bool> let mut value: Bool = true let pointer: Pointer = @value")
 	if first.ExitCode != compiler.ExitSuccess || second.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("compilations failed: first := %#v second=%#v", first, second)
 	}
@@ -97,11 +97,11 @@ func TestTypeEnvironmentDoesNotLeakAcrossCompilations(t *testing.T) {
 }
 
 func TestRejectsUnknownType(t *testing.T) {
-	result := compileSource("x: Bogus := 13")
+	result := compileSource("let x: Bogus = 13")
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
-	wantErrors := []string{"[Type Error] unknown type Bogus at app.hex:1:4"}
+	wantErrors := []string{"[Type Error] unknown type Bogus at app.hex:1:8"}
 	if len(result.Stderr) != len(wantErrors) || result.Stderr[0] != wantErrors[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, wantErrors)
 	}
@@ -111,11 +111,11 @@ func TestRejectsUnknownType(t *testing.T) {
 }
 
 func TestRejectsUnknownNamedType(t *testing.T) {
-	result := compileSource("x: yyy := 1")
+	result := compileSource("let x: yyy = 1")
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
-	want := []string{"[Type Error] unknown type yyy at app.hex:1:4"}
+	want := []string{"[Type Error] unknown type yyy at app.hex:1:8"}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
 	}

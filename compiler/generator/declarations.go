@@ -154,14 +154,16 @@ func methodCName(object *compilerTypes.ObjectType, name, owner string) string {
 // writers: the output builder, the function/method tables, generated-type and
 // literal state, and the module identity used for C names.
 type definitionContext struct {
-	body      *strings.Builder
-	functions map[string]compilerTypes.Type
-	methods   map[string]checker.MethodDeclaration
-	typeState *generatedTypeValidation
-	strings   *literalRegistry
-	owner     string
-	filename  string
-	tags      *tagRegistry
+	body         *strings.Builder
+	functions    map[string]compilerTypes.Type
+	methods      map[string]checker.MethodDeclaration
+	typeState    *generatedTypeValidation
+	strings      *literalRegistry
+	owner        string
+	filename     string
+	tags         *tagRegistry
+	envFunctions map[string]bool
+	envMethods   map[string]bool
 }
 
 // writeFunctionDefinition emits one C function. The declared function and the
@@ -207,7 +209,17 @@ func (ctx definitionContext) writeFunctionDefinition(declared checker.FunctionDe
 		tags:           ctx.tags,
 	}
 	state.pushScope()
-	parameters := make([]string, len(declared.Parameters))
+	state.envFunctions = ctx.envFunctions
+	state.envMethods = ctx.envMethods
+	if declared.EnvDependent {
+		if err := registerEnvironment(state, declared.Captures); err != nil {
+			return err
+		}
+	}
+	parameters := make([]string, 0, len(declared.Parameters)+1)
+	if declared.EnvDependent {
+		parameters = append(parameters, entryEnvironmentName+" *env")
+	}
 	for index, parameter := range declared.Parameters {
 		if !validSourceName(parameter.Name) {
 			return unknownExpressionDiagnostic("invalid checked function parameter name")
@@ -228,7 +240,7 @@ func (ctx definitionContext) writeFunctionDefinition(declared checker.FunctionDe
 		if nameErr != nil {
 			return nameErr
 		}
-		parameters[index] = declaration(parameter.Type, name, false)
+		parameters = append(parameters, declaration(parameter.Type, name, false))
 	}
 
 	writeLineDirective(ctx.body, declared.SourceLine, ctx.filename)
@@ -283,11 +295,22 @@ func (ctx definitionContext) writeMethodDefinition(declared checker.MethodDeclar
 		tags:           ctx.tags,
 	}
 	state.pushScope()
+	state.envFunctions = ctx.envFunctions
+	state.envMethods = ctx.envMethods
+	if declared.EnvDependent {
+		if err := registerEnvironment(state, declared.Captures); err != nil {
+			return err
+		}
+	}
 	selfName, selfErr := state.allocateBinding(declared.SelfBinding, "self", declared.SelfType, false)
 	if selfErr != nil {
 		return selfErr
 	}
-	parameters := []string{declaration(declared.SelfType, selfName, false)}
+	parameters := make([]string, 0, len(declared.Parameters)+2)
+	if declared.EnvDependent {
+		parameters = append(parameters, entryEnvironmentName+" *env")
+	}
+	parameters = append(parameters, declaration(declared.SelfType, selfName, false))
 	for _, parameter := range declared.Parameters {
 		if !validSourceName(parameter.Name) || parameter.Binding == 0 || !validateGeneratedType(parameter.Type, ctx.typeState, false) {
 			return unknownExpressionDiagnostic("invalid checked method parameter")
@@ -396,9 +419,8 @@ func writeForeignPrototypes(result *strings.Builder, program checker.Program, st
 				}
 				emitted[symbol] = true
 				result.WriteString(moduleValueExternDeclaration(checker.ModuleValueDeclaration{
-					Name:    node.Name,
-					Type:    node.ResultType,
-					Mutable: node.Mutable,
+					Name: node.Name,
+					Type: node.ResultType,
 				}, owner))
 			case checker.MethodCallExpression:
 				if node.Owner == nil || node.Owner.ModuleID == "" || node.Owner.ModuleID == state.moduleID {
@@ -444,9 +466,12 @@ func writeModulePrototypes(body *strings.Builder, program checker.Program, owner
 			if declared.Result != nil {
 				resultSpelling = standaloneResultSpelling(*declared.Result)
 			}
-			parameters := make([]string, len(declared.Parameters))
-			for index, parameter := range declared.Parameters {
-				parameters[index] = typeSpelling(parameter.Type)
+			parameters := make([]string, 0, len(declared.Parameters)+1)
+			if declared.EnvDependent {
+				parameters = append(parameters, entryEnvironmentName+" *env")
+			}
+			for _, parameter := range declared.Parameters {
+				parameters = append(parameters, typeSpelling(parameter.Type))
 			}
 			fmt.Fprintf(body, "static %s %s(%s);\n", resultSpelling, privateCName(functionNameKind, declared.Name, owner), parameterList(parameters))
 			emitted++
@@ -458,7 +483,10 @@ func writeModulePrototypes(body *strings.Builder, program checker.Program, owner
 			if declared.Result != nil {
 				resultSpelling = standaloneResultSpelling(*declared.Result)
 			}
-			parameters := make([]string, 0, len(declared.Parameters)+1)
+			parameters := make([]string, 0, len(declared.Parameters)+2)
+			if declared.EnvDependent {
+				parameters = append(parameters, entryEnvironmentName+" *env")
+			}
 			parameters = append(parameters, typeSpelling(declared.SelfType))
 			for _, parameter := range declared.Parameters {
 				parameters = append(parameters, typeSpelling(parameter.Type))
@@ -492,12 +520,15 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 			}
 			resultSpelling = standaloneResultSpelling(*declared.Result)
 		}
-		parameters := make([]string, len(declared.Parameters))
-		for index, parameter := range declared.Parameters {
+		parameters := make([]string, 0, len(declared.Parameters)+1)
+		if declared.EnvDependent {
+			parameters = append(parameters, entryEnvironmentName+" *env")
+		}
+		for _, parameter := range declared.Parameters {
 			if !validateGeneratedType(parameter.Type, typeState, false) {
 				return unknownExpressionDiagnostic("unsupported specialized function parameter type")
 			}
-			parameters[index] = typeSpelling(parameter.Type)
+			parameters = append(parameters, typeSpelling(parameter.Type))
 		}
 		linkage := "static "
 		if declared.Exported {
@@ -517,7 +548,10 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 			}
 			resultSpelling = standaloneResultSpelling(*declared.Result)
 		}
-		parameters := make([]string, 0, len(declared.Parameters)+1)
+		parameters := make([]string, 0, len(declared.Parameters)+2)
+		if declared.EnvDependent {
+			parameters = append(parameters, entryEnvironmentName+" *env")
+		}
 		parameters = append(parameters, typeSpelling(declared.SelfType))
 		for _, parameter := range declared.Parameters {
 			if !validateGeneratedType(parameter.Type, typeState, false) {

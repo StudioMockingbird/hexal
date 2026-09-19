@@ -30,7 +30,7 @@ func adderFixture(t *testing.T, root string) string {
 		"end\n"+
 		"export\n    adder_add\nend\n")
 	writeSource(t, root, "main.hex", "import\n    Adder from \"./binding\"\nend\n"+
-		"mut total: Int32 := 0\n"+
+		"let mut total: Int32 = 0\n"+
 		"unsafe do\n    total = Adder.adder_add(20, 22)\nend\n"+
 		"print(total)\n")
 	return native
@@ -98,7 +98,7 @@ func TestForeignHeaderOnlyBuild(t *testing.T) {
 		"end\n"+
 		"export\n    adder_add\nend\n")
 	writeSource(t, dir, "main.hex", "import\n    Adder from \"./binding\"\nend\n"+
-		"mut total: Int32 := 0\n"+
+		"let mut total: Int32 = 0\n"+
 		"unsafe do\n    total = Adder.adder_add(20, 22)\nend\n"+
 		"print(total)\n")
 
@@ -334,7 +334,7 @@ func TestForeignMultipleEqualBasenames(t *testing.T) {
 		"end\n"+
 		"export\n    first_value,\n    second_value\nend\n")
 	writeSource(t, dir, "main.hex", "import\n    Native from \"./binding\"\nend\n"+
-		"mut total: Int32 := 0\n"+
+		"let mut total: Int32 = 0\n"+
 		"unsafe do\n    total = Native.first_value() + Native.second_value()\nend\n"+
 		"print(total)\n")
 
@@ -423,8 +423,8 @@ func TestForeignMacroControlledLayout(t *testing.T) {
 		"end\n"+
 		"export\n    Pair,\n    pair_make\nend\n")
 	writeSource(t, dir, "main.hex", "import\n    Native from \"./binding\"\nend\n"+
-		"mut total: Int64 := 0\n"+
-		"unsafe do\n    result: Native.Pair := Native.pair_make(40, 2)\n    total = result.left + result.right\nend\n"+
+		"let mut total: Int64 = 0\n"+
+		"unsafe do\n    let result: Native.Pair = Native.pair_make(40, 2)\n    total = result.left + result.right\nend\n"+
 		"print(total)\n")
 
 	result, err := Build(withTestBackend(t, BuildOptions{

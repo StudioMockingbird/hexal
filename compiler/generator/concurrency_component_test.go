@@ -15,7 +15,7 @@ import (
 // process-wide state exactly once, hexal.h keeps none of the family, and the
 // root module C keeps only its call sites.
 func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    let task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
 	files := generateOne(t, program)
 	header, exists := files["hexal/concurrency.h"]
 	if !exists {
@@ -122,7 +122,7 @@ func TestConcurrencyComponentEmitsHeaderAndSource(t *testing.T) {
 // helper: the worker loop calls it after every switch-back, and no second
 // inline copy of the branch remains in the loop.
 func TestConcurrencyComponentSharedDispatchCommit(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    let task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
 	files := generateOne(t, program)
 	source, exists := files["hexal/concurrency.c"]
 	if !exists {
@@ -140,7 +140,7 @@ func TestConcurrencyComponentSharedDispatchCommit(t *testing.T) {
 }
 
 func TestConcurrencyComponentUsesHeapAllocator(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    let task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
 	files := generateOne(t, program)
 	source, exists := files["hexal/concurrency.c"]
 	if !exists {
@@ -165,7 +165,7 @@ func TestConcurrencyComponentUsesHeapAllocator(t *testing.T) {
 // root and signals one worker otherwise, worker zero removes the FIFO head
 // without searching, and non-zero workers skip a queued root in place.
 func TestConcurrencyComponentRootAffinity(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    let task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
 	files := generateOne(t, program)
 	source, exists := files["hexal/concurrency.c"]
 	if !exists {
@@ -210,7 +210,7 @@ func TestConcurrencyComponentRootAffinity(t *testing.T) {
 // and publishes nothing, and the worker-zero bootstrap commits root's first
 // later switch through the shared helper before entering the ordinary loop.
 func TestConcurrencyComponentBootstrapReturnsFromInit(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    let task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
 	files := generateOne(t, program)
 	source, exists := files["hexal/concurrency.c"]
 	if !exists {
@@ -246,7 +246,7 @@ func TestConcurrencyComponentBootstrapReturnsFromInit(t *testing.T) {
 // runtime: the header owns the Atomic typedefs, the source owns no runtime
 // definition, and the module header includes the component.
 func TestConcurrencyComponentAtomicOnly(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun run(): Bool do\n    counter: Atomic<Int32> := Atomic<Int32>(0)\n    counter.store(1)\n    return counter.load() == 1\nend\n")
+	program := checkedGeneratorSource(t, "fun run(): Bool do\n    let counter: Atomic<Int32> = Atomic<Int32>(0)\n    counter.store(1)\n    return counter.load() == 1\nend\n")
 	files := generateOne(t, program)
 	header, exists := files["hexal/concurrency.h"]
 	if !exists {
@@ -277,7 +277,7 @@ func TestConcurrencyComponentAtomicOnly(t *testing.T) {
 // A scalar-only program selects no concurrency artifact and no module
 // includes the component.
 func TestConcurrencyComponentAbsentWithoutConcurrency(t *testing.T) {
-	program := checkedGeneratorSource(t, "x: Int32 := 1\n")
+	program := checkedGeneratorSource(t, "let x: Int32 = 1\n")
 	files := generateOne(t, program)
 	for _, key := range []string{"hexal/concurrency.h", "hexal/concurrency.c"} {
 		if _, exists := files[key]; exists {
@@ -295,8 +295,8 @@ func TestConcurrencyComponentAbsentWithoutConcurrency(t *testing.T) {
 func TestConcurrencyComponentSelectionIsModuleLocal(t *testing.T) {
 	parsed := make(map[string]parser.Program, 2)
 	for key, source := range map[string]string{
-		"app.hex":  "import\n    Math from \"./math\"\nend\nresult: Int32 | Error := Math.compute()\n",
-		"math.hex": "fun double(v: Int32): Int32 do\n    return v * 2\nend\nfun compute(): Int32 | Error do\n    task: Task<Int32> := try spawn double(21)\n    return task.join()\nend\nexport\n    compute\nend\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\nlet result: Int32 | Error = Math.compute()\n",
+		"math.hex": "fun double(v: Int32): Int32 do\n    return v * 2\nend\nfun compute(): Int32 | Error do\n    let task: Task<Int32> = try spawn double(21)\n    return task.join()\nend\nexport\n    compute\nend\n",
 	} {
 		tokens, err := lexer.Lex(source)
 		if err != nil {
@@ -419,11 +419,11 @@ func TestGenerateSpawnNestingShapesEmitOneSite(t *testing.T) {
 		name   string
 		source string
 	}{
-		{"top level", spawned + "fun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n"},
-		{"if", spawned + "fun run(): Int32 | Error do\n    if true then\n        task: Task<Int32> := try spawn square(6)\n        task.join()\n    end\n    return 0\nend\n"},
-		{"while", spawned + "fun run(): Int32 | Error do\n    mut n: Int32 := 1\n    while n > 0 do\n        task: Task<Int32> := try spawn square(6)\n        task.join()\n        n = n - 1\n    end\n    return 0\nend\n"},
-		{"nested if inside while", spawned + "fun run(): Int32 | Error do\n    mut n: Int32 := 1\n    while n > 0 do\n        if n > 0 then\n            task: Task<Int32> := try spawn square(6)\n            task.join()\n        end\n        n = n - 1\n    end\n    return 0\nend\n"},
-		{"for", "fun burn(value: Int64): Int64 do\n    return value\nend\nfun run(): Int64 | Error do\n    a: Array<Int64, 3> := [1, 2, 3]\n    for v in a do\n        w: Task<Int64> := try spawn burn(v)\n        w.join()\n    end\n    return 0\nend\n"},
+		{"top level", spawned + "fun run(): Int32 | Error do\n    let task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n"},
+		{"if", spawned + "fun run(): Int32 | Error do\n    if true then\n        let task: Task<Int32> = try spawn square(6)\n        task.join()\n    end\n    return 0\nend\n"},
+		{"while", spawned + "fun run(): Int32 | Error do\n    let mut n: Int32 = 1\n    while n > 0 do\n        let task: Task<Int32> = try spawn square(6)\n        task.join()\n        n = n - 1\n    end\n    return 0\nend\n"},
+		{"nested if inside while", spawned + "fun run(): Int32 | Error do\n    let mut n: Int32 = 1\n    while n > 0 do\n        if n > 0 then\n            let task: Task<Int32> = try spawn square(6)\n            task.join()\n        end\n        n = n - 1\n    end\n    return 0\nend\n"},
+		{"for", "fun burn(value: Int64): Int64 do\n    return value\nend\nfun run(): Int64 | Error do\n    let a: Array<Int64, 3> = [1, 2, 3]\n    for v in a do\n        let w: Task<Int64> = try spawn burn(v)\n        w.join()\n    end\n    return 0\nend\n"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			program := checkedGeneratorSource(t, testCase.source)
@@ -442,7 +442,7 @@ func TestGenerateSpawnNestingShapesEmitOneSite(t *testing.T) {
 // torn down with munmap, and the initial commit is documented as a
 // Windows-only knob.
 func TestConcurrencyPosixStackHasGuardPage(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    let task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
 	files := generateOne(t, program)
 	source := files["hexal/concurrency.c"]
 	for _, fragment := range []string{
@@ -468,7 +468,7 @@ func TestConcurrencyPosixStackHasGuardPage(t *testing.T) {
 // re-raise for every other fault, and the Windows vectored exception handler
 // on EXCEPTION_STACK_OVERFLOW. Every worker installs its setup.
 func TestConcurrencyOverflowTrapReachesRuntime(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    let task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
 	files := generateOne(t, program)
 	source := files["hexal/concurrency.c"]
 	posix := []string{
@@ -518,7 +518,7 @@ func TestConcurrencyOverflowTrapReachesRuntime(t *testing.T) {
 // and wake_result is the one generalized payload byte shared by Channel
 // close and Mutex ownership transfer.
 func TestConcurrencyTaskLayoutOwnsParkingAndLifecycleFieldsOnce(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    let task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
 	files := generateOne(t, program)
 	header := files["hexal/concurrency.h"]
 	for _, want := range []string{
@@ -541,7 +541,7 @@ func TestConcurrencyTaskLayoutOwnsParkingAndLifecycleFieldsOnce(t *testing.T) {
 // The common park/commit/wake transition helpers exist exactly once each:
 // no wait family duplicates the protocol with its own local variant.
 func TestConcurrencyNoDuplicateParkWakeProtocol(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    let task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
 	files := generateOne(t, program)
 	source := files["hexal/concurrency.c"]
 	for _, fragment := range []string{
@@ -561,7 +561,7 @@ func TestConcurrencyNoDuplicateParkWakeProtocol(t *testing.T) {
 // against the nearest preceding pending-link write, independent of exact
 // indentation.
 func TestConcurrencyPendingLinkPrecedesParkingPhaseStore(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun worker(ch: Channel<Int32>, m: Mutex): Bool do\n    m.lock()\n    ch.send(1)\n    m.unlock()\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error do\n    h: Heap := Heap()\n    ch: Channel<Int32> := try Channel<Int32>(h, 4)\n    m: Mutex := try Mutex(h)\n    task: Task<Bool> := try spawn worker(ch, m)\n    task.join()\n    return 0\nend\n")
+	program := checkedGeneratorSource(t, "fun worker(ch: Channel<Int32>, m: Mutex): Bool do\n    m.lock()\n    ch.send(1)\n    m.unlock()\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error do\n    let h: Heap = Heap()\n    let ch: Channel<Int32> = try Channel<Int32>(h, 4)\n    let m: Mutex = try Mutex(h)\n    let task: Task<Bool> = try spawn worker(ch, m)\n    task.join()\n    return 0\nend\n")
 	files := generateOne(t, program)
 	source := files["hexal/concurrency.c"]
 	const parkingStore = "atomic_store_explicit(&self->park_phase, HEX_PARK_PARKING, memory_order_release);"
@@ -584,7 +584,7 @@ func TestConcurrencyPendingLinkPrecedesParkingPhaseStore(t *testing.T) {
 // from lock() immediately instead of re-entering acquisition, which is what
 // would incorrectly trap transferred ownership as a recursive lock.
 func TestConcurrencyMutexHandoffReturnsWithoutReenteringAcquisition(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun run(): Int32 | Error do\n    h: Heap := Heap()\n    m: Mutex := try Mutex(h)\n    m.lock()\n    m.unlock()\n    defer m.free(h)\n    return 0\nend\n")
+	program := checkedGeneratorSource(t, "fun run(): Int32 | Error do\n    let h: Heap = Heap()\n    let m: Mutex = try Mutex(h)\n    m.lock()\n    m.unlock()\n    defer m.free(h)\n    return 0\nend\n")
 	files := generateOne(t, program)
 	source := files["hexal/concurrency.c"]
 	if !strings.Contains(source, "hex_task_resume_commit(self);\n        if (self->wake_result) {\n            return;\n        }\n    }\n}") {
@@ -609,7 +609,7 @@ func TestConcurrencyEventSelectionMatrix(t *testing.T) {
 	}{
 		{
 			"io only",
-			"import\n  Io from std.io\nend\nfun run(): Nil | Error do\n    out: Io.IO := try Io.stdout()\n    w: Size | Error := out.write(\"hi\".bytes())\n    closed: Nil | Error := out.close()\n    return nil\nend\n",
+			"import\n  Io from std.io\nend\nfun run(): Nil | Error do\n    let out: Io.IO = try Io.stdout()\n    let w: Size | Error = out.write(\"hi\".bytes())\n    let closed: Nil | Error = out.close()\n    return nil\nend\n",
 			false,
 		},
 		{
@@ -619,27 +619,27 @@ func TestConcurrencyEventSelectionMatrix(t *testing.T) {
 		},
 		{
 			"task only",
-			spawnJoin + "fun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n",
+			spawnJoin + "fun run(): Int32 | Error do\n    let task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n",
 			false,
 		},
 		{
 			"atomic plus io",
-			"import\n  Io from std.io\nend\nfun run(): Nil | Error do\n    counter: Atomic<Int32> := Atomic<Int32>(0)\n    counter.store(1)\n    out: Io.IO := try Io.stdout()\n    w: Size | Error := out.write(\"hi\".bytes())\n    closed: Nil | Error := out.close()\n    return nil\nend\n",
+			"import\n  Io from std.io\nend\nfun run(): Nil | Error do\n    let counter: Atomic<Int32> = Atomic<Int32>(0)\n    counter.store(1)\n    let out: Io.IO = try Io.stdout()\n    let w: Size | Error = out.write(\"hi\".bytes())\n    let closed: Nil | Error = out.close()\n    return nil\nend\n",
 			false,
 		},
 		{
 			"bytes plus task",
-			"import\n  Io from std.io\nend\n" + spawnJoin + "fun run(): Int32 | Error do\n    h: Heap := Heap()\n    data: List<Byte> := List<Byte>(h)\n    defer data.free(h)\n    dst: List<Byte> := List<Byte>(h)\n    defer dst.free(h)\n    mut live: Io.Bytes := Io.bytes_over(data)\n    r: Size | EoS | Error := live.read(dst, 4)\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n",
+			"import\n  Io from std.io\nend\n" + spawnJoin + "fun run(): Int32 | Error do\n    let h: Heap = Heap()\n    let data: List<Byte> = List<Byte>(h)\n    defer data.free(h)\n    let dst: List<Byte> = List<Byte>(h)\n    defer dst.free(h)\n    let mut live: Io.Bytes = Io.bytes_over(data)\n    let r: Size | EoS | Error = live.read(dst, 4)\n    let task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n",
 			false,
 		},
 		{
 			"task plus io",
-			"import\n  Io from std.io\nend\n" + spawnJoin + "fun run(): Int32 | Error do\n    out: Io.IO := try Io.stdout()\n    w: Size | Error := out.write(\"hi\".bytes())\n    closed: Nil | Error := out.close()\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n",
+			"import\n  Io from std.io\nend\n" + spawnJoin + "fun run(): Int32 | Error do\n    let out: Io.IO = try Io.stdout()\n    let w: Size | Error = out.write(\"hi\".bytes())\n    let closed: Nil | Error = out.close()\n    let task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n",
 			true,
 		},
 		{
 			"task plus print",
-			spawnJoin + "fun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    v: Int32 := task.join()\n    print(v)\n    return 0\nend\n",
+			spawnJoin + "fun run(): Int32 | Error do\n    let task: Task<Int32> = try spawn square(6)\n    let v: Int32 = task.join()\n    print(v)\n    return 0\nend\n",
 			true,
 		},
 	} {
@@ -696,7 +696,7 @@ func TestConcurrencyEventSelectionMatrix(t *testing.T) {
 // their first use. Generated C is checked as text because ordinary tests do
 // not invoke an external C compiler.
 func TestEventIODeclarationsPrecedeFrontendUses(t *testing.T) {
-	program := checkedGeneratorSource(t, "import\n  Io from std.io\nend\nfun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    h: Heap := Heap()\n    stream: Io.IO := try Io.stdin()\n    buffer: List<Byte> := List<Byte>(h)\n    defer buffer.free(h)\n    transfer: Size | EoS | Error := try stream.read(buffer, 16)\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	program := checkedGeneratorSource(t, "import\n  Io from std.io\nend\nfun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    let h: Heap = Heap()\n    let stream: Io.IO = try Io.stdin()\n    let buffer: List<Byte> = List<Byte>(h)\n    defer buffer.free(h)\n    let transfer: Size | EoS | Error = try stream.read(buffer, 16)\n    let task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
 	ioSource := generateOne(t, program)["hexal/io.c"]
 	// A standard-output write-all is no longer its own submission: the print
 	// commit that needs it is already one job, and it runs inside that job.
@@ -718,7 +718,7 @@ func TestEventIODeclarationsPrecedeFrontendUses(t *testing.T) {
 // lifecycle mutex. Waking a joiner is the final target access because the
 // joiner may reclaim the target immediately after publication.
 func TestConcurrencyCompletionPublishesOnlyAfterDispositionSnapshot(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    return task.join()\nend\n")
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    let task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n")
 	source := generateOne(t, program)["hexal/concurrency.c"]
 	snapshot := strings.Index(source, "bool root = (task->flags & HEX_TASK_ROOT) != 0;")
 	detached := strings.Index(source, "bool detached = task->terminal_claim == HEX_TASK_CLAIM_DETACH;")
@@ -740,7 +740,7 @@ func TestConcurrencyCompletionPublishesOnlyAfterDispositionSnapshot(t *testing.T
 // Join and detach claim the one terminal ownership slot before either can
 // arrange reclamation; the generated runtime contains both claim checks.
 func TestConcurrencyTerminalClaimProtectsJoinAndDetach(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn square(6)\n    task.detach()\n    return 0\nend\n")
+	program := checkedGeneratorSource(t, "fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(): Int32 | Error do\n    let task: Task<Int32> = try spawn square(6)\n    task.detach()\n    return 0\nend\n")
 	files := generateOne(t, program)
 	header := files["hexal/concurrency.h"]
 	source := files["hexal/concurrency.c"]
@@ -764,7 +764,7 @@ func TestConcurrencyTerminalClaimProtectsJoinAndDetach(t *testing.T) {
 // Resume and dispatcher commit must perform the specified phase transitions;
 // an unexpected phase is a runtime defect, not an implicit ready publication.
 func TestConcurrencyParkPhaseTransitionsFailClosed(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun worker(): Bool do\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error do\n    task: Task<Bool> := try spawn worker()\n    task.join()\n    return 0\nend\n")
+	program := checkedGeneratorSource(t, "fun worker(): Bool do\n    Task.yield()\n    return true\nend\nfun run(): Int32 | Error do\n    let task: Task<Bool> = try spawn worker()\n    task.join()\n    return 0\nend\n")
 	source := generateOne(t, program)["hexal/concurrency.c"]
 	if strings.Contains(source, "atomic_store_explicit(&self->park_phase, HEX_PARK_RUNNING") {
 		t.Fatalf("resume must transition ready to running with compare-exchange:\n%s", source)

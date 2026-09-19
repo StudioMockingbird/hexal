@@ -110,23 +110,36 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				return unknownExpressionDiagnostic("unsupported checked declaration type")
 			}
 			writeLineDirective(body, statement.SourceLine, state.filename)
-			name, nameErr := state.allocateBinding(statement.Binding, statement.Name, statement.Type, statement.Mutable)
-			if nameErr != nil {
-				return nameErr
+			var name string
+			if statement.Captured {
+				name = "env." + privateCName(valueName, statement.Name, "")
+				if captureErr := state.registerCapture(checker.Capture{Name: statement.Name, Binding: statement.Binding, Type: statement.Type, Mutable: statement.Mutable}, name); captureErr != nil {
+					return captureErr
+				}
+			} else {
+				allocated, nameErr := state.allocateBinding(statement.Binding, statement.Name, statement.Type, statement.Mutable)
+				if nameErr != nil {
+					return nameErr
+				}
+				name = allocated
+			}
+			declared := declaration(statement.Type, name, statement.Mutable)
+			if statement.Captured {
+				declared = name
 			}
 			if statement.Source.Node.Kind == checker.MatchExpression {
 				resultName, matchErr := renderMatchStatement(body, statement.Source.Node, state, indent)
 				if matchErr != nil {
 					return matchErr
 				}
-				fmt.Fprintf(body, "%s%s = %s;\n", indent, declaration(statement.Type, name, statement.Mutable), resultName)
+				fmt.Fprintf(body, "%s%s = %s;\n", indent, declared, resultName)
 				break
 			}
 			value, literalErr := renderOperandWithState(statement.Source, state)
 			if literalErr != nil {
 				return literalErr
 			}
-			fmt.Fprintf(body, "%s%s = %s;\n", indent, declaration(statement.Type, name, statement.Mutable), value)
+			fmt.Fprintf(body, "%s%s = %s;\n", indent, declared, value)
 		case checker.Assignment:
 			if !supportedGeneratedTypeWithState(statement.Type, state) || !supportedGeneratedTypeWithState(statement.Target.Type, state) {
 				return unknownExpressionDiagnostic("unsupported checked assignment type")
@@ -553,9 +566,16 @@ type expressionValidation struct {
 	// filename is its logical source key for #line directives; moduleID is
 	// the module's canonical identity, used to distinguish foreign method
 	// calls from local ones.
-	owner            string
-	filename         string
-	moduleID         string
+	owner    string
+	filename string
+	moduleID string
+	// envPointer is the current entry-environment pointer expression ("&env"
+	// in generated main, "env" inside an environment-dependent declaration),
+	// or empty when no environment exists. envFunctions names the
+	// environment-dependent functions whose calls pass it.
+	envPointer       string
+	envFunctions     map[string]bool
+	envMethods       map[string]bool
 	loopDepths       []int
 	captureCounter   int
 	returnCounter    int
@@ -651,6 +671,26 @@ func (state *expressionValidation) allocateBinding(id checker.BindingID, sourceN
 	}
 	state.activeScopes[len(state.activeScopes)-1][id] = true
 	return name, nil
+}
+
+// registerCapture registers one captured entry-root binding under an explicit
+// C name, so a function body's reads and writes render against the environment
+// field rather than a local.
+func (state *expressionValidation) registerCapture(capture checker.Capture, cName string) error {
+	if state.bindings == nil {
+		state.bindings = make(map[checker.BindingID]generatedBinding)
+		state.bindingNames = make(map[checker.BindingID]string)
+	}
+	if _, exists := state.bindings[capture.Binding]; exists {
+		return unknownExpressionDiagnostic("duplicate checked binding identity")
+	}
+	state.bindings[capture.Binding] = generatedBinding{typ: capture.Type, mutable: capture.Mutable}
+	state.bindingNames[capture.Binding] = cName
+	if len(state.activeScopes) == 0 {
+		state.pushScope()
+	}
+	state.activeScopes[len(state.activeScopes)-1][capture.Binding] = true
+	return nil
 }
 
 func (state *expressionValidation) bindingFor(node checker.Expression) (generatedBinding, bool) {
@@ -946,6 +986,12 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			arguments[index] = rendered
 		}
 		arguments = renderRestSliceArgument(&node, arguments)
+		if node.Operand.Kind == checker.FunctionReferenceExpression && node.Operand.Name != "" && state.envFunctions[node.Operand.Name] {
+			if state.envPointer == "" {
+				return "", unknownExpressionDiagnostic("call to an environment-dependent function without an environment")
+			}
+			arguments = append([]string{state.envPointer}, arguments...)
+		}
 		call := callee + "(" + strings.Join(arguments, ", ") + ")"
 		if node.Operand.Kind == checker.ForeignFunctionReferenceExpression && node.Operand.ForeignResult != "" &&
 			node.ResultType != (compilerTypes.Type{}) && typeSpelling(node.ResultType) != node.Operand.ForeignResult {
@@ -983,6 +1029,12 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		}
 		arguments = renderRestSliceArgument(&node, arguments)
 		allArguments := append([]string{receiver}, arguments...)
+		if state.envMethods[node.Name] {
+			if state.envPointer == "" {
+				return "", unknownExpressionDiagnostic("call to an environment-dependent method without an environment")
+			}
+			allArguments = append([]string{state.envPointer}, allArguments...)
+		}
 		return methodCName(node.Owner, node.Name, moduleOwner(node.Owner.ModuleID, state.owner)) + "(" + strings.Join(allArguments, ", ") + ")", nil
 	case checker.AddressOfExpression:
 		if node.Operand == nil {

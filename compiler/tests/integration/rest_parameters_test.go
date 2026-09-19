@@ -51,7 +51,7 @@ func TestRestCallLowering(t *testing.T) {
 		},
 		{
 			name:   "function-value",
-			source: "fun sum(rest: Int32...): Size do\n    return rest.length()\nend\nf: Fun<(Int32...): Size> := sum\nprint(f(1, 2, 3))\n",
+			source: "fun sum(rest: Int32...): Size do\n    return rest.length()\nend\nlet f: Fun<(Int32...): Size> = sum\nprint(f(1, 2, 3))\n",
 			markers: []string{
 				"(hex_slice_Int32){.data = (int32_t[]){1, 2, 3}, .length = 3}",
 			},
@@ -107,9 +107,9 @@ func TestRestBackedEscapeDiagnostics(t *testing.T) {
 		{name: "return-derived", source: "fun leak(rest: Int32...): Slice<Int32> do\n    return rest.slice(0, 1)\nend\nprint(1)\n"},
 		{name: "pass-argument", source: "fun sink(values: Slice<Int32>) do\nend\nfun use(rest: Int32...) do\n    sink(rest)\nend\nuse(1, 2)\n"},
 		{name: "store-field", source: "type Box is struct\n    values: Slice<Int32>,\nend\nfun store(rest: Int32...): Box do\n    return Box(values = rest)\nend\nprint(1)\n"},
-		{name: "collection-insert", source: "fun use(heap: Heap, rest: Int32...) do\n    values: List<Slice<Int32>> := List<Slice<Int32>>(heap)\n    defer values.free(heap)\n    values.push(rest)\nend\nprint(1)\n"},
+		{name: "collection-insert", source: "fun use(heap: Heap, rest: Int32...) do\n    let values: List<Slice<Int32>> = List<Slice<Int32>>(heap)\n    defer values.free(heap)\n    values.push(rest)\nend\nprint(1)\n"},
 		{name: "defer-capture", source: "fun log(values: Slice<Int32>) do\nend\nfun use(rest: Int32...) do\n    defer log(rest)\nend\nuse(1, 2)\n"},
-		{name: "address-of-element", source: "fun use(rest: Int32...) do\n    unsafe do\n        p: Ptr<Int32> := @rest[0]\n    end\nend\nuse(1, 2)\n"},
+		{name: "address-of-element", source: "fun use(rest: Int32...) do\n    unsafe do\n        let p: Ptr<Int32> = @rest[0]\n    end\nend\nuse(1, 2)\n"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			result := compileRest(t, testCase.source)
@@ -126,14 +126,14 @@ func TestRestBackedEscapeDiagnostics(t *testing.T) {
 // A mutable alias is rejected with its own diagnostic, while a fixed alias,
 // iteration, indexing, and copying an element out all remain valid.
 func TestRestBackedValidUsesAndMutableAlias(t *testing.T) {
-	valid := "fun aliasUse(rest: Int32...): Size do\n    alias: Slice<Int32> := rest\n    return alias.length()\nend\n" +
-		"fun foldUse(rest: Int32...): Int32 do\n    mut total: Int32 := 0\n    for value in rest do\n        total = total + value\n    end\n    first: Int32 := rest[0]\n    return total + first\nend\n" +
+	valid := "fun aliasUse(rest: Int32...): Size do\n    let alias: Slice<Int32> = rest\n    return alias.length()\nend\n" +
+		"fun foldUse(rest: Int32...): Int32 do\n    let mut total: Int32 = 0\n    for value in rest do\n        total = total + value\n    end\n    let first: Int32 = rest[0]\n    return total + first\nend\n" +
 		"print(aliasUse(1, 2))\nprint(foldUse(3, 4))\n"
 	if result := compileRest(t, valid); result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("valid rest uses rejected: %v", result.Stderr)
 	}
 
-	mutable := "fun use(rest: Int32...) do\n    mut alias: Slice<Int32> := rest\nend\nuse(1, 2)\n"
+	mutable := "fun use(rest: Int32...) do\n    let mut alias: Slice<Int32> = rest\nend\nuse(1, 2)\n"
 	result := compileRest(t, mutable)
 	if result.ExitCode == compiler.ExitSuccess {
 		t.Fatal("a mutable rest alias was accepted")
@@ -160,7 +160,7 @@ func TestRestSignatureAndTypeIdentity(t *testing.T) {
 		}
 	}
 
-	mismatch := "fun sum(rest: Int32...): Size do\n    return rest.length()\nend\nf: Fun<(Slice<Int32>): Size> := sum\nprint(1)\n"
+	mismatch := "fun sum(rest: Int32...): Size do\n    return rest.length()\nend\nlet f: Fun<(Slice<Int32>): Size> = sum\nprint(1)\n"
 	if result := compileRest(t, mismatch); result.ExitCode == compiler.ExitSuccess {
 		t.Fatal("Fun<(Int32...)> was assignable to Fun<(Slice<Int32>)>")
 	}
@@ -242,7 +242,7 @@ func TestRestGenericInference(t *testing.T) {
 // signature and packs at the call.
 func TestRestCrossModuleExport(t *testing.T) {
 	sources := map[string]string{
-		"lib.hex":  "fun sum(rest: Int32...): Int32 do\n    mut total: Int32 := 0\n    for value in rest do\n        total = total + value\n    end\n    return total\nend\nexport\n    sum\nend\n",
+		"lib.hex":  "fun sum(rest: Int32...): Int32 do\n    let mut total: Int32 = 0\n    for value in rest do\n        total = total + value\n    end\n    return total\nend\nexport\n    sum\nend\n",
 		"main.hex": "import\n    Lib from \"./lib\"\nend\nprint(Lib.sum(1, 2, 3))\n",
 	}
 	result := compiler.Compile(sources, "main.hex", compiler.Project{})
@@ -262,7 +262,7 @@ func TestRestCrossModuleExport(t *testing.T) {
 // shallow C value initialization.
 func TestRestEffectfulAndNonScalarLowering(t *testing.T) {
 	effectful := "fun bump(value: Int32): Int32 do\n    print(value)\n    return value\nend\n" +
-		"fun total(rest: Int32...): Int32 do\n    mut sum: Int32 := 0\n    for value in rest do\n        sum = sum + value\n    end\n    return sum\nend\n" +
+		"fun total(rest: Int32...): Int32 do\n    let mut sum: Int32 = 0\n    for value in rest do\n        sum = sum + value\n    end\n    return sum\nend\n" +
 		"print(total(bump(1), bump(2), bump(3)))\n"
 	result := compileRest(t, effectful)
 	if result.ExitCode != compiler.ExitSuccess {
@@ -274,7 +274,7 @@ func TestRestEffectfulAndNonScalarLowering(t *testing.T) {
 	}
 
 	nonScalar := "type Point is struct\n    x: Int32,\n    y: Int32,\nend\n" +
-		"fun total(rest: Point...): Int32 do\n    mut sum: Int32 := 0\n    for p in rest do\n        sum = sum + p.x\n    end\n    return sum\nend\n" +
+		"fun total(rest: Point...): Int32 do\n    let mut sum: Int32 = 0\n    for p in rest do\n        sum = sum + p.x\n    end\n    return sum\nend\n" +
 		"print(total(Point(x = 1, y = 2), Point(x = 3, y = 4)))\n"
 	result = compileRest(t, nonScalar)
 	if result.ExitCode != compiler.ExitSuccess {
@@ -319,11 +319,11 @@ func TestRestFunctionLiteralLowering(t *testing.T) {
 	}{
 		{
 			name:   "non-generic",
-			source: "fun demo(): Size do\n    f: Fun<(Int32...): Size> := fun (rest: Int32...): Size do\n        return rest.length()\n    end\n    return f(1, 2, 3)\nend\nprint(demo())\n",
+			source: "fun demo(): Size do\n    let f: Fun<(Int32...): Size> = fun (rest: Int32...): Size do\n        return rest.length()\n    end\n    return f(1, 2, 3)\nend\nprint(demo())\n",
 		},
 		{
 			name:   "generic",
-			source: "fun demo(): Size do\n    f: Fun<(Int32...): Size> := fun <T>(values: T...): Size do\n        return values.length()\n    end\n    return f(1, 2, 3)\nend\nprint(demo())\n",
+			source: "fun demo(): Size do\n    let f: Fun<(Int32...): Size> = fun <T>(values: T...): Size do\n        return values.length()\n    end\n    return f(1, 2, 3)\nend\nprint(demo())\n",
 		},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -341,7 +341,7 @@ func TestRestFunctionLiteralLowering(t *testing.T) {
 // Nested rest calls each pack their own region, and an outer rest call's
 // arguments are the nested calls' hoisted results in source order.
 func TestNestedRestCallLowering(t *testing.T) {
-	source := "fun sum(rest: Int32...): Int32 do\n    mut total: Int32 := 0\n    for value in rest do\n        total = total + value\n    end\n    return total\nend\n" +
+	source := "fun sum(rest: Int32...): Int32 do\n    let mut total: Int32 = 0\n    for value in rest do\n        total = total + value\n    end\n    return total\nend\n" +
 		"print(sum(sum(1), sum(2, 3)))\n"
 	result := compileRest(t, source)
 	if result.ExitCode != compiler.ExitSuccess {
@@ -364,8 +364,8 @@ func TestNestedRestCallLowering(t *testing.T) {
 // rest count.
 func TestSpawnedRestCallLowering(t *testing.T) {
 	source := "fun classify(rest: Int32...): Size | Error do\n    return rest.length()\nend\n" +
-		"fun demo(): Size | Error do\n    task: Task<Size | Error> := try spawn classify(1, 2)\n    return task.join()\nend\n" +
-		"outcome: Size | Error := demo()\nif outcome is Error then\n    print(0)\nelse\n    print(outcome)\nend\n"
+		"fun demo(): Size | Error do\n    let task: Task<Size | Error> = try spawn classify(1, 2)\n    return task.join()\nend\n" +
+		"let outcome: Size | Error = demo()\nif outcome is Error then\n    print(0)\nelse\n    print(outcome)\nend\n"
 	result := compileRest(t, source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("spawned rest call rejected: %v", result.Stderr)

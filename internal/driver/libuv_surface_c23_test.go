@@ -61,12 +61,12 @@ fun write_x(target: Fs.File): Size | Error do
 end
 
 fun read_all(h: Heap, path: String): Size do
-    file := Fs.open(path, Fs.FileMode.Read())
+    let file = Fs.open(path, Fs.FileMode.Read())
     if file is Fs.File then
-        buffer: List<Byte> := List<Byte>(h)
+        let buffer: List<Byte> = List<Byte>(h)
         defer buffer.free(h)
-        got := file.read(buffer, 4096)
-        closed := file.close()
+        let got = file.read(buffer, 4096)
+        let closed = file.close()
         if got is Size then
             return got
         end
@@ -75,25 +75,25 @@ fun read_all(h: Heap, path: String): Size do
 end
 
 fun run(h: Heap): Nil | Error do
-    out := try Fs.open("notes.txt", Fs.FileMode.Write())
-    wrote := try out.write("hello file\n".bytes())
-    empty := try out.write("".bytes())
+    let out = try Fs.open("notes.txt", Fs.FileMode.Write())
+    let wrote = try out.write("hello file\n".bytes())
+    let empty = try out.write("".bytes())
     try out.flush()
     try out.close()
     print("wrote ", wrote, " ", empty, "\n")
 
-    truncated := try Fs.open("notes.txt", Fs.FileMode.Write())
-    again := try truncated.write("0123456789".bytes())
+    let truncated = try Fs.open("notes.txt", Fs.FileMode.Write())
+    let again = try truncated.write("0123456789".bytes())
     try truncated.close()
     print("truncated ", read_all(h, "notes.txt"), "\n")
 
-    input := try Fs.open("notes.txt", Fs.FileMode.ReadWrite())
-    copy: Fs.File := input
-    buffer: List<Byte> := List<Byte>(h)
+    let input = try Fs.open("notes.txt", Fs.FileMode.ReadWrite())
+    let copy: Fs.File = input
+    let buffer: List<Byte> = List<Byte>(h)
     defer buffer.free(h)
-    first := input.read(buffer, 4)
-    second := copy.read(buffer, 4)
-    none := input.read(buffer, 0)
+    let first = input.read(buffer, 4)
+    let second = copy.read(buffer, 4)
+    let none = input.read(buffer, 0)
     if first is Size then
         if second is Size then
             if none is Size then
@@ -101,44 +101,44 @@ fun run(h: Heap): Nil | Error do
             end
         end
     end
-    at := try input.seek(Io.Seek.Current(offset = 1))
-    tail := input.read(buffer, 100)
-    drained := input.read(buffer, 100)
+    let at = try input.seek(Io.Seek.Current(offset = 1))
+    let tail = input.read(buffer, 100)
+    let drained = input.read(buffer, 100)
     if tail is Size then
         if drained is EoS then
             print("seek ", at, " tail ", tail, " eos\n")
         end
     end
-    back := try input.seek(Io.Seek.Start(position = 0))
-    fromEnd := try input.seek(Io.Seek.End(offset = -2))
+    let back = try input.seek(Io.Seek.Start(position = 0))
+    let fromEnd = try input.seek(Io.Seek.End(offset = -2))
     print("positions ", back, " ", fromEnd, "\n")
     try input.close()
 
-    appender := try Fs.open("notes.txt", Fs.FileMode.Append())
-    appended := try appender.write("AB".bytes())
+    let appender = try Fs.open("notes.txt", Fs.FileMode.Append())
+    let appended = try appender.write("AB".bytes())
     try appender.close()
     print("appended ", read_all(h, "notes.txt"), "\n")
 
-    created := try Fs.open("fresh.txt", Fs.FileMode.CreateNew())
+    let created = try Fs.open("fresh.txt", Fs.FileMode.CreateNew())
     try created.close()
-    exists := Fs.open("fresh.txt", Fs.FileMode.CreateNew())
+    let exists = Fs.open("fresh.txt", Fs.FileMode.CreateNew())
     if exists is Error then
         print(exists.header(), ": ", exists.message, "\n")
     end
-    missing := Fs.open("absent.txt", Fs.FileMode.Read())
+    let missing = Fs.open("absent.txt", Fs.FileMode.Read())
     if missing is Error then
         print(missing.header(), "\n")
     end
-    missingRW := Fs.open("absent.txt", Fs.FileMode.ReadWrite())
+    let missingRW = Fs.open("absent.txt", Fs.FileMode.ReadWrite())
     if missingRW is Error then
         print(missingRW.header(), "\n")
     end
-    nul := Fs.open("bad\0name.txt", Fs.FileMode.Write())
+    let nul = Fs.open("bad\0name.txt", Fs.FileMode.Write())
     if nul is Error then
         print(nul.header(), ": ", nul.message, "\n")
     end
-    reader := try Fs.open("notes.txt", Fs.FileMode.Read())
-    denied := write_x(reader)
+    let reader = try Fs.open("notes.txt", Fs.FileMode.Read())
+    let denied = write_x(reader)
     if denied is Error then
         print(denied.header(), ": ", denied.message, "\n")
     end
@@ -146,7 +146,7 @@ fun run(h: Heap): Nil | Error do
     return nil
 end
 
-r: Nil | Error := run(Heap())
+let r: Nil | Error = run(Heap())
 if r != nil then
     print("unexpected failure\n")
 end
@@ -179,10 +179,10 @@ fun spawned(): Int32 | Error do
 end
 
 fun join_one(): Int32 | Error do
-    task := try spawn spawned()
+    let task = try spawn spawned()
     return task.join()
 end
-j: Int32 | Error := join_one()
+let j: Int32 | Error = join_one()
 `
 	runRuntimeFixture(t, runtimeFixture{name: "file-task", source: source, stdout: fileFixtureStdout, exitZero: true})
 }
@@ -194,7 +194,7 @@ func TestRuntimeTimeAndSleep(t *testing.T) {
 end
 
 fun sleeper(ms: UInt64): Int32 do
-    start := Time.now()
+    let start = Time.now()
     Time.sleep(Time.milliseconds(ms))
     if start.elapsed() >= Time.milliseconds(ms) then
         return 1
@@ -203,8 +203,8 @@ fun sleeper(ms: UInt64): Int32 do
 end
 
 fun busy(): Int32 do
-    mut total: Int32 := 0
-    mut i: Int32 := 0
+    let mut total: Int32 = 0
+    let mut i: Int32 = 0
     while i < 1000 do
         total = total + 1
         i = i + 1
@@ -213,22 +213,22 @@ fun busy(): Int32 do
 end
 
 fun run(): Int32 | Error do
-    a := try spawn sleeper(30)
-    b := try spawn sleeper(1)
-    c := try spawn busy()
-    worked := c.join()
+    let a = try spawn sleeper(30)
+    let b = try spawn sleeper(1)
+    let c = try spawn busy()
+    let worked = c.join()
     return a.join() + b.join() + worked
 end
 
-zero := Time.now()
+let zero = Time.now()
 Time.sleep(Time.nanoseconds(0))
-tiny := Time.now()
+let tiny = Time.now()
 Time.sleep(Time.nanoseconds(1))
 print(tiny.elapsed() >= Time.nanoseconds(1), "\n")
-d := Time.seconds(2) + Time.milliseconds(500)
+let d = Time.seconds(2) + Time.milliseconds(500)
 print(d.as_seconds(), " ", d.as_milliseconds(), " ", (d - Time.seconds(1)).as_microseconds(), "\n")
 print(Time.nanoseconds(18446744073709551615).as_nanoseconds(), "\n")
-result := run()
+let result = run()
 if result is Int32 then
     print(result, "\n")
 end

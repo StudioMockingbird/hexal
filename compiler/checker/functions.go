@@ -25,6 +25,13 @@ type FunctionDeclaration struct {
 	SourceLine   int
 	SourceColumn int
 	Exported     bool // external linkage + prototype in this module's header
+	// Captures are the entry-root bindings this function reads or writes by
+	// reference, in first-use order. EnvDependent is true when Captures is
+	// non-empty or the function calls an environment-dependent entry
+	// declaration.
+	Captures      []Capture
+	EnvDependent  bool
+	DirectCallees map[string]bool
 }
 
 func (FunctionDeclaration) statementNode() {}
@@ -134,13 +141,17 @@ func checkFunctionBody(declaration parser.FunctionDeclaration, signature functio
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 
-	body := ctx.names.closureRootScope(name)
+	body := ctx.names.closureRootScope(name, ctx.names.isEntryModule())
+	body.rootIndex = ctx.rootIndex
 	body.result = signature.result
 	body.resultUse = signature.resultUse
 	statements, bodyDiagnostics := bindParametersAndCheckBody(signature.parameters, declaration.Body, ctx.names, body, ctx.typeEnvironment)
 	diagnostics = append(diagnostics, bodyDiagnostics...)
 	checked.Body = statements
 	checked.Defers = append(checked.Defers, body.defers...)
+	checked.Captures = capturesOf(body.capture)
+	checked.EnvDependent = len(checked.Captures) > 0
+	checked.DirectCallees = directCallees(declaration.Body)
 
 	if analyzeReturns && signature.result != nil && len(bodyDiagnostics) == 0 && FallsThrough(checked.Body) {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.End,

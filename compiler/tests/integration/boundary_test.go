@@ -18,7 +18,7 @@ import (
 // successfully emitting the injected text.
 func TestInjectedModulePathIsRejectedNotCompiled(t *testing.T) {
 	malicious := "app.hex\"\n#define HEXAL_OWNED 1\n#include <stdio.h>\n\"x"
-	result := compiler.Compile(map[string]string{malicious: "x: Int32 := 1\n"}, malicious, compiler.Project{})
+	result := compiler.Compile(map[string]string{malicious: "let x: Int32 = 1\n"}, malicious, compiler.Project{})
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("ExitCode = %d, want ExitFailure", result.ExitCode)
 	}
@@ -32,7 +32,7 @@ func TestInjectedModulePathIsRejectedNotCompiled(t *testing.T) {
 // A path-traversal logical key is rejected outright; no accepted compilation
 // can ever produce an artifact name containing ".." as a path segment.
 func TestPathTraversalModulePathIsRejected(t *testing.T) {
-	result := compiler.Compile(map[string]string{"../../../etc/passwd.hex": "x: Int32 := 1\n"}, "../../../etc/passwd.hex", compiler.Project{})
+	result := compiler.Compile(map[string]string{"../../../etc/passwd.hex": "let x: Int32 = 1\n"}, "../../../etc/passwd.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("ExitCode = %d, want ExitFailure", result.ExitCode)
 	}
@@ -45,7 +45,7 @@ func TestPathTraversalModulePathIsRejected(t *testing.T) {
 // path segment, checked positively over a program the allowlist accepts.
 func TestAcceptedCompilationNeverEmitsTraversalArtifactNames(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":               "import\n    Shapes from \"./graphics/shapes_2\"\nend\nx: Int32 := 1\n",
+		"app.hex":               "import\n    Shapes from \"./graphics/shapes_2\"\nend\nlet x: Int32 = 1\n",
 		"graphics/shapes_2.hex": "fun area(): Int32 do\n    return 1\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -69,11 +69,11 @@ func TestLegalModulePathsCompile(t *testing.T) {
 		sources map[string]string
 		entry   string
 	}{
-		{"single component", map[string]string{"app.hex": "x: Int32 := 1\n"}, "app.hex"},
+		{"single component", map[string]string{"app.hex": "let x: Int32 = 1\n"}, "app.hex"},
 		{
 			"nested identifier path",
 			map[string]string{
-				"app.hex":               "import\n    Shapes from \"./graphics/shapes_2\"\nend\nx: Int32 := 1\n",
+				"app.hex":               "import\n    Shapes from \"./graphics/shapes_2\"\nend\nlet x: Int32 = 1\n",
 				"graphics/shapes_2.hex": "fun area(): Int32 do\n    return 1\nend\n",
 			},
 			"app.hex",
@@ -81,7 +81,7 @@ func TestLegalModulePathsCompile(t *testing.T) {
 		{
 			"mixed-case components",
 			map[string]string{
-				"App.hex":              "import\n    Shapes from \"./Graphics/Shapes2\"\nend\nx: Int32 := 1\n",
+				"App.hex":              "import\n    Shapes from \"./Graphics/Shapes2\"\nend\nlet x: Int32 = 1\n",
 				"Graphics/Shapes2.hex": "fun area(): Int32 do\n    return 1\nend\n",
 			},
 			"App.hex",

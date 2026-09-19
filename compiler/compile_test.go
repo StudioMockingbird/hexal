@@ -50,7 +50,7 @@ func TestValidateLogicalKeyRejects(t *testing.T) {
 // entrypoint is rejected as a Module Error naming the key, with no artifacts
 // and no partial statistics.
 func TestCompileRejectsInvalidEntrypointKey(t *testing.T) {
-	result := Compile(map[string]string{"../escape.hex": "x: Int32 := 1\n"}, "../escape.hex", Project{})
+	result := Compile(map[string]string{"../escape.hex": "let x: Int32 = 1\n"}, "../escape.hex", Project{})
 	if result.ExitCode != ExitFailure {
 		t.Fatalf("ExitCode = %d, want ExitFailure", result.ExitCode)
 	}
@@ -67,8 +67,8 @@ func TestCompileRejectsInvalidEntrypointKey(t *testing.T) {
 // artifact, or statistic, and does not stop the reachable set from compiling.
 func TestCompileIgnoresUnreachableInvalidKey(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":            "x: Int32 := 1\n",
-		"../unreachable.hex": "y: Int32 := 1\n",
+		"app.hex":            "let x: Int32 = 1\n",
+		"../unreachable.hex": "let y: Int32 = 1\n",
 	}
 	result := Compile(sources, "app.hex", Project{})
 	if result.ExitCode != ExitSuccess {
@@ -90,7 +90,7 @@ func TestCompileRecoversFromInjectedPanic(t *testing.T) {
 	panicSeam = func() { panic("injected panic value: /secret/host/path") }
 	defer func() { panicSeam = original }()
 
-	result := Compile(map[string]string{"app.hex": "x: Int32 := 1\n"}, "app.hex", Project{})
+	result := Compile(map[string]string{"app.hex": "let x: Int32 = 1\n"}, "app.hex", Project{})
 
 	if result.ExitCode != ExitFailure {
 		t.Fatalf("ExitCode = %d, want ExitFailure", result.ExitCode)
@@ -112,7 +112,7 @@ func TestCompileRecoversFromInjectedPanic(t *testing.T) {
 // Panic recovery must not swallow ordinary diagnostics: ordinary source
 // rejections still report their own diagnostics unchanged.
 func TestCompileOrdinaryDiagnosticsUnaffectedByRecovery(t *testing.T) {
-	result := Compile(map[string]string{"app.hex": "x: Int32 := \"not an int\"\n"}, "app.hex", Project{})
+	result := Compile(map[string]string{"app.hex": "let x: Int32 = \"not an int\"\n"}, "app.hex", Project{})
 	if result.ExitCode != ExitFailure {
 		t.Fatalf("ExitCode = %d, want ExitFailure", result.ExitCode)
 	}

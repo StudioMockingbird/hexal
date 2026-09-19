@@ -1,7 +1,7 @@
 # RFC 0220: Entry-Script Top-Level Capture
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; blocked on RFCs 0218 and 0219, not scheduled
+- Status: Implemented
 - Created: 2026-09-18
 - Updated: 2026-09-19
 - Scope: allow named functions and methods in the selected entry module to

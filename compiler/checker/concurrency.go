@@ -93,6 +93,9 @@ func checkSpawnExpression(expression parser.SpawnExpression, ctx checkContext) c
 	if checked.source.Node.Kind != CallExpression || checked.source.Node.Operand == nil || checked.source.Node.Operand.Kind != FunctionReferenceExpression {
 		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "spawn requires a direct call to a named function"))}
 	}
+	if ctx.names.envDependent[checked.source.Node.Operand.Name] {
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "function "+checked.source.Node.Operand.Name+" uses the entry environment and is valid only as a direct entry-module call"))}
+	}
 	// Spawn arguments are copied into the task frame and then into the entry
 	// function, so each argument must be eligible in both positions.
 	for _, argument := range checked.source.Node.Arguments {

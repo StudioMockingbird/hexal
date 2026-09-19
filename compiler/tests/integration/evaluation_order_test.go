@@ -42,7 +42,7 @@ func TestCallArgumentsEvaluateLeftToRight(t *testing.T) {
 	result := assertCompiles(t, "fun a(): Int32 do\n    return 1\nend\n"+
 		"fun b(): Int32 do\n    return 2\nend\n"+
 		"fun total(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n"+
-		"result: Int32 := total(a(), b())\n")
+		"let result: Int32 = total(a(), b())\n")
 	body := rootC(t, result)
 	// A bare, side-effect-free function reference callee is never hoisted,
 	// so total calls through its plain name directly.
@@ -55,7 +55,7 @@ func TestMethodReceiverEvaluatesBeforeArguments(t *testing.T) {
 		"method Point.sum(delta: Int32): Int32 do\n    return self.x + self.y + delta\nend\n"+
 		"fun make_point(): Point do\n    return Point(x = 1, y = 2)\nend\n"+
 		"fun delta(): Int32 do\n    return 5\nend\n"+
-		"result: Int32 := make_point().sum(delta())\n")
+		"let result: Int32 = make_point().sum(delta())\n")
 	body := rootC(t, result)
 	positions := order(t, body, "_make_point();", "_delta();", "_sum(hex_seq_1, hex_seq_2)")
 	requireAscending(t, positions, "make_point()", "delta()", "sum(...)")
@@ -64,7 +64,7 @@ func TestMethodReceiverEvaluatesBeforeArguments(t *testing.T) {
 func TestBinaryOperandsEvaluateLeftToRight(t *testing.T) {
 	result := assertCompiles(t, "fun a(): Int32 do\n    return 1\nend\n"+
 		"fun b(): Int32 do\n    return 2\nend\n"+
-		"result: Int32 := a() + b()\n")
+		"let result: Int32 = a() + b()\n")
 	body := rootC(t, result)
 	positions := order(t, body, "_a();", "_b();", "hex_wrap_add_int32_t(hex_seq_1, hex_seq_2)")
 	requireAscending(t, positions, "a()", "b()", "add(...)")
@@ -73,7 +73,7 @@ func TestBinaryOperandsEvaluateLeftToRight(t *testing.T) {
 func TestArrayLiteralElementsEvaluateLeftToRight(t *testing.T) {
 	result := assertCompiles(t, "fun a(): Int32 do\n    return 1\nend\n"+
 		"fun b(): Int32 do\n    return 2\nend\n"+
-		"values: Array<Int32, 2> := [a(), b()]\n")
+		"let values: Array<Int32, 2> = [a(), b()]\n")
 	body := rootC(t, result)
 	positions := order(t, body, "_a();", "_b();", "{{hex_seq_1, hex_seq_2}}")
 	requireAscending(t, positions, "a()", "b()", "array literal")
@@ -87,7 +87,7 @@ func TestObjectLiteralFieldsEvaluateInWrittenOrder(t *testing.T) {
 	result := assertCompiles(t, "type Pair is struct a: Int32, b: Int32, end\n"+
 		"fun side_a(): Int32 do\n    return 10\nend\n"+
 		"fun side_b(): Int32 do\n    return 20\nend\n"+
-		"value: Pair := Pair(b = side_b(), a = side_a())\n")
+		"let value: Pair = Pair(b = side_b(), a = side_a())\n")
 	body := rootC(t, result)
 	// b is written first, so its temporary is hoisted first even though a
 	// is declared first and assigned first in the final compound literal.
@@ -102,7 +102,7 @@ func TestAdtLiteralFieldsEvaluateInWrittenOrder(t *testing.T) {
 	result := assertCompiles(t, "type W is union | A as first: Int32, second: Int32, end | B as x: Int32, end end\n"+
 		"fun side_first(): Int32 do\n    return 10\nend\n"+
 		"fun side_second(): Int32 do\n    return 20\nend\n"+
-		"w: W := W.A(second = side_second(), first = side_first())\n")
+		"let w: W = W.A(second = side_second(), first = side_first())\n")
 	body := rootC(t, result)
 	positions := order(t, body, "_side_second();", "_side_first();", ".hex_m_first = hex_seq_2", ".hex_m_second = hex_seq_1")
 	requireAscending(t, positions, "side_second() hoisted", "side_first() hoisted", ".first assigned from hex_seq_2", ".second assigned from hex_seq_1")
@@ -115,7 +115,7 @@ func TestMixedOperatorsPreservePrecedenceAndLeftToRightEvaluation(t *testing.T) 
 	result := assertCompiles(t, "fun a(): Int32 do\n    return 1\nend\n"+
 		"fun b(): Int32 do\n    return 2\nend\n"+
 		"fun c(): Int32 do\n    return 3\nend\n"+
-		"result: Int32 := a() + (b() * c())\n")
+		"let result: Int32 = a() + (b() * c())\n")
 	body := rootC(t, result)
 	if !strings.Contains(body, "hex_wrap_mul_int32_t(hex_seq_2, hex_seq_3)") {
 		t.Fatalf("generated C = %q, want b() * c() grouped by precedence into its own temporary", body)
@@ -130,7 +130,7 @@ func TestMixedOperatorsPreservePrecedenceAndLeftToRightEvaluation(t *testing.T) 
 func TestStringEqualityOperandsEvaluateLeftToRight(t *testing.T) {
 	result := assertCompiles(t, "fun left(): String do\n    return \"a\"\nend\n"+
 		"fun right(): String do\n    return \"b\"\nend\n"+
-		"result: Bool := left() == right()\n")
+		"let result: Bool = left() == right()\n")
 	body := rootC(t, result)
 	positions := order(t, body, "_left();", "_right();", "hex_equal_hex_string(hex_seq_1, hex_seq_2)")
 	requireAscending(t, positions, "left()", "right()", "equality(...)")
@@ -142,7 +142,7 @@ func TestStringEqualityOperandsEvaluateLeftToRight(t *testing.T) {
 func TestAtomicCompareExchangeOperandsEvaluateLeftToRight(t *testing.T) {
 	result := assertCompiles(t, "fun expected(): Int32 do\n    return 6\nend\n"+
 		"fun desired(): Int32 do\n    return 7\nend\n"+
-		"fun run(): Bool do\n    counter: Atomic<Int32> := Atomic<Int32>(0)\n    return counter.compare_exchange(expected(), desired())\nend\n")
+		"fun run(): Bool do\n    let counter: Atomic<Int32> = Atomic<Int32>(0)\n    return counter.compare_exchange(expected(), desired())\nend\n")
 	body := rootC(t, result)
 	positions := order(t, body, "_expected();", "_desired();", "hex_atomic_Int32_compare_exchange(&(hex_v_counter), hex_seq_1, hex_seq_2)")
 	requireAscending(t, positions, "expected()", "desired()", "compare_exchange(...)")
@@ -153,7 +153,7 @@ func TestAtomicCompareExchangeOperandsEvaluateLeftToRight(t *testing.T) {
 func TestAssignmentEvaluatesTargetBeforeSource(t *testing.T) {
 	result := assertCompiles(t, "fun idx(): Size do\n    return 1\nend\n"+
 		"fun value(): Int32 do\n    return 9\nend\n"+
-		"mut values: Array<Int32, 3> := [0, 0, 0]\n"+
+		"let mut values: Array<Int32, 3> = [0, 0, 0]\n"+
 		"values[idx()] = value()\n")
 	body := rootC(t, result)
 	positions := order(t, body, "_idx();", "_value();")
@@ -169,7 +169,7 @@ func TestNestedCompoundExpressionsHoistInnermostFirst(t *testing.T) {
 		"fun c(): Int32 do\n    return 3\nend\n"+
 		"fun g(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n"+
 		"fun f(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n"+
-		"result: Int32 := f(g(a(), b()), c())\n")
+		"let result: Int32 = f(g(a(), b()), c())\n")
 	body := rootC(t, result)
 	// A bare, side-effect-free function reference callee is never hoisted:
 	// it has no observable evaluation-order effect of its own, so g and f
@@ -186,7 +186,7 @@ func TestShortCircuitOperandsAreNotHoisted(t *testing.T) {
 	result := assertCompiles(t, "fun guard(): Bool do\n    return false\nend\n"+
 		"fun a(): Int32 do\n    return 1\nend\n"+
 		"fun b(): Int32 do\n    return 2\nend\n"+
-		"result: Bool := guard() and (a() == b())\n")
+		"let result: Bool = guard() and (a() == b())\n")
 	body := rootC(t, result)
 	if strings.Contains(body, "hex_seq_") {
 		t.Fatalf("short-circuited operand was hoisted into an unconditional prologue:\n%s", body)
@@ -205,7 +205,7 @@ func TestShortCircuitOperandsAreNotHoisted(t *testing.T) {
 func TestTryAndSequencingHoistsCoexistInOneStatement(t *testing.T) {
 	result := assertCompiles(t, "fun risky(): Int32 | Error do\n    return 1\nend\n"+
 		"fun b(): Int32 do\n    return 2\nend\n"+
-		"fun total(): Int32 | Error do\n    result: Int32 := (try risky()) + b()\n    return result\nend\n")
+		"fun total(): Int32 | Error do\n    let result: Int32 = (try risky()) + b()\n    return result\nend\n")
 	body := rootC(t, result)
 	if !strings.Contains(body, "hex_try_1") {
 		t.Fatalf("generated C = %q, want the existing try hoist to still fire", body)
@@ -223,8 +223,8 @@ func TestEvaluationOrderHoistingIsDeterministic(t *testing.T) {
 		"fun b(): Int32 do\n    return 2\nend\n" +
 		"fun c(): Int32 do\n    return 3\nend\n" +
 		"fun g(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n" +
-		"value: Pair := Pair(b = b(), a = a())\n" +
-		"sum: Int32 := g(a(), b()) + c()\n"
+		"let value: Pair = Pair(b = b(), a = a())\n" +
+		"let sum: Int32 = g(a(), b()) + c()\n"
 	first := compileSourceFiles(t, source)
 	second := compileSourceFiles(t, source)
 	if len(first) != len(second) {

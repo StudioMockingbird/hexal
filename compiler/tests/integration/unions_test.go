@@ -7,7 +7,7 @@ import (
 )
 
 func TestUnionAliasesNormalizeAndInject(t *testing.T) {
-	result := compileSource("type Number is union Int32 | Float64 end mut value: Number := 1 value = 2.5")
+	result := compileSource("type Number is union Int32 | Float64 end let mut value: Number = 1 value = 2.5")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -17,7 +17,7 @@ func TestUnionAliasesNormalizeAndInject(t *testing.T) {
 }
 
 func TestUnionContextUsesWrittenCandidateOrder(t *testing.T) {
-	result := compileSource("first: UInt8 | UInt16 := 7 second: Int64 | Int32 := 7")
+	result := compileSource("let first: UInt8 | UInt16 = 7 let second: Int64 | Int32 = 7")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected candidate-order source: %v", result.Stderr)
 	}
@@ -27,7 +27,7 @@ func TestUnionContextUsesWrittenCandidateOrder(t *testing.T) {
 }
 
 func TestUnionWideningPreservesSourceEvaluation(t *testing.T) {
-	result := compileSource("small: Int32 | Bool := true wide: Int32 | Bool | Nil := small")
+	result := compileSource("let small: Int32 | Bool = true let wide: Int32 | Bool | Nil = small")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected widening source: %v", result.Stderr)
 	}
@@ -39,7 +39,7 @@ func TestUnionWideningPreservesSourceEvaluation(t *testing.T) {
 func TestUnionIsNarrowsIfElseAndWhile(t *testing.T) {
 	// The else arm narrows value to Nil, which is printable but cannot
 	// initialize a standalone Nil binding.
-	result := compileSource("value: Int32 | Float64 | Nil := 1 if value is Int32 then integer: Int32 := value elseif value != nil then floating: Float64 := value else print(value) end mut state: Int32 | Float64 := 1 while state is Int32 do current: Int32 := state state = 2 end")
+	result := compileSource("let value: Int32 | Float64 | Nil = 1 if value is Int32 then let integer: Int32 = value elseif value != nil then let floating: Float64 = value else print(value) end let mut state: Int32 | Float64 = 1 while state is Int32 do let current: Int32 = state state = 2 end")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected flow narrowing source: %v", result.Stderr)
 	}
@@ -49,7 +49,7 @@ func TestUnionIsNarrowsIfElseAndWhile(t *testing.T) {
 }
 
 func TestUnionNullTestsAndTruthiness(t *testing.T) {
-	result := compileSource("value: Int32 | Bool | Nil := true present: Bool := value != nil if value then end")
+	result := compileSource("let value: Int32 | Bool | Nil = true let present: Bool = value != nil if value then end")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected Nil/truthiness source: %v", result.Stderr)
 	}
@@ -62,7 +62,7 @@ func TestUnionNullTestsAndTruthiness(t *testing.T) {
 }
 
 func TestUnionEqualityUsesTagsAndPayloads(t *testing.T) {
-	result := compileSource("left: Int32 | Bool := true right: Bool | Int32 := false same: Bool := left == right")
+	result := compileSource("let left: Int32 | Bool = true let right: Bool | Int32 = false let same: Bool = left == right")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected union equality source: %v", result.Stderr)
 	}
@@ -72,7 +72,7 @@ func TestUnionEqualityUsesTagsAndPayloads(t *testing.T) {
 }
 
 func TestNullablePointerUnionKeepsNullNiche(t *testing.T) {
-	result := compileSource("mut value: Int32 := 1 maybe: Ptr<Int32> | Nil := @value if maybe != nil then result: Int32 := ^maybe end")
+	result := compileSource("let mut value: Int32 = 1 let maybe: Ptr<Int32> | Nil = @value if maybe != nil then let result: Int32 = ^maybe end")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected nullable pointer source: %v", result.Stderr)
 	}
@@ -82,7 +82,7 @@ func TestNullablePointerUnionKeepsNullNiche(t *testing.T) {
 }
 
 func TestUnionNestedPointerAndFunctionPositions(t *testing.T) {
-	result := compileSource("fun identity(value: Int32 | Bool): Int32 | Bool do return value end mut value: Int32 | Bool := true slot: Ptr<mut Int32 | Bool> := @value result: Int32 | Bool := identity(value)")
+	result := compileSource("fun identity(value: Int32 | Bool): Int32 | Bool do return value end let mut value: Int32 | Bool = true let slot: Ptr<mut Int32 | Bool> = @value let result: Int32 | Bool = identity(value)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected nested/function union source: %v", result.Stderr)
 	}
@@ -92,14 +92,14 @@ func TestUnionNestedPointerAndFunctionPositions(t *testing.T) {
 }
 
 func TestUnionDiagnosticsFailAtTheEarliestPhase(t *testing.T) {
-	result := compileSource("value: UInt8 | UInt16 := missing + 1")
+	result := compileSource("let value: UInt8 | UInt16 = missing + 1")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "unknown variable missing") {
 		t.Fatalf("diagnostics = %#v, want earliest unknown-variable error", result.Stderr)
 	}
 }
 
 func TestGeneratedUnionNamesAreDeterministic(t *testing.T) {
-	source := "first: Int32 | Float64 := 1 second: Bool | Int32 := true"
+	source := "let first: Int32 | Float64 = 1 let second: Bool | Int32 = true"
 	first := compileSource(source)
 	second := compileSource(source)
 	if first.ExitCode != compiler.ExitSuccess || second.ExitCode != compiler.ExitSuccess || rootC(t, first) != rootC(t, second) || rootH(t, first) != rootH(t, second) {
@@ -109,7 +109,7 @@ func TestGeneratedUnionNamesAreDeterministic(t *testing.T) {
 
 func TestSameUnionAcrossModulesProducesOneName(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "import\n    A from \"./a\"\n,\n    B from \"./b\"\nend\na_val: A.Result := true\nb_val: B.Result := 1\n",
+		"app.hex": "import\n    A from \"./a\"\n,\n    B from \"./b\"\nend\nlet a_val: A.Result = true\nlet b_val: B.Result = 1\n",
 		"a.hex":   "type Result is union Int32 | Bool end\nexport\n    Result\nend\n",
 		"b.hex":   "type Result is union Int32 | Bool end\nexport\n    Result\nend\n",
 	}
@@ -125,7 +125,7 @@ func TestSameUnionAcrossModulesProducesOneName(t *testing.T) {
 
 func TestStructurallyDifferentModuleUnionsProduceDistinctNames(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nm_val: M.Point | Bool := true\ns_val: S.Point | Bool := true\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nlet m_val: M.Point | Bool = true\nlet s_val: S.Point | Bool = true\n",
 		"m.hex":   "type Point is struct x: Int32, end\nexport\n    Point\nend\n",
 		"s.hex":   "type Point is struct x: Int32, end\nexport\n    Point\nend\n",
 	}
@@ -141,7 +141,7 @@ func TestStructurallyDifferentModuleUnionsProduceDistinctNames(t *testing.T) {
 }
 
 func TestNestedUnionEncodingIntegration(t *testing.T) {
-	result := compileSource("type Inner is union Int32 | Bool end\ntype Outer is union Inner | Nil end\nval: Outer := nil\n")
+	result := compileSource("type Inner is union Int32 | Bool end\ntype Outer is union Inner | Nil end\nlet val: Outer = nil\n")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected nested union source: %v", result.Stderr)
 	}
@@ -154,7 +154,7 @@ func TestNestedUnionEncodingIntegration(t *testing.T) {
 // told apart by the registry, not by member C spellings: each union is
 // defined exactly once per translation unit.
 func TestRuneAndUInt32UnionsStayDistinct(t *testing.T) {
-	result := compileSource("a: Rune | Nil := nil\nb: UInt32 | Nil := nil")
+	result := compileSource("let a: Rune | Nil = nil\nlet b: UInt32 | Nil = nil")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected Rune/UInt32 union source: %v", result.Stderr)
 	}
@@ -167,7 +167,7 @@ func TestRuneAndUInt32UnionsStayDistinct(t *testing.T) {
 // A composed member spells its sanitized Hexal name; the wrapper name must
 // stay a plain C identifier.
 func TestComposedUnionMemberSpellingIsIdentifierSafe(t *testing.T) {
-	result := compileSource("value: List<Int32> | Nil := nil")
+	result := compileSource("let value: List<Int32> | Nil = nil")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected composed union member: %v", result.Stderr)
 	}
@@ -183,7 +183,7 @@ func TestComposedUnionMemberSpellingIsIdentifierSafe(t *testing.T) {
 // Case is part of a Hexal type name, so a lowercasing scheme would collapse
 // distinct unions; both spellings must survive side by side.
 func TestCaseDistinctUnionMembersStayDistinct(t *testing.T) {
-	result := compileSource("type Foo is struct a: Int32, end\ntype foo is struct b: Int32, end\nu: Foo | Nil := nil\nv: foo | Nil := nil")
+	result := compileSource("type Foo is struct a: Int32, end\ntype foo is struct b: Int32, end\nlet u: Foo | Nil = nil\nlet v: foo | Nil = nil")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected case-distinct union source: %v", result.Stderr)
 	}
@@ -196,7 +196,7 @@ func TestCaseDistinctUnionMembersStayDistinct(t *testing.T) {
 // The program-wide discriminant enum lives in hexal.h, its members spelled
 // exactly as every reference resolves them: hex_tag_ plus the registry label.
 func TestProgramWideTagEnumMembersMatchReferenceSpellings(t *testing.T) {
-	result := compileSource("value: Int32 | Nil := nil")
+	result := compileSource("let value: Int32 | Nil = nil")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected union source: %v", result.Stderr)
 	}
@@ -216,7 +216,7 @@ func TestProgramWideTagEnumMembersMatchReferenceSpellings(t *testing.T) {
 // A program without unions, ADTs, or Error must not emit the shared enum at
 // all; the registry stays empty and hexal.h stays minimal.
 func TestTagFreeProgramHasNoTagEnum(t *testing.T) {
-	result := compileSource("value: Int32 := 1")
+	result := compileSource("let value: Int32 = 1")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected tag-free source: %v", result.Stderr)
 	}
@@ -228,7 +228,7 @@ func TestTagFreeProgramHasNoTagEnum(t *testing.T) {
 // Two distinct identities whose labels collide resolve in identity order:
 // the first keeps the base, the later ones append _0, never _2.
 func TestTagCollisionSuffixesStartAtZero(t *testing.T) {
-	result := compileSource("type Direction is union | North | East end type Direction_North is struct a: Int32 end heading: Direction := Direction.North() marker: Direction_North := Direction_North(a = 1) u: Direction_North | Nil := marker")
+	result := compileSource("type Direction is union | North | East end type Direction_North is struct a: Int32 end let heading: Direction = Direction.North() let marker: Direction_North = Direction_North(a = 1) let u: Direction_North | Nil = marker")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected tag-collision source: %v", result.Stderr)
 	}
@@ -244,7 +244,7 @@ func TestTagCollisionSuffixesStartAtZero(t *testing.T) {
 // Int32 | Nil keeps the corrected wrapper stem, its members resolve to the
 // program-wide hex_tag constants, and Nil has no payload field.
 func TestInt32NilWrapperUsesCorrectedStem(t *testing.T) {
-	result := compileSource("value: Int32 | Nil := nil")
+	result := compileSource("let value: Int32 | Nil = nil")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected Int32 | Nil source: %v", result.Stderr)
 	}
@@ -275,7 +275,7 @@ func TestInt32NilWrapperUsesCorrectedStem(t *testing.T) {
 // Two unions whose sanitized member name sequences spell one string both
 // compile; the registry suffixes the second, and each is defined once.
 func TestSanitizedMemberCollisionsReceiveSuffixedNames(t *testing.T) {
-	result := compileSource("type Int32_Nil is struct a: Int32, end\ntype Nil_Foo is struct b: Int32, end\ntype Foo is struct c: Int32, end\nfirst: Int32_Nil | Foo := Int32_Nil(a = 1)\nsecond: Int32 | Nil_Foo := Nil_Foo(b = 1)")
+	result := compileSource("type Int32_Nil is struct a: Int32, end\ntype Nil_Foo is struct b: Int32, end\ntype Foo is struct c: Int32, end\nlet first: Int32_Nil | Foo = Int32_Nil(a = 1)\nlet second: Int32 | Nil_Foo = Nil_Foo(b = 1)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected colliding-name union source: %v", result.Stderr)
 	}
@@ -289,7 +289,7 @@ func TestSanitizedMemberCollisionsReceiveSuffixedNames(t *testing.T) {
 // nominal keeps the base regardless of traversal order, the union is
 // suffixed.
 func TestUnionBaseCollidingWithNominalNameIsSuffixed(t *testing.T) {
-	result := compileSource("type m3_app is struct a: Int32, end\ntype Point is struct x: Int32, end\nu: m3_app | Point := m3_app(a = 1)")
+	result := compileSource("type m3_app is struct a: Int32, end\ntype Point is struct x: Int32, end\nlet u: m3_app | Point = m3_app(a = 1)")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile rejected nominal-colliding union source: %v", result.Stderr)
 	}
@@ -307,7 +307,7 @@ func TestUnionBaseCollidingWithNominalNameIsSuffixed(t *testing.T) {
 // and the same-type assignment emits no widening helper.
 func TestReversedImportedObjectUnionsInternTogether(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\na: M.Point | S.Point := M.make()\nb: S.Point | M.Point := a\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nlet a: M.Point | S.Point = M.make()\nlet b: S.Point | M.Point = a\n",
 		"m.hex":   "type Point is struct x: Int32, end\nfun make(): Point do\n    return Point(x = 1,)\nend\nexport\n    Point,\n    make\nend\n",
 		"s.hex":   "type Point is struct x: Int32, end\nexport\n    Point\nend\n",
 	}
@@ -329,7 +329,7 @@ func TestReversedImportedObjectUnionsInternTogether(t *testing.T) {
 // alone cannot satisfy this case because ADTs sort by short name.
 func TestReversedImportedADTUnionsInternTogether(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\na: M.Shape | S.Shape := M.make()\nb: S.Shape | M.Shape := a\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nlet a: M.Shape | S.Shape = M.make()\nlet b: S.Shape | M.Shape = a\n",
 		"m.hex":   "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nfun make(): Shape do\n    return Shape.Circle(r = 1)\nend\nexport\n    Shape,\n    make\nend\n",
 		"s.hex":   "type Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nexport\n    Shape\nend\n",
 	}
@@ -350,7 +350,7 @@ func TestReversedImportedADTUnionsInternTogether(t *testing.T) {
 // branch of the display key needs the same canonical tie-break.
 func TestReversedImportedPointerUnionsInternTogether(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nmut p: M.Point := M.make()\na: Ptr<M.Point> | Ptr<S.Point> := @p\nb: Ptr<S.Point> | Ptr<M.Point> := a\n",
+		"app.hex": "import\n    M from \"./m\"\n,\n    S from \"./s\"\nend\nlet mut p: M.Point = M.make()\nlet a: Ptr<M.Point> | Ptr<S.Point> = @p\nlet b: Ptr<S.Point> | Ptr<M.Point> = a\n",
 		"m.hex":   "type Point is struct x: Int32, end\nfun make(): Point do\n    return Point(x = 1,)\nend\nexport\n    Point,\n    make\nend\n",
 		"s.hex":   "type Point is struct x: Int32, end\nexport\n    Point\nend\n",
 	}
@@ -371,7 +371,7 @@ func TestReversedImportedPointerUnionsInternTogether(t *testing.T) {
 // identically in every header that declares the function against it.
 func TestCrossModuleUnionResultSpelledIdentically(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "import\n    M from \"./m\"\nend\nvalue: M.Maybe := M.make()\n",
+		"app.hex": "import\n    M from \"./m\"\nend\nlet value: M.Maybe = M.make()\n",
 		"m.hex":   "type Maybe is union Int32 | Nil end\nfun make(): Maybe do\n    return nil\nend\nexport\n    Maybe,\n    make\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -393,7 +393,7 @@ func TestContextualReturnsInsideBlocksInjectSize(t *testing.T) {
 	prefix := "fun source(): Size | EoS do\n    return eos\nend\n"
 	cases := map[string]string{
 		"if": prefix + "fun demo(flag: Bool): Size | Error do\n" +
-			"    outcome: Size | EoS := source()\n" +
+			"    let outcome: Size | EoS = source()\n" +
 			"    if outcome is EoS then\n        return 0\n    end\n" +
 			"    return outcome\nend\n",
 		"elseif-else": "fun demo(flag: Bool, other: Bool): Size | Error do\n" +
@@ -401,23 +401,23 @@ func TestContextualReturnsInsideBlocksInjectSize(t *testing.T) {
 			"    elseif other then\n        return 1\n" +
 			"    else\n        return 2\n    end\nend\n",
 		"while": "fun demo(): Size | Error do\n" +
-			"    mut guard: Bool := true\n" +
+			"    let mut guard: Bool = true\n" +
 			"    while guard do\n        return 0\n    end\n" +
 			"    return 1\nend\n",
 		"for": "fun demo(): Size | Error do\n" +
-			"    flags: Array<Bool, 2> := [true, false]\n" +
+			"    let flags: Array<Bool, 2> = [true, false]\n" +
 			"    for flag in flags do\n        return 0\n    end\n" +
 			"    return 1\nend\n",
 		"match-arm": "fun demo(flag: Bool): Size | Error do\n" +
 			"    return match flag | true then 0 | false then 1 end\nend\n",
 	}
 	for name, source := range cases {
-		caller := "called: Size | Error := demo(true)\n"
+		caller := "let called: Size | Error = demo(true)\n"
 		if name == "while" || name == "for" {
-			caller = "called: Size | Error := demo()\n"
+			caller = "let called: Size | Error = demo()\n"
 		}
 		if name == "elseif-else" {
-			caller = "called: Size | Error := demo(true, true)\n"
+			caller = "let called: Size | Error = demo(true, true)\n"
 		}
 		result := compileSource(source + caller)
 		if result.ExitCode != compiler.ExitSuccess {
@@ -437,10 +437,10 @@ func TestContextualReturnsInsideBlocksInjectSize(t *testing.T) {
 func TestNarrowedEoSReturnPathProducesValidInjection(t *testing.T) {
 	result := compileSource("fun source(): Size | EoS do\n    return eos\nend\n" +
 		"fun demo(): Size | Error do\n" +
-		"    outcome: Size | EoS := source()\n" +
+		"    let outcome: Size | EoS = source()\n" +
 		"    if outcome is EoS then\n        return 0\n    end\n" +
 		"    return outcome\nend\n" +
-		"called: Size | Error := demo()\n")
+		"let called: Size | Error = demo()\n")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("narrowed return path rejected: %v", result.Stderr)
 	}

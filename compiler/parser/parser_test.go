@@ -11,7 +11,7 @@ import (
 )
 
 func TestParseDeclaration(t *testing.T) {
-	tokens, err := lexer.Lex("x: Int32 := 13")
+	tokens, err := lexer.Lex("let x: Int32 = 13")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestParseDeclaration(t *testing.T) {
 }
 
 func TestParseRejectsTrailingTokens(t *testing.T) {
-	tokens, err := lexer.Lex("x: Int32 := 13 y")
+	tokens, err := lexer.Lex("let x: Int32 = 13 y")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestParseRejectsTrailingTokens(t *testing.T) {
 }
 
 func TestParseBooleanLiteral(t *testing.T) {
-	tokens, err := lexer.Lex("enabled: Bool := true")
+	tokens, err := lexer.Lex("let enabled: Bool = true")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestParseBooleanLiteral(t *testing.T) {
 }
 
 func TestParseHexadecimalIntegerLiteral(t *testing.T) {
-	tokens, err := lexer.Lex("mask: Int32 := 0xFF")
+	tokens, err := lexer.Lex("let mask: Int32 = 0xFF")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestParseHexadecimalIntegerLiteral(t *testing.T) {
 }
 
 func TestParsePointerExpressions(t *testing.T) {
-	tokens, err := lexer.Lex("mut x: Int32 := 13 p: Ptr<Int32> := @x y: Int32 := ^p")
+	tokens, err := lexer.Lex("let mut x: Int32 = 13 let p: Ptr<Int32> = @x let y: Int32 = ^p")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestParsePointerExpressions(t *testing.T) {
 }
 
 func TestParseConstructorCallPreservesArgumentOrder(t *testing.T) {
-	tokens, err := lexer.Lex("type Point is struct x: Int32, y: Int32, end point: Point := Point(y = 2, x = 1,).x")
+	tokens, err := lexer.Lex("type Point is struct x: Int32, y: Int32, end let point: Point = Point(y = 2, x = 1,).x")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -152,8 +152,8 @@ func TestParseConstructorCallPreservesArgumentOrder(t *testing.T) {
 	}
 }
 
-func TestParseDeclarationStoresDeclarationOperator(t *testing.T) {
-	tokens, err := lexer.Lex("typed: Int32 := 1 inferred := typed")
+func TestParseDeclarationStoresKeyword(t *testing.T) {
+	tokens, err := lexer.Lex("let typed: Int32 = 1 let inferred = typed")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -165,17 +165,42 @@ func TestParseDeclarationStoresDeclarationOperator(t *testing.T) {
 		t.Fatalf("statement count = %d, want 2", len(program.Statements))
 	}
 	typed := program.Statements[0].(Declaration)
-	if typed.Operator.Kind != lexer.ColonEqual || typed.Type == nil {
-		t.Fatalf("typed declaration = %#v, want := and a type", typed)
+	if typed.Keyword.Kind != lexer.Let || typed.Type == nil {
+		t.Fatalf("typed declaration = %#v, want let and a type", typed)
 	}
 	inferred := program.Statements[1].(Declaration)
-	if inferred.Operator.Kind != lexer.ColonEqual || inferred.Type != nil {
-		t.Fatalf("inferred declaration = %#v, want := and no type", inferred)
+	if inferred.Keyword.Kind != lexer.Let || inferred.Type != nil {
+		t.Fatalf("inferred declaration = %#v, want let and no type", inferred)
+	}
+}
+
+func TestParseDeclarationDiagnostics(t *testing.T) {
+	for _, testCase := range []struct {
+		source string
+		want   string
+	}{
+		{"x := 5", "[Syntax Error] ':=' is not a declaration operator; use 'let name = value' at 1:3"},
+		{"x : = 5", "[Syntax Error] ':=' is not a declaration operator; use 'let name = value' at 1:3"},
+		{"x: Int32 := 5", "[Syntax Error] ':=' is not a declaration operator; use 'let name = value' at 1:10"},
+		{"let x := 5", "[Syntax Error] expected a type after ':' in a 'let' declaration at 1:7"},
+		{"let x : = 5", "[Syntax Error] expected a type after ':' in a 'let' declaration at 1:7"},
+		{"let x mut = 1", "[Syntax Error] 'mut' appears only immediately after 'let' in a declaration at 1:7"},
+		{"let x: Int32", "[Syntax Error] expected '=' in a 'let' declaration at 1:13"},
+		{"x: Int32 = 5", "[Syntax Error] declarations require 'let' at 1:1"},
+	} {
+		tokens, err := lexer.Lex(testCase.source)
+		if err != nil {
+			t.Fatalf("Lex(%q) returned an error: %v", testCase.source, err)
+		}
+		_, err = Parse(tokens)
+		if err == nil || err.Error() != testCase.want {
+			t.Errorf("Parse(%q) error = %v, want %q", testCase.source, err, testCase.want)
+		}
 	}
 }
 
 func TestParseRejectsMutInConstructorCall(t *testing.T) {
-	tokens, err := lexer.Lex("point: Point := Point(mut x = 1)")
+	tokens, err := lexer.Lex("let point: Point = Point(mut x = 1)")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -186,7 +211,7 @@ func TestParseRejectsMutInConstructorCall(t *testing.T) {
 }
 
 func TestParseGeneralDottedMemberNames(t *testing.T) {
-	tokens, err := lexer.Lex("x: Int32 := point.foo.bar point.addr = x")
+	tokens, err := lexer.Lex("let x: Int32 = point.foo.bar point.addr = x")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -218,9 +243,9 @@ func TestParseRejectsExpressionSideMut(t *testing.T) {
 		source string
 		column int
 	}{
-		{"x: Int32 := mut @y", 13},
-		{"x: Int32 := mut y", 13},
-		{"p: Ptr<Int32> := mut x", 18},
+		{"let x: Int32 = mut @y", 16},
+		{"let x: Int32 = mut y", 16},
+		{"let p: Ptr<Int32> = mut x", 21},
 	} {
 		tokens, err := lexer.Lex(testCase.source)
 		if err != nil {
@@ -235,7 +260,7 @@ func TestParseRejectsExpressionSideMut(t *testing.T) {
 }
 
 func TestParsePointerExpressionDoesNotRemoveBuiltInMismatchHandling(t *testing.T) {
-	tokens, err := lexer.Lex("x: Int32 := true")
+	tokens, err := lexer.Lex("let x: Int32 = true")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -246,7 +271,7 @@ func TestParsePointerExpressionDoesNotRemoveBuiltInMismatchHandling(t *testing.T
 }
 
 func TestParseAcceptsGeneralDottedProperty(t *testing.T) {
-	tokens, err := lexer.Lex("x: Int32 := 13 y: Int32 := x.foo")
+	tokens, err := lexer.Lex("let x: Int32 = 13 let y: Int32 = x.foo")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -261,18 +286,18 @@ func TestParseAcceptsGeneralDottedProperty(t *testing.T) {
 }
 
 func TestParseRejectsMissingDottedMemberName(t *testing.T) {
-	tokens, err := lexer.Lex("x: Int32 := point.")
+	tokens, err := lexer.Lex("let x: Int32 = point.")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
 	_, err = Parse(tokens)
-	if err == nil || err.Error() != "[Syntax Error] expected an identifier after '.' at 1:19" {
+	if err == nil || err.Error() != "[Syntax Error] expected an identifier after '.' at 1:22" {
 		t.Fatalf("Parse error = %v, want missing member-name diagnostic", err)
 	}
 }
 
 func TestParseReportsExpectedDeclaredTypeValue(t *testing.T) {
-	tokens, err := lexer.Lex("x: Int32 := ")
+	tokens, err := lexer.Lex("let x: Int32 = ")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -281,13 +306,13 @@ func TestParseReportsExpectedDeclaredTypeValue(t *testing.T) {
 	if err == nil {
 		t.Fatal("Parse accepted a missing initializer")
 	}
-	if got, want := err.Error(), "[Syntax Error] expected a value at 1:13"; got != want {
+	if got, want := err.Error(), "[Syntax Error] expected a value at 1:16"; got != want {
 		t.Fatalf("Parse error = %q, want %q", got, want)
 	}
 }
 
 func TestParseRejectsLiteralForWrongDeclaredType(t *testing.T) {
-	for _, source := range []string{"x: Int32 := true", "flag: Bool := 1"} {
+	for _, source := range []string{"let x: Int32 = true", "let flag: Bool = 1"} {
 		tokens, err := lexer.Lex(source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
@@ -299,7 +324,7 @@ func TestParseRejectsLiteralForWrongDeclaredType(t *testing.T) {
 }
 
 func TestParseMultipleStatements(t *testing.T) {
-	tokens, err := lexer.Lex("x: Int32 := 13 x = 14 flag: Bool := true flag = false")
+	tokens, err := lexer.Lex("let x: Int32 = 13 x = 14 let flag: Bool = true flag = false")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -326,7 +351,7 @@ func TestParseMultipleStatements(t *testing.T) {
 }
 
 func TestParseRecoversAtNextStatement(t *testing.T) {
-	tokens, err := lexer.Lex("x: Int32 := 13 y z: Int32 := 14")
+	tokens, err := lexer.Lex("let x: Int32 = 13 y let z: Int32 = 14")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -335,7 +360,7 @@ func TestParseRecoversAtNextStatement(t *testing.T) {
 	if err == nil {
 		t.Fatal("Parse accepted an invalid statement")
 	}
-	if got, want := err.Error(), "[Syntax Error] expected ':' or ':=' for a declaration, or '=' for an assignment at 1:18"; got != want {
+	if got, want := err.Error(), "[Syntax Error] expected '=' for an assignment at 1:21"; got != want {
 		t.Fatalf("Parse error = %q, want %q", got, want)
 	}
 	if got, want := len(program.Statements), 2; got != want {
@@ -347,7 +372,7 @@ func TestParseRecoversAtNextStatement(t *testing.T) {
 }
 
 func TestParseRecoversAtDottedAssignment(t *testing.T) {
-	tokens, err := lexer.Lex("x: Int32 := 13 invalid z: Int32 := 14 point.foo = 15")
+	tokens, err := lexer.Lex("let x: Int32 = 13 invalid let z: Int32 = 14 point.foo = 15")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -419,7 +444,7 @@ func TestParseRejectsImportAfterTopLevelItem(t *testing.T) {
 		{"type declaration", "type T is struct n: Int32 end\nimport\n    a from \"./a\"\nend\n", 2},
 		{"function declaration", "fun f(): Int32 do\n    return 1\nend\nimport\n    a from \"./a\"\nend\n", 4},
 		{"method declaration", "type T is struct n: Int32 end\nmethod T.act() do\nend\nimport\n    a from \"./a\"\nend\n", 4},
-		{"executable statement", "x: Int32 := 1\nimport\n    a from \"./a\"\nend\n", 2},
+		{"executable statement", "let x: Int32 = 1\nimport\n    a from \"./a\"\nend\n", 2},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			tokens, err := lexer.Lex(testCase.source)
@@ -448,7 +473,7 @@ func TestParseRejectsImportAfterTopLevelItem(t *testing.T) {
 			}
 		})
 	}
-	if _, err := Parse(mustLex(t, "import\n    a from \"./a\"\n,\n    b from \"./b\"\nend\nx: Int32 := 1\n")); err != nil {
+	if _, err := Parse(mustLex(t, "import\n    a from \"./a\"\n,\n    b from \"./b\"\nend\nlet x: Int32 = 1\n")); err != nil {
 		t.Fatalf("Parse rejected an imports-first program: %v", err)
 	}
 }
@@ -518,7 +543,7 @@ func TestParseRecoversAfterConsumedMalformedStatement(t *testing.T) {
 		wantName   string
 		wantAssign bool
 	}{
-		{name: "declaration", source: "broken value: Int32 := 1", wantName: "value"},
+		{name: "declaration", source: "broken let value: Int32 = 1", wantName: "value"},
 		{name: "assignment", source: "broken value = 1", wantName: "value", wantAssign: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -550,7 +575,7 @@ func TestParseRecoversAfterConsumedMalformedStatement(t *testing.T) {
 }
 
 func TestParseRecoveryPreservesNestedBlockDelimiters(t *testing.T) {
-	tokens, err := lexer.Lex("if true then while false do else end end recovered: Int32 := 1")
+	tokens, err := lexer.Lex("if true then while false do else end end let recovered: Int32 = 1")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -575,7 +600,7 @@ func TestParseRecoveryPreservesNestedBlockDelimiters(t *testing.T) {
 }
 
 func TestParseRecoveryKeepsInvalidDelimiterInsideWhile(t *testing.T) {
-	tokens, err := lexer.Lex("if true then while false do else sibling: Int32 := 1 end after: Int32 := 2 end")
+	tokens, err := lexer.Lex("if true then while false do else let sibling: Int32 = 1 end let after: Int32 = 2 end")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -667,7 +692,7 @@ func TestParseRecoveryKeepsSelfAssignmentSibling(t *testing.T) {
 }
 
 func TestParseRecoveryKeepsSiblingInsideMalformedNestedLoop(t *testing.T) {
-	tokens, err := lexer.Lex("fun keep() do while true do else value: Int32 := 1 end after: Int32 := 2 end")
+	tokens, err := lexer.Lex("fun keep() do while true do else let value: Int32 = 1 end let after: Int32 = 2 end")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -715,7 +740,7 @@ func TestParseRecoveryKeepsDottedCallSibling(t *testing.T) {
 }
 
 func TestParseGeneralUnaryMinus(t *testing.T) {
-	initializer := parseInitializer(t, "x: Int32 := -value")
+	initializer := parseInitializer(t, "let x: Int32 = -value")
 	unary, ok := initializer.(UnaryExpression)
 	if !ok || unary.Operator.Kind != lexer.Minus {
 		t.Fatalf("initializer = %#v, want unary minus", initializer)
@@ -727,7 +752,7 @@ func TestParseGeneralUnaryMinus(t *testing.T) {
 }
 
 func TestParseLogicalNot(t *testing.T) {
-	initializer := parseInitializer(t, "flag: Bool := !ready")
+	initializer := parseInitializer(t, "let flag: Bool = !ready")
 	unary, ok := initializer.(UnaryExpression)
 	if !ok || unary.Operator.Kind != lexer.Bang {
 		t.Fatalf("initializer = %#v, want logical not", initializer)
@@ -739,7 +764,7 @@ func TestParseLogicalNot(t *testing.T) {
 }
 
 func TestParseUnaryOperatorsAssociateRight(t *testing.T) {
-	initializer := parseInitializer(t, "x: Int32 := - -value")
+	initializer := parseInitializer(t, "let x: Int32 = - -value")
 	outer, ok := initializer.(UnaryExpression)
 	if !ok || outer.Operator.Kind != lexer.Minus {
 		t.Fatalf("initializer = %#v, want outer unary minus", initializer)
@@ -754,7 +779,7 @@ func TestParseUnaryOperatorsAssociateRight(t *testing.T) {
 }
 
 func TestParseDirectMinusLiteralRetainsLiteralNode(t *testing.T) {
-	for _, source := range []string{"x: Int8 := -128", "x: Float32 := -1.5"} {
+	for _, source := range []string{"let x: Int8 = -128", "let x: Float32 = -1.5"} {
 		initializer := parseInitializer(t, source)
 		negative, ok := initializer.(NegatedNumericLiteral)
 		if !ok {
@@ -776,12 +801,12 @@ func TestParseDirectMinusLiteralRetainsLiteralNode(t *testing.T) {
 }
 
 func TestParseBinaryPrecedenceAndGrouping(t *testing.T) {
-	message := parseError(t, "x: Int32 := 2 + 3 * 4")
+	message := parseError(t, "let x: Int32 = 2 + 3 * 4")
 	if !strings.Contains(message, "mixed binary operators require parentheses; found '*' after '+'") {
 		t.Fatalf("message = %q, want the mixed-operator diagnostic", message)
 	}
 
-	rightGrouped := parseInitializer(t, "x: Int32 := 2 + (3 * 4)").(BinaryExpression)
+	rightGrouped := parseInitializer(t, "let x: Int32 = 2 + (3 * 4)").(BinaryExpression)
 	if rightGrouped.Operator.Kind != lexer.Plus {
 		t.Fatalf("root operator = %v, want +", rightGrouped.Operator.Kind)
 	}
@@ -790,7 +815,7 @@ func TestParseBinaryPrecedenceAndGrouping(t *testing.T) {
 		t.Fatalf("right operand = %#v, want multiplication", rightGrouped.Right)
 	}
 
-	leftGrouped := parseInitializer(t, "x: Int32 := (2 + 3) * 4").(BinaryExpression)
+	leftGrouped := parseInitializer(t, "let x: Int32 = (2 + 3) * 4").(BinaryExpression)
 	if leftGrouped.Operator.Kind != lexer.Star {
 		t.Fatalf("grouped root operator = %v, want *", leftGrouped.Operator.Kind)
 	}
@@ -801,7 +826,7 @@ func TestParseBinaryPrecedenceAndGrouping(t *testing.T) {
 }
 
 func TestParseBinaryOperatorsAssociateLeft(t *testing.T) {
-	initializer := parseInitializer(t, "x: Int32 := a - b - c")
+	initializer := parseInitializer(t, "let x: Int32 = a - b - c")
 	outer, ok := initializer.(BinaryExpression)
 	if !ok || outer.Operator.Kind != lexer.Minus {
 		t.Fatalf("initializer = %#v, want outer subtraction", initializer)
@@ -813,12 +838,12 @@ func TestParseBinaryOperatorsAssociateLeft(t *testing.T) {
 }
 
 func TestParseAllExpressionPrecedenceLevels(t *testing.T) {
-	message := parseError(t, "result: Bool := a + 1 > b and !done or ready == loaded")
+	message := parseError(t, "let result: Bool = a + 1 > b and !done or ready == loaded")
 	if !strings.Contains(message, "mixed binary operators require parentheses; found '>' after '+'") {
 		t.Fatalf("message = %q, want the mixed-operator diagnostic", message)
 	}
 
-	initializer := parseInitializer(t, "result: Bool := (((a + 1) > b) and !done) or (ready == loaded)")
+	initializer := parseInitializer(t, "let result: Bool = (((a + 1) > b) and !done) or (ready == loaded)")
 	orExpression, ok := initializer.(BinaryExpression)
 	if !ok || orExpression.Operator.Kind != lexer.Or {
 		t.Fatalf("initializer = %#v, want or expression", initializer)
@@ -851,19 +876,19 @@ func TestParseEveryBinaryOperator(t *testing.T) {
 		source   string
 		operator lexer.TokenKind
 	}{
-		{"x: Int32 := a * b", lexer.Star},
-		{"x: Int32 := a / b", lexer.Slash},
-		{"x: Int32 := a % b", lexer.Percent},
-		{"x: Int32 := a + b", lexer.Plus},
-		{"x: Int32 := a - b", lexer.Minus},
-		{"x: Bool := a < b", lexer.Less},
-		{"x: Bool := a <= b", lexer.LessEqual},
-		{"x: Bool := a > b", lexer.Greater},
-		{"x: Bool := a >= b", lexer.GreaterEqual},
-		{"x: Bool := a == b", lexer.EqualEqual},
-		{"x: Bool := a != b", lexer.BangEqual},
-		{"x: Bool := a and b", lexer.And},
-		{"x: Bool := a or b", lexer.Or},
+		{"let x: Int32 = a * b", lexer.Star},
+		{"let x: Int32 = a / b", lexer.Slash},
+		{"let x: Int32 = a % b", lexer.Percent},
+		{"let x: Int32 = a + b", lexer.Plus},
+		{"let x: Int32 = a - b", lexer.Minus},
+		{"let x: Bool = a < b", lexer.Less},
+		{"let x: Bool = a <= b", lexer.LessEqual},
+		{"let x: Bool = a > b", lexer.Greater},
+		{"let x: Bool = a >= b", lexer.GreaterEqual},
+		{"let x: Bool = a == b", lexer.EqualEqual},
+		{"let x: Bool = a != b", lexer.BangEqual},
+		{"let x: Bool = a and b", lexer.And},
+		{"let x: Bool = a or b", lexer.Or},
 	} {
 		binary, ok := parseInitializer(t, testCase.source).(BinaryExpression)
 		if !ok || binary.Operator.Kind != testCase.operator {
@@ -874,11 +899,11 @@ func TestParseEveryBinaryOperator(t *testing.T) {
 
 func TestParseRejectsMalformedOperatorsAndGrouping(t *testing.T) {
 	for _, source := range []string{
-		"x: Int32 := 1 +",
-		"x: Bool := true and",
-		"x: Bool := !",
-		"x: Int32 := (1 + 2",
-		"x: Int32 := 1 * / 2",
+		"let x: Int32 = 1 +",
+		"let x: Bool = true and",
+		"let x: Bool = !",
+		"let x: Int32 = (1 + 2",
+		"let x: Int32 = 1 * / 2",
 	} {
 		tokens, err := lexer.Lex(source)
 		if err != nil {
@@ -891,7 +916,7 @@ func TestParseRejectsMalformedOperatorsAndGrouping(t *testing.T) {
 }
 
 func TestParseReservesLogicalKeywords(t *testing.T) {
-	for _, source := range []string{"and: Bool := true", "or: Bool := false"} {
+	for _, source := range []string{"let and: Bool = true", "let or: Bool = false"} {
 		tokens, err := lexer.Lex(source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
@@ -903,13 +928,13 @@ func TestParseReservesLogicalKeywords(t *testing.T) {
 }
 
 func TestParseAddressRemainsPlaceOnly(t *testing.T) {
-	for _, source := range []string{"p: Ptr<Int32> := @42", "p: Ptr<Int32> := @nil"} {
+	for _, source := range []string{"let p: Ptr<Int32> = @42", "let p: Ptr<Int32> = @nil"} {
 		tokens, err := lexer.Lex(source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
 		}
 		_, err = Parse(tokens)
-		if err == nil || err.Error() != "[Syntax Error] expected a place identifier at 1:19" {
+		if err == nil || err.Error() != "[Syntax Error] expected a place identifier at 1:22" {
 			t.Fatalf("Parse(%q) error = %v, want place-only @diagnostic", source, err)
 		}
 	}
@@ -920,8 +945,8 @@ func TestParseAddressRejectsCalls(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"p: Ptr<Int32> := @f()", "[Syntax Error] a call's ( must follow its callee on the same line at 1:20"},
-		{"p: Ptr<Int32> := @value.compute()", "[Syntax Error] a call's ( must follow its callee on the same line at 1:32"},
+		{"let p: Ptr<Int32> = @f()", "[Syntax Error] a call's ( must follow its callee on the same line at 1:23"},
+		{"let p: Ptr<Int32> = @value.compute()", "[Syntax Error] a call's ( must follow its callee on the same line at 1:35"},
 	} {
 		tokens, err := lexer.Lex(testCase.source)
 		if err != nil {
@@ -1030,7 +1055,7 @@ func TestParseFunctionOneParameter(t *testing.T) {
 }
 
 func TestParseAnonymousFunctionLiteral(t *testing.T) {
-	expression := parseInitializer(t, "result := fun (value: Int32) : Int32 do\nreturn value\nend")
+	expression := parseInitializer(t, "let result = fun (value: Int32) : Int32 do\nreturn value\nend")
 	literal, ok := expression.(AnonymousFunctionLiteral)
 	if !ok {
 		t.Fatalf("initializer = %#v, want AnonymousFunctionLiteral", expression)
@@ -1050,7 +1075,7 @@ func TestParseAnonymousFunctionLiteral(t *testing.T) {
 }
 
 func TestParseAnonymousFunctionLiteralNoResult(t *testing.T) {
-	expression := parseInitializer(t, "callback := fun (value: Int32) do\nend")
+	expression := parseInitializer(t, "let callback = fun (value: Int32) do\nend")
 	literal := expression.(AnonymousFunctionLiteral)
 	if literal.Return != nil {
 		t.Fatalf("return type = %#v, want nil", literal.Return)
@@ -1068,7 +1093,7 @@ func TestParseGenericAnonymousFunctionLiteral(t *testing.T) {
 	// `<` immediately after `fun` is unambiguously the generic-parameter
 	// delimiter: no value expression can end with the `fun` token, so this
 	// cannot be misread as a relational comparison.
-	expression := parseInitializer(t, "identity := fun<T>(value: T) : T do\nreturn value\nend")
+	expression := parseInitializer(t, "let identity = fun<T>(value: T) : T do\nreturn value\nend")
 	literal := expression.(AnonymousFunctionLiteral)
 	if len(literal.TypeParameters) != 1 || literal.TypeParameters[0].Lexeme != "T" {
 		t.Fatalf("type parameters = %#v, want [T]", literal.TypeParameters)
@@ -1079,7 +1104,7 @@ func TestParseAnonymousFunctionLiteralDirectCall(t *testing.T) {
 	// A call suffix on a literal is a postfix base; it is valid only where an
 	// expression is expected, never as a call statement (see
 	// TestParseFunctionDiagnostics for the rejected statement form).
-	expression := parseInitializer(t, "result := fun (value: Int32) : Int32 do\nreturn value\nend(5)")
+	expression := parseInitializer(t, "let result = fun (value: Int32) : Int32 do\nreturn value\nend(5)")
 	call, ok := expression.(CallExpression)
 	if !ok {
 		t.Fatalf("initializer = %#v, want CallExpression", expression)
@@ -1094,7 +1119,7 @@ func TestParseAnonymousFunctionLiteralDirectCall(t *testing.T) {
 
 func TestParseNestedAnonymousFunctionLiteral(t *testing.T) {
 	expression := parseInitializer(t,
-		"outer := fun (value: Int32) : Fun<(Int32) : Int32> do\nreturn fun (delta: Int32) : Int32 do\nreturn delta\nend\nend")
+		"let outer = fun (value: Int32) : Fun<(Int32) : Int32> do\nreturn fun (delta: Int32) : Int32 do\nreturn delta\nend\nend")
 	outer := expression.(AnonymousFunctionLiteral)
 	returned, ok := outer.Body[0].(ReturnStatement)
 	if !ok {
@@ -1107,9 +1132,9 @@ func TestParseNestedAnonymousFunctionLiteral(t *testing.T) {
 
 func TestParseAnonymousFunctionLiteralDiagnostics(t *testing.T) {
 	for _, testCase := range []struct{ source, want string }{
-		{"result := fun do\nend", "anonymous function requires '(' or '<' after 'fun'"},
-		{"result := fun (value: Int32) : Int32\nreturn value\nend", "expected 'do' after function signature"},
-		{"result := fun (value) : Int32 do\nreturn value\nend", "function parameters require type annotations"},
+		{"let result = fun do\nend", "anonymous function requires '(' or '<' after 'fun'"},
+		{"let result = fun (value: Int32) : Int32\nreturn value\nend", "expected 'do' after function signature"},
+		{"let result = fun (value) : Int32 do\nreturn value\nend", "function parameters require type annotations"},
 	} {
 		if message := parseError(t, testCase.source); !strings.Contains(message, testCase.want) {
 			t.Errorf("parseError(%q) = %q, want to contain %q", testCase.source, message, testCase.want)
@@ -1184,7 +1209,7 @@ func TestParseImplMethodName(t *testing.T) {
 }
 
 func TestParseNestedCallArguments(t *testing.T) {
-	call, ok := parseInitializer(t, "x: Int32 := f(g(1), 2)").(CallExpression)
+	call, ok := parseInitializer(t, "let x: Int32 = f(g(1), 2)").(CallExpression)
 	if !ok {
 		t.Fatalf("initializer is not a call")
 	}
@@ -1201,7 +1226,7 @@ func TestParseNestedCallArguments(t *testing.T) {
 }
 
 func TestParseZeroArgumentCall(t *testing.T) {
-	call := parseInitializer(t, "x: Int32 := now()").(CallExpression)
+	call := parseInitializer(t, "let x: Int32 = now()").(CallExpression)
 	if len(call.Arguments) != 0 {
 		t.Fatalf("argument count = %d, want 0", len(call.Arguments))
 	}
@@ -1224,7 +1249,7 @@ func TestParseMethodCallChainStatement(t *testing.T) {
 }
 
 func TestParseCallThenMemberSelection(t *testing.T) {
-	property, ok := parseInitializer(t, "x: Int32 := point.translate(1, 2).x").(PropertyExpression)
+	property, ok := parseInitializer(t, "let x: Int32 = point.translate(1, 2).x").(PropertyExpression)
 	if !ok {
 		t.Fatal("initializer is not a property selection")
 	}
@@ -1235,7 +1260,7 @@ func TestParseCallThenMemberSelection(t *testing.T) {
 
 func TestParseChainEndingInMemberIsNotAStatement(t *testing.T) {
 	message := parseError(t, "point.x")
-	if !strings.Contains(message, "expected ':' or ':=' for a declaration, or '=' for an assignment") {
+	if !strings.Contains(message, "expected '=' for an assignment") {
 		t.Fatalf("error = %q, want a statement-form diagnostic", message)
 	}
 }
@@ -1298,17 +1323,17 @@ func TestParseBareReturnFollowedByCall(t *testing.T) {
 
 func TestParseCallSameLineRule(t *testing.T) {
 	// Positive: the '(' follows its callee on the same line.
-	if _, ok := parseInitializer(t, "result: Int32 := compute(value)").(CallExpression); !ok {
+	if _, ok := parseInitializer(t, "let result: Int32 = compute(value)").(CallExpression); !ok {
 		t.Fatal("same-line call was not parsed as a call")
 	}
 
 	// Positive: line breaks inside the argument list are fine.
-	if _, ok := parseInitializer(t, "result: Int32 := compute(\nvalue,\n2\n)").(CallExpression); !ok {
+	if _, ok := parseInitializer(t, "let result: Int32 = compute(\nvalue,\n2\n)").(CallExpression); !ok {
 		t.Fatal("call with a multi-line argument list was not parsed as a call")
 	}
 
 	// Negative: a newline between callee and '(' splits the two items.
-	message := parseError(t, "result: Int32 := compute\n(value)")
+	message := parseError(t, "let result: Int32 = compute\n(value)")
 	if !strings.Contains(message, "a call's ( must follow its callee on the same line") {
 		t.Fatalf("error = %q, want the same-line call diagnostic", message)
 	}
@@ -1335,7 +1360,7 @@ func TestParseFunctionDiagnostics(t *testing.T) {
 	}{
 		{"fun adder(left: Int32) do\nreturn left", "expected end to close function adder"},
 		{"fun adder(left)\nend", "function parameters require type annotations"},
-		{"mut fun adder()\nend", "mut cannot modify a function declaration; declare a mut Fun binding"},
+		{"mut fun adder()\nend", "'mut' appears only immediately after 'let' in a declaration"},
 		{"fun inner()\nend", "expected 'do' after function signature"},
 		{"fun outer() do\nmethod Point.m()\nend\nend", "method declarations are module-level only"},
 	} {

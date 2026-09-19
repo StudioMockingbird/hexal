@@ -202,7 +202,7 @@ Sharing the reviews done by other agents. Consider their points on its merits. b
 
 ========================
 
-Implement Spec [NUMBER] completely and conservatively.
+Implement Specs 218, 219, 220 completely and conservatively.
 
 Treat the spec’s `Validation` section as the exhaustive definition of done. Follow every implementation-plan phase and map each validation item to concrete code or tests. Do not mark the spec implemented, closed, or archived while any validation item, cleanup sweep, documentation update, generated-C check, or required measurement remains incomplete.
 
@@ -234,10 +234,6 @@ Before claiming completion, run:
 - The required compiler rebuild and `hexal play` workbench validation.
 
 For every validation item, report:
-
-- The test or probe used.
-- The exact result.
-- Any environment limitation.
 - Whether the item is complete, incomplete, or blocked.
 
 If any issue remains, fix it before completion. If it cannot be fixed without a semantic decision, stop and ask me in simple language with concrete code examples and recommended options. Do not hide failures behind weakened tests, regenerated hashes, skipped cases, or a premature “implemented” status.

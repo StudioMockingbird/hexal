@@ -208,61 +208,12 @@ func (parser *Parser) topLevelItem() (TopLevelItem, error) {
 		return parser.functionDeclaration(false)
 	case parser.check(lexer.Method):
 		return parser.methodDeclaration(false)
-	case parser.check(lexer.Static):
-		keyword := parser.advance()
-		value, err := parser.staticModuleValue(keyword)
-		if err != nil {
-			return nil, err
-		}
-		return value, nil
 	}
 	statement, err := parser.statement()
 	if err != nil {
 		return nil, err
 	}
 	return statement, nil
-}
-
-// staticModuleValue parses `[mut] name [: type] := expr` immediately after
-// consuming the introducing `static` keyword.
-func (parser *Parser) staticModuleValue(keyword lexer.Token) (ModuleValueDeclaration, error) {
-	mutable := false
-	if parser.check(lexer.Mut) {
-		parser.advance()
-		mutable = true
-	}
-	name, err := parser.consume(lexer.Identifier, "an identifier after 'static'")
-	if err != nil {
-		return ModuleValueDeclaration{}, err
-	}
-	if parser.check(lexer.ColonEqual) {
-		operator := parser.advance()
-		initializer, err := parser.expression()
-		if err != nil {
-			return ModuleValueDeclaration{}, err
-		}
-		return ModuleValueDeclaration{Keyword: keyword, Mutable: mutable, Name: name, Initializer: initializer, Operator: operator}, nil
-	}
-	if _, err := parser.consume(lexer.Colon, "':'"); err != nil {
-		return ModuleValueDeclaration{}, err
-	}
-	typeExpression, err := parser.typeExpression()
-	if err != nil {
-		return ModuleValueDeclaration{}, err
-	}
-	if parser.check(lexer.Equal) {
-		equal := parser.advance()
-		return ModuleValueDeclaration{}, parser.errorAt(equal, "binding declarations require ':='; '=' assigns to an existing place")
-	}
-	operator, err := parser.consume(lexer.ColonEqual, "':=' after a declaration type")
-	if err != nil {
-		return ModuleValueDeclaration{}, err
-	}
-	initializer, err := parser.expression()
-	if err != nil {
-		return ModuleValueDeclaration{}, err
-	}
-	return ModuleValueDeclaration{Keyword: keyword, Mutable: mutable, Name: name, Type: typeExpression, Initializer: initializer, Operator: operator}, nil
 }
 
 // importBlock parses the file's one leading import list:
@@ -595,33 +546,21 @@ func (parser *Parser) statement() (Statement, error) {
 			return nil, err
 		}
 		return TryStatement{Keyword: keyword, Operand: operand}, nil
+	case parser.check(lexer.Let):
+		return parser.letDeclaration(parser.advance())
 	}
 
 	if parser.check(lexer.Mut) {
-		mutable := parser.advance()
-		if parser.check(lexer.Fun) {
-			return nil, parser.errorAt(mutable, "mut cannot modify a function declaration; declare a mut Fun binding")
-		}
-		name, err := parser.consume(lexer.Identifier, "an identifier after 'mut'")
-		if err != nil {
-			return nil, err
-		}
-		if parser.check(lexer.Equal) {
-			equal := parser.advance()
-			return nil, parser.errorAt(equal, "binding declarations require ':='; '=' assigns to an existing place")
-		}
-		if !parser.check(lexer.Colon) && !parser.check(lexer.ColonEqual) {
-			return nil, parser.errorAt(mutable, "'mut' at statement start must introduce a declaration")
-		}
-		return parser.declaration(name, true)
+		// `mut` is only valid immediately after `let` in a declaration.
+		return nil, parser.errorAt(parser.peek(), "'mut' appears only immediately after 'let' in a declaration")
 	}
 
 	name, err := parser.consume(lexer.Identifier, "an identifier")
 	if err != nil {
 		return nil, err
 	}
-	if parser.check(lexer.Colon) || parser.check(lexer.ColonEqual) {
-		return parser.declaration(name, false)
+	if parser.check(lexer.Colon) {
+		return parser.deprecatedDeclaration(name)
 	}
 	return parser.postfixStatement(VariableExpression{Name: name})
 }
@@ -647,7 +586,7 @@ func (parser *Parser) postfixStatement(start Expression) (Statement, error) {
 	if call, ok := target.(CallExpression); ok {
 		return call, nil
 	}
-	return nil, parser.errorAtCurrent("expected ':' or ':=' for a declaration, or '=' for an assignment")
+	return nil, parser.errorAtCurrent("expected '=' for an assignment")
 }
 
 // isPlaceExpression reports whether a parsed expression has a place shape
@@ -794,7 +733,8 @@ func (parser *Parser) atStatementStart() bool {
 		return true
 	}
 	if parser.check(lexer.Type) || parser.check(lexer.Fun) || parser.check(lexer.Method) ||
-		parser.check(lexer.Static) || parser.check(lexer.Import) || parser.check(lexer.Export) ||
+		parser.check(lexer.Import) || parser.check(lexer.Export) ||
+		parser.check(lexer.Let) ||
 		parser.check(lexer.If) || parser.check(lexer.While) || parser.check(lexer.For) ||
 		parser.check(lexer.Unsafe) ||
 		parser.check(lexer.Break) || parser.check(lexer.Continue) || parser.check(lexer.Return) ||
@@ -802,12 +742,9 @@ func (parser *Parser) atStatementStart() bool {
 		return true
 	}
 	if parser.check(lexer.Mut) {
-		if parser.current+2 >= len(parser.tokens) {
-			return false
-		}
-		return parser.tokens[parser.current+1].Kind == lexer.Identifier &&
-			(parser.tokens[parser.current+2].Kind == lexer.Colon ||
-				parser.tokens[parser.current+2].Kind == lexer.ColonEqual)
+		// A statement-leading `mut` is always the malformed old spelling and
+		// is never a valid statement start, so recovery skips it.
+		return false
 	}
 	if !parser.check(lexer.Identifier) {
 		return false
@@ -816,7 +753,7 @@ func (parser *Parser) atStatementStart() bool {
 		return false
 	}
 	next := parser.tokens[parser.current+1].Kind
-	if next == lexer.Colon || next == lexer.ColonEqual || next == lexer.Equal {
+	if next == lexer.Colon || next == lexer.Equal {
 		return true
 	}
 	// A call statement resumes parsing only when its '(' obeys the same-line

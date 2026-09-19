@@ -12,19 +12,19 @@ import (
 // cleanup through defer.
 func streamFacetSource() string {
 	return "import\n  Io from std.io\nend\nfun run(h: Heap): Nil | Error do\n" +
-		"    data: List<Byte> := List<Byte>(h)\n" +
-		"    dst: List<Byte> := List<Byte>(h)\n" +
+		"    let data: List<Byte> = List<Byte>(h)\n" +
+		"    let dst: List<Byte> = List<Byte>(h)\n" +
 		"    defer dst.free(h)\n" +
 		"    defer data.free(h)\n" +
-		"    mut live: Io.Bytes := Io.bytes_over(data)\n" +
-		"    out: Io.IO := try Io.stdout()\n" +
-		"    w: Size | Error := out.write(\"hexal\\n\".bytes())\n" +
-		"    r: Size | EoS | Error := live.read(dst, 4)\n" +
-		"    s: Size | Error := live.seek(Io.Seek.Start(position = 0))\n" +
-		"    closed: Nil | Error := out.close()\n" +
+		"    let mut live: Io.Bytes = Io.bytes_over(data)\n" +
+		"    let out: Io.IO = try Io.stdout()\n" +
+		"    let w: Size | Error = out.write(\"hexal\\n\".bytes())\n" +
+		"    let r: Size | EoS | Error = live.read(dst, 4)\n" +
+		"    let s: Size | Error = live.seek(Io.Seek.Start(position = 0))\n" +
+		"    let closed: Nil | Error = out.close()\n" +
 		"    return nil\n" +
 		"end\n" +
-		"done: Nil | Error := run(Heap())\n"
+		"let done: Nil | Error = run(Heap())\n"
 }
 
 func hasFile(result compiler.CompilationResult, key string) bool {
@@ -42,7 +42,7 @@ func TestStreamComponentDemand(t *testing.T) {
 	if !hasFile(streams, "hexal/io.h") || !hasFile(streams, "hexal/io.c") {
 		t.Fatalf("stream program must emit the io pair: %v", sortedKeys(streams.Files))
 	}
-	quiet := compileSource("value: Int32 := 1 + 1")
+	quiet := compileSource("let value: Int32 = 1 + 1")
 	if hasFile(quiet, "hexal/io.h") || hasFile(quiet, "hexal/io.c") {
 		t.Fatalf("a program without IO, Bytes, or print must emit no io artifacts: %v", sortedKeys(quiet.Files))
 	}
@@ -109,7 +109,7 @@ func TestStreamGeneratedCContract(t *testing.T) {
 
 // Print migrates onto the descriptor sink and drags the IO pair along.
 func TestPrintSharesTheStreamBackend(t *testing.T) {
-	result := assertCompiles(t, "value: Int32 := 42 print(value)")
+	result := assertCompiles(t, "let value: Int32 = 42 print(value)")
 	sink := printC(t, result)
 	if strings.Contains(sink, "fwrite") {
 		t.Fatalf("print still writes through C stdio:\n%s", sink)
@@ -126,7 +126,7 @@ func TestPrintSharesTheStreamBackend(t *testing.T) {
 func TestStreamCapabilityTiersEndToEnd(t *testing.T) {
 	assertRejects(t,
 		"import\n  Io from std.io\nend\nfun demo(): Nil | Error do\n"+
-			"    input: Io.IO := try Io.stdin()\n"+
+			"    let input: Io.IO = try Io.stdin()\n"+
 			"    input.write(\"x\".bytes())\n"+
 			"    return nil\nend\n",
 		"stream is not writable")
@@ -134,11 +134,11 @@ func TestStreamCapabilityTiersEndToEnd(t *testing.T) {
 		"    return Io.stdout()\n" +
 		"end\n" +
 		"fun demo(): Nil | Error do\n" +
-		"    handle: Io.IO := try opened()\n" +
-		"    w: Size | Error := handle.write(\"x\".bytes())\n" +
+		"    let handle: Io.IO = try opened()\n" +
+		"    let w: Size | Error = handle.write(\"x\".bytes())\n" +
 		"    return nil\n" +
 		"end\n" +
-		"done: Nil | Error := demo()\n"
+		"let done: Nil | Error = demo()\n"
 	result := assertCompiles(t, source)
 	if !strings.Contains(rootH(t, result), "HEX_IO_NOT_WRITABLE") {
 		t.Fatalf("unknown capability must select the runtime mask arm:\n%s", rootH(t, result))
@@ -149,24 +149,24 @@ func TestStreamCapabilityTiersEndToEnd(t *testing.T) {
 // calls to each backend family and no shared dispatch.
 func TestGenericStreamsMonoMorphizePerBackend(t *testing.T) {
 	source := "import\n  Io from std.io\nend\nfun drain<S>(source: S, h: Heap): Size | Error do\n" +
-		"    buf: List<Byte> := List<Byte>(h)\n" +
+		"    let buf: List<Byte> = List<Byte>(h)\n" +
 		"    defer buf.free(h)\n" +
-		"    n: Size | EoS | Error := source.read(buf, 64)\n" +
+		"    let n: Size | EoS | Error = source.read(buf, 64)\n" +
 		"    if n is EoS then\n" +
 		"        return 0\n" +
 		"    end\n" +
 		"    return n\n" +
 		"end\n" +
 		"fun run(h: Heap): Nil | Error do\n" +
-		"    data: List<Byte> := List<Byte>(h)\n" +
+		"    let data: List<Byte> = List<Byte>(h)\n" +
 		"    defer data.free(h)\n" +
-		"    mut live: Io.Bytes := Io.bytes_over(data)\n" +
-		"    out: Io.IO := try Io.stdout()\n" +
-		"    a: Size | Error := drain<Io.IO>(out, h)\n" +
-		"    b: Size | Error := drain<Ptr<mut Io.Bytes>>(@live, h)\n" +
+		"    let mut live: Io.Bytes = Io.bytes_over(data)\n" +
+		"    let out: Io.IO = try Io.stdout()\n" +
+		"    let a: Size | Error = drain<Io.IO>(out, h)\n" +
+		"    let b: Size | Error = drain<Ptr<mut Io.Bytes>>(@live, h)\n" +
 		"    return nil\n" +
 		"end\n" +
-		"done: Nil | Error := run(Heap())\n"
+		"let done: Nil | Error = run(Heap())\n"
 	result := assertCompiles(t, source)
 	body := rootC(t, result)
 	if !strings.Contains(body, "hex_io_read_") || !strings.Contains(body, "hex_bytes_read_") {
@@ -199,16 +199,16 @@ func TestMemoryBackendAliasContractsInGeneratedC(t *testing.T) {
 // Seek lowers through the Seek ADT decomposition in the module adapter.
 func TestSeekLowersThroughTheADT(t *testing.T) {
 	source := "import\n  Io from std.io\nend\nfun demo(): Nil | Error do\n" +
-		"    h: Heap := Heap()\n" +
-		"    data: List<Byte> := List<Byte>(h)\n" +
+		"    let h: Heap = Heap()\n" +
+		"    let data: List<Byte> = List<Byte>(h)\n" +
 		"    defer data.free(h)\n" +
-		"    mut live: Io.Bytes := Io.bytes_over(data)\n" +
-		"    s: Size | Error := live.seek(Io.Seek.Start(position = 0))\n" +
-		"    c: Size | Error := live.seek(Io.Seek.Current(offset = 1))\n" +
-		"    e: Size | Error := live.seek(Io.Seek.End(offset = -1))\n" +
+		"    let mut live: Io.Bytes = Io.bytes_over(data)\n" +
+		"    let s: Size | Error = live.seek(Io.Seek.Start(position = 0))\n" +
+		"    let c: Size | Error = live.seek(Io.Seek.Current(offset = 1))\n" +
+		"    let e: Size | Error = live.seek(Io.Seek.End(offset = -1))\n" +
 		"    return nil\n" +
 		"end\n" +
-		"done: Nil | Error := demo()\n"
+		"let done: Nil | Error = demo()\n"
 	result := assertCompiles(t, source)
 	seekHeader := moduleFile(t, result, "hexal/seek.h")
 	if !strings.Contains(seekHeader, "typedef struct hex_t_Seek") {
@@ -228,7 +228,7 @@ func TestStreamNamesFreeEndToEnd(t *testing.T) {
 	assertCompiles(t, "type IO is struct x: Int32 end")
 	assertCompiles(t, "type Bytes is struct x: Int32 end")
 	assertCompiles(t, "type Seek is North | South end")
-	result := assertCompiles(t, "Start: Int32 := 0 Current: Int32 := 1 End: Int32 := 2 total: Int32 := Start + Current + End")
+	result := assertCompiles(t, "let Start: Int32 = 0 let Current: Int32 = 1 let End: Int32 = 2 let total: Int32 = Start + Current + End")
 	if !strings.Contains(rootC(t, result), "hex_v_total") {
 		t.Fatalf("unqualified variant names must remain usable")
 	}

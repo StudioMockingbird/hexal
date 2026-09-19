@@ -23,7 +23,7 @@ func TestParseRestParameterOnEachDeclarationForm(t *testing.T) {
 		t.Fatalf("method parameters = %#v, want one rest parameter", method.Parameters)
 	}
 
-	literal := parseInitializer(t, "f: Fun<(String...)> := fun (values: String...) do\nend").(AnonymousFunctionLiteral)
+	literal := parseInitializer(t, "let f: Fun<(String...)> = fun (values: String...) do\nend").(AnonymousFunctionLiteral)
 	if len(literal.Parameters) != 1 || !literal.Parameters[0].Rest {
 		t.Fatalf("literal parameters = %#v, want one rest parameter", literal.Parameters)
 	}

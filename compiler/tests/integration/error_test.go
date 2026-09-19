@@ -7,7 +7,7 @@ import (
 )
 
 func TestErrorNewConstruction(t *testing.T) {
-	result := compileSource("fun demo() do\n    err: Error := Error(ErrorKind.Other(header = \"File Error\"), \"file not found\")\n    header: Strand := err.header()\n    message: String := err.message\nend")
+	result := compileSource("fun demo() do\n    let err: Error = Error(ErrorKind.Other(header = \"File Error\"), \"file not found\")\n    let header: Strand = err.header()\n    let message: String = err.message\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -37,7 +37,7 @@ func TestErrorNewConstruction(t *testing.T) {
 		"hex_v_err = (hex_t_Error){",
 		".hex_m_file = &hex_lit_0,",
 		".hex_m_line = 2,",
-		".hex_m_column = 19,",
+		".hex_m_column = 22,",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
@@ -46,7 +46,7 @@ func TestErrorNewConstruction(t *testing.T) {
 }
 
 func TestTryExpression(t *testing.T) {
-	result := compileSource("fun read_count(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"Read Error\"), \"no count\")\nend\nfun demo(): Int32 | Error do\n    count: Int32 := try read_count()\n    total: Int32 := count + try read_count()\n    return total\nend")
+	result := compileSource("fun read_count(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"Read Error\"), \"no count\")\nend\nfun demo(): Int32 | Error do\n    let count: Int32 = try read_count()\n    let total: Int32 = count + try read_count()\n    return total\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -93,7 +93,7 @@ func TestTryStatementDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"fun demo(): Int32 | Error do\n    value: Int32 := 1\n    try value\nend\n", "try requires a union containing Error"},
+		{"fun demo(): Int32 | Error do\n    let value: Int32 = 1\n    try value\nend\n", "try requires a union containing Error"},
 		{"fun read(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"x\"), \"y\")\nend\ntry read()\n", "try requires an enclosing function whose result accepts Error"},
 		{"fun demo(): Int32 | Error do\n    try Error(ErrorKind.Other(header = \"x\"), \"y\")\nend\n", "try requires a union containing Error"},
 	} {
@@ -110,7 +110,7 @@ func TestTryStatementDiagnostics(t *testing.T) {
 }
 
 func TestTryMultipleSuccessMembers(t *testing.T) {
-	result := compileSource("fun read_number(): Int32 | Float32 | Error do\n    return Error(ErrorKind.Other(header = \"Read Error\"), \"bad\")\nend\nfun demo(): Int32 | Error do\n    value: Int32 | Float32 := try read_number()\n    return 1\nend")
+	result := compileSource("fun read_number(): Int32 | Float32 | Error do\n    return Error(ErrorKind.Other(header = \"Read Error\"), \"bad\")\nend\nfun demo(): Int32 | Error do\n    let value: Int32 | Float32 = try read_number()\n    return 1\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -126,14 +126,14 @@ func TestTryMultipleSuccessMembers(t *testing.T) {
 }
 
 func TestTryErrorReturnType(t *testing.T) {
-	result := compileSource("fun read_count(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"Read Error\"), \"no count\")\nend\nfun fallback(): Int32 | Error do\n    count: Int32 := try read_count()\n    return count\nend\nfun demo(): Int32 | Error do\n    return fallback()\nend")
+	result := compileSource("fun read_count(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"Read Error\"), \"no count\")\nend\nfun fallback(): Int32 | Error do\n    let count: Int32 = try read_count()\n    return count\nend\nfun demo(): Int32 | Error do\n    return fallback()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 }
 
 func TestErrdeferRunsOnErrorReturn(t *testing.T) {
-	result := compileSource("fun cleanup(value: Int32) do\nend\nfun read_count(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"Read Error\"), \"no count\")\nend\nfun demo(): Int32 | Error do\n    errdefer cleanup(1)\n    defer cleanup(2)\n    count: Int32 := try read_count()\n    return count\nend")
+	result := compileSource("fun cleanup(value: Int32) do\nend\nfun read_count(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"Read Error\"), \"no count\")\nend\nfun demo(): Int32 | Error do\n    errdefer cleanup(1)\n    defer cleanup(2)\n    let count: Int32 = try read_count()\n    return count\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -163,7 +163,7 @@ func TestErrdeferSkippedOnSuccessReturn(t *testing.T) {
 }
 
 func TestErrdeferRuntimeUnionReturn(t *testing.T) {
-	result := compileSource("fun cleanup(value: Int32) do\nend\nfun read_count(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"Read Error\"), \"no count\")\nend\nfun demo(release: Bool): Int32 | Error do\n    errdefer cleanup(1)\n    result: Int32 | Error := read_count()\n    if release then\n        return result\n    end\n    return 3\nend")
+	result := compileSource("fun cleanup(value: Int32) do\nend\nfun read_count(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"Read Error\"), \"no count\")\nend\nfun demo(release: Bool): Int32 | Error do\n    errdefer cleanup(1)\n    let result: Int32 | Error = read_count()\n    if release then\n        return result\n    end\n    return 3\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -177,10 +177,10 @@ func TestErrdeferRuntimeUnionReturn(t *testing.T) {
 // and errdefer forms all compile instead of failing closed.
 func TestDeferredFunValueCalls(t *testing.T) {
 	compileCases := []string{
-		"fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run() do\n    callback: Fun<(Int32) : Int32> := square\n    defer callback(3)\nend\n",
+		"fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run() do\n    let callback: Fun<(Int32) : Int32> = square\n    defer callback(3)\nend\n",
 		"fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run(callback: Fun<(Int32) : Int32>) do\n    defer callback(3)\nend\n",
-		"fun cleanup(value: Int32): Nil | Error do\n    return nil\nend\nfun read_count(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"x\"), \"y\")\nend\nfun run(): Int32 | Error do\n    callback: Fun<(Int32) : Nil | Error> := cleanup\n    errdefer callback(1)\n    count: Int32 := try read_count()\n    return count\nend\n",
-		"fun cleanup(value: Int32): Nil | Error do\n    return nil\nend\nfun read_count(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"x\"), \"y\")\nend\nfun run(callback: Fun<(Int32) : Nil | Error>): Int32 | Error do\n    errdefer callback(1)\n    count: Int32 := try read_count()\n    return count\nend\n",
+		"fun cleanup(value: Int32): Nil | Error do\n    return nil\nend\nfun read_count(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"x\"), \"y\")\nend\nfun run(): Int32 | Error do\n    let callback: Fun<(Int32) : Nil | Error> = cleanup\n    errdefer callback(1)\n    let count: Int32 = try read_count()\n    return count\nend\n",
+		"fun cleanup(value: Int32): Nil | Error do\n    return nil\nend\nfun read_count(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"x\"), \"y\")\nend\nfun run(callback: Fun<(Int32) : Nil | Error>): Int32 | Error do\n    errdefer callback(1)\n    let count: Int32 = try read_count()\n    return count\nend\n",
 	}
 	for _, source := range compileCases {
 		result := compileSource(source)
@@ -189,7 +189,7 @@ func TestDeferredFunValueCalls(t *testing.T) {
 		}
 	}
 	// The scope-exit call goes through the captured function value.
-	result := compileSource("fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run() do\n    callback: Fun<(Int32) : Int32> := square\n    defer callback(3)\nend\n")
+	result := compileSource("fun square(value: Int32): Int32 do\n    return value * value\nend\nfun run() do\n    let callback: Fun<(Int32) : Int32> = square\n    defer callback(3)\nend\n")
 	root := rootC(t, result)
 	if !strings.Contains(root, "= hex_v_callback;") {
 		t.Fatalf("modules/app.c = %q, want the callee captured at registration", root)
@@ -204,12 +204,12 @@ func TestErrorDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"fun demo(): Int32 | Error do\n    value: Int32 := 1\n    bad: Int32 := try value\nend", "try requires a union containing Error"},
-		{"fun demo(): Int32 do\n    value: Int32 := 1\n    bad: Int32 := try value\nend", "try requires an enclosing function whose result accepts Error"},
+		{"fun demo(): Int32 | Error do\n    let value: Int32 = 1\n    let bad: Int32 = try value\nend", "try requires a union containing Error"},
+		{"fun demo(): Int32 do\n    let value: Int32 = 1\n    let bad: Int32 = try value\nend", "try requires an enclosing function whose result accepts Error"},
 		{"fun read_count(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"x\"), \"y\")\nend\nfun demo(): Int32 do\n    defer try read_count()\n    return 1\nend", "try is not permitted inside defer or errdefer"},
 		{"fun demo(): Int32 do\n    errdefer cleanup()\n    return 1\nend\nfun cleanup() do\nend", "errdefer requires an enclosing function whose result accepts Error"},
-		{"fun demo() do\n    err: Error := Error(file = \"x\", line = 1, column = 1, header = \"h\", message = \"m\")\nend", "named arguments are valid only for struct and ADT constructors"},
-		{"fun demo() do\n    err: Error := Error(1, \"m\")\nend", "Error requires ErrorKind as its first argument"},
+		{"fun demo() do\n    let err: Error = Error(file = \"x\", line = 1, column = 1, header = \"h\", message = \"m\")\nend", "named arguments are valid only for struct and ADT constructors"},
+		{"fun demo() do\n    let err: Error = Error(1, \"m\")\nend", "Error requires ErrorKind as its first argument"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
@@ -243,7 +243,7 @@ func TestTryAndSpawnInsideErrdeferRejected(t *testing.T) {
 }
 
 func TestErrorFileRecordsLogicalSourceKey(t *testing.T) {
-	single := compileSource("fun demo() do\n    err: Error := Error(ErrorKind.Other(header = \"x\"), \"y\")\n    again: Error := Error(ErrorKind.Other(header = \"x\"), \"y\")\nend")
+	single := compileSource("fun demo() do\n    let err: Error = Error(ErrorKind.Other(header = \"x\"), \"y\")\n    let again: Error = Error(ErrorKind.Other(header = \"x\"), \"y\")\nend")
 	if single.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("single-module compile failed: %v", single.Stderr)
 	}
@@ -261,7 +261,7 @@ func TestErrorFileRecordsLogicalSourceKey(t *testing.T) {
 	multi := compiler.Compile(map[string]string{
 		"a.hex":   "fun fa(): Error do\n    return Error(ErrorKind.Other(header = \"a\"), \"x\")\nend\nexport\n    fa\nend\n",
 		"b.hex":   "fun fb(): Error do\n    return Error(ErrorKind.Other(header = \"b\"), \"y\")\nend\nexport\n    fb\nend\n",
-		"app.hex": "import\n    A from \"./a\",\n    B from \"./b\"\nend\nfun demo() do\n    ea: Error := A.fa()\n    eb: Error := B.fb()\nend\n",
+		"app.hex": "import\n    A from \"./a\",\n    B from \"./b\"\nend\nfun demo() do\n    let ea: Error = A.fa()\n    let eb: Error = B.fb()\nend\n",
 	}, "app.hex", compiler.Project{})
 	if multi.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("multi-module compile failed: %v", multi.Stderr)
@@ -292,7 +292,7 @@ func TestErrorReservedName(t *testing.T) {
 }
 
 func TestTryInsideBranchAndLoop(t *testing.T) {
-	result := compileSource("fun read_count(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"Read Error\"), \"no count\")\nend\nfun demo(): Int32 | Error do\n    mut total: Int32 := 0\n    while true do\n        total = total + try read_count()\n        break\n    end\n    if total > 0 then\n        total = total + try read_count()\n    end\n    return total\nend")
+	result := compileSource("fun read_count(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"Read Error\"), \"no count\")\nend\nfun demo(): Int32 | Error do\n    let mut total: Int32 = 0\n    while true do\n        total = total + try read_count()\n        break\n    end\n    if total > 0 then\n        total = total + try read_count()\n    end\n    return total\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

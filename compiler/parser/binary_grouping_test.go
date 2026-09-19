@@ -50,7 +50,7 @@ func TestRepeatedSameBinaryOperatorChainsParse(t *testing.T) {
 		if sample.kind == lexer.Is {
 			continue
 		}
-		source := fmt.Sprintf("result: Bool := a %s b %s c %s d", sample.lexeme, sample.lexeme, sample.lexeme)
+		source := fmt.Sprintf("let result: Bool = a %s b %s c %s d", sample.lexeme, sample.lexeme, sample.lexeme)
 		tokens, err := lexer.Lex(source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
@@ -98,7 +98,7 @@ func TestMixedBinaryOperatorPairsAreRejected(t *testing.T) {
 			if first.kind == lexer.Is && isUnreachableAfterIsCompletes(second) {
 				continue
 			}
-			source := fmt.Sprintf("result: Bool := a %s %s %s %s", first.lexeme, first.rhs, second.lexeme, second.rhs)
+			source := fmt.Sprintf("let result: Bool = a %s %s %s %s", first.lexeme, first.rhs, second.lexeme, second.rhs)
 			tokens, err := lexer.Lex(source)
 			if err != nil {
 				t.Fatalf("Lex(%q) returned an error: %v", source, err)
@@ -120,7 +120,7 @@ func TestMixedBinaryOperatorPairsAreRejected(t *testing.T) {
 // nesting directions, and the resulting tree keeps the parenthesized side
 // as the corresponding operand.
 func TestParenthesizedMixedOperatorsAcceptBothNestingDirections(t *testing.T) {
-	rightNested := parseInitializer(t, "x: Int32 := a + (b * c)").(BinaryExpression)
+	rightNested := parseInitializer(t, "let x: Int32 = a + (b * c)").(BinaryExpression)
 	if rightNested.Operator.Kind != lexer.Plus {
 		t.Fatalf("root = %v, want +", rightNested.Operator.Kind)
 	}
@@ -128,7 +128,7 @@ func TestParenthesizedMixedOperatorsAcceptBothNestingDirections(t *testing.T) {
 		t.Fatalf("right operand = %#v, want a nested binary expression", rightNested.Right)
 	}
 
-	leftNested := parseInitializer(t, "x: Int32 := (a * b) + c").(BinaryExpression)
+	leftNested := parseInitializer(t, "let x: Int32 = (a * b) + c").(BinaryExpression)
 	if leftNested.Operator.Kind != lexer.Plus {
 		t.Fatalf("root = %v, want +", leftNested.Operator.Kind)
 	}
@@ -144,16 +144,16 @@ func TestParenthesizedMixedOperatorsAcceptBothNestingDirections(t *testing.T) {
 func TestNestedExpressionRegionsIsolateOperatorKinds(t *testing.T) {
 	for _, source := range []string{
 		// Grouping: the containing region's + does not see the group's *.
-		"x: Int32 := (a * b) + (c / d)",
+		"let x: Int32 = (a * b) + (c / d)",
 		// Call arguments: each argument is its own region.
-		"x: Int32 := outer(a + b, c * d)",
+		"let x: Int32 = outer(a + b, c * d)",
 		// Index expression: the index's + is independent of the outer *.
-		"x: Int32 := values[a + b] * scale",
+		"let x: Int32 = values[a + b] * scale",
 		// Array elements: each element is its own region.
-		"x: Array<Int32, 2> := [a + b, c * d]",
+		"let x: Array<Int32, 2> = [a + b, c * d]",
 		// Object member initializers: each initializer is its own region,
 		// independent of a mixed root region.
-		"x: Point := Point(a = b + c, d = e * f) and flag",
+		"let x: Point = Point(a = b + c, d = e * f) and flag",
 	} {
 		tokens, err := lexer.Lex(source)
 		if err != nil {
@@ -168,7 +168,7 @@ func TestNestedExpressionRegionsIsolateOperatorKinds(t *testing.T) {
 // A match scrutinee and each arm result are independent regions: none of
 // their operators conflict with each other or with the containing region.
 func TestMatchRegionsIsolateOperatorKinds(t *testing.T) {
-	source := "result: Int32 := match flag and other\n| true then a + b\n| false then c * d\nend\n"
+	source := "let result: Int32 = match flag and other\n| true then a + b\n| false then c * d\nend\n"
 	tokens, err := lexer.Lex(source)
 	if err != nil {
 		t.Fatalf("Lex(%q) returned an error: %v", source, err)
@@ -183,9 +183,9 @@ func TestMatchRegionsIsolateOperatorKinds(t *testing.T) {
 // operator.
 func TestTypeTestNestingAndUnionRightHandSide(t *testing.T) {
 	for _, source := range []string{
-		"x: Bool := (value is Int32) == true",
-		"x: Bool := (value is Int32) and ready",
-		"x: Bool := value is Int32 | String",
+		"let x: Bool = (value is Int32) == true",
+		"let x: Bool = (value is Int32) and ready",
+		"let x: Bool = value is Int32 | String",
 	} {
 		tokens, err := lexer.Lex(source)
 		if err != nil {
@@ -206,7 +206,7 @@ func TestParenthesesPermitEveryMixedOperatorPair(t *testing.T) {
 			if first.kind == second.kind {
 				continue
 			}
-			leftGrouped := fmt.Sprintf("result: Bool := (a %s %s) %s %s", first.lexeme, first.rhs, second.lexeme, second.rhs)
+			leftGrouped := fmt.Sprintf("let result: Bool = (a %s %s) %s %s", first.lexeme, first.rhs, second.lexeme, second.rhs)
 			tokens, err := lexer.Lex(leftGrouped)
 			if err != nil {
 				t.Fatalf("Lex(%q) returned an error: %v", leftGrouped, err)
@@ -221,7 +221,7 @@ func TestParenthesesPermitEveryMixedOperatorPair(t *testing.T) {
 				// type. Left-grouping already covers this ordering.
 				continue
 			}
-			rightGrouped := fmt.Sprintf("result: Bool := %s %s (a %s %s)", "b", second.lexeme, first.lexeme, first.rhs)
+			rightGrouped := fmt.Sprintf("let result: Bool = %s %s (a %s %s)", "b", second.lexeme, first.lexeme, first.rhs)
 			tokens, err = lexer.Lex(rightGrouped)
 			if err != nil {
 				t.Fatalf("Lex(%q) returned an error: %v", rightGrouped, err)
@@ -237,9 +237,9 @@ func TestParenthesesPermitEveryMixedOperatorPair(t *testing.T) {
 // alongside one binary operator kind.
 func TestUnaryAndPostfixFormsMixFreelyWithOneBinaryKind(t *testing.T) {
 	for _, source := range []string{
-		"result: Int32 := -a + -b",
-		"ready: Bool := !left and !right",
-		"total: Int32 := values[i].amount() + values[j].amount()",
+		"let result: Int32 = -a + -b",
+		"let ready: Bool = !left and !right",
+		"let total: Int32 = values[i].amount() + values[j].amount()",
 	} {
 		tokens, err := lexer.Lex(source)
 		if err != nil {
@@ -255,7 +255,7 @@ func TestUnaryAndPostfixFormsMixFreelyWithOneBinaryKind(t *testing.T) {
 // differing operator follows: the chained-is check fires immediately after
 // the second is completes, before any later operator could be recorded.
 func TestChainedTypeTestRetainsOwnershipOverMixedOperator(t *testing.T) {
-	message := parseError(t, "tested: Bool := value is Int32 is Bool and ready")
+	message := parseError(t, "let tested: Bool = value is Int32 is Bool and ready")
 	if !strings.Contains(message, "is tests cannot be chained") {
 		t.Fatalf("message = %q, want the chained-is diagnostic", message)
 	}

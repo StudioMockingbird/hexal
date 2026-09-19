@@ -144,7 +144,7 @@ func includeDirOptions(includeDirs []string) []string {
 func TestDependencyFreeBuildSelectsNoPackInput(t *testing.T) {
 	requireBackend(t)
 	dir := t.TempDir()
-	writeSource(t, dir, "main.hex", "value: Int32 := 1\n")
+	writeSource(t, dir, "main.hex", "let value: Int32 = 1\n")
 
 	result, err := Build(withTestBackend(t, BuildOptions{Root: dir}))
 	if err != nil {
@@ -193,7 +193,7 @@ func TestBuildProducesRunnableExecutable(t *testing.T) {
 func TestBuildHasNoMimallocSharedLibraryImport(t *testing.T) {
 	requireBackend(t)
 	dir := t.TempDir()
-	writeSource(t, dir, "main.hex", "values: Array<Int32, 2> := [1, 2]\nprint(values[0])\n")
+	writeSource(t, dir, "main.hex", "let values: Array<Int32, 2> = [1, 2]\nprint(values[0])\n")
 
 	result, err := Build(withTestBackend(t, BuildOptions{Root: dir}))
 	if err != nil {
@@ -222,7 +222,7 @@ func TestBuildHasNoMimallocSharedLibraryImport(t *testing.T) {
 func TestBuildCompilesRuntimeComponents(t *testing.T) {
 	requireBackend(t)
 	dir := t.TempDir()
-	writeSource(t, dir, "main.hex", "values: Array<Int32, 2> := [1, 2]\nprint(values[0])\n")
+	writeSource(t, dir, "main.hex", "let values: Array<Int32, 2> = [1, 2]\nprint(values[0])\n")
 
 	result, err := Build(withTestBackend(t, BuildOptions{Root: dir}))
 	if err != nil {

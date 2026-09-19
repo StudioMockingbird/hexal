@@ -46,7 +46,7 @@ type moduleEntry struct {
 	functions    map[string]FunctionDeclaration      // exported functions by name
 	types        map[string]compilerTypes.TypeUse    // exported type names -> resolved use
 	methods      map[string][]MethodDeclaration      // receiver type name -> exported methods
-	moduleValues map[string]exportedModuleValueEntry // exported static module values by name
+	moduleValues map[string]exportedModuleValueEntry // exported module constants by name
 	// foreignFunctions, foreignConstants, and foreignGlobals are the module's
 	// exported handwritten foreign declarations. An importer resolves a
 	// qualified reference through these and lowers to the recorded C symbol.
@@ -206,6 +206,21 @@ func resolveExportEntries(program parser.Program, checked Program) (map[string]b
 	for _, value := range checked.ModuleValues {
 		moduleValueNames[value.Name] = true
 	}
+	// An environment-dependent function or method cannot be exported: it is
+	// valid only as a direct call inside the entry module.
+	envDependent := make(map[string]bool)
+	for _, statement := range checked.Statements {
+		switch declaration := statement.(type) {
+		case FunctionDeclaration:
+			if declaration.EnvDependent {
+				envDependent[declaration.Name] = true
+			}
+		case MethodDeclaration:
+			if declaration.EnvDependent {
+				envDependent[declaration.Name] = true
+			}
+		}
+	}
 	// Foreign declarations export through the same final export block as
 	// ordinary ones; a foreign record is a type, a foreign constant or global
 	// is a value.
@@ -244,11 +259,19 @@ func resolveExportEntries(program parser.Program, checked Program) (map[string]b
 				diagnostics = append(diagnostics, nameErrorAt(*entry.Method, "unknown method "+key+" in this module"))
 				continue
 			}
+			if envDependent[entry.Method.Lexeme] {
+				diagnostics = append(diagnostics, nameErrorAt(*entry.Method, "function "+entry.Method.Lexeme+" uses the entry environment and is valid only as a direct entry-module call"))
+				continue
+			}
 			exports[key] = true
 			continue
 		}
 		if importAliases[entry.Name.Lexeme] {
 			diagnostics = append(diagnostics, nameErrorAt(entry.Name, "cannot export import alias "+entry.Name.Lexeme+"; re-exports are not supported"))
+			continue
+		}
+		if envDependent[entry.Name.Lexeme] {
+			diagnostics = append(diagnostics, nameErrorAt(entry.Name, "function "+entry.Name.Lexeme+" uses the entry environment and is valid only as a direct entry-module call"))
 			continue
 		}
 		if typeNames[entry.Name.Lexeme] || functionNames[entry.Name.Lexeme] || moduleValueNames[entry.Name.Lexeme] {
@@ -355,7 +378,7 @@ func (registry *ModuleRegistry) registerExports(moduleID string, exports map[str
 	}
 	for _, value := range checked.ModuleValues {
 		if entry.exports[value.Name] {
-			entry.moduleValues[value.Name] = exportedModuleValueEntry{Type: value.Type, Mutable: value.Mutable, Atomic: value.Atomic}
+			entry.moduleValues[value.Name] = exportedModuleValueEntry{Type: value.Type}
 		}
 	}
 	for _, function := range checked.ForeignFunctions {
@@ -382,7 +405,7 @@ func (registry *ModuleRegistry) registerExports(moduleID string, exports map[str
 }
 
 // exportedModuleValueEntry is the checked interface an importer resolves a
-// `static` module value against: its type, mutability, and whether it is the
+// module constant against: its type, mutability, and whether it is the
 // direct fixed Atomic exception (importers may not copy, assign, address, or
 // rebind it; only its qualified operations are valid).
 type exportedModuleValueEntry struct {

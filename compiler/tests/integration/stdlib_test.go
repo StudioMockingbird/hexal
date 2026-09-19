@@ -14,8 +14,8 @@ import (
 
 func TestAsciiSourceModuleCompiles(t *testing.T) {
 	source := "import\n  Ascii from std.ascii\nend\n" +
-		"digit: Bool := Ascii.is_digit(48)\n" +
-		"lower: Byte := Ascii.to_lower(65)\n"
+		"let digit: Bool = Ascii.is_digit(48)\n" +
+		"let lower: Byte = Ascii.to_lower(65)\n"
 	result := assertCompiles(t, source)
 	header := moduleFile(t, result, "stdlib/ascii.h")
 	for _, want := range []string{
@@ -44,27 +44,27 @@ func TestAsciiSourceModuleCompiles(t *testing.T) {
 
 func TestAsciiNamedFunctionsMatchSurface(t *testing.T) {
 	source := "import\n  Ascii from std.ascii\nend\n" +
-		"d: Bool := Ascii.is_digit(48)\n" +
-		"a: Bool := Ascii.is_alpha(65)\n" +
-		"s: Bool := Ascii.is_space(32)\n" +
-		"l: Byte := Ascii.to_lower(65)\n" +
-		"u: Byte := Ascii.to_upper(97)\n"
+		"let d: Bool = Ascii.is_digit(48)\n" +
+		"let a: Bool = Ascii.is_alpha(65)\n" +
+		"let s: Bool = Ascii.is_space(32)\n" +
+		"let l: Byte = Ascii.to_lower(65)\n" +
+		"let u: Byte = Ascii.to_upper(97)\n"
 	assertCompiles(t, source)
 	// Unknown operations stay fail-closed.
-	assertRejects(t, "import\n  Ascii from std.ascii\nend\nx := Ascii.is_upper(65)\n", "is_upper")
+	assertRejects(t, "import\n  Ascii from std.ascii\nend\nlet x = Ascii.is_upper(65)\n", "is_upper")
 }
 
 // The std/ logical-key prefix is reserved, so a user module can never claim a
 // stdlib canonical identity.
 func TestStdKeyPrefixReserved(t *testing.T) {
 	const want = `the "std" path prefix is reserved for the standard library`
-	entry := compiler.Compile(map[string]string{"std/fs.hex": "value: Int32 := 1\n"}, "std/fs.hex", compiler.Project{})
+	entry := compiler.Compile(map[string]string{"std/fs.hex": "let value: Int32 = 1\n"}, "std/fs.hex", compiler.Project{})
 	if entry.ExitCode != compiler.ExitFailure || len(entry.Stderr) == 0 || !strings.Contains(entry.Stderr[0], want) {
 		t.Fatalf("std/fs.hex entrypoint = %#v, want the reserved-prefix diagnostic", entry.Stderr)
 	}
 	imported := compiler.Compile(map[string]string{
-		"app.hex":       "import\n    S from \"./std/thing\"\nend\nvalue: Int32 := 1\n",
-		"std/thing.hex": "value: Int32 := 1\nexport\n    value\nend\n",
+		"app.hex":       "import\n    S from \"./std/thing\"\nend\nlet value: Int32 = 1\n",
+		"std/thing.hex": "let value: Int32 = 1\nexport\n    value\nend\n",
 	}, "app.hex", compiler.Project{})
 	if imported.ExitCode != compiler.ExitFailure || len(imported.Stderr) == 0 || !strings.Contains(strings.Join(imported.Stderr, "\n"), want) {
 		t.Fatalf("relative std/ import = %#v, want the reserved-prefix diagnostic", imported.Stderr)
@@ -80,5 +80,5 @@ func TestStdlibSourcesAreFresh(t *testing.T) {
 	if second["stdlib/std/ascii.hex"] == "corrupted" {
 		t.Fatal("mutating a Sources() copy changed a later call's stdlib")
 	}
-	assertCompiles(t, "import\n  Ascii from std.ascii\nend\nd: Bool := Ascii.is_digit(48)\n")
+	assertCompiles(t, "import\n  Ascii from std.ascii\nend\nlet d: Bool = Ascii.is_digit(48)\n")
 }

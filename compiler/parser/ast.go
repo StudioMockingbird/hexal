@@ -162,28 +162,13 @@ type ExportBlock struct {
 	End     lexer.Token
 }
 
-// ExportEntry names one exported declaration or module value. Method is
+// ExportEntry names one exported declaration or module constant. Method is
 // non-nil for a qualified `Type.method` entry, which names one method of the
 // locally declared type Name; it is never an imported-name path.
 type ExportEntry struct {
 	Name   lexer.Token
 	Method *lexer.Token
 }
-
-// ModuleValueDeclaration is a top-level `static [mut] name [: type] := expr`
-// module value: program-lifetime storage initialized directly to C static
-// storage, never an executable local. It is distinct from Declaration, which
-// remains the entrypoint's ordinary executable-local spelling.
-type ModuleValueDeclaration struct {
-	Keyword     lexer.Token
-	Mutable     bool
-	Name        lexer.Token
-	Type        TypeExpression // nil for the inferred form
-	Initializer Expression
-	Operator    lexer.Token
-}
-
-func (ModuleValueDeclaration) topLevelItemNode() {}
 
 // TopLevelItem is an ordered source construct. Type declarations remain
 // outside Statements because they have no runtime emission.
@@ -246,15 +231,16 @@ type ObjectMemberDeclaration struct {
 	Type    TypeExpression
 }
 
-// Declaration binds a name to an initializer and records its declaration operator.
+// Declaration binds a name to an initializer. The introducing `let` token is
+// retained as the diagnostic anchor; the `=` token has no semantic role.
 type Declaration struct {
 	Name        lexer.Token
 	Mutable     bool
 	Type        TypeExpression
 	Initializer Expression
-	// Operator is the := token for both typed and inferred declarations. Type
-	// being nil is the sole marker for the inferred form.
-	Operator lexer.Token
+	// Keyword is the `let` token. Type being nil is the sole marker for the
+	// inferred form.
+	Keyword lexer.Token
 }
 
 func (Declaration) topLevelItemNode() {}

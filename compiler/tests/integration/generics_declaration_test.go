@@ -16,17 +16,17 @@ import (
 // specialization, with the ordinary messages.
 func TestGenericDeclarationRejectsProblemPrograms(t *testing.T) {
 	assertRejects(t, "fun bad<T>(value: T): T do\n    return nope\nend\n", "unknown variable nope")
-	assertRejects(t, "fun wrong<T>(value: T): T do\n    x: Int32 := \"text\"\n    return value\nend\n", "expected Int32 initializer; got String")
+	assertRejects(t, "fun wrong<T>(value: T): T do\n    let x: Int32 = \"text\"\n    return value\nend\n", "expected Int32 initializer; got String")
 }
 
 // One unspecialized example per declaration-time category is rejected.
 func TestGenericDeclarationTimeCategories(t *testing.T) {
 	for _, testCase := range []struct{ name, source, want string }{
 		{"unknown function", "fun f<T>(v: T): Int32 do\n    return missing(v)\nend\n", "unknown function missing"},
-		{"unknown type", "fun f<T>(v: T) do\n    x: Bogus := 1\nend\n", "unknown type Bogus"},
-		{"independent typing", "fun f<T>(v: T): Int32 do\n    x: Int32 := \"text\"\n    return x\nend\n", "expected Int32 initializer; got String"},
+		{"unknown type", "fun f<T>(v: T) do\n    let x: Bogus = 1\nend\n", "unknown type Bogus"},
+		{"independent typing", "fun f<T>(v: T): Int32 do\n    let x: Int32 = \"text\"\n    return x\nend\n", "expected Int32 initializer; got String"},
 		{"wrong arity known callee", "fun g(x: Int32): Int32 do\n    return x\nend\nfun f<T>(v: T): Int32 do\n    return g(v, v)\nend\n", "g expects 1 arguments; got 2"},
-		{"missing return", "fun f<T>(v: T): Int32 do\n    x: Int32 := 1\nend\n", "may fall through without returning"},
+		{"missing return", "fun f<T>(v: T): Int32 do\n    let x: Int32 = 1\nend\n", "may fall through without returning"},
 		{"misplaced break", "fun f<T>(v: T) do\n    break\nend\n", "break"},
 		{"fixed assignment", "fun f<T>(v: T): T do\n    v = v\n    return v\nend\n", "cannot assign to parameter v"},
 		{"generic parameter redeclared", "fun f<T, T>(v: T): T do\n    return v\nend\n", "declared more than once"},
@@ -45,7 +45,7 @@ func TestGenericDeferredCategories(t *testing.T) {
 	for _, testCase := range []struct{ name, source string }{
 		{"operators", "fun f<T>(a: T, b: T): T do\n    return a + b\nend\n"},
 		{"member", "fun f<T>(v: T): Size do\n    return v.len()\nend\n"},
-		{"assignment between dependent and other", "fun f<T>(v: T): Int32 do\n    x: Int32 := v\n    return x\nend\n"},
+		{"assignment between dependent and other", "fun f<T>(v: T): Int32 do\n    let x: Int32 = v\n    return x\nend\n"},
 		{"conversion", "fun f<T>(v: T): Int64 do\n    return v.to<Int64>()\nend\n"},
 		{"equality", "fun f<T>(a: T, b: T): Bool do\n    return a == b\nend\n"},
 		{"identity", "fun id<T>(v: T): T do\n    return v\nend\n"},
@@ -60,7 +60,7 @@ func TestGenericDeferredCategories(t *testing.T) {
 	// The deferred operator body reports the concrete diagnostic when
 	// specialized with a struct that has no `+`.
 	assertRejects(t,
-		"fun add<T>(a: T, b: T): T do\n    return a + b\nend\ntype P is struct q: Int32 end\nx: P := add<P>(P(q = 1), P(q = 2))\n",
+		"fun add<T>(a: T, b: T): T do\n    return a + b\nend\ntype P is struct q: Int32 end\nlet x: P = add<P>(P(q = 1), P(q = 2))\n",
 		"operator + requires numeric operands; got P")
 }
 
@@ -105,7 +105,7 @@ func TestGenericForwardAndMutualRecursion(t *testing.T) {
 // specialized; the diagnostic names the defining module.
 func TestGenericCheckedInDefiningModule(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "import\n    Lib from \"./lib\"\nend\nvalue: Int32 := 1\n",
+		"app.hex": "import\n    Lib from \"./lib\"\nend\nlet value: Int32 = 1\n",
 		"lib.hex": "fun broken<T>(v: T): T do\n    return nope\nend\nexport\n    broken\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -121,7 +121,7 @@ func TestGenericCheckedInDefiningModule(t *testing.T) {
 // An unreachable source-map module stays ignored.
 func TestGenericInUnreachableModuleIgnored(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "value: Int32 := 1\n",
+		"app.hex":  "let value: Int32 = 1\n",
 		"junk.hex": "fun broken<T>(v: T): T do\n    return nope\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -133,8 +133,8 @@ func TestGenericInUnreachableModuleIgnored(t *testing.T) {
 // Checking an unused generic emits no nested concrete specialization and
 // consumes no ordinal, so later generated names and artifacts are unchanged.
 func TestGenericDeclarationStateIsolation(t *testing.T) {
-	plain := "fun id<T>(v: T): T do\n    return v\nend\nfun real(): Int32 do\n    first: Int32 := 1\n    second: Int32 := first + 1\n    return second\nend\n"
-	stripped := "fun real(): Int32 do\n    first: Int32 := 1\n    second: Int32 := first + 1\n    return second\nend\n"
+	plain := "fun id<T>(v: T): T do\n    return v\nend\nfun real(): Int32 do\n    let first: Int32 = 1\n    let second: Int32 = first + 1\n    return second\nend\n"
+	stripped := "fun real(): Int32 do\n    let first: Int32 = 1\n    let second: Int32 = first + 1\n    return second\nend\n"
 	withGeneric := compiler.Compile(map[string]string{"app.hex": plain}, "app.hex", compiler.Project{})
 	without := compiler.Compile(map[string]string{"app.hex": stripped}, "app.hex", compiler.Project{})
 	if withGeneric.ExitCode != compiler.ExitSuccess || without.ExitCode != compiler.ExitSuccess {
@@ -148,7 +148,7 @@ func TestGenericDeclarationStateIsolation(t *testing.T) {
 	}
 	// A concrete specialization requested only inside the unused generic body
 	// must not be emitted.
-	probe := "fun id<T>(v: T): T do\n    return v\nend\nfun unused<U>(v: U): Int32 do\n    x: Int32 := id<Int32>(1)\n    return x\nend\nfun real(): Int32 do\n    return 7\nend\n"
+	probe := "fun id<T>(v: T): T do\n    return v\nend\nfun unused<U>(v: U): Int32 do\n    let x: Int32 = id<Int32>(1)\n    return x\nend\nfun real(): Int32 do\n    return 7\nend\n"
 	result := compiler.Compile(map[string]string{"app.hex": probe}, "app.hex", compiler.Project{})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("probe failed: %v", result.Stderr)
@@ -163,18 +163,18 @@ func TestGenericDeclarationStateIsolation(t *testing.T) {
 func TestGenericLiteralDeclarationChecking(t *testing.T) {
 	// A module-level inferred fixed generic literal is sugar for a named
 	// generic function and follows the rule.
-	assertRejects(t, "identity := fun<T>(value: T): T do\n    return nope\nend\n", "unknown variable nope")
-	assertCompiles(t, "identity := fun<T>(value: T): T do\n    return value\nend\n")
+	assertRejects(t, "let identity = fun<T>(value: T): T do\n    return nope\nend\n", "unknown variable nope")
+	assertCompiles(t, "let identity = fun<T>(value: T): T do\n    return value\nend\n")
 	// A generic anonymous literal is checked at its expression point, where
 	// it is immediately specialized; the checker tests cover that path.
-	assertCompiles(t, "id := fun<T>(value: T): T do\n    return value\nend\n")
+	assertCompiles(t, "let id = fun<T>(value: T): T do\n    return value\nend\n")
 }
 
 // Valid generics, local and imported, produce the same generated C whether or
 // not an unused invalid template exists elsewhere in the reachable set.
 func TestGenericValidOutputUnchanged(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "import\n    Lib from \"./lib\"\nend\nx: Int32 := Lib.identity<Int32>(1)\n",
+		"app.hex": "import\n    Lib from \"./lib\"\nend\nlet x: Int32 = Lib.identity<Int32>(1)\n",
 		"lib.hex": "fun identity<T>(v: T): T do\n    return v\nend\nexport\n    identity\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})

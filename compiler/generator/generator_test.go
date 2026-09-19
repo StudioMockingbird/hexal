@@ -39,7 +39,7 @@ func TestGenerateInt32Declaration(t *testing.T) {
 }
 
 func TestGenerateTaggedUnionDeclaration(t *testing.T) {
-	tokens, err := lexer.Lex("value: Int32 | Float64 := 1")
+	tokens, err := lexer.Lex("let value: Int32 | Float64 = 1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestGenerateTaggedUnionDeclaration(t *testing.T) {
 }
 
 func TestDiscoverGeneratedUnionHelpers(t *testing.T) {
-	tokens, err := lexer.Lex("value: Int32 | Float64 := 1")
+	tokens, err := lexer.Lex("let value: Int32 | Float64 = 1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestSupportedGeneratedUnionTypeRejectsForgedMetadata(t *testing.T) {
 }
 
 func TestGenerateUnionOperations(t *testing.T) {
-	program := checkedGeneratorSource(t, "value: Int32 | Float64 := 1 active: Bool := value is Int32 maybe: Int32 | Float64 | Nil := nil present: Bool := maybe != nil left: Int32 | Bool := true right: Bool | Int32 := false same: Bool := left == right small: Int32 | Bool := true wide: Int32 | Bool | Nil := small")
+	program := checkedGeneratorSource(t, "let value: Int32 | Float64 = 1 let active: Bool = value is Int32 let maybe: Int32 | Float64 | Nil = nil let present: Bool = maybe != nil let left: Int32 | Bool = true let right: Bool | Int32 = false let same: Bool = left == right let small: Int32 | Bool = true let wide: Int32 | Bool | Nil = small")
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {
@@ -116,7 +116,7 @@ func TestGenerateUnionOperations(t *testing.T) {
 }
 
 func TestGenerateUnionTruthiness(t *testing.T) {
-	program := checkedGeneratorSource(t, "value: Int32 | Bool | Nil := true if value then noop: Int32 := 0 end")
+	program := checkedGeneratorSource(t, "let value: Int32 | Bool | Nil = true if value then let noop: Int32 = 0 end")
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {
@@ -128,7 +128,7 @@ func TestGenerateUnionTruthiness(t *testing.T) {
 }
 
 func TestGenerateNarrowedUnionPayloadRead(t *testing.T) {
-	program := checkedGeneratorSource(t, "value: Int32 | Float64 := 1 if value is Int32 then result: Int32 := value end")
+	program := checkedGeneratorSource(t, "let value: Int32 | Float64 = 1 if value is Int32 then let result: Int32 = value end")
 	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
 	rootC := files["modules/app.c"]
 	if err != nil {
@@ -157,7 +157,7 @@ func TestGenerateRejectsForgedUnionMemberIndex(t *testing.T) {
 // [Unknown Error] return from GenerateChecked, never as a panic and never as
 // a user-facing category.
 func TestGenerateCheckedReportsInvariantBreakAsUnknownError(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun answer(value: Int32): Int32 do\n    return value * 3\nend\nstarted: Int32 := answer(6)\n")
+	program := checkedGeneratorSource(t, "fun answer(value: Int32): Int32 do\n    return value * 3\nend\nlet started: Int32 = answer(6)\n")
 	tampered := false
 	for index, statement := range program.Statements {
 		function, ok := statement.(checker.FunctionDeclaration)

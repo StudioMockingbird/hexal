@@ -24,7 +24,7 @@
           "import",
           "    Math from \"./math\"",
           "end",
-          "answer: Int32:= Math.add(20, 22)"
+          "let answer: Int32= Math.add(20, 22)"
         ],
         "math.hex": [
           "fun add(left: Int32, right: Int32): Int32 do",
@@ -37,19 +37,18 @@
       }
     },
     {
-      "description": "A module declares a fixed and a mutable static module value; an importer reads both and assigns the mutable one.",
+      "description": "An imported module declares fixed top-level constants; the importer reads both through its alias.",
       "entrypoint": "app.hex",
       "features": [
         "modules",
         "exports"
       ],
-      "id": "static-module-values",
-      "name": "Static module values",
+      "id": "module-constants",
+      "name": "Module constants",
       "reservedWords": [
+        "let",
         "import",
         "export",
-        "static",
-        "mut",
         "end"
       ],
       "sources": {
@@ -57,16 +56,15 @@
           "import",
           "    Settings from \"./settings\"",
           "end",
-          "port: Int32:= Settings.DefaultPort",
-          "Settings.RequestCount = Settings.RequestCount + 1",
-          "total: UInt64:= Settings.RequestCount"
+          "let port: Int32 = Settings.DefaultPort",
+          "let width: Int32 = Settings.DefaultWidth"
         ],
         "settings.hex": [
-          "static DefaultPort: Int32:= 8080",
-          "static mut RequestCount: UInt64:= 0",
+          "let DefaultPort: Int32 = 8080",
+          "let DefaultWidth: Int32 = 1280",
           "export",
           "    DefaultPort,",
-          "    RequestCount",
+          "    DefaultWidth",
           "end"
         ]
       }
@@ -97,8 +95,8 @@
           "import",
           "    Shapes from \"./graphics/shapes\"",
           "end",
-          "origin: Shapes.Point := Shapes.origin()",
-          "width: Int32:= origin.width()"
+          "let origin: Shapes.Point = Shapes.origin()",
+          "let width: Int32= origin.width()"
         ],
         "graphics/shapes.hex": [
           "type Point is struct x: Int32, y: Int32 end",
@@ -139,7 +137,7 @@
           "import",
           "    Math from \"./math\"",
           "end",
-          "answer: Int32:= Math.double(21)"
+          "let answer: Int32= Math.double(21)"
         ],
         "math.hex": [
           "fun twice(value: Int32): Int32 do",
@@ -182,10 +180,10 @@
           "    Types from \"./types\"",
           "end",
           "fun total(h: Heap): Int32 do",
-          "    points: List\u003cTypes.Point\u003e := List\u003cTypes.Point\u003e(h)",
+          "    let points: List\u003cTypes.Point\u003e = List\u003cTypes.Point\u003e(h)",
           "    defer points.free(h)",
           "    points.push(Types.make())",
-          "    point: Types.Point := points[0]",
+          "    let point: Types.Point = points[0]",
           "    return point.x + point.y",
           "end"
         ],
@@ -229,10 +227,10 @@
           "    Types from \"./types\"",
           "end",
           "fun lookup(h: Heap): Int32 do",
-          "    scores: Dict\u003cStrand, Types.Score\u003e := Dict\u003cStrand, Types.Score\u003e(h)",
+          "    let scores: Dict\u003cStrand, Types.Score\u003e = Dict\u003cStrand, Types.Score\u003e(h)",
           "    defer scores.free(h)",
           "    scores.insert(\"ada\", Types.make())",
-          "    score: Types.Score := scores.get(\"ada\")",
+          "    let score: Types.Score = scores.get(\"ada\")",
           "    return score.value",
           "end"
         ],
@@ -274,9 +272,9 @@
           "    Left from \"./left\",",
           "    Right from \"./right\"",
           "end",
-          "left: Int32:= Left.measure(Left.make())",
-          "right: Int32:= Right.measure(Right.make())",
-          "answer: Int32:= left + right"
+          "let left: Int32= Left.measure(Left.make())",
+          "let right: Int32= Right.measure(Right.make())",
+          "let answer: Int32= left + right"
         ],
         "left.hex": [
           "type Point is struct value: Int32 end",
@@ -326,7 +324,7 @@
       ],
       "sources": {
         "app.hex": [
-          "answer: Int32:= 42"
+          "let answer: Int32= 42"
         ],
         "unused.hex": [
           "fun never_called(): Int32 do",
@@ -360,7 +358,7 @@
           "import",
           "    Math from \"./math.hex\"",
           "end",
-          "answer: Int32:= Math.answer()"
+          "let answer: Int32= Math.answer()"
         ],
         "math.hex": [
           "fun answer(): Int32 do",

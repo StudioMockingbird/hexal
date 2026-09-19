@@ -25,7 +25,7 @@ func TestForeignFunctionCallLowersToExactSymbol(t *testing.T) {
 		"end\n" +
 		"fun main() do\n" +
 		"    unsafe do\n" +
-		"        total: Int32 := c_add(1, 2)\n" +
+		"        let total: Int32 = c_add(1, 2)\n" +
 		"    end\n" +
 		"end\n"
 	result := compileForeign(t, source)
@@ -50,7 +50,7 @@ func TestForeignCallRequiresUnsafe(t *testing.T) {
 		"    fun c_add as \"adder_add\"(left: Int32, right: Int32): Int32\n" +
 		"end\n" +
 		"fun main() do\n" +
-		"    total: Int32 := c_add(1, 2)\n" +
+		"    let total: Int32 = c_add(1, 2)\n" +
 		"end\n"
 	result := compileForeign(t, source)
 	assertStderrContains(t, result, "foreign call c_add requires an unsafe do ... end block")
@@ -60,7 +60,7 @@ func TestForeignDeclarationRequiresQualifiedTarget(t *testing.T) {
 	source := "extern c from <adder.h> do\n" +
 		"    fun c_add as \"adder_add\"(left: Int32, right: Int32): Int32\n" +
 		"end\n" +
-		"value: Int32 := 1\n"
+		"let value: Int32 = 1\n"
 	result := compiler.Compile(map[string]string{"app.hex": source}, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "C interoperability requires a qualified target")
 }
@@ -69,7 +69,7 @@ func TestForeignUnprovableSpellingRejected(t *testing.T) {
 	source := "extern c from <adder.h> do\n" +
 		"    fun c_add(left: Int32 as \"my_typedef_t\", right: Int32): Int32\n" +
 		"end\n" +
-		"value: Int32 := 1\n"
+		"let value: Int32 = 1\n"
 	result := compileForeign(t, source)
 	assertStderrContains(t, result, "C spelling my_typedef_t cannot be proven in a handwritten binding")
 }
@@ -78,7 +78,7 @@ func TestForeignFunctionReadsItsCSpelling(t *testing.T) {
 	source := "extern c from <adder.h> do\n" +
 		"    fun c_add as \"adder_add\"(left: Int32 as \"long\", right: Int32): Int32\n" +
 		"end\n" +
-		"value: Int32 := 1\n"
+		"let value: Int32 = 1\n"
 	// `long` is 32-bit on the LLP64 Windows target, so the spelling proves.
 	if result := compileForeign(t, source); result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("long must map to Int32 on the Windows target: %v", result.Stderr)
@@ -90,7 +90,7 @@ func TestForeignConstantReadsWithoutUnsafe(t *testing.T) {
 		"    constant int_max as \"INT_MAX\": Int32\n" +
 		"end\n" +
 		"fun main() do\n" +
-		"    highest: Int32 := int_max\n" +
+		"    let highest: Int32 = int_max\n" +
 		"end\n"
 	result := compileForeign(t, source)
 	if result.ExitCode != compiler.ExitSuccess {
@@ -105,10 +105,10 @@ func TestForeignGlobalRequiresUnsafe(t *testing.T) {
 	declaration := "extern c from <state.h> do\n" +
 		"    global mut counter as \"global_counter\": Int32\n" +
 		"end\n"
-	withoutUnsafe := declaration + "fun main() do\n    value: Int32 := counter\nend\n"
+	withoutUnsafe := declaration + "fun main() do\n    let value: Int32 = counter\nend\n"
 	assertStderrContains(t, compileForeign(t, withoutUnsafe), "foreign global counter requires an unsafe do ... end block")
 
-	withUnsafe := declaration + "fun main() do\n    unsafe do\n        counter = 5\n        value: Int32 := counter\n    end\nend\n"
+	withUnsafe := declaration + "fun main() do\n    unsafe do\n        counter = 5\n        let value: Int32 = counter\n    end\nend\n"
 	result := compileForeign(t, withUnsafe)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("a global access inside unsafe must succeed: %v", result.Stderr)
@@ -128,10 +128,10 @@ func TestForeignCompleteRecordByValue(t *testing.T) {
 		"    fun length as \"vector2_length\"(value: Vector2): Float32\n" +
 		"end\n" +
 		"fun main() do\n" +
-		"    mut value: Vector2 := Vector2(x = 1.0, y = 2.0)\n" +
+		"    let mut value: Vector2 = Vector2(x = 1.0, y = 2.0)\n" +
 		"    value.x = 3.0\n" +
 		"    unsafe do\n" +
-		"        magnitude: Float32 := length(value)\n" +
+		"        let magnitude: Float32 = length(value)\n" +
 		"    end\n" +
 		"end\n"
 	result := compileForeign(t, source)
@@ -151,8 +151,8 @@ func TestForeignCompleteRecordByValue(t *testing.T) {
 			"    end\n" +
 			"end\n" +
 			"fun main() do\n" +
-			"    size: Size := size_of<Vector2>()\n" +
-			"    align: Size := align_of<Vector2>()\n" +
+			"    let size: Size = size_of<Vector2>()\n" +
+			"    let align: Size = align_of<Vector2>()\n" +
 			"end\n"
 		sizeResult := compileForeign(t, sizeSource)
 		if sizeResult.ExitCode != compiler.ExitSuccess {
@@ -172,7 +172,7 @@ func TestForeignOpaqueRecordOnlyBehindPointer(t *testing.T) {
 		"end\n" +
 		"fun main() do\n" +
 		"    unsafe do\n" +
-		"        window: Ptr<Window> := window_new()\n" +
+		"        let window: Ptr<Window> = window_new()\n" +
 		"    end\n" +
 		"end\n"
 	result := compileForeign(t, source)
@@ -187,7 +187,7 @@ func TestForeignOpaqueRecordOnlyBehindPointer(t *testing.T) {
 		"    type Window as \"struct Window\" is opaque\n" +
 		"    fun bad(value: Window)\n" +
 		"end\n" +
-		"value: Int32 := 1\n"
+		"let value: Int32 = 1\n"
 	assertStderrContains(t, compileForeign(t, byValue), "foreign type Window is incomplete in a value position")
 }
 
@@ -197,7 +197,7 @@ func TestForeignBytePointerBridge(t *testing.T) {
 		"end\n" +
 		"fun main() do\n" +
 		"    unsafe do\n" +
-		"        status: Int32 := c_puts(nil)\n" +
+		"        let status: Int32 = c_puts(nil)\n" +
 		"    end\n" +
 		"end\n"
 	result := compileForeign(t, source)
@@ -233,7 +233,7 @@ func TestForeignConflictingCSpellingRejected(t *testing.T) {
 		"    fun first as \"adder_add\"(left: Int32): Int32\n" +
 		"    fun second as \"adder_add\"(left: Int32): Int32\n" +
 		"end\n" +
-		"value: Int32 := 1\n"
+		"let value: Int32 = 1\n"
 	assertStderrContains(t, compileForeign(t, source), "conflicting foreign declarations for C symbol adder_add")
 }
 
@@ -247,7 +247,7 @@ func TestForeignCrossModuleBinding(t *testing.T) {
 	app := "import\n    Binding from \"./binding\"\nend\n" +
 		"fun main() do\n" +
 		"    unsafe do\n" +
-		"        total: Int32 := Binding.c_add(1, 2)\n" +
+		"        let total: Int32 = Binding.c_add(1, 2)\n" +
 		"    end\n" +
 		"end\n"
 	result := compiler.Compile(map[string]string{"app.hex": app, "binding.hex": binding}, "app.hex", compiler.Project{Target: windowsTarget})
@@ -272,16 +272,16 @@ func TestStringCPointerBridge(t *testing.T) {
 
 	withoutUnsafe := declaration +
 		"fun main() do\n" +
-		"    text: String := \"hello\"\n" +
-		"    raw: Ptr<Byte> := text.c_pointer()\n" +
+		"    let text: String = \"hello\"\n" +
+		"    let raw: Ptr<Byte> = text.c_pointer()\n" +
 		"end\n"
 	assertStderrContains(t, compileForeign(t, withoutUnsafe), "String.c_pointer requires an unsafe do ... end block")
 
 	withUnsafe := declaration +
 		"fun main() do\n" +
-		"    text: String := \"hello\"\n" +
+		"    let text: String = \"hello\"\n" +
 		"    unsafe do\n" +
-		"        status: Int32 := c_puts(text.c_pointer())\n" +
+		"        let status: Int32 = c_puts(text.c_pointer())\n" +
 		"    end\n" +
 		"end\n"
 	result := compileForeign(t, withUnsafe)
@@ -295,9 +295,9 @@ func TestStringCPointerBridge(t *testing.T) {
 
 func TestSlicePointerBridge(t *testing.T) {
 	source := "fun main() do\n" +
-		"    values: Slice<Int32> := Slice<Int32>.empty()\n" +
+		"    let values: Slice<Int32> = Slice<Int32>.empty()\n" +
 		"    unsafe do\n" +
-		"        raw: Ptr<Int32> | Nil := values.pointer()\n" +
+		"        let raw: Ptr<Int32> | Nil = values.pointer()\n" +
 		"    end\n" +
 		"end\n"
 	result := compileForeign(t, source)
@@ -310,8 +310,8 @@ func TestSlicePointerBridge(t *testing.T) {
 	}
 
 	withoutUnsafe := "fun main() do\n" +
-		"    values: Slice<Int32> := Slice<Int32>.empty()\n" +
-		"    raw: Ptr<Int32> | Nil := values.pointer()\n" +
+		"    let values: Slice<Int32> = Slice<Int32>.empty()\n" +
+		"    let raw: Ptr<Int32> | Nil = values.pointer()\n" +
 		"end\n"
 	assertStderrContains(t, compileForeign(t, withoutUnsafe), "Slice.pointer requires an unsafe do ... end block")
 }
@@ -323,7 +323,7 @@ func TestForeignTransparentAlias(t *testing.T) {
 		"end\n" +
 		"fun main() do\n" +
 		"    unsafe do\n" +
-		"        level: TraceLevel := set_level(3)\n" +
+		"        let level: TraceLevel = set_level(3)\n" +
 		"    end\n" +
 		"end\n"
 	result := compileForeign(t, source)
@@ -347,7 +347,7 @@ func TestForeignRecordSharedAcrossHeaders(t *testing.T) {
 		"    end\n" +
 		"end\n" +
 		"fun main() do\n" +
-		"    mut value: CommonFull := CommonFull(id = 7)\n" +
+		"    let mut value: CommonFull = CommonFull(id = 7)\n" +
 		"    value.id = 8\n" +
 		"end\n"
 	result := compileForeign(t, source)
@@ -370,7 +370,7 @@ func TestForeignRecordConflictRejected(t *testing.T) {
 		"        mut y: Int32,\n" +
 		"    end\n" +
 		"end\n" +
-		"value: Int32 := 1\n"
+		"let value: Int32 = 1\n"
 	assertStderrContains(t, compileForeign(t, source), "conflicting foreign declarations for C symbol point")
 }
 
@@ -394,14 +394,14 @@ func TestForeignNoResultAndRecordOperationRejections(t *testing.T) {
 		"    end\n" +
 		"end\n"
 	equality := record + "fun main() do\n" +
-		"    a: Vector2 := Vector2(x = 1.0, y = 2.0)\n" +
-		"    b: Vector2 := Vector2(x = 1.0, y = 2.0)\n" +
-		"    same: Bool := a == b\n" +
+		"    let a: Vector2 = Vector2(x = 1.0, y = 2.0)\n" +
+		"    let b: Vector2 = Vector2(x = 1.0, y = 2.0)\n" +
+		"    let same: Bool = a == b\n" +
 		"end\n"
 	assertStderrContains(t, compileForeign(t, equality), "equality is unavailable for foreign record Vector2")
 
 	printing := record + "fun main() do\n" +
-		"    value: Vector2 := Vector2(x = 1.0, y = 2.0)\n" +
+		"    let value: Vector2 = Vector2(x = 1.0, y = 2.0)\n" +
 		"    print(value)\n" +
 		"end\n"
 	assertStderrContains(t, compileForeign(t, printing), "print does not support foreign record Vector2")
@@ -418,7 +418,7 @@ func TestForeignMutableBufferBridge(t *testing.T) {
 		"end\n" +
 		"fun demo(buffer: Slice<mut Byte>, stream: Ptr<mut File>) do\n" +
 		"    unsafe do\n" +
-		"        line: Ptr<mut Byte> | Nil := c_fgets(buffer.pointer(), 256, stream)\n" +
+		"        let line: Ptr<mut Byte> | Nil = c_fgets(buffer.pointer(), 256, stream)\n" +
 		"    end\n" +
 		"end\n"
 	result := compileForeign(t, source)
@@ -441,7 +441,7 @@ func TestForeignVoidPointerFromForeignResult(t *testing.T) {
 		"end\n" +
 		"fun demo() do\n" +
 		"    unsafe do\n" +
-		"        region: Ptr<mut Unknown> | Nil := c_malloc(16)\n" +
+		"        let region: Ptr<mut Unknown> | Nil = c_malloc(16)\n" +
 		"        if region != nil then\n" +
 		"            c_free(region)\n" +
 		"        end\n" +
@@ -462,9 +462,9 @@ func TestForeignOpaquePlacementRejections(t *testing.T) {
 		"    type Window as \"struct Window\" is opaque\n" +
 		"end\n"
 	for _, testCase := range []struct{ name, source, want string }{
-		{"member access", "fun demo(w: Ptr<Window>) do\n    width: Int32 := w.width\nend\n", "foreign type Window is incomplete in a member-access position"},
-		{"dereference", "fun demo(w: Ptr<Window>) do\n    copy: Window := ^w\nend\n", "foreign type Window is incomplete in a dereference position"},
-		{"construction", "fun demo() do\n    value: Window := Window()\nend\n", "foreign type Window is incomplete in a construction position"},
+		{"member access", "fun demo(w: Ptr<Window>) do\n    let width: Int32 = w.width\nend\n", "foreign type Window is incomplete in a member-access position"},
+		{"dereference", "fun demo(w: Ptr<Window>) do\n    let copy: Window = ^w\nend\n", "foreign type Window is incomplete in a dereference position"},
+		{"construction", "fun demo() do\n    let value: Window = Window()\nend\n", "foreign type Window is incomplete in a construction position"},
 	} {
 		assertStderrContains(t, compileForeign(t, record+testCase.source), testCase.want)
 	}
@@ -478,7 +478,7 @@ func TestForeignMutableOutputRejectsReadOnlySource(t *testing.T) {
 		"end\n" +
 		"fun demo(text: String, stream: Ptr<File>) do\n" +
 		"    unsafe do\n" +
-		"        line: Ptr<mut Byte> | Nil := c_fgets(text.c_pointer(), 16, stream)\n" +
+		"        let line: Ptr<mut Byte> | Nil = c_fgets(text.c_pointer(), 16, stream)\n" +
 		"    end\n" +
 		"end\n"
 	result := compileForeign(t, source)
@@ -533,7 +533,7 @@ func TestForeignRecordWithPointerMembers(t *testing.T) {
 		"    end\n" +
 		"end\n" +
 		"fun demo(node: Node) do\n" +
-		"    following: Ptr<Node> | Nil := node.next\n" +
+		"    let following: Ptr<Node> | Nil = node.next\n" +
 		"end\n"
 	result := compileForeign(t, source)
 	if result.ExitCode != compiler.ExitSuccess {

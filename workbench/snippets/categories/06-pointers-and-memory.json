@@ -8,9 +8,9 @@
       "description": "Create a read-only pointer and read its value.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "mut score: Int32:= 42",
-        "reader: Ptr<Int32>:= @score",
-        "doubled: Int32:= ^reader * 2"
+        "let mut score: Int32= 42",
+        "let reader: Ptr\u003cInt32\u003e = @score",
+        "let doubled: Int32= ^reader * 2"
       ]},
       "features": ["pointers"],
       "reservedWords": ["mut", "@"]
@@ -21,8 +21,8 @@
       "description": "Update a variable through Ptr<mut T>.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "mut score: Int32:= 10",
-        "writer: Ptr<mut Int32>:= @score",
+        "let mut score: Int32= 10",
+        "let writer: Ptr\u003cmut Int32\u003e = @score",
         "^writer = ^writer + 5"
       ]},
       "features": ["pointers"],
@@ -40,10 +40,10 @@
         "    end",
         "    return 0",
         "end",
-        "mut value: Int32:= 5",
-        "present: Ptr<Int32> | Nil:= @value",
-        "absent: Ptr<Int32> | Nil:= nil",
-        "result: Int32:= total(present) + total(absent)"
+        "let mut value: Int32= 5",
+        "let present: Ptr\u003cInt32\u003e | Nil= @value",
+        "let absent: Ptr\u003cInt32\u003e | Nil= nil",
+        "let result: Int32= total(present) + total(absent)"
       ]},
       "features": ["pointers", "nullability", "unions"],
       "reservedWords": ["fun", "if", "return", "end", "mut", "@", "nil", "do", "then"]
@@ -55,9 +55,9 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(h: Heap): Int32 do",
-        "    p: Ptr<mut Int32>:= h.allocate<Int32>(7)",
+        "    let p: Ptr\u003cmut Int32\u003e = h.allocate\u003cInt32\u003e(7)",
         "    unsafe do",
-        "        view: Slice<Int32>:= Slice<Int32>.from_pointer(p, 1)",
+        "        let view: Slice\u003cInt32\u003e = Slice\u003cInt32\u003e.from_pointer(p, 1)",
         "        return view[0]",
         "    end",
         "end"
@@ -72,9 +72,9 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun total(p: Ptr<mut Int32>, count: Size): Int32 do",
-        "    mut sum: Int32:= 0",
+        "    let mut sum: Int32= 0",
         "    unsafe do",
-        "        bytes: Slice<Int32>:= Slice<Int32>.from_pointer(p, count)",
+        "        let bytes: Slice\u003cInt32\u003e = Slice\u003cInt32\u003e.from_pointer(p, count)",
         "        for value in bytes do",
         "            sum = sum + value",
         "        end",
@@ -82,7 +82,7 @@
         "    return sum",
         "end",
         "fun demo(h: Heap): Int32 do",
-        "    p: Ptr<mut Int32>:= h.allocate<Int32>(41)",
+        "    let p: Ptr\u003cmut Int32\u003e = h.allocate\u003cInt32\u003e(41)",
         "    defer h.free(p)",
         "    return total(p, 1)",
         "end"
@@ -97,11 +97,11 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(h: Heap): Int32 do",
-        "    block: Ptr<mut Array<Int32, 4>>:= h.allocate<Array<Int32, 4>>([10, 20, 30, 40])",
+        "    let block: Ptr\u003cmut Array\u003cInt32, 4\u003e\u003e = h.allocate\u003cArray\u003cInt32, 4\u003e\u003e([10, 20, 30, 40])",
         "    defer h.free(block)",
         "    unsafe do",
-        "        first: Ptr<mut Int32>:= block.cast<Int32>()",
-        "        third: Ptr<mut Int32>:= first.offset(2)",
+        "        let first: Ptr\u003cmut Int32\u003e = block.cast\u003cInt32\u003e()",
+        "        let third: Ptr\u003cmut Int32\u003e = first.offset(2)",
         "        return first[1] + (^third)",
         "    end",
         "end"
@@ -115,11 +115,11 @@
       "description": "Erase and restore a pointer through Unknown.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "mut value: Int32:= 1",
-        "reader: Ptr<Int32>:= @value",
-        "erased: Ptr<Unknown>:= reader",
-        "restored: Ptr<Int32>:= erased",
-        "result: Int32:= ^restored"
+        "let mut value: Int32= 1",
+        "let reader: Ptr\u003cInt32\u003e = @value",
+        "let erased: Ptr\u003cUnknown\u003e = reader",
+        "let restored: Ptr\u003cInt32\u003e = erased",
+        "let result: Int32= ^restored"
       ]},
       "features": ["pointers", "unknown-pointers"],
       "reservedWords": ["mut", "@"]
@@ -131,10 +131,10 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(h: Heap): Int32 do",
-        "    p: Ptr<mut Int32>:= h.allocate<Int32>(1)",
+        "    let p: Ptr\u003cmut Int32\u003e = h.allocate\u003cInt32\u003e(1)",
         "    defer h.free(p)",
         "    ^p = ^p + 41",
-        "    result: Int32:= ^p",
+        "    let result: Int32= ^p",
         "    return result",
         "end"
       ]},
@@ -148,9 +148,9 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(h: Heap): Int32 do",
-        "    p: Ptr<mut Int32>:= h.allocate_aligned<Int32>(13, 64)",
+        "    let p: Ptr\u003cmut Int32\u003e = h.allocate_aligned\u003cInt32\u003e(13, 64)",
         "    defer h.free(p)",
-        "    natural: Ptr<mut Int32>:= h.allocate_aligned<Int32>(29, align_of<Int32>())",
+        "    let natural: Ptr\u003cmut Int32\u003e = h.allocate_aligned\u003cInt32\u003e(29, align_of\u003cInt32\u003e())",
         "    defer h.free(natural)",
         "    return ^p + ^natural",
         "end"
@@ -165,9 +165,9 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(h: Heap): Int32 do",
-        "    p: Ptr<mut Int32>:= h.allocate<Int32>(1)",
+        "    let p: Ptr\u003cmut Int32\u003e = h.allocate\u003cInt32\u003e(1)",
         "    defer h.free(p)",
-        "    q: Ptr<mut Int32>:= h.allocate<Int32>(2)",
+        "    let q: Ptr\u003cmut Int32\u003e = h.allocate\u003cInt32\u003e(2)",
         "    defer h.free(q)",
         "    ^p = ^p + ^q",
         "    return ^p",
@@ -184,10 +184,10 @@
       "sources": {"app.hex": [
         "type Counter is struct mut count: Int32 end",
         "fun demo(h: Heap): Int32 do",
-        "    p: Ptr<mut Counter>:= h.allocate<Counter>(Counter(count = 0))",
+        "    let p: Ptr\u003cmut Counter\u003e = h.allocate\u003cCounter\u003e(Counter(count = 0))",
         "    defer h.free(p)",
         "    p.count = p.count + 3",
-        "    result: Int32:= p.count",
+        "    let result: Int32= p.count",
         "    return result",
         "end"
       ]},
@@ -201,13 +201,13 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun swap(a: Ptr<mut Int32>, b: Ptr<mut Int32>) do",
-        "    temp: Int32:= ^a",
+        "    let temp: Int32= ^a",
         "    ^a = ^b",
         "    ^b = temp",
         "end",
         "fun demo(): Int32 do",
-        "    mut left: Int32:= 1",
-        "    mut right: Int32:= 2",
+        "    let mut left: Int32= 1",
+        "    let mut right: Int32= 2",
         "    swap(@left, @right)",
         "    return left + (right * 10)",
         "end"
@@ -225,10 +225,10 @@
         "    register.write_volatile(0x10)",
         "end",
         "fun demo(): UInt32 do",
-        "    mut storage: UInt32:= 0",
-        "    register: Ptr<mut UInt32>:= @storage",
+        "    let mut storage: UInt32= 0",
+        "    let register: Ptr\u003cmut UInt32\u003e = @storage",
         "    write_register(register)",
-        "    status: UInt32:= register.read_volatile()",
+        "    let status: UInt32= register.read_volatile()",
         "    return status",
         "end"
       ]},
@@ -245,7 +245,7 @@
         "    ^value = ^value + 1",
         "end",
         "fun demo(): Int32 do",
-        "    mut values: Array<Int32, 2>:= [1, 2]",
+        "    let mut values: Array\u003cInt32, 2\u003e = [1, 2]",
         "    bump(@values[1])",
         "    return values[1]",
         "end"
@@ -264,7 +264,7 @@
         "    ^value = ^value + 1",
         "end",
         "fun demo(): Int32 do",
-        "    mut counter: Counter:= Counter(value = 4)",
+        "    let mut counter: Counter= Counter(value = 4)",
         "    increment(@counter.value)",
         "    return counter.value",
         "end"
@@ -279,8 +279,8 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(h: Heap): Int32 do",
-        "    value: Ptr<mut Int32>:= h.allocate<Int32>(42)",
-        "    alias: Ptr<Int32>:= value",
+        "    let value: Ptr\u003cmut Int32\u003e = h.allocate\u003cInt32\u003e(42)",
+        "    let alias: Ptr\u003cInt32\u003e = value",
         "    defer h.free(value)",
         "    return ^alias",
         "end"
@@ -296,10 +296,10 @@
       "sources": {"app.hex": [
         "type Node is struct amount: Int32 end",
         "fun demo(): Int32 do",
-        "    stash := Stash<Node>()",
+        "    let stash = Stash\u003cNode\u003e()",
         "    defer stash.destroy()",
-        "    first: Ptr<mut Node>:= stash.allocate(Node(amount = 1))",
-        "    second: Ptr<mut Node>:= stash.allocate(Node(amount = 2))",
+        "    let first: Ptr\u003cmut Node\u003e = stash.allocate(Node(amount = 1))",
+        "    let second: Ptr\u003cmut Node\u003e = stash.allocate(Node(amount = 2))",
         "    return (^first).amount + (^second).amount",
         "end"
       ]},
@@ -314,12 +314,12 @@
       "sources": {"app.hex": [
         "type Node is struct amount: Int32 end",
         "fun demo(): Int32 do",
-        "    stash := Stash<Node>()",
+        "    let stash = Stash\u003cNode\u003e()",
         "    defer stash.destroy()",
-        "    first: Ptr<mut Node>:= stash.allocate(Node(amount = 1))",
-        "    result: Int32:= (^first).amount",
+        "    let first: Ptr\u003cmut Node\u003e = stash.allocate(Node(amount = 1))",
+        "    let result: Int32= (^first).amount",
         "    stash.reset()",
-        "    second: Ptr<mut Node>:= stash.allocate(Node(amount = 2))",
+        "    let second: Ptr\u003cmut Node\u003e = stash.allocate(Node(amount = 2))",
         "    return result + (^second).amount",
         "end"
       ]},
@@ -334,11 +334,11 @@
       "sources": {"app.hex": [
         "type Node is struct amount: Int32 end",
         "fun demo(): Int32 do",
-        "    pool := Pool<Node>(4)",
+        "    let pool = Pool\u003cNode\u003e(4)",
         "    defer pool.destroy()",
-        "    first: Ptr<mut Node>:= pool.allocate(Node(amount = 10))",
-        "    second: Ptr<mut Node>:= pool.allocate(Node(amount = 20))",
-        "    result: Int32:= (^first).amount + (^second).amount",
+        "    let first: Ptr\u003cmut Node\u003e = pool.allocate(Node(amount = 10))",
+        "    let second: Ptr\u003cmut Node\u003e = pool.allocate(Node(amount = 20))",
+        "    let result: Int32= (^first).amount + (^second).amount",
         "    pool.free(first)",
         "    pool.free(second)",
         "    return result",

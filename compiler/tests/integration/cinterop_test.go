@@ -12,19 +12,19 @@ import (
 )
 
 func TestCImportRequiresQualifiedTarget(t *testing.T) {
-	source := "import\n    Adder from c \"adder.h\"\nend\nvalue: Int32 := 1\n"
+	source := "import\n    Adder from c \"adder.h\"\nend\nlet value: Int32 = 1\n"
 	result := compiler.Compile(map[string]string{"app.hex": source}, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "[Configuration Error] C interoperability requires a qualified target")
 }
 
 func TestCImportPreparedBindingMissing(t *testing.T) {
-	source := "import\n    Adder from c \"adder.h\"\nend\nvalue: Int32 := 1\n"
+	source := "import\n    Adder from c \"adder.h\"\nend\nlet value: Int32 = 1\n"
 	result := compiler.Compile(map[string]string{"app.hex": source}, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
 	assertStderrContains(t, result, `prepared C binding missing for "adder.h"`)
 }
 
 func TestCImportPreparedBindingResolves(t *testing.T) {
-	source := "import\n    Adder from c \"adder.h\"\nend\nvalue: Int32 := 1\n"
+	source := "import\n    Adder from c \"adder.h\"\nend\nlet value: Int32 = 1\n"
 	key := compiler.CBindingKey(string(compilerTypes.TargetX86_64WindowsGNU), compiler.CImportRequest{Header: "adder.h"})
 	// A prepared binding always names the header its key was derived from,
 	// even when it exposes no declaration.
@@ -36,7 +36,7 @@ func TestCImportPreparedBindingResolves(t *testing.T) {
 }
 
 func TestCImportMissingDeclarationGuidance(t *testing.T) {
-	source := "import\n    Adder from c \"adder.h\"\nend\nfun main() do\n    value: Int32 := Adder.missing_call()\nend\n"
+	source := "import\n    Adder from c \"adder.h\"\nend\nfun main() do\n    let value: Int32 = Adder.missing_call()\nend\n"
 	key := compiler.CBindingKey(string(compilerTypes.TargetX86_64WindowsGNU), compiler.CImportRequest{Header: "adder.h"})
 	binding := "extern c from \"adder.h\" do\n    fun add(left: Int32, right: Int32): Int32\nend\n"
 	result := compiler.Compile(map[string]string{"app.hex": source, key: binding}, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
@@ -44,7 +44,7 @@ func TestCImportMissingDeclarationGuidance(t *testing.T) {
 }
 
 func TestCImportPreparedBindingHeaderMismatch(t *testing.T) {
-	source := "import\n    Adder from c \"adder.h\"\nend\nvalue: Int32 := 1\n"
+	source := "import\n    Adder from c \"adder.h\"\nend\nlet value: Int32 = 1\n"
 	key := compiler.CBindingKey(string(compilerTypes.TargetX86_64WindowsGNU), compiler.CImportRequest{Header: "adder.h"})
 	// A prepared binding whose key claims `adder.h` but which declares a
 	// different header is a mismatch, not a silent alias.
@@ -56,14 +56,14 @@ func TestCImportPreparedBindingHeaderMismatch(t *testing.T) {
 // A foreign declaration whose type has no supported C ABI mapping fails closed
 // rather than emitting a guessed contract.
 func TestExternBlockFailsClosed(t *testing.T) {
-	source := "extern c from <adder.h> do\n    fun add(left: Array<Int32, 4>): Int32\nend\nvalue: Int32 := 1\n"
+	source := "extern c from <adder.h> do\n    fun add(left: Array<Int32, 4>): Int32\nend\nlet value: Int32 = 1\n"
 	result := compiler.Compile(map[string]string{"app.hex": source}, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
 	assertStderrContains(t, result, "has no supported C ABI mapping for target x86_64-windows-gnu-ucrt")
 }
 
 func TestDiscoverCImports(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "import\n    Adder from c \"adder.h\",\n    Std from c <stdio.h>\nend\nvalue: Int32 := 1\n",
+		"app.hex":  "import\n    Adder from c \"adder.h\",\n    Std from c <stdio.h>\nend\nlet value: Int32 = 1\n",
 		"junk.hex": "import\n    Lost from c \"lost.h\"\nend\n",
 	}
 	requests, err := compiler.DiscoverCImports(sources, "app.hex")
@@ -102,17 +102,17 @@ func TestCBindingKeyIdentity(t *testing.T) {
 
 func TestUserHexalcKeyRejected(t *testing.T) {
 	result := compiler.Compile(map[string]string{
-		"app.hex":         "import\n    H from \"./hexalc/habc\"\nend\nvalue: Int32 := 1\n",
-		"hexalc/habc.hex": "value: Int32 := 1\nexport\n    value\nend\n",
+		"app.hex":         "import\n    H from \"./hexalc/habc\"\nend\nlet value: Int32 = 1\n",
+		"hexalc/habc.hex": "let value: Int32 = 1\nexport\n    value\nend\n",
 	}, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, `the "hexalc" path prefix is reserved for prepared C bindings`)
 }
 
 func TestCHeaderFormsParse(t *testing.T) {
 	for _, source := range []string{
-		"import\n    Adder from c \"adder.h\"\nend\nvalue: Int32 := 1\n",
-		"import\n    Std from c <stdio.h>\nend\nvalue: Int32 := 1\n",
-		"import\n    Nested from c <vendor/widget.h>\nend\nvalue: Int32 := 1\n",
+		"import\n    Adder from c \"adder.h\"\nend\nlet value: Int32 = 1\n",
+		"import\n    Std from c <stdio.h>\nend\nlet value: Int32 = 1\n",
+		"import\n    Nested from c <vendor/widget.h>\nend\nlet value: Int32 = 1\n",
 	} {
 		if _, err := compiler.DiscoverCImports(map[string]string{"app.hex": source}, "app.hex"); err != nil {
 			t.Errorf("DiscoverCImports(%q) error = %v, want no error", source, err)
@@ -124,7 +124,7 @@ func TestCHeaderFormsParse(t *testing.T) {
 		{"c \"../up.h\"", "invalid C header name"},
 		{"c <../up.h>", "invalid C header name"},
 	} {
-		source := "import\n    H from " + testCase.header + "\nend\nvalue: Int32 := 1\n"
+		source := "import\n    H from " + testCase.header + "\nend\nlet value: Int32 = 1\n"
 		result := compiler.Compile(map[string]string{"app.hex": source}, "app.hex", compiler.Project{})
 		assertStderrContains(t, result, testCase.want)
 	}

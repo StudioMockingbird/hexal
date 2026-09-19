@@ -10,7 +10,7 @@ import (
 // hexal.h include, and exactly one trailing newline; the owning module
 // header includes the component.
 func TestSliceComponentEmitsReachableSpecializationsOnce(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(data: Ptr<UInt8>) do\n    first: Slice<Int32> := Slice<Int32>.empty()\n    unsafe do\n        second: Slice<UInt8> := Slice<UInt8>.from_pointer(data, 0)\n    end\nend")
+	program := checkedGeneratorSource(t, "fun demo(data: Ptr<UInt8>) do\n    let first: Slice<Int32> = Slice<Int32>.empty()\n    unsafe do\n        let second: Slice<UInt8> = Slice<UInt8>.from_pointer(data, 0)\n    end\nend")
 	files := generateOne(t, program)
 	viewH := files["hexal/slice.h"]
 	if viewH == "" {
@@ -37,7 +37,7 @@ func TestSliceComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 }
 
 func TestSliceComponentQualifiesPointerElementsOnce(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo() do\n    values: Slice<String> := Slice<String>.empty()\n    count: Size := values.length()\nend")
+	program := checkedGeneratorSource(t, "fun demo() do\n    let values: Slice<String> = Slice<String>.empty()\n    let count: Size = values.length()\nend")
 	files := generateOne(t, program)
 	viewH := files["hexal/slice.h"]
 	if strings.Contains(viewH, "const const") {
@@ -57,7 +57,7 @@ func TestSliceComponentQualifiesPointerElementsOnce(t *testing.T) {
 // free of hex_slice_ text, and the rendered slice.h matches the previous
 // Go-written definitions byte for byte (struct, guards, and trap messages).
 func TestSliceComponentHexalHeaderOwnsNoSliceText(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo() do\n    view: Slice<Int32> := Slice<Int32>.empty()\n    count: Size := view.length()\nend")
+	program := checkedGeneratorSource(t, "fun demo() do\n    let view: Slice<Int32> = Slice<Int32>.empty()\n    let count: Size = view.length()\nend")
 	files := generateOne(t, program)
 	if strings.Contains(files["hexal.h"], "hex_slice_") {
 		t.Fatalf("hexal.h = %q, view definitions must live in hexal/slice.h", files["hexal.h"])
@@ -99,7 +99,7 @@ static inline hex_slice_Int32 hex_slice_slice_Int32(hex_slice_Int32 slice, uint6
 // artifact is emitted for it. A component that declared the dependency
 // anyway would ship a header holding only its include guard.
 func TestSliceComponentAbsentWithoutReachableSlices(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo() do\n    fixed: Array<Int32, 3> := [1, 2, 3]\n    first: Int32 := fixed[0]\nend")
+	program := checkedGeneratorSource(t, "fun demo() do\n    let fixed: Array<Int32, 3> = [1, 2, 3]\n    let first: Int32 = fixed[0]\nend")
 	files := generateOne(t, program)
 	if viewH, exists := files["hexal/slice.h"]; exists {
 		t.Fatalf("array-only program emitted hexal/slice.h with nothing to declare: %q", viewH)

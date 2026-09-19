@@ -25,7 +25,7 @@
           "    return value * value",
           "end",
           "fun run(): Int32 | Error do",
-          "    task: Task\u003cInt32\u003e:= try spawn square(6)",
+          "    let task: Task\u003cInt32\u003e = try spawn square(6)",
           "    return task.join()",
           "end"
         ]
@@ -54,8 +54,8 @@
           "    return value * value",
           "end",
           "fun run(): Int32 | Error do",
-          "    first: Task\u003cInt32\u003e:= try spawn square(3)",
-          "    second: Task\u003cInt32\u003e:= try spawn square(4)",
+          "    let first: Task\u003cInt32\u003e = try spawn square(3)",
+          "    let second: Task\u003cInt32\u003e = try spawn square(4)",
           "    return first.join() + second.join()",
           "end"
         ]
@@ -83,7 +83,7 @@
       "sources": {
         "app.hex": [
           "fun run(h: Heap): Nil | Error do",
-          "    channel: Channel\u003cInt32\u003e:= try Channel\u003cInt32\u003e(h, 4)",
+          "    let channel: Channel\u003cInt32\u003e = try Channel\u003cInt32\u003e(h, 4)",
           "    defer channel.free(h)",
           "    channel.send(1)",
           "    channel.send(2)",
@@ -117,11 +117,11 @@
       "sources": {
         "app.hex": [
           "fun run(h: Heap): Int32 | Error do",
-          "    channel: Channel\u003cInt32\u003e:= try Channel\u003cInt32\u003e(h, 2)",
+          "    let channel: Channel\u003cInt32\u003e = try Channel\u003cInt32\u003e(h, 2)",
           "    defer channel.free(h)",
           "    channel.send(7)",
           "    channel.close()",
-          "    step: Int32 | EoS:= channel.receive()",
+          "    let step: Int32 | EoS= channel.receive()",
           "    if step is Int32 then",
           "        return step",
           "    end",
@@ -153,11 +153,11 @@
       "sources": {
         "app.hex": [
           "fun run(h: Heap): Int32 | Error do",
-          "    channel: Channel\u003cInt32\u003e:= try Channel\u003cInt32\u003e(h, 2)",
+          "    let channel: Channel\u003cInt32\u003e = try Channel\u003cInt32\u003e(h, 2)",
           "    defer channel.free(h)",
           "    channel.send(20 + 22)",
           "    channel.close()",
-          "    step: Int32 | EoS:= channel.receive()",
+          "    let step: Int32 | EoS= channel.receive()",
           "    if step is Int32 then",
           "        return step",
           "    end",
@@ -189,9 +189,9 @@
       "sources": {
         "app.hex": [
           "fun run(h: Heap): Nil | Error do",
-          "    mutex: Mutex:= try Mutex(h)",
+          "    let mutex: Mutex= try Mutex(h)",
           "    defer mutex.free(h)",
-          "    mut total: Int32:= 0",
+          "    let mut total: Int32= 0",
           "    mutex.lock()",
           "    total = total + 1",
           "    mutex.unlock()",
@@ -226,8 +226,8 @@
           "    shared.count.fetch_add(1)",
           "end",
           "fun run(): Int32 do",
-          "    mut shared: Shared:= Shared(count = Atomic\u003cInt32\u003e(0))",
-          "    pointer: Ptr\u003cmut Shared\u003e:= @shared",
+          "    let mut shared: Shared= Shared(count = Atomic\u003cInt32\u003e(0))",
+          "    let pointer: Ptr\u003cmut Shared\u003e = @shared",
           "    pointer.count.store(5)",
           "    pointer.count.fetch_add(1)",
           "    bump(pointer)",
@@ -270,7 +270,7 @@
           "    return true",
           "end",
           "fun run(): Int32 | Error do",
-          "    task: Task\u003cBool\u003e:= try spawn worker()",
+          "    let task: Task\u003cBool\u003e = try spawn worker()",
           "    task.join()",
           "    return 0",
           "end"
@@ -308,11 +308,11 @@
           "    return true",
           "end",
           "fun run(h: Heap): Int32 | Error do",
-          "    channel: Channel\u003cInt32\u003e:= try Channel\u003cInt32\u003e(h, 2)",
+          "    let channel: Channel\u003cInt32\u003e = try Channel\u003cInt32\u003e(h, 2)",
           "    defer channel.free(h)",
-          "    task: Task\u003cBool\u003e:= try spawn worker(channel)",
+          "    let task: Task\u003cBool\u003e = try spawn worker(channel)",
           "    task.join()",
-          "    step: Int32 | EoS:= channel.receive()",
+          "    let step: Int32 | EoS= channel.receive()",
           "    if step is Int32 then",
           "        return step",
           "    end",
@@ -349,9 +349,9 @@
           "    return true",
           "end",
           "fun run(h: Heap): Int32 | Error do",
-          "    mutex: Mutex:= try Mutex(h)",
+          "    let mutex: Mutex= try Mutex(h)",
           "    defer mutex.free(h)",
-          "    task: Task\u003cBool\u003e:= try spawn worker(mutex)",
+          "    let task: Task\u003cBool\u003e = try spawn worker(mutex)",
           "    task.join()",
           "    return 0",
           "end"
@@ -388,8 +388,8 @@
       "sources": {
         "app.hex": [
           "fun burn(seed: Int64): Int64 do",
-          "    mut value: Int64:= seed",
-          "    mut step: Int64:= 0",
+          "    let mut value: Int64= seed",
+          "    let mut step: Int64= 0",
           "    while step \u003c 1000000 do",
           "        value = ((value * 31) + step) % 1000003",
           "        step = step + 1",
@@ -397,9 +397,9 @@
           "    return value",
           "end",
           "fun saturate(h: Heap): Nil | Error do",
-          "    jobs: List\u003cTask\u003cInt64\u003e\u003e:= List\u003cTask\u003cInt64\u003e\u003e(h)",
+          "    let jobs: List\u003cTask\u003cInt64\u003e\u003e = List\u003cTask\u003cInt64\u003e\u003e(h)",
           "    defer jobs.free(h)",
-          "    mut seed: Int64:= 0",
+          "    let mut seed: Int64= 0",
           "    while seed \u003c 128 do",
           "        jobs.push(try spawn burn(seed))",
           "        seed = seed + 1",
@@ -436,7 +436,7 @@
           "    return 42",
           "end",
           "fun run(): Int32 | Error do",
-          "    task: Task\u003cInt32\u003e:= try spawn worker()",
+          "    let task: Task\u003cInt32\u003e = try spawn worker()",
           "    task.detach()",
           "    return 0",
           "end"
@@ -461,8 +461,8 @@
       "sources": {
         "app.hex": [
           "fun run(): Int32 do",
-          "    counter: Atomic\u003cInt32\u003e:= Atomic\u003cInt32\u003e(4)",
-          "    previous: Int32:= counter.exchange(9)",
+          "    let counter: Atomic\u003cInt32\u003e = Atomic\u003cInt32\u003e(4)",
+          "    let previous: Int32= counter.exchange(9)",
           "    return previous + counter.load()",
           "end"
         ]
@@ -488,9 +488,9 @@
       "sources": {
         "app.hex": [
           "fun run(): Bool do",
-          "    counter: Atomic\u003cInt32\u003e:= Atomic\u003cInt32\u003e(1)",
-          "    succeeded: Bool:= counter.compare_exchange(1, 2)",
-          "    failed: Bool:= counter.compare_exchange(1, 3)",
+          "    let counter: Atomic\u003cInt32\u003e = Atomic\u003cInt32\u003e(1)",
+          "    let succeeded: Bool= counter.compare_exchange(1, 2)",
+          "    let failed: Bool= counter.compare_exchange(1, 3)",
           "    return succeeded and !failed and (counter.load() == 2)",
           "end"
         ]
@@ -514,8 +514,8 @@
       "sources": {
         "app.hex": [
           "fun run(): Int32 do",
-          "    counter: Atomic\u003cInt32\u003e:= Atomic\u003cInt32\u003e(5)",
-          "    previous: Int32:= counter.fetch_sub(2)",
+          "    let counter: Atomic\u003cInt32\u003e = Atomic\u003cInt32\u003e(5)",
+          "    let previous: Int32= counter.fetch_sub(2)",
           "    return previous + counter.load()",
           "end"
         ]
@@ -547,14 +547,14 @@
       "sources": {
         "app.hex": [
           "fun run(h: Heap): Size | Error do",
-          "    channel: Channel\u003cInt32\u003e:= try Channel\u003cInt32\u003e(h, 2)",
+          "    let channel: Channel\u003cInt32\u003e = try Channel\u003cInt32\u003e(h, 2)",
           "    defer channel.free(h)",
-          "    capacity: Size:= channel.capacity()",
-          "    before: Size:= channel.length()",
+          "    let capacity: Size= channel.capacity()",
+          "    let before: Size= channel.length()",
           "    channel.send(7)",
-          "    during: Size:= channel.length()",
+          "    let during: Size= channel.length()",
           "    channel.close()",
-          "    step: Int32 | EoS:= channel.receive()",
+          "    let step: Int32 | EoS= channel.receive()",
           "    if channel.is_closed() then",
           "        if step is Int32 then",
           "            return capacity + before + during + channel.length()",
@@ -588,18 +588,18 @@
           "   Time from std.time",
           "end",
           "fun nap(ms: UInt64): Bool do",
-          "    start := Time.now()",
+          "    let start = Time.now()",
           "    Time.sleep(Time.milliseconds(ms))",
           "    return start.elapsed() \u003e= Time.milliseconds(ms)",
           "end",
           "fun stamp(): Int64 | Error do",
-          "    now := try Time.wall_time()",
+          "    let now = try Time.wall_time()",
           "    return now.seconds()",
           "end",
-          "budget := Time.seconds(1) + Time.milliseconds(250)",
+          "let budget = Time.seconds(1) + Time.milliseconds(250)",
           "print(budget.as_milliseconds(), \"\\n\")",
           "print(nap(10), \"\\n\")",
-          "unix: Int64 | Error := stamp()"
+          "let unix: Int64 | Error = stamp()"
         ]
       }
     }

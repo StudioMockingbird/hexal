@@ -19,7 +19,7 @@ func TestDottedStdlibModulesResolve(t *testing.T) {
 		"std.io", "std.fs", "std.time", "std.net", "std.process",
 		"std.signal", "std.terminal", "std.program", "std.entropy", "std.ascii",
 	} {
-		source := "import\n    M from " + module + "\nend\nvalue: Int32 := 1\n"
+		source := "import\n    M from " + module + "\nend\nlet value: Int32 = 1\n"
 		result := compileSource(source)
 		if result.ExitCode != compiler.ExitSuccess {
 			t.Errorf("import %s rejected: %v", module, result.Stderr)
@@ -31,7 +31,7 @@ func TestDottedStdlibModulesResolve(t *testing.T) {
 // diagnostic using the dotted spelling the user wrote.
 func TestDottedStdlibUnknownModule(t *testing.T) {
 	assertRejects(t,
-		"import\n    H from std.crypto.hash\nend\nvalue: Int32 := 1\n",
+		"import\n    H from std.crypto.hash\nend\nlet value: Int32 = 1\n",
 		"unknown stdlib module std.crypto.hash")
 }
 
@@ -69,8 +69,8 @@ func TestRelativeImportsRetainLexicalResolution(t *testing.T) {
 // spelling is rejected by the reserved-prefix Module Error.
 func TestRelativeStdPathRetainsReservedPrefixError(t *testing.T) {
 	result := compiler.Compile(map[string]string{
-		"app.hex":         "import\n    P from \"./std/program\"\nend\nvalue: Int32 := 1\n",
-		"std/program.hex": "value: Int32 := 1\nexport\n    value\nend\n",
+		"app.hex":         "import\n    P from \"./std/program\"\nend\nlet value: Int32 = 1\n",
+		"std/program.hex": "let value: Int32 = 1\nexport\n    value\nend\n",
 	}, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, `the "std" path prefix is reserved for the standard library`)
 }
@@ -78,7 +78,7 @@ func TestRelativeStdPathRetainsReservedPrefixError(t *testing.T) {
 // A core-library module and an embedded source module resolve through the same
 // dotted syntax while keeping their distinct artifact behavior.
 func TestDottedStdlibArtifactOwnership(t *testing.T) {
-	core := assertCompiles(t, "import\n    Io from std.io\nend\nout: Io.IO | Error := Io.stdout()\n")
+	core := assertCompiles(t, "import\n    Io from std.io\nend\nlet out: Io.IO | Error = Io.stdout()\n")
 	if _, ok := core.Files["hexal/io.h"]; !ok {
 		t.Errorf("std.io must select the core component headers: %v", sortedKeys(core.Files))
 	}
@@ -87,7 +87,7 @@ func TestDottedStdlibArtifactOwnership(t *testing.T) {
 			t.Errorf("a core library must emit no module artifact, got %q", key)
 		}
 	}
-	sourceModule := assertCompiles(t, "import\n    Ascii from std.ascii\nend\nd: Bool := Ascii.is_digit(48)\n")
+	sourceModule := assertCompiles(t, "import\n    Ascii from std.ascii\nend\nlet d: Bool = Ascii.is_digit(48)\n")
 	for _, key := range []string{"stdlib/ascii.c", "stdlib/ascii.h"} {
 		if _, ok := sourceModule.Files[key]; !ok {
 			t.Errorf("std.ascii must emit %s: %v", key, sortedKeys(sourceModule.Files))
@@ -105,10 +105,10 @@ func TestDottedStdlibDuplicateImport(t *testing.T) {
 // `std` stays contextual: it is legal as a declaration name, a member name,
 // and an import alias outside the import-reference position.
 func TestStdNameLegalOutsideImportReference(t *testing.T) {
-	assertCompiles(t, "std: Int32 := 1\ntotal: Int32 := std + 1\n")
-	assertCompiles(t, "type Box is struct std: Int32 end\nb: Box := Box(std = 1)\nvalue: Int32 := b.std\n")
+	assertCompiles(t, "let std: Int32 = 1\nlet total: Int32 = std + 1\n")
+	assertCompiles(t, "type Box is struct std: Int32 end\nlet b: Box = Box(std = 1)\nlet value: Int32 = b.std\n")
 	sources := map[string]string{
-		"app.hex": "import\n    std from \"./lib\"\nend\nvalue: Int32 := std.answer()\n",
+		"app.hex": "import\n    std from \"./lib\"\nend\nlet value: Int32 = std.answer()\n",
 		"lib.hex": "fun answer(): Int32 do\n    return 42\nend\nexport\n    answer\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})

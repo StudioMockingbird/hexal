@@ -55,7 +55,7 @@ func TestRootReturnUnwindsDefersInReverseOrder(t *testing.T) {
 }
 
 func TestRootReturnUnderWhile(t *testing.T) {
-	root := rootC(t, assertCompiles(t, "mut count: Int32 := 0\nwhile count < 3 do\n    count = count + 1\n    return 2\nend\nreturn 0\n"))
+	root := rootC(t, assertCompiles(t, "let mut count: Int32 = 0\nwhile count < 3 do\n    count = count + 1\n    return 2\nend\nreturn 0\n"))
 	loop := strings.Index(root, "while (hex_v_count < 3) {")
 	jump := strings.Index(root, "goto hex_exit;")
 	close := strings.Index(root, "}")
@@ -95,7 +95,7 @@ func TestRootReturnKeepsFunctionReturnsUnchanged(t *testing.T) {
 
 // The root has no Error result, so try and errdefer stay rejected there.
 func TestRootTryAndErrdeferRejected(t *testing.T) {
-	assertRejects(t, "fun f(): Int32 | Error do\n    return 1\nend\nx := try f()\n",
+	assertRejects(t, "fun f(): Int32 | Error do\n    return 1\nend\nlet x = try f()\n",
 		"try requires an enclosing function whose result accepts Error")
 	assertRejects(t, "errdefer print(\"x\")\n",
 		"errdefer requires an enclosing function whose result accepts Error")
@@ -105,7 +105,7 @@ func TestRootTryAndErrdeferRejected(t *testing.T) {
 // as its remaining member without further narrowing.
 func TestRootReturnStatusSurvivesNarrowing(t *testing.T) {
 	source := programImport +
-		"args := Prog.arguments()\n" +
+		"let args = Prog.arguments()\n" +
 		"if args is Error then\n    return 1\nend\n" +
 		"print(args.length())\n"
 	root := rootC(t, assertCompiles(t, source))

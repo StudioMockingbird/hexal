@@ -11,15 +11,15 @@ import (
 func TestNarrowedUnionReceiversReadPayload(t *testing.T) {
 	result := assertCompiles(t, "import\n  Io from std.io\nend\nfun sq(v: Int32): Int32 do\n    return v * v\nend\n"+
 		"fun run(): Int64 do\n"+
-		"    t: Task<Int32> | Error := spawn sq(3)\n"+
+		"    let t: Task<Int32> | Error = spawn sq(3)\n"+
 		"    if t is Task<Int32> then\n"+
-		"        joined: Int32 := t.join()\n"+
+		"        let joined: Int32 = t.join()\n"+
 		"    end\n"+
-		"    x: Int32 | Error := 3\n"+
+		"    let x: Int32 | Error = 3\n"+
 		"    if x is Int32 then\n"+
 		"        return x.to<Int64>()\n"+
 		"    end\n"+
-		"    e: Io.IO | Error := Io.stdin()\n"+
+		"    let e: Io.IO | Error = Io.stdin()\n"+
 		"    if e is Error then\n"+
 		"        print(e.header())\n"+
 		"    end\n"+
@@ -42,14 +42,14 @@ func TestNarrowedUnionReceiversReadPayload(t *testing.T) {
 // that member without a payload copy.
 func TestTrySuccessUnionWithTagOnlyMember(t *testing.T) {
 	result := assertCompiles(t, "import\n  Io from std.io\nend\nfun run(h: Heap): Nil | Error do\n"+
-		"    buffer: List<Byte> := List<Byte>(h)\n"+
+		"    let buffer: List<Byte> = List<Byte>(h)\n"+
 		"    defer buffer.free(h)\n"+
-		"    mut stream: Io.Bytes := Io.bytes_over(buffer)\n"+
-		"    got := try stream.read(buffer, 4)\n"+
+		"    let mut stream: Io.Bytes = Io.bytes_over(buffer)\n"+
+		"    let got = try stream.read(buffer, 4)\n"+
 		"    return nil\n"+
 		"end\n"+
 		"fun maybe(): Int32 | Nil | Error do\n    return nil\nend\n"+
-		"fun g(): Nil | Error do\n    v := try maybe()\n    return nil\nend\n")
+		"fun g(): Nil | Error do\n    let v = try maybe()\n    return nil\nend\n")
 	body := withoutLineDirectives(rootC(t, result))
 	if strings.Contains(body, ".payload.hex_m_EoS") || strings.Contains(body, ".payload.hex_m_Nil") {
 		t.Fatalf("try must not copy a tag-only payload:\n%s", body)

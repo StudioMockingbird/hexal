@@ -43,8 +43,8 @@ func assertMultiModuleSuccess(t *testing.T, result compiler.CompilationResult, m
 // form, never this spelling.
 func TestDeclarationOnlyModuleAcceptsDirectFunctionLiteral(t *testing.T) {
 	sources := map[string]string{
-		"app.hex": "import\n    Lib from \"./lib\"\nend\nresult: Int32 := Lib.add(2, 3)\n",
-		"lib.hex": "add := fun (x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
+		"app.hex": "import\n    Lib from \"./lib\"\nend\nlet result: Int32 = Lib.add(2, 3)\n",
+		"lib.hex": "let add = fun (x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	if result.ExitCode == compiler.ExitSuccess {
@@ -59,7 +59,7 @@ func TestDeclarationOnlyModuleAcceptsDirectFunctionLiteral(t *testing.T) {
 
 func TestQualifiedCallToExportedFunctionResolves(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "import\n    Math from \"./math\"\nend\nresult: Int32 := Math.add(2, 3)\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\nlet result: Int32 = Math.add(2, 3)\n",
 		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\nexport\n    add\nend\n",
 	}
 	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex", compiler.Project{}), "app", "math")
@@ -70,7 +70,7 @@ func TestQualifiedCallToExportedFunctionResolves(t *testing.T) {
 // is one identity.
 func TestQualifiedUseThroughNestedPathAlias(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":             "import\n    Shapes from \"./graphics/shapes\"\nend\np: Shapes.Point := Shapes.origin()\n",
+		"app.hex":             "import\n    Shapes from \"./graphics/shapes\"\nend\nlet p: Shapes.Point = Shapes.origin()\n",
 		"graphics/shapes.hex": "type Point is struct x: Int32, y: Int32 end\nfun origin(): Point do\n    return Point(x = 0, y = 0)\nend\nexport\n    Point,\n    origin\nend\n",
 	}
 	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex", compiler.Project{}), "app", "graphics/shapes")
@@ -81,7 +81,7 @@ func TestQualifiedUseThroughNestedPathAlias(t *testing.T) {
 // module's declarations, and the generated symbols stay distinct.
 func TestSameBasenameModulesAreDistinct(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":             "import\n    Graphics from \"./graphics/shapes\"\n,\n    Audio from \"./audio/shapes\"\nend\ng: Graphics.Shape := Graphics.make()\na: Audio.Shape := Audio.make()\n",
+		"app.hex":             "import\n    Graphics from \"./graphics/shapes\"\n,\n    Audio from \"./audio/shapes\"\nend\nlet g: Graphics.Shape = Graphics.make()\nlet a: Audio.Shape = Audio.make()\n",
 		"graphics/shapes.hex": "type Shape is struct kind: Int32 end\nfun make(): Shape do\n    return Shape(kind = 1)\nend\nexport\n    Shape,\n    make\nend\n",
 		"audio/shapes.hex":    "type Shape is struct kind: Int32 end\nfun make(): Shape do\n    return Shape(kind = 2)\nend\nexport\n    Shape,\n    make\nend\n",
 	}
@@ -100,7 +100,7 @@ func TestSameBasenameModulesAreDistinct(t *testing.T) {
 // uses compile.
 func TestQualifiedUseThroughParentRelativeImport(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":              "import\n    Apps from \"./apps/tools\"\nend\nresult: Int32 := Apps.value()\n",
+		"app.hex":              "import\n    Apps from \"./apps/tools\"\nend\nlet result: Int32 = Apps.value()\n",
 		"apps/tools.hex":       "import\n    Shared from \"../shared/constants\"\nend\nfun value(): Int32 do\n    return Shared.answer()\nend\nexport\n    value\nend\n",
 		"shared/constants.hex": "fun answer(): Int32 do\n    return 42\nend\nexport\n    answer\nend\n",
 	}
@@ -109,7 +109,7 @@ func TestQualifiedUseThroughParentRelativeImport(t *testing.T) {
 
 func TestQualifiedCallToPrivateFunctionRejected(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "import\n    Math from \"./math\"\nend\nresult: Int32 := Math.add(2, 3)\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\nlet result: Int32 = Math.add(2, 3)\n",
 		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -118,7 +118,7 @@ func TestQualifiedCallToPrivateFunctionRejected(t *testing.T) {
 
 func TestUnqualifiedUseOfExportedNameRejected(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "import\n    Math from \"./math\"\nend\nresult: Int32 := add(2, 3)\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\nlet result: Int32 = add(2, 3)\n",
 		"math.hex": "fun add(x: Int32, y: Int32): Int32 do\n    return x + y\nend\nexport\n    add\nend\n",
 	}
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
@@ -127,7 +127,7 @@ func TestUnqualifiedUseOfExportedNameRejected(t *testing.T) {
 
 func TestQualifiedTypeResolvesThroughAlias(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "import\n    Math from \"./math\"\nend\nshape: Math.Shape := 0\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\nlet shape: Math.Shape = 0\n",
 		"math.hex": "type Shape is Int32\nexport\n    Shape\nend\n",
 	}
 	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex", compiler.Project{}), "app", "math")
@@ -135,7 +135,7 @@ func TestQualifiedTypeResolvesThroughAlias(t *testing.T) {
 
 func TestQualifiedVariantResolvesExportedADT(t *testing.T) {
 	sources := map[string]string{
-		"app.hex":  "import\n    Math from \"./math\"\nend\ns: Math.Shape := Math.Shape.Circle(x = 1)\n",
+		"app.hex":  "import\n    Math from \"./math\"\nend\nlet s: Math.Shape = Math.Shape.Circle(x = 1)\n",
 		"math.hex": "type Shape is union | Circle as x: Int32 end | Square end\nexport\n    Shape\nend\n",
 	}
 	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex", compiler.Project{}), "app", "math")
@@ -176,7 +176,7 @@ func TestPrivateTypeInsideExportedGenericBodyAccepted(t *testing.T) {
 	// an exported generic's body is fine.
 	sources := map[string]string{
 		"app.hex":  "import\n    Math from \"./math\"\nend\n",
-		"math.hex": "type Secret is struct x: Int32 end\nfun wrap<T>(value: T): T do\n    secret: Secret := Secret(x = 1)\n    return value\nend\nexport\n    wrap\nend\n",
+		"math.hex": "type Secret is struct x: Int32 end\nfun wrap<T>(value: T): T do\n    let secret: Secret = Secret(x = 1)\n    return value\nend\nexport\n    wrap\nend\n",
 	}
 	assertMultiModuleSuccess(t, compiler.Compile(sources, "app.hex", compiler.Project{}), "app", "math")
 }
@@ -185,7 +185,7 @@ func TestPrivateTypeInsideExportedGenericBodyAccepted(t *testing.T) {
 // entrypoint local, not module storage, and the export block's own name
 // resolution rejects it as unknown.
 func TestExportOnValueBindingRejected(t *testing.T) {
-	result := compiler.Compile(map[string]string{"app.hex": "x: Int32 := 1\nexport\n    x\nend\n"}, "app.hex", compiler.Project{})
+	result := compiler.Compile(map[string]string{"app.hex": "let x: Int32 = 1\nexport\n    x\nend\n"}, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "unknown declaration x in this module")
 }
 
@@ -217,6 +217,6 @@ func TestPrivateTypeNotMadeExportedByUnrelatedModule(t *testing.T) {
 	}
 	// Single-module control: the same private type alone is still rejected, so
 	// the unrelated module is not what changed the outcome.
-	result := compiler.Compile(map[string]string{"app.hex": "import\n    A from \"./a\"\nend\nvalue: Int32 := 1\n", "a.hex": aPrivate}, "app.hex", compiler.Project{})
+	result := compiler.Compile(map[string]string{"app.hex": "import\n    A from \"./a\"\nend\nlet value: Int32 = 1\n", "a.hex": aPrivate}, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "exposes private type Secret")
 }

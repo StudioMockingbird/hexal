@@ -2,14 +2,14 @@ import
     Hello from c "main.h"
 end
 
-heap: Heap := Heap()
+let heap: Heap = Heap()
 
 unsafe do
-    pointer: Ptr<Byte> | Nil := Hello.hello_world()
+    let pointer: Ptr<Byte> | Nil = Hello.hello_world()
     if pointer != nil then
-        length: Size := Hello.hello_world_length()
-        bytes: Slice<Byte> := Slice<Byte>.from_pointer(pointer, length)
-        message: String := String.from_bytes(heap, bytes)
+        let length: Size = Hello.hello_world_length()
+        let bytes: Slice<Byte> = Slice<Byte>.from_pointer(pointer, length)
+        let message: String = String.from_bytes(heap, bytes)
         print(message)
         message.free(heap)
     end

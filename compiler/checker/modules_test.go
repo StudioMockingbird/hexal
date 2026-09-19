@@ -33,8 +33,8 @@ func requireMessage(t *testing.T, err error, want string) {
 // reference fails as an ordinary unknown variable because the scope skips
 // alias bindings entirely.
 func TestImportAliasIsNotAValue(t *testing.T) {
-	app := parseProgram(t, "import\n    Math from \"./vec3\"\nend\nresult: Int32 := Math\n")
-	dep := parseProgram(t, "value: Int32 := 1\n")
+	app := parseProgram(t, "import\n    Math from \"./vec3\"\nend\nlet result: Int32 = Math\n")
+	dep := parseProgram(t, "let value: Int32 = 1\n")
 	_, err := CheckModules(graphOf("app", []string{"vec3", "app"}, map[string]parser.Program{"app.hex": app, "vec3.hex": dep}, map[string][]ModuleEdge{"app": {{Alias: "Math", Target: "vec3"}}}))
 	requireMessage(t, err, "unknown variable Math")
 }
@@ -43,8 +43,8 @@ func TestImportAliasIsNotAValue(t *testing.T) {
 // at the alias; a later import redeclaring an alias is the same conflict.
 func TestImportAliasConflictsWithExistingName(t *testing.T) {
 	app := parseProgram(t, "import\n    Math from \"./vec3\"\n,\n    Math from \"./wye\"\nend\n")
-	vec3 := parseProgram(t, "value: Int32 := 1\n")
-	wye := parseProgram(t, "other: Int32 := 2\n")
+	vec3 := parseProgram(t, "let value: Int32 = 1\n")
+	wye := parseProgram(t, "let other: Int32 = 2\n")
 	_, err := CheckModules(graphOf("app", []string{"vec3", "wye", "app"}, map[string]parser.Program{"app.hex": app, "vec3.hex": vec3, "wye.hex": wye}, map[string][]ModuleEdge{"app": {{Alias: "Math", Target: "vec3"}, {Alias: "Math", Target: "wye"}}}))
 	requireMessage(t, err, "import alias Math conflicts with an existing name")
 }
@@ -53,7 +53,7 @@ func TestImportAliasConflictsWithExistingName(t *testing.T) {
 // first non-import top-level item and rejects any later import as a Syntax
 // Error, so the checker never sees a misplaced import.
 func TestImportsMustPrecedeAllOtherItems(t *testing.T) {
-	tokens, lexErr := lexer.Lex("x: Int32 := 1\nimport\n    Math from \"./math\"\nend\n")
+	tokens, lexErr := lexer.Lex("let x: Int32 = 1\nimport\n    Math from \"./math\"\nend\n")
 	if lexErr != nil {
 		t.Fatalf("Lex returned an error: %v", lexErr)
 	}
@@ -68,7 +68,7 @@ func TestImportsMustPrecedeAllOtherItems(t *testing.T) {
 // statement is rejected and skipped entirely.
 func TestImportedModuleRejectsExecutableStatements(t *testing.T) {
 	app := parseProgram(t, "import\n    Math from \"./vec3\"\nend\n")
-	dep := parseProgram(t, "x: Int32 := 1\n")
+	dep := parseProgram(t, "x = 1\n")
 	_, err := CheckModules(graphOf("app", []string{"vec3", "app"}, map[string]parser.Program{"app.hex": app, "vec3.hex": dep}, map[string][]ModuleEdge{"app": {{Alias: "Math", Target: "vec3"}}}))
 	requireMessage(t, err, "imported module vec3 contains executable statements")
 }
@@ -89,7 +89,7 @@ func TestImportedModuleDeclarationsOnly(t *testing.T) {
 // A function parameter may not shadow an import alias.
 func TestParameterCannotShadowImportAlias(t *testing.T) {
 	app := parseProgram(t, "import\n    Math from \"./vec3\"\nend\nfun f(Math: Int32) do\nend\n")
-	dep := parseProgram(t, "value: Int32 := 1\n")
+	dep := parseProgram(t, "let value: Int32 = 1\n")
 	_, err := CheckModules(graphOf("app", []string{"vec3", "app"}, map[string]parser.Program{"app.hex": app, "vec3.hex": dep}, map[string][]ModuleEdge{"app": {{Alias: "Math", Target: "vec3"}}}))
 	requireMessage(t, err, "import alias Math conflicts with an existing name")
 }

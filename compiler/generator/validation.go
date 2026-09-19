@@ -72,6 +72,11 @@ func validateFunctionDeclaration(declared checker.FunctionDeclaration, typeState
 		strings:        stringState,
 	}
 	state.pushScope()
+	if declared.EnvDependent {
+		if err := registerEnvironment(state, declared.Captures); err != nil {
+			return err
+		}
+	}
 	for _, parameter := range declared.Parameters {
 		if _, err := state.allocateBinding(parameter.Binding, parameter.Name, parameter.Type, false); err != nil {
 			return err
@@ -98,6 +103,11 @@ func validateMethodDeclaration(declared checker.MethodDeclaration, typeState *ge
 		strings:        stringState,
 	}
 	state.pushScope()
+	if declared.EnvDependent {
+		if err := registerEnvironment(state, declared.Captures); err != nil {
+			return err
+		}
+	}
 	if _, err := state.allocateBinding(declared.SelfBinding, "self", declared.SelfType, false); err != nil {
 		return err
 	}

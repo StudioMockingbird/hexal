@@ -26,7 +26,7 @@ func autoAdderFixture(t *testing.T, root string) string {
 	writeSource(t, root, "native/adder.h", "#ifndef ADDER_H\n#define ADDER_H\n#include <stdint.h>\nint32_t adder_add(int32_t left, int32_t right);\n#endif\n")
 	writeSource(t, root, "native/adder.c", "#include \"adder.h\"\nint32_t adder_add(int32_t left, int32_t right) { return left + right; }\n")
 	writeSource(t, root, "main.hex", "import\n    Adder from c \"adder.h\"\nend\n"+
-		"mut total: Int32 := 0\n"+
+		"let mut total: Int32 = 0\n"+
 		"unsafe do\n    total = Adder.adder_add(20, 22)\nend\n"+
 		"print(total)\n")
 	return native
@@ -88,7 +88,7 @@ func TestAutomaticC23IncompatibleHeaderGuidesWrapper(t *testing.T) {
 	// identifier is accepted in an older dialect but rejected from a C23
 	// translation unit.
 	writeSource(t, dir, "native/legacy.h", "#ifndef LEGACY_H\n#define LEGACY_H\nint nullptr(void);\n#endif\n")
-	writeSource(t, dir, "main.hex", "import\n    Legacy from c \"legacy.h\"\nend\nvalue: Int32 := 1\n")
+	writeSource(t, dir, "main.hex", "import\n    Legacy from c \"legacy.h\"\nend\nlet value: Int32 = 1\n")
 
 	_, err := Build(withTestBackend(t, BuildOptions{Root: dir, CIncludeDirs: []string{native}}))
 	if err == nil {
@@ -111,7 +111,7 @@ func TestAutomaticHeaderOnlyStaticInline(t *testing.T) {
 	}
 	writeSource(t, dir, "native/adder.h", "#ifndef ADDER_H\n#define ADDER_H\n#include <stdint.h>\nstatic inline int32_t adder_add(int32_t left, int32_t right) { return left + right; }\n#endif\n")
 	writeSource(t, dir, "main.hex", "import\n    Adder from c \"adder.h\"\nend\n"+
-		"mut total: Int32 := 0\n"+
+		"let mut total: Int32 = 0\n"+
 		"unsafe do\n    total = Adder.adder_add(20, 22)\nend\n"+
 		"print(total)\n")
 	result, err := Build(withTestBackend(t, BuildOptions{Root: dir, CIncludeDirs: []string{native}}))
@@ -142,7 +142,7 @@ func TestAutomaticOmittedUnsupportedBesideSupported(t *testing.T) {
 	writeSource(t, dir, "native/adder.h", "#ifndef ADDER_H\n#define ADDER_H\n#include <stdint.h>\nint32_t adder_add(int32_t left, int32_t right);\nint32_t use_callback(int32_t (*callback)(int32_t));\n#endif\n")
 	writeSource(t, dir, "native/adder.c", "#include \"adder.h\"\nint32_t adder_add(int32_t left, int32_t right) { return left + right; }\nint32_t use_callback(int32_t (*callback)(int32_t)) { return callback(1); }\n")
 	writeSource(t, dir, "main.hex", "import\n    Adder from c \"adder.h\"\nend\n"+
-		"mut total: Int32 := 0\n"+
+		"let mut total: Int32 = 0\n"+
 		"unsafe do\n    total = Adder.adder_add(20, 22)\nend\n"+
 		"print(total)\n")
 	result, err := Build(withTestBackend(t, BuildOptions{
@@ -174,7 +174,7 @@ func TestAutomaticEqualRequestsPrepareOnce(t *testing.T) {
 		"end\n"+
 		"export\n    helper_add\nend\n")
 	writeSource(t, dir, "main.hex", "import\n    Helper from \"./helper\",\n    Adder from c \"adder.h\"\nend\n"+
-		"mut total: Int32 := 0\n"+
+		"let mut total: Int32 = 0\n"+
 		"unsafe do\n    total = Helper.helper_add(20, 22) + Adder.adder_add(0, 0)\nend\n"+
 		"print(total)\n")
 	result, err := Build(withTestBackend(t, BuildOptions{
@@ -217,7 +217,7 @@ func TestAutomaticObjectMacrosImportAsConstants(t *testing.T) {
 	writeSource(t, dir, "native/macros.h", "#ifndef MACROS_H\n#define MACROS_H\n#include <stdint.h>\n#define MAX_TOUCH_POINTS 10\n#define DEFAULT_FLAGS (1 | 4)\nint32_t macro_add(int32_t left, int32_t right);\n#endif\n")
 	writeSource(t, dir, "native/macros.c", "#include \"macros.h\"\nint32_t macro_add(int32_t left, int32_t right) { return left + right; }\n")
 	writeSource(t, dir, "main.hex", "import\n    M from c \"macros.h\"\nend\n"+
-		"mut total: Int32 := 0\n"+
+		"let mut total: Int32 = 0\n"+
 		"unsafe do\n    total = M.macro_add(M.MAX_TOUCH_POINTS, M.DEFAULT_FLAGS)\nend\n"+
 		"print(total)\n")
 	result, err := Build(withTestBackend(t, BuildOptions{
@@ -259,7 +259,7 @@ func TestAutomaticRecordAndStringMacrosImportAsConstants(t *testing.T) {
 		"int32_t widget_sum(widget_color color) { return (int32_t)color.r + color.g + color.b + color.a; }\n"+
 		"int32_t widget_len(const char *name) { return (int32_t)strlen(name); }\n")
 	writeSource(t, dir, "main.hex", "import\n    W from c \"widget.h\"\nend\n"+
-		"mut total: Int32 := 0\n"+
+		"let mut total: Int32 = 0\n"+
 		"unsafe do\n    total = W.widget_sum(W.WIDGET_LIGHT) + W.WIDGET_MAX + W.widget_len(W.WIDGET_NAME)\nend\n"+
 		"print(total)\n")
 	result, err := Build(withTestBackend(t, BuildOptions{

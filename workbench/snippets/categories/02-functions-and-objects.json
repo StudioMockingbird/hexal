@@ -17,7 +17,7 @@
         "        return \"hot\"",
         "    end",
         "end",
-        "label: Strand:= classify(15.0)"
+        "let label: Strand= classify(15.0)"
       ]},
       "features": ["functions", "if-elseif-else"],
       "reservedWords": ["fun", "if", "elseif", "else", "return", "end", "do", "then"]
@@ -33,8 +33,8 @@
         "    counter.count = counter.count + 1",
         "    return counter.count",
         "end",
-        "mut counter: Counter:= Counter(count = 0)",
-        "next: Int32:= tick(@counter)"
+        "let mut counter: Counter= Counter(count = 0)",
+        "let next: Int32= tick(@counter)"
       ]},
       "features": ["objects", "functions"],
       "reservedWords": ["type", "fun", "mut", "return", "end", "do", "@"]
@@ -50,7 +50,7 @@
         "    target.x = target.x + dx",
         "    target.y = target.y + dy",
         "end",
-        "mut origin: Point:= Point(x = 0, y = 0)",
+        "let mut origin: Point= Point(x = 0, y = 0)",
         "translate(@origin, 3, -4)"
       ]},
       "features": ["objects", "functions"],
@@ -65,8 +65,8 @@
         "fun combine(a: Int32, b: Int32): Int32 do",
         "    return (a * 2) + b",
         "end",
-        "step: Fun<(Int32, Int32) : Int32> := combine",
-        "result: Int32:= step(3, 4)"
+        "let step: Fun\u003c(Int32, Int32) : Int32\u003e = combine",
+        "let result: Int32= step(3, 4)"
       ]},
       "features": ["functions", "function-values"],
       "reservedWords": ["fun", "return", "end", "do"]
@@ -80,7 +80,7 @@
         "fun notify(name: Strand) do",
         "    print(\"notify \", name)",
         "end",
-        "boot: Strand:= \"boot\"",
+        "let boot: Strand= \"boot\"",
         "notify(boot)"
       ]},
       "features": ["no-result-functions", "print"],
@@ -95,9 +95,9 @@
         "fun identity<T>(value: T): T do",
         "    return value",
         "end",
-        "number: Int32:= identity(7)",
-        "word: Strand:= \"seven\"",
-        "text: Strand:= identity(word)"
+        "let number: Int32= identity(7)",
+        "let word: Strand= \"seven\"",
+        "let text: Strand= identity(word)"
       ]},
       "features": ["generics", "functions"],
       "reservedWords": ["fun", "return", "end", "do"]
@@ -112,8 +112,8 @@
         "method Box<T>.get(): T do",
         "    return self.value",
         "end",
-        "box: Box<Int32>:= Box(value = 42)",
-        "stored: Int32:= box.get()"
+        "let box: Box\u003cInt32\u003e = Box(value = 42)",
+        "let stored: Int32= box.get()"
       ]},
       "features": ["generics", "objects"],
       "reservedWords": ["type", "method", "self", "return", "end", "do"]
@@ -125,7 +125,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Status is struct name: Strand, code: Int32 end",
-        "status: Status:= Status(name = \"ok\", code = 200)",
+        "let status: Status= Status(name = \"ok\", code = 200)",
         "print(status)"
       ]},
       "features": ["objects", "print"],
@@ -139,7 +139,7 @@
       "sources": {"app.hex": [
         "type Inner is struct mut level: Int32 end",
         "type Outer is struct mut inner: Inner end",
-        "mut outer: Outer:= Outer(inner = Inner(level = 1))",
+        "let mut outer: Outer= Outer(inner = Inner(level = 1))",
         "outer.inner.level = 5"
       ]},
       "features": ["objects", "bindings"],
@@ -161,12 +161,12 @@
         "fun raise(target: Ptr<mut Meter>) do",
         "    target.reading = target.reading + 1",
         "end",
-        "mut meter: Meter:= Meter(reading = 1)",
-        "copied: Int32:= meter.peek()",
-        "read: Int32:= meter.seen()",
-        "fixed: Meter:= Meter(reading = 2)",
-        "reader: Ptr<Meter>:= @fixed",
-        "peeped: Int32:= reader.seen()",
+        "let mut meter: Meter= Meter(reading = 1)",
+        "let copied: Int32= meter.peek()",
+        "let read: Int32= meter.seen()",
+        "let fixed: Meter= Meter(reading = 2)",
+        "let reader: Ptr\u003cMeter\u003e = @fixed",
+        "let peeped: Int32= reader.seen()",
         "raise(@meter)"
       ]},
       "features": ["objects", "methods"],
@@ -178,10 +178,10 @@
       "description": "Binds an anonymous function literal to a name and calls it, exactly like the equivalent named declaration.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "square:= fun (value: Int32): Int32 do",
+        "let square= fun (value: Int32): Int32 do",
         "    return value * value",
         "end",
-        "result: Int32:= square(6)"
+        "let result: Int32= square(6)"
       ]},
       "features": ["functions", "function-values", "anonymous-functions"],
       "reservedWords": ["fun", "return", "end", "do"]
@@ -195,7 +195,7 @@
         "fun apply(callback: Fun<(Int32) : Int32>, value: Int32): Int32 do",
         "    return callback(value)",
         "end",
-        "result: Int32:= apply(fun (value: Int32): Int32 do",
+        "let result: Int32= apply(fun (value: Int32): Int32 do",
         "    return value * value",
         "end, 5)"
       ]},
@@ -208,10 +208,10 @@
       "description": "A no-result literal must be bound to a name before it can be invoked.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "increment:= fun (counter: Ptr<mut Int32>) do",
+        "let increment= fun (counter: Ptr\u003cmut Int32\u003e) do",
         "    ^counter = ^counter + 1",
         "end",
-        "mut total: Int32:= 0",
+        "let mut total: Int32= 0",
         "increment(@total)"
       ]},
       "features": ["functions", "no-result-functions", "anonymous-functions"],
@@ -223,10 +223,10 @@
       "description": "An anonymous function literal with more than one parameter, stored and called like any other function value.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "combine:= fun (a: Int32, b: Int32, c: Int32): Int32 do",
+        "let combine= fun (a: Int32, b: Int32, c: Int32): Int32 do",
         "    return a + b + c",
         "end",
-        "result: Int32:= combine(1, 2, 3)"
+        "let result: Int32= combine(1, 2, 3)"
       ]},
       "features": ["functions", "function-values", "anonymous-functions"],
       "reservedWords": ["fun", "return", "end", "do"]

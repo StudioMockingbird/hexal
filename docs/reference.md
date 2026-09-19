@@ -63,12 +63,16 @@ The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using 
 
 - A source file contains ordered type, function, method, and executable declarations/statements.
   Executable statements occur only in the root program and lower to automatic locals in `main`.
-- Hexal has no native globals or global constants, and no `global` storage of its own. A `static`
-  module value (see Modules) is program-lifetime storage private to its module; the `global`
-  spelling appears only in an `extern c` declaration for a C object. State is otherwise local,
-  allocated, or passed explicitly.
-- Functions and methods are file-scope declarations. Nested functions and closures do not exist;
-  functions cannot capture root or lexical locals.
+- Hexal has no native mutable globals or global constants, and no `global` storage of its own. A
+  fixed top-level `let` in an imported module is a module constant (see Modules): immutable
+  program-lifetime storage private to its module; the `global` spelling appears only in an
+  `extern c` declaration for a C object. State is otherwise local, allocated, or passed explicitly.
+- Functions and methods are file-scope declarations. Nested functions and closures do not exist. A
+  named function or method in the selected entry module captures an earlier top-level entry binding
+  by reference, after parameters, `self`, and locals resolve; only bindings declared textually
+  before it are visible for capture, and a captured binding is read or written through the entry
+  environment. Imported-module functions, anonymous literals, and local function literals never
+  capture.
 - `return` is valid only inside a function or method body. The root program has no declared result.
 - Type declarations become visible in source order: a type may name itself or an earlier type, not
   a later one. A module-level function or method signature is visible throughout its module
@@ -92,12 +96,13 @@ The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using 
   `Terminal`, `Program`, and `Entropy` reserve no name. They are reachable only through a std
   module alias, and a user declaration of any of those names resolves as an ordinary declaration.
   An unresolved use of one reports the exact migration hint (see Standard library modules).
-- Every value-binding declaration uses `:=` and states its type exactly once, on one side or the
-  other. `name: T := initializer` states it on the left; `name := initializer` says the
-  initializer states it, and is rejected when the initializer is contextual — an integer, float,
-  or string literal, `nil`, an array literal, or a `match` whose every arm is contextual. Stating
-  it on neither side is an error. Written parameters, members, ADT payloads, and results always
-  require an explicit type. Compiler-typed `self` and `for` binders are the remaining exceptions.
+- Every value-binding declaration is introduced by `let` and states its type exactly once, on one
+  side or the other. `let name: T = initializer` states it on the left; `let name = initializer`
+  says the initializer states it, and is rejected when the initializer is contextual — an integer,
+  float, or string literal, `nil`, an array literal, or a `match` whose every arm is contextual.
+  Stating it on neither side is an error. Written parameters, members, ADT payloads, and results
+  always require an explicit type. Compiler-typed `self` and `for` binders are the remaining
+  exceptions.
 - `=` assigns to an existing writable place. It does not introduce a value binding. Module aliases
   and a labeled constructor argument (`name = value` inside a struct or ADT-variant call) retain
   their grammar-defined uses of `=`.
@@ -159,23 +164,24 @@ The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using 
   file contents are deterministic. `Files` map iteration order has no meaning.
 - The entrypoint module may contain executable statements and root value bindings. Every imported
   module is declarations-only: it has no executable statements, root value bindings, initializer,
-  runtime Heap, import-time effects, or final-expression result. A `static` module value
-  declaration is not an executable statement and is accepted at top level in any module,
-  entrypoint or imported.
-- `static [mut] name [: type] := expr` declares a module value: program-lifetime storage private to
-  its defining module unless named in that module's export block. A fixed (non-`mut`) declaration's
-  initializer must be built entirely from the closed static-initializer set: literals, `Array`
-  literals, struct construction, ADT variant construction, and structural-union injection, applied
-  recursively, plus one exception for a direct fixed `Atomic<T>(literal)` construction. A `mut`
-  declaration accepts the same initializer set and permits later assignment to the value; `mut`
-  and a direct fixed `Atomic<T>` are mutually exclusive, since `Atomic`'s own operations are the
-  only mutation path for a fixed Atomic module value. A module value is visible to every
-  declaration and statement in its own module regardless of source position, exactly like a
-  module-level function.
-- Declarations, including module values, are private by default. An export block lists the bare
-  names of module-level types, functions, and module values, and `Type.method` for an exported
+  runtime Heap, import-time effects, or final-expression result. A fixed top-level `let`
+  declaration in an imported module is a module constant, not an executable statement.
+- A fixed top-level `let name [: type] = expr` in an imported module declares a module constant:
+  immutable program-lifetime storage private to its defining module unless named in that module's
+  export block. Its initializer must be built entirely from the closed static-initializer set:
+  literals, `Array` literals, struct construction, ADT variant construction, and structural-union
+  injection, applied recursively. Every binding reference, including a reference to another module
+  constant, is excluded, so no dependency graph or cycle rule exists. A module constant's type may
+  not contain `Atomic` directly or through an alias, array, aggregate, ADT, union, or specialized
+  generic value field; pointer, view, and function indirection stop the containment walk. A
+  top-level `let mut` in an imported module is rejected: mutable library state is passed explicitly.
+  A module constant is visible to every declaration and statement in its own module regardless of
+  source position, exactly like a module-level function, and has one stable immutable object whose
+  address may be taken.
+- Declarations, including module constants, are private by default. An export block lists the bare
+  names of module-level types, functions, and module constants, and `Type.method` for an exported
   method, that the defining module makes available; each name or `Type.method` pair may appear at
-  most once, and only a module-level type, function, method, or module value may be named. An
+  most once, and only a module-level type, function, method, or module constant may be named. An
   importer accesses exported declarations only through its local alias; wildcard and unqualified
   imports do not exist. A module-scope anonymous function literal declares no source name and can
   never appear in an export block; a function declared at local (non-module) scope is not itself a
@@ -184,9 +190,9 @@ The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using 
   including types reached through aliases, aggregates, generic arguments, parameters, results,
   receivers, members, and ADT payloads. Private types may remain inside an exported function or
   generic body when absent from its interface.
-- Qualified types, functions, ADT variants, exported methods, and exported module values retain the
+- Qualified types, functions, ADT variants, exported methods, and exported module constants retain the
   defining module's identity; renaming an import alias changes no identity. Within each module,
-  type declarations retain source-order visibility; function, method, and module-value visibility
+  type declarations retain source-order visibility; function, method, and module-constant visibility
   is order-independent (see Programs, names, and bindings). Successfully checked exports are
   available to importers regardless of the export's textual position in the defining module.
 - Only a nominal type's defining module may declare methods for it. Imported types and
@@ -598,7 +604,7 @@ HeapAllocation
   inside a branch, loop, or bare block) is rejected: Syntax Error, named function declarations are
   only valid at module scope. A function declared at local scope is not a module-level declaration
   and can never be named in an export block either.
-- An inferred fixed declaration (`name := ...`) whose initializer is directly a function literal,
+- An inferred fixed declaration (`let name = ...`) whose initializer is directly a function literal,
   after stripping only grouping-only parentheses, behaves differently by scope. At module scope it
   is declaration sugar over the same function form as a named declaration: it emits the helper
   function and no function-pointer storage, is fixed and self-recursive, participates in forward
@@ -2103,15 +2109,22 @@ Ptr<mut T>.write_volatile(value: T) -> no value
   Root selection adds nothing to this header. Its guard is
   `HEX_MODULE_<encoded-owner>_H`; it includes no module header and declares no `main()`. C consumers
   include the desired module header, not `hexal.h` directly.
-- Each module value gets one definition in its owning module's `.c` file, in checked declaration
-  order, using generated symbol `hex_v_<encoded-owner>_<name>`. A fixed value's definition carries
-  C `const`; a `mut` value's does not; a direct fixed `Atomic<T>` keeps its existing `_Atomic`
-  spelling without `const`. An exported module value additionally gets one `extern`-qualified
-  declaration, with matching `const`, in its owning module's header. An importer never includes
-  another module's header for this: every module referencing a foreign module value declares its
-  own `extern` prototype for it, exactly like a foreign function or method prototype. No module-init
-  function or accessor wrapper exists; a consumer reads, writes, or takes the address of the same
-  storage the owning module defines.
+- An entry module that captures at least one root binding emits one private
+  owner-qualified environment struct type before every prototype and definition
+  that names it, and never in a generated header. The one environment instance
+  is an automatic local in `main`; no mutable C file-scope object is emitted. A
+  captured binding's initializer assigns its environment field at the original
+  source position, and an environment-dependent function or method receives one
+  mutable environment pointer as its first C parameter in both its definition
+  and every direct call.
+- Each module constant gets one immutable definition in its owning module's `.c` file, in checked
+  declaration order, using generated symbol `hex_v_<encoded-owner>_<name>`. A private constant is
+  `static const`; an exported constant is `const` and additionally gets one `extern const`
+  declaration in its owning module's header. An importer never includes another module's header for
+  this: every module referencing a foreign module constant declares its own `extern const`
+  prototype for it, exactly like a foreign function or method prototype. No module-init function or
+  accessor wrapper exists; a consumer reads or takes the address of the same immutable object the
+  owning module defines.
 - `modules/<canonical>.c` is one module's translation unit: it includes only its own module
   header, and declares a `static` prototype for each of its private functions and methods, in
   source order, before any of that module's function or method definitions. It then defines its

@@ -27,13 +27,13 @@
           "   Sig from std.signal",
           "end",
           "fun wait_for_shutdown(): Sig.Signal | EoS | Error do",
-          "    wanted: Array\u003cSig.Signal, 2\u003e := [Sig.Signal.Interrupt(), Sig.Signal.Hangup()]",
-          "    signals := try Sig.subscribe(wanted.slice(0, wanted.length()))",
+          "    let wanted: Array\u003cSig.Signal, 2\u003e = [Sig.Signal.Interrupt(), Sig.Signal.Hangup()]",
+          "    let signals = try Sig.subscribe(wanted.slice(0, wanted.length()))",
           "    defer signals.close()",
-          "    signal := try signals.next()",
+          "    let signal = try signals.next()",
           "    return signal",
           "end",
-          "out: Sig.Signal | EoS | Error := wait_for_shutdown()"
+          "let out: Sig.Signal | EoS | Error = wait_for_shutdown()"
         ]
       }
     }

@@ -522,42 +522,78 @@ func (parser *Parser) condition(keyword string) (Expression, error) {
 	}
 }
 
-func (parser *Parser) declaration(name lexer.Token, mutable bool) (Declaration, error) {
-	// `:=` is one token. `x : = 5` remains a syntax error because the lexer
-	// produces separate Colon and Equal tokens.
-	if parser.check(lexer.ColonEqual) {
-		operator := parser.advance()
+// letDeclaration parses the `let [mut] name [: type] = expr` form after the
+// introducing `let` token. The `=` has no semantic role; the `let` token is the
+// declaration's diagnostic anchor.
+func (parser *Parser) letDeclaration(keyword lexer.Token) (Declaration, error) {
+	mutable := false
+	if parser.check(lexer.Mut) {
+		parser.advance()
+		mutable = true
+	}
+	name, err := parser.consume(lexer.Identifier, "an identifier after 'let'")
+	if err != nil {
+		return Declaration{}, err
+	}
+	if parser.check(lexer.Mut) {
+		return Declaration{}, parser.errorAt(parser.peek(), "'mut' appears only immediately after 'let' in a declaration")
+	}
+	// `let name := value` and `let name : = value`: the colon begins a type
+	// annotation, so the adjacent `=` is a missing type, not the old operator.
+	if !parser.check(lexer.Colon) {
+		if _, err := parser.consume(lexer.Equal, "'=' in a 'let' declaration"); err != nil {
+			return Declaration{}, err
+		}
 		initializer, err := parser.expression()
 		if err != nil {
 			return Declaration{}, err
 		}
-		return Declaration{Name: name, Mutable: mutable, Initializer: initializer, Operator: operator}, nil
+		return Declaration{Keyword: keyword, Name: name, Mutable: mutable, Initializer: initializer}, nil
 	}
-	if _, err := parser.consume(lexer.Colon, "':'"); err != nil {
-		return Declaration{}, err
+	colon := parser.advance()
+	if parser.check(lexer.Equal) {
+		return Declaration{}, parser.errorAt(colon, "expected a type after ':' in a 'let' declaration")
 	}
 	typeExpression, err := parser.typeExpression()
 	if err != nil {
 		return Declaration{}, err
 	}
-	if parser.check(lexer.Equal) {
-		equal := parser.advance()
-		return Declaration{}, parser.errorAt(equal, "binding declarations require ':='; '=' assigns to an existing place")
+	// A `:` immediately followed by `=` after the type is the removed `:=`
+	// declaration operator; the token-sequence rule ignores source adjacency.
+	if parser.check(lexer.Colon) {
+		secondColon := parser.advance()
+		if parser.check(lexer.Equal) {
+			return Declaration{}, parser.errorAt(secondColon, "':=' is not a declaration operator; use 'let name = value'")
+		}
+		return Declaration{}, parser.errorAt(secondColon, "expected '=' in a 'let' declaration")
 	}
-	operator, err := parser.consume(lexer.ColonEqual, "':=' after a declaration type")
-	if err != nil {
+	if _, err := parser.consume(lexer.Equal, "'=' in a 'let' declaration"); err != nil {
 		return Declaration{}, err
 	}
 	initializer, err := parser.expression()
 	if err != nil {
 		return Declaration{}, err
 	}
+	return Declaration{Keyword: keyword, Name: name, Mutable: mutable, Type: typeExpression, Initializer: initializer}, nil
+}
 
-	return Declaration{
-		Name:        name,
-		Mutable:     mutable,
-		Type:        typeExpression,
-		Initializer: initializer,
-		Operator:    operator,
-	}, nil
+// deprecatedDeclaration consumes the `: ...` tail of a statement-leading
+// identifier that no longer introduces a binding. The removed `:=` operator and
+// a declaration missing its `let` receive distinct diagnostics.
+func (parser *Parser) deprecatedDeclaration(name lexer.Token) (Declaration, error) {
+	colon := parser.advance() // the ':' the caller checked
+	if parser.check(lexer.Equal) {
+		return Declaration{}, parser.errorAt(colon, "':=' is not a declaration operator; use 'let name = value'")
+	}
+	if _, err := parser.typeExpression(); err != nil {
+		return Declaration{}, err
+	}
+	if parser.check(lexer.Colon) {
+		secondColon := parser.advance()
+		if parser.check(lexer.Equal) {
+			return Declaration{}, parser.errorAt(secondColon, "':=' is not a declaration operator; use 'let name = value'")
+		}
+		return Declaration{}, parser.errorAt(name, "declarations require 'let'")
+	}
+	return Declaration{}, parser.errorAt(name, "declarations require 'let'")
 }

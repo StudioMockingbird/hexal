@@ -9,7 +9,7 @@ import (
 )
 
 func TestPrintScalars(t *testing.T) {
-	result := compileSource("fun demo() do\n    print(\"count = \", 42, \"\\n\")\n    print(true, false, nil)\n    print(1.5, -2.5, 3, -3)\n    letter: Rune := (65).to<Rune>()\n    print(letter)\n    size: Size := 7\n    print(size)\nend")
+	result := compileSource("fun demo() do\n    print(\"count = \", 42, \"\\n\")\n    print(true, false, nil)\n    print(1.5, -2.5, 3, -3)\n    let letter: Rune = (65).to<Rune>()\n    print(letter)\n    let size: Size = 7\n    print(size)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -29,7 +29,7 @@ func TestPrintScalars(t *testing.T) {
 }
 
 func TestPrintStringsDirectAndNested(t *testing.T) {
-	result := compileSource("type Point is struct\n    x: Int32,\n    y: Int32,\nend\nfun demo(h: Heap) do\n    text: String := \"hello\"\n    print(text)\n    names: List<Int32> := List<Int32>(h)\n    defer names.free(h)\n    names.push(1)\n    print(names)\n    point: Point := Point(x = 10, y = 20)\n    print(point)\nend")
+	result := compileSource("type Point is struct\n    x: Int32,\n    y: Int32,\nend\nfun demo(h: Heap) do\n    let text: String = \"hello\"\n    print(text)\n    let names: List<Int32> = List<Int32>(h)\n    defer names.free(h)\n    names.push(1)\n    print(names)\n    let point: Point = Point(x = 10, y = 20)\n    print(point)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -47,7 +47,7 @@ func TestPrintStringsDirectAndNested(t *testing.T) {
 }
 
 func TestPrintNestedStringQuoting(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    names: List<String> := List<String>(h)\n    defer names.free(h)\n    names.push(\"hello\")\n    print(names)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    let names: List<String> = List<String>(h)\n    defer names.free(h)\n    names.push(\"hello\")\n    print(names)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -63,7 +63,7 @@ func TestPrintNestedStringQuoting(t *testing.T) {
 }
 
 func TestPrintError(t *testing.T) {
-	result := compileSource("import\n  Fs from std.fs\nend\nfun demo() do\n    err: Error := Error(ErrorKind.Other(header = \"Fs.File Error\"), \"file not found\")\n    print(err)\nend")
+	result := compileSource("import\n  Fs from std.fs\nend\nfun demo() do\n    let err: Error = Error(ErrorKind.Other(header = \"Fs.File Error\"), \"file not found\")\n    print(err)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -76,7 +76,7 @@ func TestPrintError(t *testing.T) {
 // One source print call is one transaction: one builder, every fragment
 // appended to it, one commit, one release -- direct and deferred alike.
 func TestPrintIsOneBufferedTransaction(t *testing.T) {
-	result := compileSource("type Point is struct\n    x: Int32,\n    y: Int32,\nend\nfun demo() do\n    point: Point := Point(x = 10, y = 20)\n    print(\"a\", point, 1)\nend")
+	result := compileSource("type Point is struct\n    x: Int32,\n    y: Int32,\nend\nfun demo() do\n    let point: Point = Point(x = 10, y = 20)\n    print(\"a\", point, 1)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -125,7 +125,7 @@ func TestPrintOnlyProgramAddsNoDependency(t *testing.T) {
 // to standard output takes the same critical section inside that job.
 func TestPrintCommitIsOneSerializedJob(t *testing.T) {
 	result := assertCompiles(t, "fun worker(): Bool do\n    print(1)\n    return true\nend\n"+
-		"fun run(): Nil | Error do\n    task: Task<Bool> := try spawn worker()\n    task.join()\n    return nil\nend\nrun()\n")
+		"fun run(): Nil | Error do\n    let task: Task<Bool> = try spawn worker()\n    task.join()\n    return nil\nend\nrun()\n")
 	sink := printC(t, result)
 	if strings.Count(sink, "hex_event_work_call(") != 1 {
 		t.Fatalf("a print call must be exactly one work submission:\n%s", sink)
@@ -149,7 +149,7 @@ func TestPrintCommitIsOneSerializedJob(t *testing.T) {
 // A deferred print keeps registration-time capture and gets its own complete
 // transaction when the defer executes.
 func TestPrintDeferredIsOneTransaction(t *testing.T) {
-	result := compileSource("fun demo() do\n    text: String := \"early\"\n    defer print(text, 1)\nend")
+	result := compileSource("fun demo() do\n    let text: String = \"early\"\n    defer print(text, 1)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -171,19 +171,19 @@ func TestPrintDiagnostics(t *testing.T) {
 		want   string
 	}{
 		{"fun demo() do\n    print()\nend", "print expects at least 1 argument"},
-		{"fun demo() do\n    value: Int32 := 1\n    pointer: Ptr<Int32> := @value\n    print(pointer)\nend", "print does not support Ptr<Int32>"},
-		{"type Node is struct\n    value: Int32,\n    next: Ptr<Int32>,\nend\nfun demo() do\n    value: Int32 := 1\n    node: Node := Node(value = 1, next = @value)\n    print(node)\nend", "print does not support Node because next is Ptr<Int32>"},
-		{"fun demo() do\n    value: Int32 | Float32 := 1\n    print(value)\nend", "print does not support Int32 | Float32; narrow or match it first"},
-		{"fun demo() do\n    heap: Heap := Heap()\n    print(heap)\nend", "print does not support Heap"},
-		{"fun worker(): Bool do\n    return true\nend\nfun f(h: Heap): Int32 | Error do\n    task: Task<Bool> := try spawn worker()\n    print(task)\n    return 0\nend", "print does not support Task<Bool>"},
-		{"fun f(h: Heap): Int32 | Error do\n    channel: Channel<Int32> := try Channel<Int32>(h, 4)\n    print(channel)\n    return 0\nend", "print does not support Channel<Int32>"},
-		{"fun f(h: Heap): Int32 | Error do\n    mutex: Mutex := try Mutex(h)\n    print(mutex)\n    return 0\nend", "print does not support Mutex"},
-		{"counter: Atomic<Int32> := Atomic<Int32>(0)\nprint(counter)", "print does not support Atomic<Int32>"},
+		{"fun demo() do\n    let value: Int32 = 1\n    let pointer: Ptr<Int32> = @value\n    print(pointer)\nend", "print does not support Ptr<Int32>"},
+		{"type Node is struct\n    value: Int32,\n    next: Ptr<Int32>,\nend\nfun demo() do\n    let value: Int32 = 1\n    let node: Node = Node(value = 1, next = @value)\n    print(node)\nend", "print does not support Node because next is Ptr<Int32>"},
+		{"fun demo() do\n    let value: Int32 | Float32 = 1\n    print(value)\nend", "print does not support Int32 | Float32; narrow or match it first"},
+		{"fun demo() do\n    let heap: Heap = Heap()\n    print(heap)\nend", "print does not support Heap"},
+		{"fun worker(): Bool do\n    return true\nend\nfun f(h: Heap): Int32 | Error do\n    let task: Task<Bool> = try spawn worker()\n    print(task)\n    return 0\nend", "print does not support Task<Bool>"},
+		{"fun f(h: Heap): Int32 | Error do\n    let channel: Channel<Int32> = try Channel<Int32>(h, 4)\n    print(channel)\n    return 0\nend", "print does not support Channel<Int32>"},
+		{"fun f(h: Heap): Int32 | Error do\n    let mutex: Mutex = try Mutex(h)\n    print(mutex)\n    return 0\nend", "print does not support Mutex"},
+		{"let counter: Atomic<Int32> = Atomic<Int32>(0)\nprint(counter)", "print does not support Atomic<Int32>"},
 		{"fun helper() do\nend\nprint(helper)", "print does not support Fun<()>"},
-		{"type Inner is struct\n    next: Ptr<Int32>,\nend\ntype Outer is struct\n    inner: Inner,\nend\nfun demo() do\n    mut value: Int32 := 1\n    outer: Outer := Outer(inner = Inner(next = @value))\n    print(outer)\nend", "print does not support Outer because inner is Inner"},
-		{"print: Int32 := 1", "print is a protected built-in name"},
+		{"type Inner is struct\n    next: Ptr<Int32>,\nend\ntype Outer is struct\n    inner: Inner,\nend\nfun demo() do\n    let mut value: Int32 = 1\n    let outer: Outer = Outer(inner = Inner(next = @value))\n    print(outer)\nend", "print does not support Outer because inner is Inner"},
+		{"let print: Int32 = 1", "print is a protected built-in name"},
 		{"fun print() do\nend", "print is a protected built-in name"},
-		{"fun demo() do\n    step: Int32 | EoS := 1\n    print(step)\nend", "print does not support Int32 | EoS"},
+		{"fun demo() do\n    let step: Int32 | EoS = 1\n    print(step)\nend", "print does not support Int32 | EoS"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
@@ -195,14 +195,14 @@ func TestPrintDiagnostics(t *testing.T) {
 func TestPrintNoResult(t *testing.T) {
 	// The destination is otherwise valid, so failure proves that print
 	// produces no value rather than that standalone Nil is invalid.
-	result := compileSource("fun demo() do\n    bad: Int32 := print(\"x\")\nend")
+	result := compileSource("fun demo() do\n    let bad: Int32 = print(\"x\")\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "print produces no value") {
 		t.Fatalf("Compile stderr = %#v, want no-result rejection", result.Stderr)
 	}
 }
 
 func TestPrintDeferred(t *testing.T) {
-	result := compileSource("fun demo() do\n    defer print(\"leaving\\n\")\n    text: String := \"early\"\n    defer print(text)\nend")
+	result := compileSource("fun demo() do\n    defer print(\"leaving\\n\")\n    let text: String = \"early\"\n    defer print(text)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

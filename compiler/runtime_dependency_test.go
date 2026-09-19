@@ -7,7 +7,7 @@ import (
 
 func TestCompileReportsMimallocForDynamicAllocation(t *testing.T) {
 	result := Compile(map[string]string{
-		"app.hex": "h: Heap := Heap()\n",
+		"app.hex": "let h: Heap = Heap()\n",
 	}, "app.hex", Project{})
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("ExitCode = %d, want success: %v", result.ExitCode, result.Stderr)
@@ -19,7 +19,7 @@ func TestCompileReportsMimallocForDynamicAllocation(t *testing.T) {
 
 func TestCompileOmitsMimallocForScalarProgram(t *testing.T) {
 	result := Compile(map[string]string{
-		"app.hex": "value: Int32 := 1\n",
+		"app.hex": "let value: Int32 = 1\n",
 	}, "app.hex", Project{})
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("ExitCode = %d, want success: %v", result.ExitCode, result.Stderr)
@@ -31,7 +31,7 @@ func TestCompileOmitsMimallocForScalarProgram(t *testing.T) {
 
 func TestCompileReportsLibuvForTaskProgram(t *testing.T) {
 	result := Compile(map[string]string{
-		"app.hex": "fun work(): Int32 do\n    return 1\nend\nfun run(): Int32 | Error do\n    task: Task<Int32> := try spawn work()\n    return task.join()\nend\n",
+		"app.hex": "fun work(): Int32 do\n    return 1\nend\nfun run(): Int32 | Error do\n    let task: Task<Int32> = try spawn work()\n    return task.join()\nend\n",
 	}, "app.hex", Project{})
 	if result.ExitCode != ExitSuccess {
 		t.Fatalf("ExitCode = %d, want success: %v", result.ExitCode, result.Stderr)
@@ -43,7 +43,7 @@ func TestCompileReportsLibuvForTaskProgram(t *testing.T) {
 
 func TestCompileFailureReturnsEmptyRuntimeDependencies(t *testing.T) {
 	result := Compile(map[string]string{
-		"app.hex": "value: Int32 := \"wrong\"\n",
+		"app.hex": "let value: Int32 = \"wrong\"\n",
 	}, "app.hex", Project{})
 	if result.ExitCode != ExitFailure {
 		t.Fatalf("ExitCode = %d, want failure", result.ExitCode)

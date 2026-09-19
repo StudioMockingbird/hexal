@@ -6,18 +6,19 @@ import (
 )
 
 func TestLexDeclaration(t *testing.T) {
-	tokens, err := Lex("x: Int32 := 13")
+	tokens, err := Lex("let x: Int32 = 13")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
 
 	want := []Token{
-		{Kind: Identifier, Lexeme: "x", Line: 1, Column: 1},
-		{Kind: Colon, Lexeme: ":", Line: 1, Column: 2},
-		{Kind: Identifier, Lexeme: "Int32", Line: 1, Column: 4},
-		{Kind: ColonEqual, Lexeme: ":=", Line: 1, Column: 10},
-		{Kind: Integer, Lexeme: "13", Line: 1, Column: 13},
-		{Kind: EOF, Line: 1, Column: 15},
+		{Kind: Let, Lexeme: "let", Line: 1, Column: 1},
+		{Kind: Identifier, Lexeme: "x", Line: 1, Column: 5},
+		{Kind: Colon, Lexeme: ":", Line: 1, Column: 6},
+		{Kind: Identifier, Lexeme: "Int32", Line: 1, Column: 8},
+		{Kind: Equal, Lexeme: "=", Line: 1, Column: 14},
+		{Kind: Integer, Lexeme: "13", Line: 1, Column: 16},
+		{Kind: EOF, Line: 1, Column: 18},
 	}
 
 	if len(tokens) != len(want) {
@@ -302,15 +303,15 @@ func TestLexMinusAndAllIntegerBases(t *testing.T) {
 }
 
 func TestLexHexadecimalInteger(t *testing.T) {
-	tokens, err := Lex("mask: Int32 := 0xFF")
+	tokens, err := Lex("let mask: Int32 = 0xFF")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
 
-	if got, want := tokens[4].Kind, HexInteger; got != want {
+	if got, want := tokens[5].Kind, HexInteger; got != want {
 		t.Fatalf("hex token kind = %v, want %v", got, want)
 	}
-	if got, want := tokens[4].Lexeme, "0xFF"; got != want {
+	if got, want := tokens[5].Lexeme, "0xFF"; got != want {
 		t.Fatalf("hex token lexeme = %q, want %q", got, want)
 	}
 }
@@ -337,19 +338,22 @@ func TestLexRejectsMalformedHexadecimalInteger(t *testing.T) {
 }
 
 func TestLexSkipsSingleLineAndDocumentationComments(t *testing.T) {
-	source := "--- declare the counter\nx: Int32 := 13 -- initialize\nx = 14 -- eof"
+	source := "--- declare the counter\nlet x: Int32 = 13 -- initialize\nx = 14 -- eof"
 	tokens, err := Lex(source)
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
 
-	if len(tokens) != 9 {
-		t.Fatalf("Lex returned %d tokens, want 9", len(tokens))
+	if len(tokens) != 10 {
+		t.Fatalf("Lex returned %d tokens, want 10", len(tokens))
 	}
-	if got, want := tokens[0], (Token{Kind: Identifier, Lexeme: "x", Line: 2, Column: 1}); got != want {
+	if got, want := tokens[0], (Token{Kind: Let, Lexeme: "let", Line: 2, Column: 1}); got != want {
 		t.Fatalf("first token = %#v, want %#v", got, want)
 	}
-	if got, want := tokens[5], (Token{Kind: Identifier, Lexeme: "x", Line: 3, Column: 1}); got != want {
+	if got, want := tokens[1], (Token{Kind: Identifier, Lexeme: "x", Line: 2, Column: 5}); got != want {
+		t.Fatalf("declaration name token = %#v, want %#v", got, want)
+	}
+	if got, want := tokens[6], (Token{Kind: Identifier, Lexeme: "x", Line: 3, Column: 1}); got != want {
 		t.Fatalf("second statement token = %#v, want %#v", got, want)
 	}
 }
@@ -597,33 +601,22 @@ func TestLexClosedMultilineStringReportsOneDiagnostic(t *testing.T) {
 	}
 }
 
-// `:=` is one token, produced only when the two characters are adjacent.
-// Separated, they stay Colon then Equal, so `x : = 5` is a syntax error.
-func TestLexColonEqualRequiresAdjacency(t *testing.T) {
-	joined, err := Lex("x := 13")
-	if err != nil {
-		t.Fatalf("Lex returned an error: %v", err)
-	}
-	want := []Token{
-		{Kind: Identifier, Lexeme: "x", Line: 1, Column: 1},
-		{Kind: ColonEqual, Lexeme: ":=", Line: 1, Column: 3},
-		{Kind: Integer, Lexeme: "13", Line: 1, Column: 6},
-		{Kind: EOF, Line: 1, Column: 8},
-	}
-	if len(joined) != len(want) {
-		t.Fatalf("Lex(\"x := 13\") returned %d tokens, want %d: %#v", len(joined), len(want), joined)
-	}
-	for index := range want {
-		if joined[index] != want[index] {
-			t.Fatalf("token %d = %#v, want %#v", index, joined[index], want[index])
+// `:` and `=` are independent tokens. Source adjacency carries no meaning, so
+// `:=` and `: =` lex identically.
+func TestLexColonAndEqualAreSeparateTokens(t *testing.T) {
+	for _, source := range []string{"x := 13", "x : = 13"} {
+		tokens, err := Lex(source)
+		if err != nil {
+			t.Fatalf("Lex(%q) returned an error: %v", source, err)
 		}
-	}
-
-	spaced, err := Lex("x : = 13")
-	if err != nil {
-		t.Fatalf("Lex returned an error: %v", err)
-	}
-	if spaced[1].Kind != Colon || spaced[2].Kind != Equal {
-		t.Fatalf("\"x : = 13\" lexed as %#v, want a separate Colon and Equal", spaced)
+		wantKinds := []TokenKind{Identifier, Colon, Equal, Integer, EOF}
+		if len(tokens) != len(wantKinds) {
+			t.Fatalf("Lex(%q) returned %d tokens, want %d: %#v", source, len(tokens), len(wantKinds), tokens)
+		}
+		for index, kind := range wantKinds {
+			if tokens[index].Kind != kind {
+				t.Fatalf("Lex(%q) token %d kind = %v, want %v", source, index, tokens[index].Kind, kind)
+			}
+		}
 	}
 }

@@ -1,7 +1,7 @@
 # RFC 0219: Remove `static`; Define Top-Level `let` Storage
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; blocked on RFC 0218, not scheduled
+- Status: Implemented
 - Created: 2026-09-18
 - Updated: 2026-09-19
 - Scope: remove the `static` keyword without adding a replacement keyword;

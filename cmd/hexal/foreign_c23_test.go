@@ -39,7 +39,7 @@ func writeAdderProject(t *testing.T, root string) {
 		"end\n"+
 		"export\n    adder_add\nend\n")
 	writeCLIFile(t, root, "main.hex", "import\n    Adder from \"./binding\"\nend\n"+
-		"mut total: Int32 := 0\n"+
+		"let mut total: Int32 = 0\n"+
 		"unsafe do\n    total = Adder.adder_add(20, 22)\nend\n"+
 		"print(total)\n")
 }

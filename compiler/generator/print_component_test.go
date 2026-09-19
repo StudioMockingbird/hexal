@@ -72,7 +72,7 @@ func TestPrintComponentEmitsPair(t *testing.T) {
 
 // A program without print emits no print component.
 func TestPrintComponentAbsentWithoutPrint(t *testing.T) {
-	program := checkedGeneratorSource(t, "x: Int32 := 1\n")
+	program := checkedGeneratorSource(t, "let x: Int32 = 1\n")
 	files := generateOne(t, program)
 	if _, exists := files["hexal/print.h"]; exists {
 		t.Fatalf("no-print program emitted hexal/print.h")

@@ -988,6 +988,10 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	var moduleBody strings.Builder
 	moduleBody.WriteString("#include \"" + compilerTypes.ModuleArtifactStem(canonicalID) + ".h\"\n\n")
 
+	// The entry environment type precedes every prototype and definition that
+	// names it, and never appears in a generated header.
+	writeEntryEnvironmentType(&moduleBody, program)
+
 	// Module value definitions precede every function/method definition and
 	// prototype in this file: their static initializers reference no other
 	// declaration, so ordinary C forward-declaration concerns do not apply,
@@ -1026,14 +1030,16 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		}
 	}
 	definitions := definitionContext{
-		body:      &moduleBody,
-		functions: functions,
-		methods:   methods,
-		typeState: typeState,
-		strings:   stringState,
-		owner:     owner,
-		filename:  logicalKey,
-		tags:      merged.tags,
+		body:         &moduleBody,
+		functions:    functions,
+		methods:      methods,
+		typeState:    typeState,
+		strings:      stringState,
+		owner:        owner,
+		filename:     logicalKey,
+		tags:         merged.tags,
+		envFunctions: entryEnvironmentFunctions(program),
+		envMethods:   entryEnvironmentMethods(program),
 	}
 	// Local named function and anonymous literal helpers get one shared
 	// module-local ordinal stream. Their prototypes are emitted first, so an
@@ -1105,6 +1111,8 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		owner:          owner,
 		filename:       logicalKey,
 		moduleID:       canonicalID,
+		envFunctions:   entryEnvironmentFunctions(program),
+		envMethods:     entryEnvironmentMethods(program),
 	}
 	if isRoot {
 		// The selected root module's C file owns the process entry point.
@@ -1159,6 +1167,12 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		}
 		if merged.concurrencyState != nil && merged.concurrencyState.used {
 			moduleBody.WriteString("    hex_scheduler_init();\n")
+		}
+		if len(program.EntryCaptures) > 0 {
+			// The one environment instance is an automatic local in main; no
+			// mutable C file-scope object exists.
+			moduleBody.WriteString("    " + entryEnvironmentName + " env;\n")
+			renderState.envPointer = "&env"
 		}
 		if statementErr := writeStatements(&moduleBody, program.Statements, renderState, nil, false, program.Defers); statementErr != nil {
 			return "", "", statementErr

@@ -477,7 +477,7 @@ int main(void) {
 func TestLibuvEventRuntimeProbe(t *testing.T) {
 	requireBackend(t)
 	dir := t.TempDir()
-	writeSource(t, dir, "main.hex", "import\n  Io from std.io\nend\nfun helper(): Int32 do\n    return 7\nend\nfun run(): Int32 | Error do\n    out: Io.IO := try Io.stdout()\n    w: Size | Error := out.write(\"ok\".bytes())\n    task: Task<Int32> := try spawn helper()\n    return task.join()\nend\nvalue: Int32 | Error := run()\n")
+	writeSource(t, dir, "main.hex", "import\n  Io from std.io\nend\nfun helper(): Int32 do\n    return 7\nend\nfun run(): Int32 | Error do\n    let out: Io.IO = try Io.stdout()\n    let w: Size | Error = out.write(\"ok\".bytes())\n    let task: Task<Int32> = try spawn helper()\n    return task.join()\nend\nlet value: Int32 | Error = run()\n")
 	result, err := Build(withTestBackend(t, BuildOptions{Root: dir}))
 	if err != nil {
 		if len(result.Commands) > 0 {
@@ -508,11 +508,11 @@ func TestLibuvSchedulerContentionProbe(t *testing.T) {
 end
 
 fun blocked(): Int32 | Error do
-    input: Io.IO := try Io.stdin()
-    h: Heap := Heap()
-    buffer: List<Byte> := List<Byte>(h)
+    let input: Io.IO = try Io.stdin()
+    let h: Heap = Heap()
+    let buffer: List<Byte> = List<Byte>(h)
     defer buffer.free(h)
-    result: Size | EoS | Error := input.read(buffer, 1)
+    let result: Size | EoS | Error = input.read(buffer, 1)
     return 0
 end
 fun ready(): Int32 do
@@ -520,16 +520,16 @@ fun ready(): Int32 do
     return 7
 end
 fun run(): Int32 | Error do
-    first: Task<Int32 | Error> := try spawn blocked()
-    second: Task<Int32 | Error> := try spawn blocked()
-    third: Task<Int32 | Error> := try spawn blocked()
-    fourth: Task<Int32 | Error> := try spawn blocked()
-    fifth: Task<Int32 | Error> := try spawn blocked()
-    sixth: Task<Int32 | Error> := try spawn blocked()
-    ready_task: Task<Int32> := try spawn ready()
+    let first: Task<Int32 | Error> = try spawn blocked()
+    let second: Task<Int32 | Error> = try spawn blocked()
+    let third: Task<Int32 | Error> = try spawn blocked()
+    let fourth: Task<Int32 | Error> = try spawn blocked()
+    let fifth: Task<Int32 | Error> = try spawn blocked()
+    let sixth: Task<Int32 | Error> = try spawn blocked()
+    let ready_task: Task<Int32> = try spawn ready()
     return ready_task.join()
 end
-value: Int32 | Error := run()
+let value: Int32 | Error = run()
 `
 	writeSource(t, dir, "main.hex", source)
 	result, err := Build(withTestBackend(t, BuildOptions{Root: dir}))
@@ -609,7 +609,7 @@ value: Int32 | Error := run()
 func TestLibuvEventFoundationProbe(t *testing.T) {
 	selected := requireBackend(t)
 	compileResult := compiler.Compile(map[string]string{
-		"main.hex": "import\n  Io from std.io\nend\nfun helper(): Int32 do\n    return 7\nend\nfun run(): Int32 | Error do\n    out: Io.IO := try Io.stdout()\n    w: Size | Error := out.write(\"ok\".bytes())\n    task: Task<Int32> := try spawn helper()\n    return task.join()\nend\nvalue: Int32 | Error := run()\n",
+		"main.hex": "import\n  Io from std.io\nend\nfun helper(): Int32 do\n    return 7\nend\nfun run(): Int32 | Error do\n    let out: Io.IO = try Io.stdout()\n    let w: Size | Error = out.write(\"ok\".bytes())\n    let task: Task<Int32> = try spawn helper()\n    return task.join()\nend\nlet value: Int32 | Error = run()\n",
 	}, "main.hex", compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU})
 	if len(compileResult.Stderr) > 0 {
 		t.Fatalf("Hexal compilation failed: %v", compileResult.Stderr)

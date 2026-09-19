@@ -215,9 +215,9 @@ const (
 	For
 	In
 	Do
+	Let
 	ByteLiteral
 	RuneLiteral
-	Static
 	Import
 	Export
 	Unsafe
@@ -227,9 +227,6 @@ const (
 	// backslash is rejected. The spelling keeps its delimiters so the parser
 	// can distinguish the system and quoted forms.
 	CHeaderLiteral
-	// ColonEqual is one token, not Colon followed by Equal, so `x : = 5`
-	// stays a syntax error.
-	ColonEqual
 	// Ellipsis is the one token `...`, recognized by longest match so `.`
 	// member selection is unchanged. It marks a final rest parameter or a
 	// final rest function-type parameter.
@@ -272,7 +269,7 @@ var keywords = map[string]TokenKind{
 	"for":      For,
 	"in":       In,
 	"do":       Do,
-	"static":   Static,
+	"let":      Let,
 	"import":   Import,
 	"export":   Export,
 	"unsafe":   Unsafe,
@@ -285,8 +282,8 @@ func (kind TokenKind) String() string {
 		return "identifier"
 	case Colon:
 		return ":"
-	case ColonEqual:
-		return ":="
+	case Let:
+		return "let"
 	case Equal:
 		return "="
 	case Less:
@@ -429,8 +426,6 @@ func (kind TokenKind) String() string {
 		return "in"
 	case Do:
 		return "do"
-	case Static:
-		return "static"
 	case Import:
 		return "import"
 	case Export:
@@ -643,13 +638,9 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 		column += end - index
 		index = end
 	case ch == ':':
-		kind, lexeme := Colon, ":"
-		if index+1 < len(source) && source[index+1] == '=' {
-			kind, lexeme = ColonEqual, ":="
-		}
-		tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: column})
-		index += len(lexeme)
-		column += len(lexeme)
+		tokens = append(tokens, Token{Kind: Colon, Lexeme: ":", Line: line, Column: column})
+		index++
+		column++
 	case ch == '!':
 		kind, lexeme := Bang, "!"
 		if index+1 < len(source) && source[index+1] == '=' {

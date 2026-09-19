@@ -27,6 +27,10 @@ type MethodDeclaration struct {
 	SourceLine   int
 	SourceColumn int
 	Exported     bool // external linkage + prototype in this module's header
+	// Captures and EnvDependent mirror FunctionDeclaration.
+	Captures      []Capture
+	EnvDependent  bool
+	DirectCallees map[string]bool
 }
 
 func (MethodDeclaration) statementNode() {}
@@ -309,6 +313,10 @@ func checkMethodBody(declaration parser.MethodDeclaration, checked MethodDeclara
 		moduleID:   ctx.names.moduleID,
 		logicalKey: ctx.names.logicalKey,
 	}
+	if ctx.names.isEntryModule() {
+		body.capture = &captureState{allowed: true, bindings: make(map[string]binding)}
+	}
+	body.rootIndex = ctx.rootIndex
 	for index := range parameters {
 		// No nested scope may shadow an import alias; a conflicting
 		// parameter is rejected like any other redeclaration.
@@ -327,6 +335,9 @@ func checkMethodBody(declaration parser.MethodDeclaration, checked MethodDeclara
 	diagnostics = append(diagnostics, bodyDiagnostics...)
 	checked.Body = statements
 	checked.Defers = append(checked.Defers, body.defers...)
+	checked.Captures = capturesOf(body.capture)
+	checked.EnvDependent = len(checked.Captures) > 0
+	checked.DirectCallees = directCallees(declaration.Body)
 
 	if analyzeReturns && checked.Result != nil && len(bodyDiagnostics) == 0 && FallsThrough(checked.Body) {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.End,

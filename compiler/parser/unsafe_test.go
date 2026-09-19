@@ -67,7 +67,7 @@ func TestParseUnsafeRequiresDoAndEnd(t *testing.T) {
 
 // `unsafe` is a reserved word: it can no longer name a binding.
 func TestUnsafeIsReserved(t *testing.T) {
-	if _, err := Parse(mustLex(t, "unsafe: Int32 := 1")); err == nil {
+	if _, err := Parse(mustLex(t, "let unsafe: Int32 = 1")); err == nil {
 		t.Fatalf("Parse accepted unsafe as a binding name")
 	}
 }
