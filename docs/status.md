@@ -11,10 +11,9 @@ gets deleted.
 
 ### Implementation-ready
 
-| Work | Spec |
-| --- | --- |
-| Prove end-to-end automatic import and static linking of an unmodified Raylib package | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) |
-| Reconcile RFC 0217's host-neutral output invariant with the implementation: `Project{}` generated artifacts and the snippet SHA manifest changed in 14 entries; either restore the pre-RFC artifacts or explicitly amend the spec/reference and retain a reviewed new baseline | [0217](specs/archived/0217-clang-linux-backend-packaging-and-validation.md) |
+| Work | Spec | Effort | ROI |
+| --- | --- | --- | --- |
+| Prove end-to-end automatic import and static linking of an unmodified Raylib package | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) | High | Medium |
 
 ## Deferred ideas
 
@@ -28,19 +27,9 @@ that disagrees with `docs/reference.md` is wrong.
 
 A bug is real whether or not its owning spec is scheduled.
 
-| Bug | Owning spec |
-| --- | --- |
-| The normative EBNF gives `fun name(...) do ... end` two identical derivations: `function-declaration` and `local-function-declaration` both enter through `top-level-item`; make root and local function syntax unambiguous | [0179](specs/archived/0179-module-boundary-blocks.md) |
-| `interpolation-template` is not a complete quoted-literal production because it omits the opening quote, while `string-literal` still accepts unescaped `{{...}}` as ordinary characters; make the two forms disjoint and complete | [0143](specs/archived/0143-raw-strings-and-explicit-heap-interpolation.md) |
-| `line-comment` and `multiline-comment` both begin with `--`, so maximal munch can select a line comment over a multiline comment and equal-length cases have no priority rule; define deterministic comment tokenization | [0103](specs/archived/0103-language-surface-audit.md) |
-| `extern type X is opaque` is ambiguous because `opaque` is accepted by `identifier` and `alias-target` as well as by the foreign opaque-type alternative; preserve contextual-keyword behavior while making the alternatives disjoint | [0039](specs/archived/0039-c-interop-compiler-core.md) |
-| `dotted-match-pattern` is a duplicate derivation of `primary-type-expression -> named-type` for forms such as `A.B`; make the EBNF explicitly represent the intended ambiguous-until-checked pattern form | [0133](specs/archived/0133-match-exhaustiveness-and-qualified-patterns.md) |
-| A bare result-producing call whose argument is an ADT construction, for example `f(Shape.A())` as a statement, panics in the generator with a nil `state.tags` (`compiler/generator/tags.go:124`); binding the same call's result compiles and runs | [0131](specs/archived/0131-generated-c-conformance-bug-sweep.md) |
-| Generic and qualified type syntax do not compose in the EBNF: `generic-type-name` accepts only one identifier, so `Alias.Name<T>` and `Alias.Name<T>.Variant` have no complete type/pattern productions | [0190](specs/archived/0190-cross-module-generic-correctness.md) |
-| `call-statement` permits call expressions beginning with `@` or `^`, but `call-expression` can only begin with `postfix-base` and therefore cannot derive either prefix; reconcile the predicate with the call grammar or add the missing call forms | [0103](specs/archived/0103-language-surface-audit.md) |
-| List productions use inconsistent trailing-comma policy: structs, ADT payloads, arguments, and arrays allow one, while imports, exports, parameters, generic parameters, and type arguments reject it; define and apply one deliberate policy | [0179](specs/archived/0179-module-boundary-blocks.md) |
-| `reference.md`'s Pointers and nullability section states "Arithmetic, indexing, ... are unavailable", contradicting closed RFC 0156's unsafe-gated `Ptr.offset`/indexing/`.cast<U>()` | [0156](specs/archive/0156-fenced-pointer-arithmetic.md); reference correction requires explicit user approval per that RFC's own text |
-| Widening a nullable pointer to a nullable `Ptr<Unknown>` (`q: Ptr<Unknown> | Nil := p` where `p: Ptr<Byte> | Nil`) is accepted by the checker but fails in generation with `generated discriminant is missing from the program-wide registry: type:Ptr:UInt8`. Assignability admits the one-layer Unknown conversion; the generator's nullable-widen path has no representation for it | [0156](specs/archive/0156-fenced-pointer-arithmetic.md) |
+| Bug | Owning spec | Effort | ROI |
+| --- | --- | --- | --- |
+| No open bugs. | | | |
 
 ## Known coverage gaps
 
@@ -223,11 +212,6 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   this was `go test -tags c23 -run TestC23SnippetCatalogCompiles`, run once
   over the full 140-snippet catalog; it had never been run to completion
   under a real toolchain before.
-- The generator emits helper families wholesale — equality, print, union,
-  heap, io — so a small program's C contains many unused `static` helpers.
-  Demand-driven helper emission would remove the dead code. The external C23
-  suite's four `unused-*` warning suppressions are labelled Debt against this
-  entry; narrowing them is this item's job, not the suite's.
 - **The Task park/commit/wake protocol's structural generated-C assertions
   (`compiler/generator/concurrency_component_test.go`) are now joined by
   runtime evidence (RFC 0183 Track 2), but not every named scenario is
@@ -265,4 +249,3 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   completion, and root shutdown -- these remain structural-assertion-only
   claims pending either finer black-box fixtures or internal
   instrumentation neither of which this pass added.
-- To verify; import block must always be at the top of the mocule. export block must always be at the end. import, export and unsafe can only be at root level.

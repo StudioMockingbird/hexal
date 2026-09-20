@@ -8,7 +8,7 @@ Compiler behavior that disagrees with this file is a conformance bug.
 The grammar defines source shape only. Semantic rules in the remainder of this file may reject a
 grammatically valid form.
 
-Eight lexical/parser rules are not expressible in EBNF:
+Nine lexical/parser rules are not expressible in EBNF:
 
 - Tokens use maximal munch. Inside nested type-argument lists only, one `>>` token may close two
   levels; in expression position it is always one shift token.
@@ -44,6 +44,12 @@ Eight lexical/parser rules are not expressible in EBNF:
   the final `.` component. A dotted receiver such as `Geometry.Point.rotate` is one qualified
   chain, so the parser peels the final `. identifier` back out of the receiver as the method name;
   `Ptr<Point>.length` peels the same way.
+- A trailing comma is accepted in a value or member list -- struct members, ADT payload fields, call
+  and method arguments, and array elements -- and rejected in a declaration or type list -- imports,
+  exports, parameters, generic parameters, and type arguments. The grammar's `[ "," ]` alternatives
+  encode exactly this policy.
+- Maximal munch resolves comments: `--[` begins a multiline comment, and any other `--` begins a
+  line comment. The two share the `--` opener, which this notation cannot express as a predicate.
 
 The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using the `golang.org/x/exp/ebnf` format.
 
@@ -521,8 +527,14 @@ HeapAllocation
   valid pointees.
 - `Atomic<T>` cannot be a direct `Ptr` pointee. `Ptr<Atomic<T>>` and
   `Ptr<mut Atomic<T>>` are invalid type expressions.
-- Pointers name one object. Arithmetic, indexing, ordering, subtraction, integer conversion,
-  `bit_cast`, one-past values, increment/decrement, and compound assignment are unavailable.
+- Pointers name one object. Ordering, subtraction, integer conversion, `bit_cast`, one-past values,
+  increment/decrement, and compound assignment are unavailable. Inside `unsafe do ... end`,
+  `Ptr<T>.offset(count: Size)` and `Ptr<mut T>.offset(count: Size)` return a new forward pointer
+  advanced by `count`; pointer indexing `pointer[index]` is a place equivalent to
+  `^pointer.offset(index)`; and `Ptr<T>.cast<U>()` / `Ptr<mut T>.cast<U>()` change only the pointee
+  type while preserving the outer access mode. `offset` and indexing require a complete pointee and
+  reject an Array, Slice, or List pointee; `cast` permits an erased or incomplete one. A nullable
+  pointer must be narrowed before any of the three, and no implicit pointer cast is introduced.
 
 ### Functions and methods
 

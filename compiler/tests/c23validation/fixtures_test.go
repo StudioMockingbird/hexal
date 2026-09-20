@@ -66,6 +66,18 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
+		name:        "nullable-unknown-widen-runs",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "let mut b: Byte = 7\nlet p: Ptr<Byte> | Nil = @b\nlet q: Ptr<Unknown> | Nil = p\nif q != nil then\n    print(\"ok\")\nend\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "ok"},
+	},
+	{
+		name:        "discarded-call-adt-runs",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "type Shape is A | B end\nfun f(s: Shape): Int32 do\n    return 1\nend\nf(Shape.A())\nprint(\"ok\")\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "ok"},
+	},
+	{
 		name:        "match-arm-order-runs",
 		entrypoint:  "app.hex",
 		sources:     map[string]string{"app.hex": "type Shape is union | A as x: Int32 end | B as y: Int32 end | C as z: Int32 end end\nfun f(s: Shape): Int32 do\n    return match s is\n    | Shape.A then 1\n    | Shape.B then 2\n    | else then 3\n    end\nend\nlet value: Int32 | Float64 | Nil = 1\nlet union_result: Int32 = match value is\n| Int32 then 1\n| Float64 then 2\n| else then 3\nend\nprint((f(Shape.A(x = 1)) == 1) and (f(Shape.B(y = 1)) == 2) and (f(Shape.C(z = 1)) == 3) and (union_result == 1))\n"},

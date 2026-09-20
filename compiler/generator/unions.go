@@ -171,6 +171,11 @@ func writeUnionDefinitions(result *strings.Builder, state *generatedUnionState, 
 		return
 	}
 	for _, widening := range state.widenings {
+		if compilerTypes.IsNullable(widening.source) && compilerTypes.IsNullable(widening.destination) {
+			// A niche-to-niche widening is the identity (see unionWidenCall),
+			// so it emits no helper.
+			continue
+		}
 		writeUnionWidening(result, widening, tags)
 	}
 	for _, union := range state.order {
@@ -434,6 +439,13 @@ func unionEqualityCall(typ compilerTypes.Type, left, right string) string {
 }
 
 func unionWidenCall(source, destination compilerTypes.Type, rendered string) string {
+	if compilerTypes.IsNullable(source) && compilerTypes.IsNullable(destination) {
+		// Both sides are the pointer-null niche: the union value is the
+		// pointer itself, and a source member already converts implicitly to
+		// the destination's wider pointer, so widening is the identity and no
+		// helper (whose name would embed a pointer CName) is emitted.
+		return rendered
+	}
 	return "hex_internal_widen_" + source.CName + "_to_" + destination.CName + "(" + rendered + ")"
 }
 

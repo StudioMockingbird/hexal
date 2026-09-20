@@ -28,6 +28,9 @@ ExternBlock = "extern"  "c"  "from"  CHeaderLiteral  "do"
                 { ExternDeclaration }  "end" .
 ExternDeclaration = ExternType | ExternFunction
                      | ExternConstant | ExternGlobal .
+// "opaque" is a contextual keyword after "is" in an extern type: it selects the
+// opaque form, not an alias target, even though "opaque" is also an identifier
+// that AliasTarget can derive. This notation cannot express that exclusion.
 ExternType = "type"  identifier  "is"  AliasTarget
               | "type"  identifier  [ "as"  c_record_name_literal ]
                  "is"  ( "opaque" | ExternStructDefinition ) .
@@ -119,7 +122,7 @@ PrimaryTypeExpression = NamedType | GenericType | ArrayType
 NamedType = identifier
               { "."  identifier } .
 GenericType = GenericTypeName  TypeArgumentList .
-GenericTypeName = identifier .
+GenericTypeName = identifier  { "."  identifier } .
 
 TypeArgumentList = "<"  TypeArgument
                       { ","  TypeArgument }  ">" .
@@ -174,6 +177,9 @@ PrimaryExpression = identifier | "self"
                      | raw_string_literal | InterpolationTemplate
                      | "true" | "false" | "nil" | "eos"
                      | "("  Expression  ")" .
+// An interpolation template is a double-quoted literal whose characters exclude
+// an unescaped "{{"; a string_literal contains no "{{". This notation cannot
+// express the exclusion, so both use the same meta character placeholder.
 InterpolationTemplate = "meta"
                           { InterpolationText | Interpolation }
                           "meta" .
@@ -192,7 +198,7 @@ MatchPattern = "else" | "true" | "false" | "eos"
                 | ScalarPattern
                 | QualifiedVariantPattern | PrimaryTypeExpression .
 ScalarPattern = [ "-" ] ( integer_literal | byte_literal | rune_literal ) .
-QualifiedVariantPattern = identifier  TypeArgumentList
+QualifiedVariantPattern = GenericTypeName  TypeArgumentList
                              "."  identifier .
 
 unary_operator = "-" | "!" | "~" .
@@ -247,6 +253,9 @@ rune_escape = "\\"  ( "\\" | "'" | "\"" | "n" | "r" | "t" | "0"
               | unicode_escape ) .
 unicode_escape = "u{"  hex_digit  { hex_digit }  "}" .
 
+// Maximal munch: "--[" begins multiline_comment; any other "--" begins
+// line_comment. The two forms are otherwise ambiguous because both open with
+// "--", which this notation cannot express as a predicate.
 line_comment = "--"  { non_newline_character } .
 multiline_comment = "--["  { comment_character }  "]--" .
 whitespace = " " | horizontal_tab | carriage_return | newline .

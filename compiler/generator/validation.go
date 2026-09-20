@@ -186,7 +186,7 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 				// the statements after print still pass preflight.
 				continue
 			}
-			if _, err := renderCallStatement(statement, state); err != nil {
+			if err := validateCallStatement(statement, state); err != nil {
 				return err
 			}
 		case checker.TryStatement:

@@ -33,10 +33,17 @@ pointer bindings, escaped values, opaque calls, and physical leaks are not
 fully decided statically. This inventory must distinguish implemented behavior
 from proposed work so that a completed row is not re-opened accidentally.
 
+This document is a coordination map. It is not an implementation vehicle and
+must not be implemented from: every row's real definition of done lives in the
+owning spec named in its Delta column. A row marked solved means **solved for
+the checked safe-language operations** — unsafe entry, foreign writes, and
+escaped aliases stay outside every such claim, and the row wording says so
+rather than relying on the reader to remember it.
+
 ## Goals
 
-- Fix the inventory as the definition of done for memory safety in safe
-  Hexal: every row states its mechanism, not its aspiration.
+- Fix the inventory as the shared picture of memory safety in safe Hexal:
+  every row states its mechanism, not its aspiration.
 - Keep every delta local and syntactic, or runtime, or test-time — never a
   new type-system dimension.
 - Protect solved rows: any proposal touching allocation, slicing, text, or
@@ -58,23 +65,50 @@ mechanism, not the whole implementation.
 
 | Bug | Status today | Delta (this RFC) |
 |---|---|---|
-| Use-after-free | Direct locally tracked bindings are rejected. A pointer copied to a second binding is intentionally not tracked, and the current reference documents that limitation | RFC 0165 may add conservative intraprocedural alias facts. Debug fill-after-free belongs to RFC 0158's runtime-debugging scope |
+| Use-after-free | Direct locally tracked bindings are rejected. A pointer copied to a second binding is intentionally not tracked, and the current reference documents that limitation. Since RFC 0156 closed, `p.offset(n)` and `p.cast<U>()` inside `unsafe` are two further untracked alias sources | RFC 0165 may add conservative intraprocedural alias facts for the `let q = p` form. Whether `.offset`/`.cast` results inherit their base's identity is deliberately left open by RFC 0165 and wants its own spec. Debug fill-after-free belongs to RFC 0158's runtime-debugging scope |
 | Memory leak | No static or production leak diagnosis. A process-exit report is not currently implemented; mimalloc statistics in measurement tests are not a leak tracker | RFC 0158 owns opt-in physical-allocation tracking. Static non-escaping leak diagnosis is deferred |
 | Double free | Direct locally tracked bindings are rejected. Copies are intentionally not tracked | RFC 0165 may add conservative intraprocedural alias facts. Debug tombstones belong to RFC 0158 |
-| Null dereference | Solved. Nullable must be narrowed before calls, method dispatch, and View construction (`checker/methods.go`, `checker/views_bridge.go`) | None. Row is closed; proposals must not reopen it |
-| Invalid free | Local/ref-derived `Heap.free` arguments are rejected by the checker. Unknown or foreign addresses remain outside local proof | Keep the local rejection. Foreign-pointer ownership remains RFC 0039's responsibility; do not describe this row as wholly solved |
+| Null dereference | Solved for the checked safe-language operations. Nullable must be narrowed before member access and method dispatch (`checker/methods.go`) | None. Row is closed; proposals must not reopen it |
+| Invalid free | Implemented: `Heap.free` of an argument traceable to `@` of local storage is rejected (`free does not accept a pointer into this function's local storage`). Unknown or foreign addresses remain outside local proof. **Cross-allocator release is not rejected**: `h.free(pool_ptr)`, `h.free(stash_ptr)`, and `pool.free(heap_ptr)` are all accepted today | Add cross-allocator rejection where the local provenance edge already proves it. `checker/pool.go` already reads `flow.provenance` to reject `pointer was allocated from a different Pool`; extending that read to `Heap.free` and to Stash is local, syntactic, and needs no new concept. Foreign-pointer ownership remains RFC 0039's |
 | Stack buffer overflow | Safe Array indexing and slicing are checked; foreign writes remain outside the language proof | None in-language. Foreign writes through exported pointers are RFC 0039's |
 | Heap buffer overflow | Safe List/Array indexing and slicing are checked; escaped or foreign writes remain outside the language proof | None in-language. Same foreign carve-out |
 | Out-of-bounds read | Solved for the checked Array/List/String/View paths. Constant Array indices are already rejected; unknown cases trap at runtime | Broader constant folding is optional. It must not be described as entirely unimplemented |
 | Off-by-one | Half solved. `for...in` is exact by construction; checked indexing converts mistakes to traps | Compiler-side advisory warning for suspicious `<=` or `==` against `.length()`. It remains non-fatal and may have false positives |
-| Uninitialized read | Solved by construction. Mandatory initializers; `allocate<T>(initial)`; complete aggregate construction | None, plus a guardrail: RFC 0157's uninit escape must preserve this row — unsafe-gated allocation with write-before-read/move/drop preconditions and debug fill, default untouched |
+| Uninitialized read | Solved by construction for safe code. Mandatory initializers; `allocate<T>(initial)`; complete aggregate construction | None, plus a guardrail: RFC 0157's uninit escape must **confine** this row rather than preserve it. An unsafe-gated uninitialized allocation creates exactly the bug this row calls solved; what must be preserved is that safe code cannot spell it. RFC 0157 owns the write-before-read contract as a programmer assertion, not a checker proof, and adds no fill in any build mode |
 | Missing NUL terminator | Solved structurally. `hex_string` is `{data, byte_length, rune_length}` (`generator/packages/string.h`); `Strand` is inline data — length, never sentinel | Confine NUL creation to C-boundary conversion ops (single audited sites each). Safe code cannot spell the bug |
+
+## Detection phases
+
+The inventory uses three distinct outcomes:
+
+| Outcome | Meaning |
+|---|---|
+| Compile-time | The checker proves a violation from local syntax, type, provenance, or flow facts and rejects it |
+| Runtime/debug | The program or selected debug backend detects a dynamic violation or surviving physical allocation |
+| Undecided | The value escaped, entered foreign/unsafe code, or requires facts unavailable to the checker; the program remains accepted |
+
+Compile-time checks include null narrowing, direct invalid/local frees,
+direct locally tracked use-after-free and double-free, constant bounds cases,
+and unsafe-operation gates. RFC 0165 may extend only the local alias portion.
+
+Runtime/debug checks include dynamic collection bounds, dynamic Pool slot
+validation, allocation failure, RFC 0158 leak reports, and optional debug
+freed-state, quarantine, tombstone, and sanitizer checks. None of these
+runtime facilities introduces ownership or lifetime syntax.
+
+Uninitialized reads from a future `allocate_uninit` remain RFC 0157's unsafe
+contract. Foreign-pointer correctness, raw-pointer bounds after unsafe entry,
+and cross-task correctness remain conservative/contract-based rather than
+being silently promoted to compile-time guarantees.
 
 ## Graduation
 
-- Checker items (copy-propagated freed facts, `free(ref x)` rejection,
+- Checker items (copy-propagated freed facts, cross-allocator free rejection,
   literal-index const-fold, loop-bound lint): one focused checker RFC, or
   two if the lint's advisory-only nature wants separation from hard errors.
+  Rejecting `Heap.free` of an address taken with `@` is **not** on this list:
+  it is implemented and verified, and listing it invites re-opening a closed
+  row.
 - Runtime items (fill-after-free, free-list tombstones): the debug-backend
   vehicle alongside RFC 0158's tracking allocator.
 - Tooling items (tracking allocator, leak reports): RFC 0158's vehicle.
@@ -89,10 +123,12 @@ Validation section.
 
 - `let q = p; free(p)` marks every provenance-sharing copy freed; use or
   second free through any of them fails at compile time.
-- `free` of a ref-derived or stack address fails at compile time; Stash
-  behavior unchanged.
+- `Heap.free` of a pointer whose local provenance names a Stash or Pool fails
+  at compile time, and the mirror case (`pool.free` of a Heap pointer) fails
+  the same way.
 - A program leaking under the tracking backend reports every outstanding
-  allocation with its source site; a clean program reports nothing.
+  allocation under RFC 0158's selected native-stack/debug-symbol attribution;
+  a clean program reports nothing.
 - Literal out-of-range indices fail at compile time where folded, trap
   otherwise; no previously compiling program changes meaning.
 - The loop-bound lint fires only on the stated syntactic pattern and is
@@ -120,9 +156,24 @@ any future delta to complete.
    for same-module private callees, or stay strictly intraprocedural.
    Strictly intraprocedural is recommended; anything wider is analysis
    creep toward the model this RFC refuses.
-2. The loop-bound lint belongs in the compiler as a non-fatal advisory warning.
-   Its exact warning text, suppression mechanism, and enable/disable policy
-   remain to be specified.
+2. **The loop-bound lint has no channel to report on, and that is a larger
+   question than the lint.** `CompilationResult` carries `Files`,
+   `Dependencies`, `Stderr`, `ExitCode`, and `Stats`; `Stderr` is documented
+   as "every diagnostic of the failing stage, already rendered and ordered; it
+   is empty on success." There is no non-fatal diagnostic path anywhere in
+   the string-in/string-out boundary, so an advisory warning cannot be
+   expressed without adding one. That addition touches the compiler's public
+   API, the driver, the workbench, and the fail-closed architecture rule, and
+   it is not this RFC's to make. Until a warnings channel exists, the lint
+   cannot graduate. Its exact pattern, text, location, suppression mechanism,
+   and enable/disable policy remain unspecified behind that blocker.
+
+   The lint is also the weakest item in this inventory on its own merits:
+   `i <= values.length()` is not wrong in general, checked indexing already
+   converts the mistake to a trap rather than corruption, and a warning that
+   fires on correct code is the kind of noise language goal 13 argues
+   against. Consider whether the cross-allocator free rejection is the better
+   use of the same graduation slot.
 3. Whether fill-after-free and tombstones should be one debug backend with
    RFC 0158's tracking or three independent toggles. One backend is simpler;
    toggles compose better with targeted performance work.

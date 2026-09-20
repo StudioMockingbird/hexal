@@ -357,6 +357,45 @@ func renderRestSliceArgument(node *checker.Expression, arguments []string) []str
 	return packed
 }
 
+// validateCallStatement checks a discarded call's structure without rendering
+// it. The preflight state has no program-wide tag registry, so rendering an
+// argument that constructs an ADT would dereference a nil registry; the
+// emission pass owns rendering, with the registry, and re-checks the same
+// structure.
+func validateCallStatement(statement checker.CallStatement, state *expressionValidation) error {
+	if statement.Call.Kind == checker.ObjectOperand {
+		if statement.Call.Object == nil || !compilerTypes.Equal(statement.Call.Type, statement.Call.Object.Type) {
+			return unknownExpressionDiagnostic("call statement object operand has mismatched checked types")
+		}
+		return validateCheckedOperandWithState(statement.Call, state)
+	}
+	switch statement.Call.Node.Kind {
+	case checker.CallExpression, checker.MethodCallExpression, checker.StringMethodCallExpression, checker.CollectionMethodCallExpression, checker.ListNewExpression, checker.DictNewExpression,
+		checker.SpawnExpression, checker.TaskYieldExpression, checker.TaskMethodCallExpression,
+		checker.ChannelConstructorExpression, checker.ChannelMethodCallExpression,
+		checker.MutexConstructorExpression, checker.MutexMethodCallExpression,
+		checker.AtomicConstructorExpression, checker.AtomicMethodCallExpression,
+		checker.StashConstructorExpression, checker.StashMethodCallExpression,
+		checker.PoolConstructorExpression, checker.PoolMethodCallExpression,
+		checker.VolatileReadExpression, checker.VolatileWriteExpression,
+		checker.RuneCursorMethodCallExpression, checker.HeapFreeExpression, checker.HeapAllocateExpression,
+		checker.HeapAllocateAlignedExpression,
+		checker.BitCastExpression, checker.EndianConversionExpression, checker.ConversionExpression,
+		checker.LayoutExpression, checker.SliceBridgeExpression, checker.BytesOverExpression,
+		checker.StreamConstructorExpression, checker.StreamMethodCallExpression, checker.TimeExpression,
+		checker.NetworkExpression, checker.CorelibCallExpression:
+		// Discarding a constructor or a pure computation's result is legal;
+		// at worst it leaks an allocation or wastes a computation, both the
+		// programmer's choice.
+	default:
+		return unknownExpressionDiagnostic("call statement without a checked call")
+	}
+	if !compilerTypes.Equal(statement.Call.Type, statement.Call.Node.ResultType) {
+		return unknownExpressionDiagnostic("call statement type does not match its checked call")
+	}
+	return validateExpressionNode(statement.Call.Node, nil, state)
+}
+
 func renderCallStatement(statement checker.CallStatement, state *expressionValidation) (string, error) {
 	if statement.Call.Kind == checker.ObjectOperand {
 		// Error.new(...) checks to an ObjectOperand rather than a Node-carrying
