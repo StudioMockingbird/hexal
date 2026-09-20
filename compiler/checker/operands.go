@@ -471,6 +471,12 @@ type Expression struct {
 	VariantIndex       int
 	TestType           compilerTypes.Type
 	MemberMap          []int
+	// MatchConstants is parallel to Arguments and MemberMap for a
+	// MatchExpression: the contextual constant of each scalar arm, zero for
+	// every non-scalar arm. Constant is the arm's checked value and Type is
+	// the scrutinee type, so the generator renders the comparison operand
+	// through the same constant machinery an ordinary literal uses.
+	MatchConstants []Operand
 	// EvaluationOrder is non-nil only for AdtConstructExpression: the
 	// indices into Arguments (declaration order) in the order the payload
 	// fields were actually written, for evaluation sequencing.

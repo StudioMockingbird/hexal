@@ -854,6 +854,21 @@ func (parser *Parser) matchPattern(typeMode bool) (MatchPattern, error) {
 	if parser.check(lexer.True) || parser.check(lexer.False) {
 		return BoolPattern{Token: parser.advance()}, nil
 	}
+	if parser.check(lexer.Eos) {
+		return EosPattern{Token: parser.advance()}, nil
+	}
+	if parser.check(lexer.Integer) || parser.check(lexer.HexInteger) || parser.check(lexer.BinaryInteger) || parser.check(lexer.OctalInteger) || parser.check(lexer.ByteLiteral) || parser.check(lexer.RuneLiteral) {
+		return parser.scalarPattern(lexer.Token{})
+	}
+	if parser.check(lexer.Minus) {
+		minus := parser.advance()
+		switch parser.peekAt(0).Kind {
+		case lexer.Integer, lexer.HexInteger, lexer.BinaryInteger, lexer.OctalInteger, lexer.ByteLiteral, lexer.RuneLiteral:
+			return parser.scalarPattern(minus)
+		default:
+			return nil, parser.errorAtCurrent("expected an integer, byte, or rune literal after '-' in a match pattern")
+		}
+	}
 	if parser.check(lexer.Identifier) && parser.peekAt(1).Kind == lexer.Less && parser.genericVariantFollows() {
 		owner := parser.advance()
 		arguments, err := parser.typeArgumentList()
@@ -885,6 +900,25 @@ func (parser *Parser) matchPattern(typeMode bool) (MatchPattern, error) {
 		return nil, err
 	}
 	return TypePattern{Type: typeExpression}, nil
+}
+
+// scalarPattern parses one scalar arm literal. The literal kind is preserved;
+// the checker types it contextually against the scrutinee. minus is the zero
+// token for an unsigned literal.
+func (parser *Parser) scalarPattern(minus lexer.Token) (MatchPattern, error) {
+	token := parser.advance()
+	var literal Expression
+	switch token.Kind {
+	case lexer.Integer, lexer.HexInteger, lexer.BinaryInteger, lexer.OctalInteger:
+		literal = IntegerLiteral{Token: token}
+	case lexer.ByteLiteral:
+		literal = ByteLiteral{Token: token}
+	case lexer.RuneLiteral:
+		literal = RuneLiteral{Token: token}
+	default:
+		return nil, parser.errorAtCurrent("expected an integer, byte, or rune literal in a match pattern")
+	}
+	return ScalarPattern{Minus: minus, Literal: literal}, nil
 }
 
 // peek returns the token at the given lookahead offset.

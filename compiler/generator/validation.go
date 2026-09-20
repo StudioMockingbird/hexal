@@ -1042,12 +1042,23 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
 			return unknownExpressionDiagnostic("match result does not match its expected type")
 		}
-		for _, arm := range node.Arguments {
+		for armIndex, arm := range node.Arguments {
 			if !generatedAssignable(node.ResultType, arm.Type) {
 				return unknownExpressionDiagnostic("match arm does not match its checked result type")
 			}
 			if err := validateCheckedOperandWithState(arm, state); err != nil {
 				return err
+			}
+			if node.MemberMap[armIndex] == checker.MatchScalarTag {
+				if armIndex >= len(node.MatchConstants) || node.MatchConstants[armIndex].Kind != checker.ConstantOperand {
+					return unknownExpressionDiagnostic("scalar match arm without a checked constant")
+				}
+				if !compilerTypes.Equal(node.MatchConstants[armIndex].Type, node.OperandType) {
+					return unknownExpressionDiagnostic("scalar match constant does not match the scrutinee type")
+				}
+				if err := validateCheckedOperandWithState(node.MatchConstants[armIndex], state); err != nil {
+					return err
+				}
 			}
 		}
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)

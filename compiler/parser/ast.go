@@ -670,6 +670,27 @@ type ElsePattern struct {
 
 func (ElsePattern) matchPatternNode() {}
 
+// ScalarPattern is one value-mode scalar arm: an optional leading minus and an
+// integer, byte, or rune literal. The checker types the literal contextually
+// against the scrutinee type and owns range and duplicate diagnostics; the
+// parser assigns no value. Minus is the zero token when the literal is
+// unsigned.
+type ScalarPattern struct {
+	Minus   lexer.Token
+	Literal Expression
+}
+
+func (ScalarPattern) matchPatternNode() {}
+
+// EosPattern is the `eos` value-mode arm. EoS is a singleton, so it is its own
+// pattern rather than a scalar literal; the checker admits it only against an
+// EoS scrutinee.
+type EosPattern struct {
+	Token lexer.Token
+}
+
+func (EosPattern) matchPatternNode() {}
+
 // TypePattern matches one exact canonical type in type mode.
 type TypePattern struct {
 	Type TypeExpression

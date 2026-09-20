@@ -66,6 +66,18 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
+		name:        "match-arm-order-runs",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "type Shape is union | A as x: Int32 end | B as y: Int32 end | C as z: Int32 end end\nfun f(s: Shape): Int32 do\n    return match s is\n    | Shape.A then 1\n    | Shape.B then 2\n    | else then 3\n    end\nend\nlet value: Int32 | Float64 | Nil = 1\nlet union_result: Int32 = match value is\n| Int32 then 1\n| Float64 then 2\n| else then 3\nend\nprint((f(Shape.A(x = 1)) == 1) and (f(Shape.B(y = 1)) == 2) and (f(Shape.C(z = 1)) == 3) and (union_result == 1))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:        "scalar-match-runs",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun classify(op: Int32): Int32 do\n    return match op\n    | 1 then 10\n    | 2 then 20\n    | else then 0\n    end\nend\nfun size_label(n: Size): Int32 do\n    return match n\n    | 0 then 100\n    | else then 200\n    end\nend\nfun rune_label(r: Rune): Int32 do\n    return match r\n    | 'A' then 65\n    | else then 0\n    end\nend\nlet marker: EoS = eos\nlet eos_value: Int32 = match marker\n    | eos then 7\nend\nprint((classify(1) == 10) and (classify(2) == 20) and (classify(3) == 0) and (size_label(0) == 100) and (size_label(5) == 200) and (rune_label('A') == 65) and (rune_label('B') == 0) and (eos_value == 7))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
 		name:       "ascii-runs",
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "import\n  Ascii from std.ascii\nend\n" +

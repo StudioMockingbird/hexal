@@ -5,30 +5,31 @@
   alternative to one *part* of the ownership arc, not a replacement for it;
   see Relationship to the ownership arc before promoting either
 - Created: 2026-09-10
-- Updated: 2026-09-10
+- Updated: 2026-09-20
 - Origin: an audit of eleven classical memory-bug classes against the shipped
   compiler, asking which are already solved, which are not, and what the
   cheapest remaining fix is
 - Depends on: nothing. Every mechanism below extends code that ships today
 - Coordinates with: RFC 0110, RFC 0149, RFC 0153, RFC 0154, RFC 0155 (the
   ownership arc, all in design), RFC 0156 (fenced pointer arithmetic),
-  RFC 0157 (uninitialized allocation), RFC 0158 (consuming receivers and the
-  debug tracking allocator)
+  RFC 0157 (uninitialized allocation), RFC 0158 (debug allocation tracking)
 - Does not update `docs/reference.md`: synchronize only after implementation
   is approved and behavior stabilizes
 
 ## Summary
 
-Hexal already rejects eight of eleven classical memory-bug classes, and does
-so without any ownership, lifetime, or borrow machinery. The three that
-remain — use-after-free, double free, and leaks — are not three separate
-gaps. They are **one gap, seen three times**: the shipped cleanup analysis
-tracks a *binding*, not an *allocation*, so a single assignment turns every
-check off.
+Hexal already rejects several locally provable classical memory-bug cases, and does
+so without any ownership, lifetime, or borrow machinery. The confirmed alias
+gaps are use-after-free and double-free through copied bindings. They share
+one root cause: the shipped cleanup analysis tracks a *binding*, not an
+*allocation*, so a single assignment turns both checks off. Leaks are a
+separate runtime-tracking concern owned by RFC 0158.
 
-This RFC proposes closing that one gap in place, by extending the flow state
-the checker already maintains. It adds no keyword, no type, no move
-semantics, and no lifetime model.
+This RFC proposes closing the alias portion of that gap in place, by extending
+the flow state the checker already maintains. It adds no keyword, no type, no
+move semantics, and no lifetime model. Runtime physical leak detection remains
+RFC 0158's responsibility. Static leak rejection is deliberately not selected
+by this revision; the decision is recorded below.
 
 It is deliberately a **bug finder, not a guarantee**: it reports what local
 facts prove and stays silent otherwise, which is the policy `docs/reference.md`
@@ -40,7 +41,7 @@ Every row below was probed against the current tree by compiling a source
 program through `compiler.Compile` and reading the returned diagnostics. The
 Result column is observed behavior, not a reading of specification text.
 
-### Already solved (8 of 11)
+### Current locally-proven coverage
 
 | Bug class | Probe | Result |
 | --- | --- | --- |
@@ -49,7 +50,7 @@ Result column is observed behavior, not a reading of specification text.
 | Stack buffer overflow | pointer arithmetic `p + 1` | rejected: "operator + requires numeric operands; got MutPtr<Int32>" |
 | Heap buffer overflow | same, plus no pointer casts | rejected: "expected Ptr<Int64> initializer; got MutPtr<Int32>" |
 | Off-by-one (as memory safety) | runtime `l[i]` | accepted, then bounds-checked at runtime; traps rather than corrupting |
-| Uninitialized memory read | `mut n: Int32` with no initializer | rejected: "expected ':=' after a declaration type" |
+| Uninitialized memory read | `let n: Int32` with no initializer | rejected by the current `let` declaration syntax |
 | Uninitialized heap allocation | `h.allocate<Int32>()` | rejected: "allocation requires an explicit initializer" |
 | Missing string null-terminator | `s[0]` on a String | rejected: "cannot index String; use rune_cursor() ..."; String is pointer-plus-length with the count in its header and is never NUL-terminated |
 | Invalid / arbitrary free | `h.free(ref n)` for a local `n` | rejected: "free does not accept a pointer into this function's local storage" |
@@ -66,23 +67,23 @@ RFC 0156 and RFC 0157 propose reintroducing two of these capabilities
 `unsafe do ... end`. That preserves the pattern rather than breaking it: the
 capability returns fenced and named, and safe Hexal keeps the guarantee.
 
-### Not solved (3 of 11)
+### Confirmed remaining gaps
 
 | Bug class | Probe | Result |
 | --- | --- | --- |
 | Use-after-free, direct | `h.free(p)` then `p.value` | rejected: "this pointer's storage was released on every path to this point" |
-| Use-after-free, **through an alias** | `q := p`, `h.free(p)`, then `q.value` | **accepted** |
+| Use-after-free, **through an alias** | `let q = p`, `h.free(p)`, then `q.value` | **accepted** |
 | Double free, direct | `h.free(p)` twice | rejected: "free releases storage already released on every path to this point" |
-| Double free, **through an alias** | `q := p`, `h.free(p)`, `h.free(q)` | **accepted** |
+| Double free, **through an alias** | `let q = p`, `h.free(p)`, `h.free(q)` | **accepted** |
 | Use-after-free, **across a call** | `release(h, p)` then `p.value` | **accepted** |
-| Memory leak | `p := h.allocate<Int32>(1)` and nothing else | **accepted** |
+| Memory leak | `let p = h.allocate<Int32>(1)` and nothing else | **accepted** |
 
 The direct forms already work. Every failure is an alias, an escape, or a
 call boundary.
 
 ## Root cause, in the code
 
-`compiler/checker/scope.go:99` defines the per-function fact table:
+`compiler/checker/scope.go` defines the per-function fact table:
 
 ```go
 type flowState struct {
@@ -99,7 +100,8 @@ type flowState struct {
 Its own comment states the design: "tracked distinguishes a known cleanup
 state from an intentionally unknown state after a copy or escape."
 
-The abandonment happens at `compiler/checker/declarations.go:433`:
+The abandonment happens in the pointer-copy path in
+`compiler/checker/declarations.go`:
 
 ```go
 if sourceBinding := directPointerBinding(initializer.source, declaredType); sourceBinding != 0 {
@@ -108,11 +110,11 @@ if sourceBinding := directPointerBinding(initializer.source, declaredType); sour
 }
 ```
 
-On `q := p`, **both** bindings lose tracking. The same two lines appear for
-assignment at `compiler/checker/declarations.go:507`.
+On `let q = p`, **both** bindings lose tracking. The same behavior appears for
+pointer assignment.
 
 The consuming check, `checkTrackedHeapFreeInState`
-(`compiler/checker/alloc.go:194`), then requires a directly named, still
+(`compiler/checker/alloc.go`), then requires a directly named, still
 tracked binding:
 
 ```go
@@ -122,21 +124,21 @@ if state == nil || value.Node.Kind != VariableExpression || value.Node.Binding =
 ```
 
 So the analysis is not missing; it is *switched off* by aliasing. The
-existing branch merge (`compiler/checker/scope.go:775`) already carries these
+existing branch merge in `compiler/checker/scope.go` already carries these
 maps across control flow, and `flowFact.freed` already means "released on
 every path to this point" — the machinery for path-sensitive, no-false-
 positive reasoning is present and working.
 
 ## Proposal
 
-Three additions. Each is independently shippable and independently useful.
+One focused addition is proposed. It is independently shippable and useful.
 
 ### 1. Track allocations, not bindings
 
 Replace the drop-both behavior with an alias set: a union-find over
 `BindingID` recording bindings that provably denote the same allocation.
 
-- On `q := p` (and on assignment) where `directPointerBinding` identifies a
+- On `let q = p` (and on assignment) where `directPointerBinding` identifies a
   source, **join** the two bindings instead of untracking them.
 - `markFreed` marks the whole set; `freed` reads the whole set.
 - Escape (`flowState.escape`) dissolves the set, exactly as it drops tracking
@@ -150,32 +152,20 @@ the same allocation at the join, so nothing is reported.
 
 This alone fixes both alias rows in the evidence table.
 
-### 2. Leak diagnosis for non-escaping allocations
+### 2. Deferred decision: static leak diagnosis
 
-Report an allocation that is created and then provably never released, but
-only when the allocation cannot leave the function:
-
-- an allocation is **escaping** if its pointer is returned, stored in a
-  member, collection, or array element, has its address taken, or is passed
-  to any call other than the discharging cleanup operation;
-- an escaping allocation is never reported;
-- a non-escaping allocation with no discharge on some path to the function's
-  exit is a Type Error naming the allocation site and the leaking path.
-
-Discharge includes a deferred cleanup. `checkHeapFree` already consults
-`ctx.names.cleanupDepth` (`compiler/checker/alloc.go:172`), so the deferred
-path is distinguishable today and must count as discharge, not be skipped.
-
-This is narrow by construction — most real allocations escape — but it is
-exactly the class where a diagnosis is certain, and it costs no annotation.
+Static diagnosis of non-escaping leaks is not part of this RFC. RFC 0158 owns
+opt-in runtime physical-allocation tracking, which can report leaks after
+values escape through calls or containers. Static leak rejection is deferred
+until Hexal has an intentional process-lifetime allocation convention.
 
 ### 3. Optional, later: per-function summaries
 
 Infer, bottom-up over the module graph, whether a function frees a pointer
 parameter and whether it returns a fresh allocation. Feed those summaries
-into checks 1 and 2 to reach the cross-call row in the evidence table.
+into alias checks to reach the cross-call row in the evidence table.
 
-Deliberately sequenced last. Checks 1 and 2 need no interprocedural analysis
+Deliberately sequenced last. Alias checks need no interprocedural analysis
 at all; this one does, and should be built only if the first two prove
 insufficient in practice.
 
@@ -184,10 +174,10 @@ insufficient in practice.
 - Ownership, affinity, moves, borrows, or lifetimes.
 - Automatic cleanup insertion. This RFC diagnoses; it never frees.
 - New keywords, new types, or any change to `Ptr`/`MutPtr` spelling.
+- Stash and Pool reset/region alias semantics in the first implementation;
+  those handles need a separate invalidation model.
 - Soundness. Undecidable cases stay accepted, matching the current contract.
 - Runtime leak detection, which RFC 0158 covers with a tracking allocator.
-  That facility is complementary: it finds escaping leaks at test time, which
-  is precisely the class check 2 declines to report.
 - Cycle detection. Nothing here detects cyclic garbage; nothing here creates
   the ability to build a cycle either.
 
@@ -198,8 +188,8 @@ That makes this a live comparison rather than a retrofit.
 
 The arc pursues two distinct goals that are easy to conflate:
 
-1. **Diagnose memory misuse.** This RFC does that for the three open classes,
-   at roughly the cost of one union-find and one escape predicate.
+1. **Diagnose memory misuse.** This RFC addresses alias-derived use-after-free
+   and double-free at roughly the cost of one alias-set structure.
 2. **Delete the cleanup calls.** The arc turns the `List<String>` cleanup in
    `workbench/snippets/categories/07-collections.json` from N+1 correctly
    ordered calls into zero. **This RFC does not do that at all.** Under this
@@ -224,7 +214,7 @@ trade stays visible:
   closes them by making stored borrows unexpressible;
 - cleanup composition stays manual, which is the cost.
 
-The two are not mutually exclusive. Checks 1 and 2 are useful whether or not
+The two are not mutually exclusive. Alias checking is useful whether or not
 the arc lands, because raw `Heap.allocate`/`free` survives the arc unchanged
 as the C-interoperation layer, and nothing in the arc diagnoses misuse there.
 
@@ -243,32 +233,28 @@ rejection is the same bug as a direct one and should not read differently:
 - `this pointer's storage was released on every path to this point`
 - `free does not accept a pointer into this function's local storage`
 
-One new message is required for check 2, naming the allocation site rather
-than the scope exit, because the allocation is the actionable location.
-
 Diagnostics name source bindings and operations, never `BindingID` values,
 alias-set identities, or generated C names.
 
 ## Required sweep
 
 - `flowState` alias representation, `clone`, and the join-by-intersection
-  merge at `compiler/checker/scope.go:775`;
+  merge in `compiler/checker/scope.go`;
 - the two `dropFreed` alias sites in `compiler/checker/declarations.go`;
-- `checkTrackedHeapFreeInState` and `checkHandleNotDestroyed` to read the
-  alias set instead of a single binding;
+- `checkTrackedHeapFreeInState` to read the raw-Heap pointer alias set instead
+  of a single binding;
 - `flowState.escape` to dissolve alias sets;
-- the escape predicate for check 2, and its interaction with
-  `ctx.names.cleanupDepth` for deferred discharge;
+- the explicit decision that static leak diagnosis is deferred to RFC 0158;
 - `compiler/checker/alloc_test.go` and `io_test.go`, which encode the current
   accept-on-alias behavior and need cases added, not changed;
-- Stash and Pool handle tracking in `compiler/checker/pool.go`, which consumes
-  the same flow state.
+- Stash and Pool handle tracking remains unchanged and outside this first
+  alias-set implementation.
 
 ## Validation
 
 This section is exhaustive.
 
-- Every "Already solved" evidence row continues to produce its exact current
+- Every current locally-proven evidence row continues to produce its exact current
   diagnostic; this RFC changes none of them.
 - Use-after-free and double free through a single alias are rejected with the
   existing messages.
@@ -280,15 +266,8 @@ This section is exhaustive.
   reports no false positive.
 - Escape through a call, return, member store, collection store, or `ref`
   dissolves the alias set and restores today's accept-everything behavior.
-- A non-escaping allocation with no discharge on any path is rejected at its
-  allocation site.
-- A non-escaping allocation discharged by `defer` is accepted.
-- A non-escaping allocation discharged on some paths but not others is
-  rejected, naming a path that leaks.
-- An escaping allocation with no discharge is accepted and produces no
-  diagnostic.
-- Stash and Pool handles receive the same alias treatment as raw pointers, and
-  their existing reset/destroy diagnostics fire through an alias.
+- Stash and Pool behavior is unchanged; their handle/reset semantics require a
+  separate design before alias tracking can cover them.
 - Generated C is byte-identical for every program that compiled before this
   RFC; this is a checker-only change and moves no manifest hash.
 - Ordinary tests remain pure Go.
@@ -304,14 +283,7 @@ This section is exhaustive.
 4. Dissolve sets in `escape`.
 5. Add the alias, branch, and loop Validation cases.
 
-### Phase 2: leak diagnosis
-
-1. Add an escape predicate over the checked tree for allocation-typed values.
-2. Track undischarged non-escaping allocations to every function exit,
-   counting deferred cleanup as discharge.
-3. Add the new allocation-site diagnostic and its Validation cases.
-
-### Phase 3: conformance
+### Phase 2: conformance
 
 1. Confirm no generated-C or manifest movement.
 2. Add compact workbench snippets only where a snippet demonstrates a
@@ -321,25 +293,23 @@ This section is exhaustive.
    currently states that a pointer "copied to a second binding is not tracked"
    and that "leaks are not diagnosed" — only after behavior stabilizes.
 
-### Phase 4 (optional): interprocedural summaries
+### Phase 3 (optional): interprocedural summaries
 
 1. Compute per-function free-parameter and returns-allocation summaries.
-2. Extend checks 1 and 2 to consume them, keeping fail-open behavior wherever
-   a summary is unavailable.
+2. Extend alias checks to consume them, keeping fail-open behavior wherever a
+   summary is unavailable. Leak summaries remain outside this RFC unless the
+   static-leak question is separately resolved.
 
-## Open questions
+## Decisions and remaining questions
 
 1. **Does this replace part of the arc, or accompany it?** If RFC 0110 lands
    in full, checks 1 and 2 still apply to raw `Heap` pointers, which the arc
    leaves manual. If the arc is deferred, this becomes the whole memory-safety
    story for cleanup. The answer changes nothing in this document's design but
    determines its priority.
-2. **Is a leak an error or something softer?** Hexal has no warning class;
-   every static rejection is a Type Error. Check 2 fires only on provably
-   non-escaping, provably undischarged allocations, so an error produces no
-   false positives — but it is a hard gate on code that compiles today.
-3. **Should alias tracking extend beyond raw pointers** to `String`, `List`,
-   `Dict`, `Stash`, and `Pool` handles in the same pass? The flow state
-   already carries `stringOrigins` and `releasedSources` for related purposes,
-   so the incremental cost is small, but the blast radius across existing
-   tests is larger.
+2. Static leak rejection is deferred. RFC 0158's opt-in runtime tracker is the
+   selected mechanism for leak reporting. Revisit this only after Hexal has an
+   explicit convention for intentional process-lifetime allocations.
+3. Alias tracking is limited to raw `Heap` pointers in the first
+   implementation. `String`, `List`, `Dict`, `Stash`, and `Pool` handle
+   semantics require separate designs.

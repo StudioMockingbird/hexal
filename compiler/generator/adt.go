@@ -198,6 +198,17 @@ func renderMatchStatement(body *strings.Builder, node checker.Expression, state 
 		}()
 	}
 	scrutineeMembers := compilerTypes.UnionMembers(node.OperandType)
+	// A trailing else binds to the nearest preceding if in C, so a match with
+	// an else must chain its explicit arms with else-if; otherwise an earlier
+	// arm's result is overwritten by the else. A match with no else has
+	// mutually exclusive arms and keeps its separate plain ifs unchanged.
+	hasElse := false
+	for _, tag := range node.MemberMap {
+		if tag == -1 {
+			hasElse = true
+			break
+		}
+	}
 	emittedIf := false
 	for armIndex, arm := range node.Arguments {
 		armValue, err := renderOperandWithState(arm, state)
@@ -205,6 +216,27 @@ func renderMatchStatement(body *strings.Builder, node checker.Expression, state 
 			return "", err
 		}
 		tag := node.MemberMap[armIndex]
+		if tag == checker.MatchScalarTag {
+			if armIndex >= len(node.MatchConstants) || node.MatchConstants[armIndex].Kind != checker.ConstantOperand {
+				return "", unknownExpressionDiagnostic("scalar match arm without a checked constant")
+			}
+			rendered, renderErr := renderOperandWithState(node.MatchConstants[armIndex], state)
+			if renderErr != nil {
+				return "", renderErr
+			}
+			// A scalar match always ends in the required else, so its arms
+			// chain with else-if: first matching arm wins. A plain second if
+			// would let the trailing else overwrite an earlier match.
+			if emittedIf {
+				fmt.Fprintf(body, "%selse if (%s == %s) {\n", indent, temp, rendered)
+			} else {
+				fmt.Fprintf(body, "%sif (%s == %s) {\n", indent, temp, rendered)
+			}
+			emittedIf = true
+			fmt.Fprintf(body, "%s    %s = %s;\n", indent, result, armValue)
+			fmt.Fprintf(body, "%s}\n", indent)
+			continue
+		}
 		isElse := tag == -1 || tag == -2
 		if isElse && !emittedIf {
 			fmt.Fprintf(body, "%s%s = %s;\n", indent, result, armValue)
@@ -213,18 +245,24 @@ func renderMatchStatement(body *strings.Builder, node checker.Expression, state 
 		if isElse {
 			fmt.Fprintf(body, "%selse {\n", indent)
 		} else {
+			keyword := "if"
+			if emittedIf && hasElse {
+				keyword = "else if"
+			}
 			emittedIf = true
+			var condition string
 			switch {
 			case node.OperandType.Adt != nil:
-				fmt.Fprintf(body, "%sif (%s.tag == %s) {\n", indent, temp, state.tags.adtVariantTag(node.OperandType.Adt, tag))
+				condition = fmt.Sprintf("%s.tag == %s", temp, state.tags.adtVariantTag(node.OperandType.Adt, tag))
 			case node.OperandType.Union != nil:
 				member, _ := scrutineeMembers.At(tag)
-				fmt.Fprintf(body, "%sif (%s.tag == %s) {\n", indent, temp, state.tags.unionMemberTag(member))
+				condition = fmt.Sprintf("%s.tag == %s", temp, state.tags.unionMemberTag(member))
 			case tag == 1:
-				fmt.Fprintf(body, "%sif (%s) {\n", indent, temp)
+				condition = temp
 			default:
-				fmt.Fprintf(body, "%sif (!%s) {\n", indent, temp)
+				condition = "!" + temp
 			}
+			fmt.Fprintf(body, "%s%s (%s) {\n", indent, keyword, condition)
 		}
 		fmt.Fprintf(body, "%s    %s = %s;\n", indent, result, armValue)
 		fmt.Fprintf(body, "%s}\n", indent)

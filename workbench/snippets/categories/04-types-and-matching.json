@@ -163,6 +163,34 @@
       ]},
       "features": ["unions", "match"],
       "reservedWords": ["match", "is", "then", "end"]
+    },
+    {
+      "id": "types-scalar-value-match",
+      "name": "Scalar value match",
+      "description": "Dispatches on an integer, a Rune, and the Eos singleton with literal arms and a required else.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "fun opcode_label(op: Int32): Int32 do",
+        "    return match op",
+        "    | 1 then 10",
+        "    | 2 then 20",
+        "    | else then 0",
+        "    end",
+        "end",
+        "fun rune_label(r: Rune): Int32 do",
+        "    return match r",
+        "    | 'A' then 65",
+        "    | else then 0",
+        "    end",
+        "end",
+        "let marker: EoS= eos",
+        "let eos_value: Int32= match marker",
+        "    | eos then 7",
+        "end",
+        "print(opcode_label(1) + rune_label('A') + eos_value)"
+      ]},
+      "features": ["match", "literals"],
+      "reservedWords": ["fun", "return", "end", "do", "match", "then", "else", "eos"]
     }
   ]
 }

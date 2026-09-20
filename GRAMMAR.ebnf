@@ -188,8 +188,10 @@ MatchExpression = "match"  MatchScrutinee  [ "is" ]
 MatchArm = "|"  MatchPattern  "then"  MatchArmExpression .
 MatchScrutinee = "meta" .
 MatchArmExpression = "meta" .
-MatchPattern = "else" | "true" | "false"
+MatchPattern = "else" | "true" | "false" | "eos"
+                | ScalarPattern
                 | QualifiedVariantPattern | PrimaryTypeExpression .
+ScalarPattern = [ "-" ] ( integer_literal | byte_literal | rune_literal ) .
 QualifiedVariantPattern = identifier  TypeArgumentList
                              "."  identifier .
 

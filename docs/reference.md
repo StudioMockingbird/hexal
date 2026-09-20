@@ -722,7 +722,14 @@ HeapAllocation
   spelling.
 - Direct by-value recursion is invalid; pointer-indirect recursion and generic
   specialization are valid.
-- `match` is an expression and evaluates its scrutinee once. Value mode matches `true`/`false`.
+- `match` is an expression and evaluates its scrutinee once. Value mode matches `true`/`false` and
+  scalar literals: an integer, byte, or rune literal with an optional leading minus over an
+  integer-like scrutinee (`Int8`..`Int64`, `UInt8`..`UInt64`/`Byte`, `Size`, `Rune`), plus `eos`
+  over an `EoS` scrutinee. A scalar literal is typed contextually to the scrutinee type through the
+  ordinary literal path; an out-of-range literal is rejected at the pattern, and a repeated constant
+  after contextual typing is a duplicate. An integer-like domain is open, so a final `else` is
+  required. `EoS` is a closed singleton, so `| eos` is exhaustive and a following `else` is
+  unreachable. Float and text scrutinees are not value-mode domains.
   Type mode (`match value is`) matches exact complete types, individual union members, Nil, or ADT
   variants; a union type itself is not one pattern. A dotted pattern is neutral syntax resolved by
   scrutinee domain: against an ADT scrutinee it denotes that ADT's variant, named through a local

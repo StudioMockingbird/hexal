@@ -402,6 +402,10 @@ type matchCoverage struct {
 	cases   []matchCase
 	covered []bool
 	open    bool
+	// seen is the open-domain duplicate set: one entry per contextual scalar
+	// constant already written. Nil for closed domains, whose cases and
+	// covered flags own membership instead.
+	seen map[string]bool
 }
 
 // buildMatchCoverage constructs the closed domain for a scrutinee type.
@@ -412,6 +416,7 @@ func buildMatchCoverage(scrutineeType compilerTypes.Type, typeMode bool) matchCo
 	isADT := compilerTypes.IsADT(scrutineeType)
 	isUnion := compilerTypes.IsUnion(scrutineeType)
 	isBool := compilerTypes.Equal(scrutineeType, compilerTypes.Bool)
+	isEoS := compilerTypes.IsEoS(scrutineeType)
 	switch {
 	case isADT:
 		cases := make([]matchCase, 0, len(scrutineeType.Adt.Variants))
@@ -432,14 +437,35 @@ func buildMatchCoverage(scrutineeType compilerTypes.Type, typeMode bool) matchCo
 			cases:   []matchCase{{key: "false", tag: 0}, {key: "true", tag: 1}},
 			covered: make([]bool, 2),
 		}
+	case isEoS && !typeMode:
+		// EoS is a singleton, so `eos` is its one closed case. Its arm lowers
+		// unconditionally: the scrutinee is the only value it can hold.
+		return matchCoverage{
+			cases:   []matchCase{{key: "eos", tag: -2, member: scrutineeType}},
+			covered: make([]bool, 1),
+		}
 	case typeMode:
 		return matchCoverage{
 			cases:   []matchCase{{key: scrutineeType.CanonicalKey, tag: -2, member: scrutineeType}},
 			covered: make([]bool, 1),
 		}
 	default:
-		return matchCoverage{open: true}
+		return matchCoverage{open: true, seen: make(map[string]bool)}
 	}
+}
+
+// coverKey records one open-domain scalar constant, reporting false when the
+// same contextual constant was already written. It is the open-domain
+// counterpart of cover: open domains have no fixed case table.
+func (coverage *matchCoverage) coverKey(key string) bool {
+	if coverage.seen == nil {
+		coverage.seen = make(map[string]bool)
+	}
+	if coverage.seen[key] {
+		return false
+	}
+	coverage.seen[key] = true
+	return true
 }
 
 // cover marks one case covered, reporting false when it was already covered.
@@ -608,6 +634,11 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 	isADT := compilerTypes.IsADT(scrutineeType)
 	isUnion := compilerTypes.IsUnion(scrutineeType)
 	isBool := compilerTypes.Equal(scrutineeType, compilerTypes.Bool)
+	isEoS := compilerTypes.IsEoS(scrutineeType)
+	// Integer-like domains are open: no machine width is exhaustively
+	// enumerated, so a value-mode scalar match over one always needs a final
+	// else. Type mode keeps its one exact-type case.
+	isIntegerLike := !expression.TypeMode && compilerTypes.IsInteger(scrutineeType)
 	// ErrorKind's variant set may grow with later native capabilities, so
 	// every ErrorKind match requires a final else even when the written arms
 	// already cover every variant the compiler currently knows.
@@ -617,6 +648,7 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 	scrutineeNode := expressionNode(scrutinee.source)
 	armResults := make([]Operand, 0, len(expression.Arms))
 	armTags := make([]int, 0, len(expression.Arms))
+	armConstants := make([]Operand, len(expression.Arms))
 	var resultType compilerTypes.Type
 	hasResult := false
 	hasElse := false
@@ -670,6 +702,43 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 				return checkedExpression{token: pattern.Token, diagnostic: diagnosticAt(typeErrorAt(pattern.Token, "duplicate or unreachable match pattern"))}
 			}
 			if failed := finishArm(arm, coverage.cases[index].tag, nil, nil); failed != nil {
+				return *failed
+			}
+		case parser.EosPattern:
+			if expression.TypeMode {
+				return checkedExpression{token: pattern.Token, diagnostic: diagnosticAt(typeErrorAt(pattern.Token, "value patterns are not valid in type mode"))}
+			}
+			if !isEoS {
+				return checkedExpression{token: pattern.Token, diagnostic: diagnosticAt(typeErrorAt(pattern.Token, "match pattern does not belong to the scrutinee type"))}
+			}
+			index := coverage.find("eos")
+			if index < 0 || !coverage.cover(index) {
+				return checkedExpression{token: pattern.Token, diagnostic: diagnosticAt(typeErrorAt(pattern.Token, "duplicate or unreachable match pattern"))}
+			}
+			if failed := finishArm(arm, coverage.cases[index].tag, nil, nil); failed != nil {
+				return *failed
+			}
+		case parser.ScalarPattern:
+			token := scalarPatternToken(pattern)
+			if expression.TypeMode {
+				return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, "value patterns are not valid in type mode"))}
+			}
+			if compilerTypes.IsFloat(scrutineeType) || compilerTypes.IsString(scrutineeType) || compilerTypes.IsStrand(scrutineeType) {
+				diagnostic := typeErrorAt(token, fmt.Sprintf("match value mode does not support %s scrutinees; use Bool, EoS, or an integer-like type", scrutineeType.Name))
+				return checkedExpression{token: token, diagnostic: diagnosticAt(diagnostic)}
+			}
+			if !isIntegerLike {
+				return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, "match pattern does not belong to the scrutinee type"))}
+			}
+			constant, diagnostic := checkScalarPattern(pattern, scrutineeType, ctx)
+			if diagnostic != nil {
+				return checkedExpression{token: token, diagnostic: diagnosticAt(*diagnostic)}
+			}
+			if !coverage.coverKey(constant.Constant.ExactString()) {
+				return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, "duplicate or unreachable match pattern"))}
+			}
+			armConstants[armIndex] = constant
+			if failed := finishArm(arm, MatchScalarTag, nil, nil); failed != nil {
 				return *failed
 			}
 		case parser.DottedPattern:
@@ -810,6 +879,9 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 			}
 		}
 	}
+	if isIntegerLike && !hasElse {
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, fmt.Sprintf("match on %s requires a final else", scrutineeType.Name)))}
+	}
 	if isErrorKind && !hasElse {
 		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "match on ErrorKind requires a final else arm"))}
 	}
@@ -824,15 +896,61 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, fmt.Sprintf("match is not exhaustive; missing %s", name)))}
 	}
 	node := Expression{
-		Kind:        MatchExpression,
-		Operand:     &scrutineeNode,
-		OperandType: scrutineeType,
-		ResultType:  resultType,
-		Arguments:   armResults,
-		MemberMap:   armTags,
+		Kind:           MatchExpression,
+		Operand:        &scrutineeNode,
+		OperandType:    scrutineeType,
+		ResultType:     resultType,
+		Arguments:      armResults,
+		MemberMap:      armTags,
+		MatchConstants: armConstants,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: resultType, Node: node}
 	return checkedExpression{source: source, typ: resultType, token: expression.Keyword}
+}
+
+// MatchScalarTag is the lowering tag of one scalar value-mode arm. The
+// generator compares the scrutinee temporary against the arm's MatchConstants
+// entry instead of a tag or variant.
+const MatchScalarTag = -3
+
+// scalarPatternToken returns the token that locates one scalar pattern for
+// diagnostics: the leading minus when present, otherwise the literal itself.
+func scalarPatternToken(pattern parser.ScalarPattern) lexer.Token {
+	if pattern.Minus.Kind == lexer.Minus {
+		return pattern.Minus
+	}
+	switch literal := pattern.Literal.(type) {
+	case parser.IntegerLiteral:
+		return literal.Token
+	case parser.ByteLiteral:
+		return literal.Token
+	case parser.RuneLiteral:
+		return literal.Token
+	}
+	return lexer.Token{}
+}
+
+// checkScalarPattern types one scalar arm literal against the scrutinee type
+// through the ordinary literal path, so its range check and diagnostic are the
+// ones the language already uses for an annotated literal. A literal whose
+// checked type is not the scrutinee type does not belong to the domain.
+func checkScalarPattern(pattern parser.ScalarPattern, scrutineeType compilerTypes.Type, ctx checkContext) (Operand, *compilerTypes.Diagnostic) {
+	var expression parser.Expression = pattern.Literal
+	if pattern.Minus.Kind == lexer.Minus {
+		expression = parser.NegatedNumericLiteral{Minus: pattern.Minus, Literal: pattern.Literal}
+	}
+	checked := checkExpression(expression, expressionContext{expected: compilerTypes.NewTypeUse(scrutineeType)}, ctx)
+	if len(checked.diagnostics) > 0 {
+		return Operand{}, &checked.diagnostics[0]
+	}
+	if checked.diagnostic != nil {
+		return Operand{}, checked.diagnostic
+	}
+	if checked.source.Kind != ConstantOperand || !compilerTypes.Equal(checked.typ, scrutineeType) {
+		diagnostic := typeErrorAt(scalarPatternToken(pattern), "match pattern does not belong to the scrutinee type")
+		return Operand{}, &diagnostic
+	}
+	return checked.source, nil
 }
 
 // checkMatchArm checks one arm body in a child scope, narrowing a named
