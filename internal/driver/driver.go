@@ -1,8 +1,7 @@
 // Package driver connects the in-memory compiler to the filesystem and to a C
-// toolchain. ADR 0055 owns its contract: the compiler stays string-in/
-// string-out and process-free, and everything that touches a path or spawns a
-// process lives here. The package is internal: it is the CLI's implementation,
-// not a supported embedding API.
+// toolchain. The compiler stays string-in/string-out and process-free, and
+// everything that touches a path or spawns a process lives here. The package is
+// internal: it is the CLI's implementation, not a supported embedding API.
 package driver
 
 import (
@@ -518,7 +517,7 @@ func discover(root, staging string) (map[string]string, error) {
 
 // materialize writes every generated artifact under the staging root and
 // returns the .c files in deterministic logical-key order. Artifact keys
-// arrive already validated by the compiler (RFC 0126); the containment,
+// arrive already validated by the compiler; the containment,
 // symlink, and case-collision checks below are the backstop this component
 // keeps because it is the one that touches a filesystem. Content is written
 // byte-for-byte: line endings and #line mappings are never altered.

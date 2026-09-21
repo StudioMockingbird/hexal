@@ -114,7 +114,7 @@ var trapLedger = map[string]trapDisposition{
 	// each is a defensive internal-consistency check, not a user-triggerable
 	// path, verified by inspection of the checker rule that makes the
 	// precondition always hold rather than by execution. ---
-	"network operation outside a Task":      {dispositionStructural, "checker/network.go's networkNode call sites are reachable only from checked expressions RFC 0172/0173/0176 route exclusively through Task-selecting operations; the checker never emits one outside a Task context"},
+	"network operation outside a Task":      {dispositionStructural, "checker/network.go's networkNode call sites are reachable only from checked expressions the checker routes exclusively through Task-selecting operations; the checker never emits one outside a Task context"},
 	"process operation outside a Task":      {dispositionStructural, "same as network operation outside a Task, for the Process/Pipe family"},
 	"signal operation outside a Task":       {dispositionStructural, "same as network operation outside a Task, for the Signals family"},
 	"invalid Task park phase during commit": {dispositionStructural, "hex_task_commit_park's own precondition (called only immediately after hex_task_begin_park sets the phase) makes the else-branch unreachable from any code this generator emits"},

@@ -68,7 +68,7 @@ func assertChecklistCovered(t failer, checklist []constructCheck, covered map[st
 }
 
 // assertAcceptanceRate fails when accepted/total drops below the 90 percent
-// floor, reporting the first rejection as the RFC's guard requires.
+// floor, reporting the first rejection.
 func assertAcceptanceRate(t failer, accepted, total int, firstRejection string) {
 	t.Helper()
 	if total == 0 {
@@ -98,7 +98,7 @@ func assertSameProgram(t failer, a, b generatedProgram) {
 	}
 }
 
-// TestGeneratorChecklistAcceptanceAndDeterminism runs the RFC's exact
+// TestGeneratorChecklistAcceptanceAndDeterminism runs the exact
 // search: candidates from monotonically increasing seeds starting at zero,
 // retaining the shortest prefix whose accepted subset covers every
 // checklist entry, then checking the 90 percent acceptance floor over that

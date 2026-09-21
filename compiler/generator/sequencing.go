@@ -105,7 +105,7 @@ func expressionMayObserve(node *checker.Expression, state *expressionValidation)
 // hoistSequenceSlots hoists a group of sibling sub-positions that share one
 // C compound expression, in written order, when at least two are present and
 // at least one may observe an effect. Every slot is hoisted, not only the
-// effectful ones: the RFC's own aliasing example, f(mutateX(), x), requires
+// effectful ones: the aliasing example f(mutateX(), x) requires
 // even a pure-looking sibling to evaluate at its written sequence point,
 // since mutateX() may alias x.
 //

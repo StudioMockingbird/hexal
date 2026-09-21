@@ -89,8 +89,7 @@ func TestCrossModuleGenericFunctionDiagnosticUsesDefiningLogicalKey(t *testing.T
 }
 
 // Qualified generic type syntax: an explicit annotation and a caller-owned
-// (importer-defined) nominal argument, the RFC's own generated-C stress
-// case.
+// (importer-defined) nominal argument, the generated-C stress case.
 func TestQualifiedGenericTypeWithImporterOwnedArgument(t *testing.T) {
 	sources := map[string]string{
 		"lib.hex": "type Box<T> is struct\n    item: T,\nend\nexport\n    Box\nend\n",

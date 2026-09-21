@@ -189,7 +189,7 @@ func TestDoctorReportsVersionWithoutBackend(t *testing.T) {
 }
 
 // TestMaterializeRefusesEscapingArtifact exercises the defense-in-depth
-// backstop. RFC 0126 already rejects such keys at the compile boundary, so
+// backstop. The compiler already rejects such keys at its boundary, so
 // this is only reachable by a caller bypassing Compile - which is exactly why
 // the driver keeps its own check.
 func TestMaterializeRefusesEscapingArtifact(t *testing.T) {

@@ -195,7 +195,7 @@ typedef struct hex_process_waiter {
 // pins for the lifetime of one child process. lock is this control's own
 // synchronization, separate from the registry slot's internal mutex: exit
 // (the loop thread) and close (any Task's thread) both take it, so the
-// "exit and close share one slot lock" linearization the RFC describes reads
+// "exit and close share one slot lock" linearization reads
 // directly off this critical section.
 typedef struct hex_process_control {
     uv_process_t process;
@@ -229,7 +229,7 @@ static void hex_process_native_closed(uv_handle_t *handle) {
 // fires exactly once, records the cached ExitStatus, and wakes every waiter
 // parked before it ran. When close() already linearized first, those
 // waiters are already gone (close woke them with Closed), and this callback
-// performs only the private reap-and-release the RFC describes: the native
+// performs only the private reap-and-release: the native
 // close it was deferring until exit runs now.
 static void hex_process_exited(uv_process_t *process, int64_t exit_status, int term_signal) {
     hex_process_control *control = (hex_process_control *)process->data;

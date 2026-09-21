@@ -64,11 +64,11 @@ static int hex_signals_validate(const uint8_t *subscriptions, size_t count) {
 // pins for the lifetime of one Signals resource. lock is this control's own
 // synchronization, separate from the registry slot's internal mutex: a
 // watcher callback (the loop thread) and close() (any Task's thread) both
-// take it, so the RFC's "event selection and close linearize under the same
+// take it, so the "event selection and close linearize under the same
 // slot synchronization" reads directly off this critical section. waiter is
 // the one active next() caller, or nullptr; whichever of a watcher callback
 // or close() finds it non-null and clears it to nullptr is the sole waker,
-// closing the exact race window the RFC's linearization rule describes.
+// closing the exact race window the linearization rule describes.
 typedef struct hex_signals_control {
     hex_handle handle;
     uv_signal_t watchers[3];
@@ -230,7 +230,7 @@ hex_signals_next_result hex_signals_next(hex_signals signals) {
     hex_task_event_suspend(task);
     // Whichever of a watcher callback or close() cleared waiter to wake this
     // Task recorded its own fact (a pending bit or closed) before doing so;
-    // checking pending first here matches the RFC's "event selected first
+    // checking pending first here matches the "event selected first
     // wins" linearization exactly, since a close that also ran afterward
     // changes nothing this waiter still needs from it.
     uv_mutex_lock(&control->lock);

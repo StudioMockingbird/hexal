@@ -74,8 +74,7 @@ func clangFallbackGlobs() []string {
 // resolveClangExecutable finds the Clang executable, trying the HEXAL_CLANG
 // override, then the versioned PATH names, then the bounded fallback
 // locations, in that order. It returns the resolved path or an error listing
-// every location tried so a missing compiler is actionable without reading
-// the RFC.
+// every location tried so a missing compiler is actionable.
 func resolveClangExecutable() (string, error) {
 	if override := os.Getenv(clangOverrideEnv); override != "" {
 		// The override names one executable path directly; it is never

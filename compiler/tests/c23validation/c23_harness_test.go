@@ -101,7 +101,7 @@ func canonicalArtifactHash(files map[string]string) string {
 // compiled by one toolchain under one flag set, scoped to the buildRoot that
 // owns it. The target is folded into the toolchain's own cache entry via its
 // Command+Version, since this suite never varies target independent of
-// toolchain (host-only, see the RFC). buildRoot is part of the key -- not
+// toolchain (host-only). buildRoot is part of the key -- not
 // just a place the result happens to live -- because compileCache is a
 // package-level map shared by every top-level test in this binary, while
 // each top-level test's buildRoot is its own t.TempDir(), deleted when that

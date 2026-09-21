@@ -1,4 +1,4 @@
-﻿#ifndef HEXAL_IO_H
+#ifndef HEXAL_IO_H
 #define HEXAL_IO_H
 
 #include "hexal.h"

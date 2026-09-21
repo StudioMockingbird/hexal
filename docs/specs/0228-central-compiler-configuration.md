@@ -6,13 +6,17 @@
 - Scope: move every compiler-owned tunable policy, ABI fact, generated-runtime
   contract, limit, default, and target/build identity into one authoritative
   configuration package
-- Origin: RFC 0224's fixed `Error` header capacity exposed the wider problem:
+- Origin: RFC 0224's fixed `Error` capacities exposed the wider problem:
   values that change generated layout or compiler behavior are scattered
-  across parser, checker, generator, compiler, and driver packages
+  across parser, checker, generator, compiler, and driver packages.
+  **Corrected 2026-09-21 against the implemented tree:** the Go-side
+  capacities are *not* scattered — see Problem — but their generated-C
+  spellings are, in fourteen places
 - Depends on: the in-memory compiler boundary, target-profile contract,
   runtime-pack contract, Project defaults, and the current `Error`, String,
   generated-C, and diagnostic contracts
-- Coordinates with: RFC 0224 (inline bounded text), RFC 0213/RFC 0214
+- Coordinates with: RFC 0224 (byte-oriented strings, implemented and
+  archived), RFC 0213/RFC 0214
   (target-qualified runtime packs), RFC 0158 (allocation tracking), and all
   active specifications that define a numeric limit, default, ABI value, or
   stable diagnostic
@@ -67,22 +71,47 @@ Other values are hidden in generator defaults, target registries, runtime
 dependency names, generated C layouts, diagnostic strings, C header lists,
 foreign-language defaults, mode tables, and runtime component policies.
 
-This makes a change such as RFC 0224's:
+### The motivating example, corrected
 
-```text
-ErrorKind.Other(header: String<64>)
-```
-
-easy to implement inconsistently. The `64` can affect type identity, C layout,
-error size, generated helpers, foreign ABI, and manifests. It must have one
-named owner:
+RFC 0224 is implemented, and its capacities are **already single-owned** on the
+Go side. `compiler/types/collections.go:156-166`:
 
 ```go
-const ErrorHeaderByteCapacity uint64 = 64
+const (
+	ErrorHeaderCapacity  = 128
+	ErrorMessageCapacity = 256
+)
+
+var (
+	ErrorHeaderText  = builtinInlineString(ErrorHeaderCapacity)
+	ErrorMessageText = builtinInlineString(ErrorMessageCapacity)
+)
 ```
 
-Generated C must be rendered from that same fact rather than repeating `64` in
-a template.
+The values are 128 and 256, not 64, and each sits adjacent to the type it
+defines. An earlier revision of this RFC cited `64` and proposed moving it to
+config; that example is withdrawn, because the problem it describes was solved
+when RFC 0224 landed.
+
+### The real duplication, which is on the C side
+
+The generated **C spelling** has no single owner. `hex_string_128` and
+`hex_string_256` appear as hard-coded literal strings in **fourteen places**
+across `compiler/generator/print.go` and six runtime templates
+(`error.h`, `file.c`, `io.c`, `network.c`, `process.c`, `signal.c`):
+
+```go
+// compiler/generator/print.go:162
+result.WriteString("    hex_string_128 header = hex_error_kind_header(value->hex_m_kind);\n")
+```
+
+Change `ErrorHeaderCapacity` to 192 and all fourteen are silently wrong. This
+is the actual instance of "generated C must be rendered from the same fact
+rather than repeating it in a template", it is verified, and it is the
+strongest concrete case this RFC has.
+
+Whether it needs a new `config` package to fix is a separate question — see
+Open questions 7.
 
 ## What counts as configuration
 
@@ -138,6 +167,40 @@ The migration must classify **every** package-level `const` and `var` in the
 compiler and driver. It must either move the declaration, document its local
 classification, or delete it as duplicated/stale. “Move every const” is not a
 license to turn implementation mechanics into public policy.
+
+## Blocking: the ownership map does not exist
+
+This RFC and RFC 0229 both claim the same domains, and the tree already has
+multiple owners for several of them. Verified on 2026-09-21:
+
+| Domain | Owner today | RFC 0228 claims | RFC 0229 claims |
+|---|---|---|---|
+| Target identity | `compiler/types/target.go` | config | `TargetSpec` |
+| Target semantic facts | `compiler/profile.go` (private `targetProfile`) | config | `TargetSpec` |
+| Target qualification | `internal/driver/profile.go` (`qualifiedTriple`) | config | `TargetSpec.Qualified` |
+| Runtime dependency identity | `compiler/runtime_dependency.go` | config | `ComponentSpec` |
+| Runtime ABI version | `compiler/runtimeabi.go` | config | "relationship" |
+| Core-library contracts | `compiler/corelib` (exported mutable map) | — | `FunctionSpec` |
+| Error capacities | `compiler/types/collections.go` | config | `ErrorKindSpec` |
+
+Two things follow.
+
+**The same fact cannot have two new homes.** Without an agreed table, this
+refactor replaces today's scattered duplication with a new duplication between
+`config`, `specdata`, and the packages that keep their own copies. That is a
+worse outcome than the status quo, because the duplication would then be
+sanctioned by two specifications.
+
+**Some of these splits are deliberate and should survive.**
+`compiler/profile.go` carries a stated rule — *"a new fact enters here only
+when checking or generation consumes it"* — and it is private. Target
+*qualification* is not a language fact at all: it depends on the installed
+backend, runtime-pack availability, and host state, so it belongs to the
+driver whatever happens to target identity. A migration that collapses these
+because they share the word "target" would lose a boundary that is currently
+correct.
+
+An ownership table agreed across both RFCs is a precondition for either.
 
 ## Package design
 
@@ -245,7 +308,7 @@ additional entries, but may not silently omit these classes.
 |---|---|
 | `RuntimeABIVersion` | generated-runtime/pack ABI version |
 | `configPageSize` | stack reserve/commit page-multiple rule |
-| RFC 0224 error header capacity | `ErrorHeaderByteCapacity` |
+| RFC 0224 error header/message capacities | already single-owned as `types.ErrorHeaderCapacity` (128) and `types.ErrorMessageCapacity` (256); the open item is their **generated-C spellings**, not the Go values |
 | fixed runtime message/header capacities | named byte capacities, where a fixed layout uses them |
 | runtime dependency names | canonical logical dependency identities |
 | generated C helper/layout constants | C representation and helper contract values |
@@ -382,7 +445,13 @@ different behavior because of mutable config state.
 
 1. Inventory all package-level `const` and `var` declarations in compiler,
    generator, parser, checker, types, corelib, backend, driver, and runtime
-   support packages.
+   support packages. Measured on 2026-09-21: **107 top-level `const`/`var`
+   declarations**, concentrated in `compiler/generator` (132 entries),
+   `compiler/types` (87), and `internal/driver` (63). The inventory must be a
+   **checked-in ledger** with one row per declaration — current symbol, file,
+   classification, new owner, new name, impact class, migration phase — not a
+   prose commitment to audit. A classification that exists only in a
+   reviewer's head cannot satisfy the validation item that requires it.
 2. Classify each as configuration, fixed algorithm data, mutable state, test
    data, generated asset, or obsolete duplication.
 3. Move every configuration item into `compiler/config`.
@@ -437,7 +506,14 @@ This section is exhaustive. The implementation is complete only when:
 - Every package-level `const` and `var` in the scoped compiler and driver tree
   is classified, and every classified configuration item is in `compiler/config`.
 - No exported mutable map, slice, registry, or global configuration object is
-  exposed by the package.
+  exposed by the package. Note one instance that exists today and must be
+  resolved by whoever owns it: `compiler/corelib/corelib.go:58` declares
+  `var Modules = map[string]Module{...}`, an exported mutable registry any
+  importer can rewrite.
+- Structured values returned by accessors are **deeply** immutable to callers.
+  A shallow struct copy whose fields are slices or maps is still mutable
+  through those fields, so records either use fixed-size arrays, unexported
+  fields with accessor methods, or explicit deep copies.
 - Returned structured configuration values cannot mutate global compiler
   policy.
 - `Project{}` preserves all current defaults and deterministic behavior.

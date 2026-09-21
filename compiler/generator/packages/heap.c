@@ -1,4 +1,4 @@
-﻿/* Default allocation: mimalloc-backed storage carrying Hexal's exact traps.
+/* Default allocation: mimalloc-backed storage carrying Hexal's exact traps.
    Callers check their own component-specific sums before calling, so the
    checks here are the last backstop rather than the only one. */
 #include "hexal/heap.h"

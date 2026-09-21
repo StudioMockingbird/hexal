@@ -8,8 +8,8 @@ import (
 	"hexal/compiler/lexer"
 )
 
-// binaryOperatorSample is one of the 19 binary operator token kinds this RFC
-// governs, spelled exactly as it appears in source, plus a right-hand
+// binaryOperatorSample is one of the 19 binary operator token kinds the parser
+// recognizes, spelled exactly as it appears in source, plus a right-hand
 // fragment that completes one use of it into a syntactically valid partial
 // expression. is is the only kind whose right side is a type expression
 // rather than a value.

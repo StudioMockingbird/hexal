@@ -113,7 +113,9 @@ Existing `slices` calls in `compiler/compile.go`, `compiler/types`, and
 Fifteen `sort` call sites in non-test code across nine files. Four collect map
 keys and then sort, which collapses to the `slices.Sorted(maps.Keys(...))`
 pattern already used in the checker and generator
-(`compiler/checker/modules.go:645`, `compiler/generator/concurrency.go:375`):
+(`compiler/checker/modules.go:645`, `compiler/generator/concurrency.go:375`).
+That pattern appears **10 times in non-test code and twice in tests**; the
+production count is the one a migration matches:
 
 | File | Lines | Current | Replacement | Lines saved |
 | --- | --- | --- | --- | --- |
@@ -135,8 +137,8 @@ The remaining eleven sites are direct replacements with no line-count change:
 | `compiler/checker/captures.go` | 452 | `sort.SliceStable` | `slices.SortStableFunc` |
 
 Expected benefit: about 12 lines removed, the `sort` import leaves nine files,
-comparators become type-safe, and the map-key idiom matches the twelve existing
-`slices.Sorted(maps.Keys(...))` uses. The five `normalize.go` stable sorts stay
+comparators become type-safe, and the map-key idiom matches the ten existing
+non-test `slices.Sorted(maps.Keys(...))` uses. The five `normalize.go` stable sorts stay
 stable; the two `sort.Slice` sites become the equivalent unstable
 `slices.SortFunc`. Complexity is unchanged.
 
@@ -175,7 +177,6 @@ The checker must retain ownership of:
 - Hexal target widths and signed/unsigned ranges;
 - wraparound rules where Hexal deliberately defines them;
 - float32/float64 rounding and bit-preserving conversion policy;
-- Rune validity and surrogate exclusion;
 - contextual typing and inference rejection;
 - pointer, allocation, resource, Atomic, and function-value restrictions;
 - C23 representation decisions; and
@@ -455,7 +456,7 @@ This ADR is implemented only when all of the following are true:
    where tested, and all diagnostics.
 2. The compiler has no duplicate constant representation for expressions that
    `go/constant` can represent, and existing constant, conversion, range,
-   Rune, Boolean, and starvation tests pass unchanged in meaning.
+   Boolean, and starvation tests pass unchanged in meaning.
 3. Module traversal has focused tests for reachable-only traversal, dependency
    post-order, duplicate imports, cycles, deterministic ordering, missing
    modules, stdlib modules, and prepared C bindings.

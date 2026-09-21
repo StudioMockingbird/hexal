@@ -95,7 +95,7 @@ func TestDeferredRestCallPacksAtExecution(t *testing.T) {
 	}
 }
 
-// Every escape position the RFC names is rejected with the one stable
+// Every escape position is rejected with the one stable
 // diagnostic, while reading, aliasing, iterating, indexing, and copying an
 // element remain valid.
 func TestRestBackedEscapeDiagnostics(t *testing.T) {

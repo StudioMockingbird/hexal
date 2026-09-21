@@ -35,7 +35,7 @@ func isSignalOperation(name string) bool {
 // signal-observation reachability. used gates the type-definition component
 // (Signal and Signals as bare types); operations additionally gates the
 // native runtime -- the handle registry, event bridge, scheduler, libuv, and
-// native bootstrap -- matching the RFC's "constructing or matching a Signal
+// native bootstrap -- matching the "constructing or matching a Signal
 // variant selects only its type-definition component" rule.
 // hexal/signal.h's own hex_handle embedding is the same disclosed
 // simplification hexal/process.h makes: it always follows used, not

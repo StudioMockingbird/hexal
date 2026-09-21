@@ -215,7 +215,7 @@ func TestBuildHasNoMimallocSharedLibraryImport(t *testing.T) {
 	}
 }
 
-// TestBuildCompilesRuntimeComponents guards ADR 0055's rule that every .c
+// TestBuildCompilesRuntimeComponents guards the rule that every .c
 // entry is compiled, not only those under modules/. A program that can trap
 // pulls in hexal/runtime.c, so a successful link proves the component was
 // compiled rather than skipped.

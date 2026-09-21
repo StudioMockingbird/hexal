@@ -13,11 +13,14 @@ import (
 	"unicode"
 )
 
-// commentCitation matches any spec number or spec-directory pointer that a
-// comment must not carry: RFC or ADR followed by digits, or a docs/specs/
-// path. docs/status.md and docs/reference.md are living documents and are not
-// matched.
-var commentCitation = regexp.MustCompile(`RFC\s*\d+|ADR\s*\d+|docs/specs/`)
+// commentCitation matches any spec citation a comment must not carry: a
+// spec-identity token, bare or numbered, or a spec-directory path. The living
+// status and reference documents are not matched.
+var commentCitation = regexp.MustCompile(`\bRFC\b|\bADR\b|docs/specs/`)
+
+// commentTodo matches an unresolved-work marker a comment must not carry. A
+// comment states what the code does or guarantees; it never parks work.
+var commentTodo = regexp.MustCompile(`\b(TODO|FIXME|XXX|HACK)\b`)
 
 // commentViolation is one offending comment, reported with its file, line, and
 // full text so the fix is immediate.
@@ -28,7 +31,7 @@ type commentViolation struct {
 }
 
 // scanCommentPolicy parses one Go file and returns every comment that violates
-// the policy: one that cites a spec number or docs/specs/ path, or one that
+// the policy: one that cites a spec number or spec-directory path, or one that
 // contains a rune above ASCII. Comments are read from file.Comments, never
 // from the syntax tree: unattached comments live only in File.Comments and
 // would silently escape an ast.Inspect walk.
@@ -37,7 +40,7 @@ func scanCommentPolicy(fset *token.FileSet, path string, file *ast.File) []comme
 	for _, group := range file.Comments {
 		for _, comment := range group.List {
 			position := fset.Position(comment.Pos())
-			if commentCitation.MatchString(comment.Text) {
+			if commentCitation.MatchString(comment.Text) || commentTodo.MatchString(comment.Text) {
 				violations = append(violations, commentViolation{path, position.Line, comment.Text})
 			}
 			for _, r := range comment.Text {
@@ -60,7 +63,19 @@ func scanCommentPolicyWalk(t *testing.T, roots ...string) []commentViolation {
 	var violations []commentViolation
 	for _, root := range roots {
 		filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
-			if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".go") {
+			if err != nil {
+				return nil
+			}
+			if entry.IsDir() {
+				// Vendored third-party sources are upstream and are never
+				// edited here; the scratch directory is not part of the tree.
+				switch entry.Name() {
+				case "lib", ".git", ".tmp":
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(path, ".go") {
 				return nil
 			}
 			fset := token.NewFileSet()
@@ -79,10 +94,10 @@ func scanCommentPolicyWalk(t *testing.T, roots ...string) []commentViolation {
 	return violations
 }
 
-// The guard's job: every comment in the compiler and the workbench complies.
-// Any newly added violation fails here with its file and line.
-func TestCommentPolicyAppliesToCompilerAndWorkbench(t *testing.T) {
-	violations := scanCommentPolicyWalk(t, "compiler", "workbench")
+// The guard's job: every comment in the tree complies. Any newly added
+// violation fails here with its file and line.
+func TestCommentPolicyAppliesToWholeTree(t *testing.T) {
+	violations := scanCommentPolicyWalk(t, ".")
 	if len(violations) == 0 {
 		return
 	}

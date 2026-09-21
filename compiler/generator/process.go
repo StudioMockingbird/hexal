@@ -31,7 +31,7 @@ const (
 // (ProcessOptions, Environment, ProcessStream, ExitStatus, EnvironmentVariable,
 // StartedProcess, Process, and Pipe as bare types); operations additionally
 // gates the native runtime -- the handle registry, event bridge, scheduler,
-// libuv, and native bootstrap -- matching the RFC's "constructing or
+// libuv, and native bootstrap -- matching the "constructing or
 // inspecting an inline option value selects only the type-definition
 // component" rule. hexal/process.h's own hex_handle embedding is a disclosed
 // simplification: it always follows used, not operations, since hex_handle

@@ -33,7 +33,7 @@ func (QualifiedTypeExpression) typeExpressionNode() {}
 // QualifiedGenericTypeExpression refers to an exported generic type of an
 // imported module with concrete type arguments: Alias.Name<Arguments>.
 // Unlike QualifiedTypeExpression's dotted chain, exactly one alias and one
-// exported declaration name are carried; the RFC's qualified generic form is
+// exported declaration name are carried; the qualified generic form is
 // not an arbitrary dotted path.
 type QualifiedGenericTypeExpression struct {
 	Module    lexer.Token

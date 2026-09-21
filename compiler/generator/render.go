@@ -897,8 +897,8 @@ func funDeclaration(typ compilerTypes.Type, name string, mutable bool) string {
 // declarator places the declared name in the middle of itself
 // (`RT (*name)(params)`), which cannot nest inside the outer function's own
 // `RT name(params)` declarator. C23 typeof turns the abstract declarator into
-// a standalone type specifier, which is the one place this RFC introduces
-// typeof; every other Fun-typed position keeps its existing declarator.
+// a standalone type specifier, the one place typeof is used; every other
+// Fun-typed position keeps its existing declarator.
 func standaloneResultSpelling(typ compilerTypes.Type) string {
 	if typ.Signature != nil {
 		return "typeof(" + typeSpelling(typ) + ")"

@@ -14,8 +14,9 @@
   and the current type, core-library, runtime-component, target, diagnostic,
   and generated-C contracts
 - Coordinates with: RFC 0052 (C backend), RFC 0055 (build driver), RFC 0158
-  (allocation tracking), RFC 0213/RFC 0214 (runtime packs), RFC 0224 (inline
-  bounded text), RFC 0227 (vendored utf8proc), and every specification that
+  (allocation tracking), RFC 0213/RFC 0214 (runtime packs), RFC 0224
+  (byte-oriented strings, implemented and archived), RFC 0227 (vendored
+  utf8proc), and every specification that
   introduces a compiler-owned type, method, operator, diagnostic, component,
   or C layout
 - Does not update: Hexal syntax or semantics by itself, user configuration,
@@ -148,6 +149,33 @@ the compiler source, reviews the generated-C and diagnostic impact, and runs
 the owning validation. Programs cannot change compiler semantics by supplying
 data at runtime.
 
+## Blocking: ownership, and an import cycle
+
+RFC 0228's *Blocking: the ownership map does not exist* applies here
+unchanged: both RFCs claim target facts, runtime dependencies, diagnostics,
+and the Error relationship, and the tree already has owners for each. That
+table must be agreed before either package is created.
+
+One conflict is sharper than an ownership question, because it is a
+compile-time impossibility rather than a design preference:
+
+```text
+compiler/corelib imports compiler/types and stores live Type values
+   (compiler/corelib/corelib.go:9)
+
+if compiler/types consumes specdata for builtin type facts, and
+specdata needs Type to express those facts, then
+
+compiler/types -> specdata -> compiler/types     import cycle
+```
+
+The registry therefore cannot hold `compilerTypes.Type` values. It must store
+primitive identifiers, and some adapter must resolve those identifiers to
+canonical types after interning. That adapter — where it lives, when it runs,
+and what it does when an identifier has no type — is not in this RFC and is a
+precondition for domain 1.
+
+
 ## Registry domains
 
 ### 1. Built-in type specifications
@@ -172,11 +200,17 @@ type BuiltinTypeSpec struct {
 It covers types such as:
 
 ```text
-Int32, Int64, Rune, String, Strand
+Int32, Int64, Byte, String, String<N>
 Array, Slice, List, Dict
 Heap, Pool, Stash
 Error, Task, Channel, Mutex, Atomic
 ```
+
+`Strand` no longer exists — RFC 0224 removed it — and `Rune` is removed
+pending RFC 0227, which restores it together with `Grapheme` and three
+cursors. Any registry landing before RFC 0227 must not carry records for
+types the language does not have; any landing after must carry the ones it
+adds.
 
 The record drives facts such as:
 
@@ -451,8 +485,9 @@ Error
 List<T>
 Dict<K,V>
 Slice<T>
-RuneCursor
 ```
+
+`RuneCursor` was removed by RFC 0224 and is restored only by RFC 0227.
 
 The generator renders declarations from layout facts, but specialized bodies,
 checked arithmetic, evaluation order, and control flow remain explicit.

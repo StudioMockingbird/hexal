@@ -1,4 +1,4 @@
-﻿#include "hexal/io.h"
+#include "hexal/io.h"
 {{if .Event}}#include "hexal/event.h"
 {{end}}#include <stdckdint.h>
 
@@ -48,7 +48,7 @@ constexpr size_t HEX_IO_MAX_REQUEST = (size_t)SSIZE_MAX;
 
 // hex_io_error_kind maps one native failure code to the portable ErrorKind
 // front-end. IO does not link libuv; this is the small POSIX/Windows mapper
-// RFC 0181 keeps agreeing with the common libuv mapper on shared conditions.
+// that keeps agreeing with the common libuv mapper on shared conditions.
 // It contains no errno or Win32 number in its Other fallback header.
 static hex_t_ErrorKind hex_io_error_kind(bool windows_codes, long long code) {
 #ifdef _WIN32

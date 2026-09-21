@@ -27,7 +27,7 @@ const (
 // generatedTerminalState records one module's (or the merged program's)
 // terminal reachability. used gates the type-definition component
 // (TerminalSize as a bare type); operations additionally gates the native
-// query declarations and definitions, matching the RFC's "constructing a
+// query declarations and definitions, matching the "constructing a
 // TerminalSize value alone selects only the type-definition component" rule.
 type generatedTerminalState struct {
 	used       bool
