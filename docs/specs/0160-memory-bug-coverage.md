@@ -10,7 +10,8 @@
   small deltas against it
 - Coordinates with: RFC 0155 (unsafe posture for the uninit escape), RFC
   0156 (arithmetic and foreign-write hazards), RFC 0157 (explicit uninit
-  allocation), RFC 0158 (test-time tracking allocator), RFC 0039 (foreign
+  allocation), RFC 0158 (test-time tracking allocator), RFC 0165 (alias
+  diagnosis), RFC 0225 (cross-allocator release), RFC 0039 (foreign
   contracts)
 - Does not update `docs/reference.md`
 
@@ -69,13 +70,13 @@ mechanism, not the whole implementation.
 | Memory leak | No static or production leak diagnosis. A process-exit report is not currently implemented; mimalloc statistics in measurement tests are not a leak tracker | RFC 0158 owns opt-in physical-allocation tracking. Static non-escaping leak diagnosis is deferred |
 | Double free | Direct locally tracked bindings are rejected. Copies are intentionally not tracked | RFC 0165 may add conservative intraprocedural alias facts. Debug tombstones belong to RFC 0158 |
 | Null dereference | Solved for the checked safe-language operations. Nullable must be narrowed before member access and method dispatch (`checker/methods.go`) | None. Row is closed; proposals must not reopen it |
-| Invalid free | Implemented: `Heap.free` of an argument traceable to `@` of local storage is rejected (`free does not accept a pointer into this function's local storage`). Unknown or foreign addresses remain outside local proof. **Cross-allocator release is not rejected**: `h.free(pool_ptr)`, `h.free(stash_ptr)`, and `pool.free(heap_ptr)` are all accepted today | Add cross-allocator rejection where the local provenance edge already proves it. `checker/pool.go` already reads `flow.provenance` to reject `pointer was allocated from a different Pool`; extending that read to `Heap.free` and to Stash is local, syntactic, and needs no new concept. Foreign-pointer ownership remains RFC 0039's |
+| Invalid free | Implemented: `Heap.free` of an argument traceable to `@` of local storage is rejected (`free does not accept a pointer into this function's local storage`). Unknown or foreign addresses remain outside local proof. **Cross-allocator release is not rejected**: `h.free(pool_ptr)`, `h.free(stash_ptr)`, and `pool.free(heap_ptr)` are all accepted today | RFC 0225 owns cross-allocator rejection, extending the provenance edge `checker/pool.go` already reads. Foreign-pointer ownership remains RFC 0039's |
 | Stack buffer overflow | Safe Array indexing and slicing are checked; foreign writes remain outside the language proof | None in-language. Foreign writes through exported pointers are RFC 0039's |
 | Heap buffer overflow | Safe List/Array indexing and slicing are checked; escaped or foreign writes remain outside the language proof | None in-language. Same foreign carve-out |
-| Out-of-bounds read | Solved for the checked Array/List/String/View paths. Constant Array indices are already rejected; unknown cases trap at runtime | Broader constant folding is optional. It must not be described as entirely unimplemented |
+| Out-of-bounds read | Solved for the checked Array/Slice/List/String paths. Constant Array indices are already rejected; unknown cases trap at runtime | Broader constant folding is optional. It must not be described as entirely unimplemented. Guardrail: `Array<T, N>`'s contribution to this row is that N *is* the length, so every in-range index is valid by construction. A proposal replacing it with a capacity-plus-runtime-length form (RFC 0226) weakens that to "an index `>= N` is still statically wrong", and must show the row stays solved or record the regression |
 | Off-by-one | Half solved. `for...in` is exact by construction; checked indexing converts mistakes to traps | Compiler-side advisory warning for suspicious `<=` or `==` against `.length()`. It remains non-fatal and may have false positives |
-| Uninitialized read | Solved by construction for safe code. Mandatory initializers; `allocate<T>(initial)`; complete aggregate construction | None, plus a guardrail: RFC 0157's uninit escape must **confine** this row rather than preserve it. An unsafe-gated uninitialized allocation creates exactly the bug this row calls solved; what must be preserved is that safe code cannot spell it. RFC 0157 owns the write-before-read contract as a programmer assertion, not a checker proof, and adds no fill in any build mode |
-| Missing NUL terminator | Solved structurally. `hex_string` is `{data, byte_length, rune_length}` (`generator/packages/string.h`); `Strand` is inline data — length, never sentinel | Confine NUL creation to C-boundary conversion ops (single audited sites each). Safe code cannot spell the bug |
+| Uninitialized read | Solved by construction for safe code. Mandatory initializers; `allocate<T>(initial)`; complete aggregate construction | None, plus a guardrail: RFC 0157's uninit escape must **confine** this row rather than preserve it. An unsafe-gated uninitialized allocation creates exactly the bug this row calls solved; what must be preserved is that safe code cannot spell it. RFC 0157 owns the write-before-read contract as a programmer assertion, not a checker proof, and adds no fill in any build mode. A second guardrail applies to any proposal adding a partially-filled inline container (RFC 0226): because Hexal has no default-value concept, capacity beyond the logical length holds no valid T, and a by-value copy of the container reads it. Such a proposal must show this row stays solved in **safe** code, where RFC 0157's unsafe gate is not available to confine it |
+| Missing NUL terminator | Solved for the checked safe-language operations, by two different mechanisms. `String` carries its lengths: `hex_string` is `{data, byte_length, rune_length, storage_kind}` (`generator/packages/string.h`), never a sentinel. `Strand` is **not** length-carrying — it is 32 inline bytes holding at most 31 UTF-8 payload bytes, a NUL, then zero fill, and `Strand.length()` scans bounded by those 31 bytes. Safe code still cannot spell the bug, because the terminator and the bound are both structural and neither is caller-supplied | Confine NUL creation to C-boundary conversion ops (single audited sites each). Any proposal that generalizes `Strand`'s capacity must keep the bound structural: a scanned terminator is safe at one fixed width and stops being obviously safe once the width is a parameter |
 
 ## Detection phases
 
@@ -103,12 +104,12 @@ being silently promoted to compile-time guarantees.
 
 ## Graduation
 
-- Checker items (copy-propagated freed facts, cross-allocator free rejection,
-  literal-index const-fold, loop-bound lint): one focused checker RFC, or
-  two if the lint's advisory-only nature wants separation from hard errors.
-  Rejecting `Heap.free` of an address taken with `@` is **not** on this list:
-  it is implemented and verified, and listing it invites re-opening a closed
-  row.
+- Checker items (copy-propagated freed facts, literal-index const-fold,
+  loop-bound lint): one focused checker RFC, or two if the lint's
+  advisory-only nature wants separation from hard errors. Cross-allocator
+  release has already graduated to RFC 0225. Rejecting `Heap.free` of an
+  address taken with `@` is **not** on this list: it is implemented and
+  verified, and listing it invites re-opening a closed row.
 - Runtime items (fill-after-free, free-list tombstones): the debug-backend
   vehicle alongside RFC 0158's tracking allocator.
 - Tooling items (tracking allocator, leak reports): RFC 0158's vehicle.

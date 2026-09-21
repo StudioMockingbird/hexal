@@ -991,6 +991,7 @@ ErrorKind.header()                     -> Strand
 ```text
 Heap() -> Heap
 Heap.allocate<T>(initial: T) -> Ptr<mut T>
+Heap.allocate_aligned<T>(initial: T, alignment: Size) -> Ptr<mut T>
 Heap.free<T>(pointer: Ptr<T>) -> no value
 Heap.free<T>(pointer: Ptr<mut T>) -> no value
 ```
@@ -1001,8 +1002,27 @@ Heap.free<T>(pointer: Ptr<mut T>) -> no value
 - `h.allocate<T>(initial)` allocates and initializes one complete finite T, returning non-owning
   `Ptr<mut T>`. T must be valid in HeapAllocation; direct Atomic allocation is invalid. Failure or
   unrepresentable size traps.
-- `h.free(ptr)` accepts `Ptr` in either mode. With one default allocator there is no allocator to
-  mismatch, and none is compared.
+- `h.allocate_aligned<T>(initial, alignment)` has `allocate`'s T eligibility, initializer typing,
+  result, cleanup, and freed-state behavior, and additionally requires `alignment` to be Size,
+  non-zero, and a power of two. `alignment` is a requested minimum: the effective alignment is
+  `max(alignment, align_of<T>())`, so requesting less than T's natural alignment is valid and
+  still returns storage correctly aligned for T. Requesting exactly the natural alignment differs
+  from `allocate<T>` in no observable way. Receiver, `initial`, then `alignment` are each
+  evaluated exactly once in that order; `initial` is fully evaluated before any alignment trap,
+  and allocation occurs only after validation succeeds.
+- A compile-time-constant `alignment` of zero or a non-power-of-two is rejected: `Type Error:
+  alignment must be a non-zero power of two; got <value>`. A non-Size alignment is rejected with
+  `Type Error: allocate_aligned requires Size; got <type>`; wrong arity with `Type Error:
+  allocate_aligned expects 2 arguments (initial, alignment)`; a missing or repeated type argument
+  with `Type Error: allocate_aligned requires exactly one type argument`. A dynamic invalid
+  alignment traps with `[Runtime Error] invalid allocation alignment` before the allocator is
+  reached. Allocation failure traps with `[Runtime Error] heap allocation failed`, as `allocate`
+  does.
+- `h.free(ptr)` accepts `Ptr` in either mode, and releases an aligned allocation identically to an
+  ordinary one; `free` takes no alignment argument. Every Heap value selects the same allocator, so
+  no Heap can be the wrong Heap and none is compared. That is a statement about Heap identity only:
+  passing a Stash or Pool allocation to `h.free` is undefined behavior and is not currently
+  rejected.
 - Heap-backed library values — `String`, `List`, `Dict`, `Channel`, `Mutex` — receive their Heap
   explicitly; their allocation and cleanup never choose a hidden allocator.
 - Allocator-owning types are the exception, and are explicit about it: `Stash` and `Pool` construct

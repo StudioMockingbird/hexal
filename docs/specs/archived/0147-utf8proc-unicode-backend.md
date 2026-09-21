@@ -1,7 +1,7 @@
 # RFC 0147: utf8proc Unicode Backend
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Open Discussion; not scheduled. Design state: Draft; architecture proposed, dependency qualification not started
+- Status: Superseded by RFC 0227; the historical proposal is retained unchanged apart from this terminal status
 - Created: 2026-09-08
 - Scope: use a pinned utf8proc build for runtime UTF-8 scalar processing and as
   the implementation foundation for later explicit Unicode operations
