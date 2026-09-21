@@ -24,7 +24,7 @@ type generatedPrintState struct {
 	// not -- reached as a structural descendant of some print argument
 	// (an object member, ADT payload field, or collection element), since
 	// an aggregate's own nested helper recurses into its members through
-	// exactly that call. A leaf type (String, Strand, a scalar, Error)
+	// exactly that call. A leaf type (text, a scalar, Error)
 	// that only ever appears as a bare top-level argument needs no nested
 	// helper at all: writePrintArgument formats it directly.
 	needsNested map[string]bool
@@ -36,9 +36,9 @@ type generatedPrintState struct {
 func printFormatsDirectlyAtTopLevel(typ compilerTypes.Type) bool {
 	switch {
 	case compilerTypes.Equal(typ, compilerTypes.Bool), compilerTypes.Equal(typ, compilerTypes.Nil),
-		compilerTypes.IsSignedInteger(typ), compilerTypes.IsUnsignedInteger(typ) && !compilerTypes.IsRune(typ),
-		compilerTypes.IsRune(typ), compilerTypes.Equal(typ, compilerTypes.Float32), compilerTypes.Equal(typ, compilerTypes.Float64),
-		compilerTypes.IsString(typ), compilerTypes.IsStrand(typ), compilerTypes.IsError(typ):
+		compilerTypes.IsSignedInteger(typ), compilerTypes.IsUnsignedInteger(typ),
+		compilerTypes.Equal(typ, compilerTypes.Float32), compilerTypes.Equal(typ, compilerTypes.Float64),
+		compilerTypes.IsText(typ), compilerTypes.IsError(typ):
 		return true
 	}
 	return false
@@ -57,7 +57,7 @@ func discoverGeneratedPrint(program checker.Program) (*generatedPrintState, erro
 		}
 		key := typ.Name
 		switch {
-		case compilerTypes.IsString(typ), compilerTypes.IsStrand(typ), compilerTypes.IsRune(typ), compilerTypes.IsError(typ),
+		case compilerTypes.IsText(typ), compilerTypes.IsError(typ),
 			compilerTypes.IsInteger(typ), compilerTypes.IsFloat(typ), compilerTypes.Equal(typ, compilerTypes.Bool):
 			if !seen[key] {
 				seen[key] = true
@@ -159,18 +159,18 @@ func writePrintDefinitions(result *strings.Builder, state *generatedPrintState, 
 		result.WriteString("    hex_print_text(out, (const uint8_t *)\":\", 1);\n    hex_print_size(out, value->hex_m_line);\n")
 		result.WriteString("    hex_print_text(out, (const uint8_t *)\":\", 1);\n    hex_print_size(out, value->hex_m_column);\n")
 		result.WriteString("    hex_print_text(out, (const uint8_t *)\": \", 2);\n")
-		result.WriteString("    hex_strand header = hex_error_kind_header(value->hex_m_kind);\n")
-		result.WriteString("    hex_print_text(out, header.data, hex_strand_byte_length(header));\n")
+		result.WriteString("    hex_string_128 header = hex_error_kind_header(value->hex_m_kind);\n")
+		result.WriteString("    hex_print_text(out, header.data, header.byte_length);\n")
 		result.WriteString("    hex_print_text(out, (const uint8_t *)\": \", 2);\n")
-		result.WriteString("    hex_print_text(out, value->hex_m_message->data, value->hex_m_message->byte_length);\n}\n")
+		result.WriteString("    hex_print_text(out, value->hex_m_message.data, value->hex_m_message.byte_length);\n}\n")
 	}
 	if errorNestedNeeded {
 		result.WriteString("static void hex_print_error_nested(hex_print_buffer *out, const hex_t_Error *value) {\n")
 		result.WriteString("    hex_print_text(out, (const uint8_t *)\"Error { file = \", 15);\n    hex_print_quoted_text(out, value->hex_m_file->data, value->hex_m_file->byte_length);\n")
 		result.WriteString("    hex_print_text(out, (const uint8_t *)\", line = \", 9);\n    hex_print_size(out, value->hex_m_line);\n")
 		result.WriteString("    hex_print_text(out, (const uint8_t *)\", column = \", 11);\n    hex_print_size(out, value->hex_m_column);\n")
-		result.WriteString("    hex_print_text(out, (const uint8_t *)\", kind = \", 9);\n    hex_strand nested_header = hex_error_kind_header(value->hex_m_kind);\n    hex_print_quoted_text(out, nested_header.data, hex_strand_byte_length(nested_header));\n")
-		result.WriteString("    hex_print_text(out, (const uint8_t *)\", message = \", 12);\n    hex_print_quoted_text(out, value->hex_m_message->data, value->hex_m_message->byte_length);\n")
+		result.WriteString("    hex_print_text(out, (const uint8_t *)\", kind = \", 9);\n    hex_string_128 nested_header = hex_error_kind_header(value->hex_m_kind);\n    hex_print_quoted_text(out, nested_header.data, nested_header.byte_length);\n")
+		result.WriteString("    hex_print_text(out, (const uint8_t *)\", message = \", 12);\n    hex_print_quoted_text(out, value->hex_m_message.data, value->hex_m_message.byte_length);\n")
 		result.WriteString("    hex_print_text(out, (const uint8_t *)\" }\", 2);\n}\n")
 	}
 	for _, typ := range state.types {
@@ -209,21 +209,19 @@ func writePrintNestedHelper(result *strings.Builder, typ compilerTypes.Type, tag
 	switch {
 	case compilerTypes.IsString(typ):
 		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    const hex_string *text = value;\n    hex_print_quoted_text(out, text->data, text->byte_length);\n}\n", typ.CName)
-	case compilerTypes.IsStrand(typ):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_strand text = *(const hex_strand *)value;\n    size_t length = 0;\n    while (length < 32 && text.data[length] != 0) {\n        length++;\n    }\n    hex_print_quoted_text(out, text.data, length);\n}\n", typ.CName)
-	case compilerTypes.IsRune(typ):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_quoted_rune(out, *(const uint32_t *)value);\n}\n", typ.CName)
+	case compilerTypes.IsInlineString(typ):
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_text text = hex_text_inline(value);\n    hex_print_quoted_text(out, text.data, text.length);\n}\n", typ.CName)
 	case compilerTypes.IsError(typ):
 		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_error_nested(out, value);\n}\n", typ.CName)
 	case compilerTypes.IsErrorKind(typ):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_strand text = hex_error_kind_header(*(const hex_t_ErrorKind *)value);\n    hex_print_text(out, text.data, hex_strand_byte_length(text));\n}\n", typ.CName)
+		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_string_128 text = hex_error_kind_header(*(const hex_t_ErrorKind *)value);\n    hex_print_text(out, text.data, text.byte_length);\n}\n", typ.CName)
 	case compilerTypes.Equal(typ, compilerTypes.Bool):
 		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_bool(out, *(const bool *)value);\n}\n", typ.CName)
 	case compilerTypes.Equal(typ, compilerTypes.Nil):
 		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    (void)value;\n    hex_print_nil(out);\n}\n", typ.CName)
 	case compilerTypes.IsSignedInteger(typ):
 		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_int%d(out, *(const int%d_t *)value);\n}\n", typ.CName, typ.Bits, typ.Bits)
-	case compilerTypes.IsUnsignedInteger(typ) && !compilerTypes.IsRune(typ):
+	case compilerTypes.IsUnsignedInteger(typ):
 		if compilerTypes.Equal(typ, compilerTypes.SizeType) {
 			fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_size(out, *(const size_t *)value);\n}\n", typ.CName)
 		} else {
@@ -360,30 +358,20 @@ func writePrintArgument(body *strings.Builder, typ compilerTypes.Type, name, buf
 		} else {
 			fmt.Fprintf(body, "%shex_print_int%d(%s, %s);\n", indent, width, buffer, name)
 		}
-	case compilerTypes.IsUnsignedInteger(typ) && !compilerTypes.IsRune(typ):
+	case compilerTypes.IsUnsignedInteger(typ):
 		if compilerTypes.Equal(typ, compilerTypes.SizeType) {
 			fmt.Fprintf(body, "%shex_print_size(%s, %s);\n", indent, buffer, name)
 		} else {
 			fmt.Fprintf(body, "%shex_print_uint%d(%s, %s);\n", indent, typ.Bits, buffer, name)
 		}
-	case compilerTypes.IsRune(typ):
-		fmt.Fprintf(body, "%shex_print_rune(%s, %s);\n", indent, buffer, name)
 	case compilerTypes.Equal(typ, compilerTypes.Float32):
 		fmt.Fprintf(body, "%shex_print_float32(%s, %s);\n", indent, buffer, name)
 	case compilerTypes.Equal(typ, compilerTypes.Float64):
 		fmt.Fprintf(body, "%shex_print_float64(%s, %s);\n", indent, buffer, name)
 	case compilerTypes.IsString(typ):
 		fmt.Fprintf(body, "%shex_print_text(%s, %s->data, %s->byte_length);\n", indent, buffer, name, name)
-	case compilerTypes.IsStrand(typ):
-		// A Strand's logical payload ends at the first NUL byte of its
-		// 32-byte inline storage.
-		fmt.Fprintf(body, "%s{\n", indent)
-		fmt.Fprintf(body, "%s    size_t length = 0;\n", indent)
-		fmt.Fprintf(body, "%s    while (length < 32 && %s.data[length] != 0) {\n", indent, name)
-		fmt.Fprintf(body, "%s        length++;\n", indent)
-		fmt.Fprintf(body, "%s    }\n", indent)
-		fmt.Fprintf(body, "%s    hex_print_text(%s, %s.data, length);\n", indent, buffer, name)
-		fmt.Fprintf(body, "%s}\n", indent)
+	case compilerTypes.IsInlineString(typ):
+		fmt.Fprintf(body, "%shex_print_text(%s, %s.data, %s.byte_length);\n", indent, buffer, name, name)
 	case compilerTypes.IsError(typ):
 		fmt.Fprintf(body, "%shex_print_error_direct(%s, &%s);\n", indent, buffer, name)
 	default:

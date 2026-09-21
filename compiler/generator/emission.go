@@ -56,7 +56,7 @@ type moduleEmission struct {
 	arrayState  *generatedArrayState
 	sliceState  *generatedSliceState
 	stringState *literalRegistry
-	stringUsed  bool // module-local String/Strand dependency selection
+	stringUsed  bool // module-local text dependency selection
 	// interpolationUsed is true when this module contains a checked
 	// String.interpolate call, selecting the String component's demand-driven
 	// formatter helpers.
@@ -74,6 +74,7 @@ type moduleEmission struct {
 	ioState           *generatedStreamState
 	timeState         *generatedTimeState
 	fileState         *generatedFileState
+	textState         *generatedTextState
 	networkState      *generatedNetworkState
 	processState      *generatedProcessState
 	signalState       *generatedSignalState
@@ -168,6 +169,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	emission.ioState = discoverGeneratedStreams(program, logicalKey, literals)
 	emission.timeState = discoverGeneratedTime(program, logicalKey, literals)
 	emission.fileState = discoverGeneratedFiles(program, logicalKey, literals)
+	emission.textState = discoverGeneratedText(program, logicalKey, literals)
 	emission.networkState = discoverGeneratedNetwork(program, logicalKey, literals)
 	emission.processState = discoverGeneratedProcess(program, logicalKey, literals)
 	emission.signalState = discoverGeneratedSignal(program, logicalKey, literals)
@@ -181,13 +183,13 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	}
 	emission.concurrencyState = concurrencyState
 	if concurrencyState.used {
-		// The task runtime needs the String and Strand typedefs and the
+		// The task runtime needs the String typedefs, the inline text structs, and the
 		// Error object for the failure Errors every recoverable operation
 		// constructs; the discovery pass registered the literals. The
 		// Channel and Mutex helpers take a hex_heap argument, so the heap
 		// machinery is required too.
 		literals.used = true
-		literals.strand = true
+		literals.requireErrorText()
 		emission.stringUsed = true
 		heapState.required = true
 	}
@@ -195,15 +197,16 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		// WallTime.now builds its failure Error from the module file literal
 		// and a static String message.
 		literals.used = true
-		literals.strand = true
+		literals.requireErrorText()
 		emission.stringUsed = true
 		emission.errorUsed = true
 	}
 	if emission.errorUsed {
-		// Error's representation names the String and Strand types, so the
+		// Error's representation names the String handle and the inline header and
+		// message types, so the
 		// string component is a required dependency of error.h.
 		literals.used = true
-		literals.strand = true
+		literals.requireErrorText()
 		emission.stringUsed = true
 	}
 	if emission.corelibState != nil && emission.corelibState.used {
@@ -211,7 +214,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		// program/entropy component headers include the Heap and Slice
 		// definitions those result structs reference.
 		literals.used = true
-		literals.strand = true
+		literals.requireErrorText()
 		emission.stringUsed = true
 		emission.errorUsed = true
 		heapState.required = true
@@ -228,7 +231,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		// print's descriptor write-all sink selects hexal/io.c exactly like a
 		// direct stream operation does (see io_component.go's own selection
 		// condition), so it carries the identical dependency set: the Byte
-		// list, the byte Slice, the Error object with its String and Strand
+		// list, the byte Slice, the Error object with its String and inline text
 		// fields, heap allocation through List growth, and the shared trap.
 		// tcp_read and pipe_read reference hex_list_UInt8 and its
 		// reserve/grow helpers unconditionally in their generated C, so a
@@ -237,7 +240,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		ensureByteList(listState)
 		ensureSliceUInt8(sliceState)
 		literals.used = true
-		literals.strand = true
+		literals.requireErrorText()
 		emission.stringUsed = true
 		emission.errorUsed = true
 		sliceState.required = true
@@ -326,6 +329,9 @@ type programEmission struct {
 	// orderingNeed is true when any module's equality state requires the
 	// shared String ordering helper.
 	orderingNeed bool
+	// hashNeed is true when any module has a Dict keyed by inline text,
+	// selecting the shared text hash and equality helpers.
+	hashNeed bool
 	// interpolationNeed is true when any module contains a checked
 	// String.interpolate call, selecting the String component's
 	// demand-driven formatter helpers.
@@ -442,6 +448,16 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 			merged.orderingNeed = merged.orderingNeed || module.equalityState.compareNeed
 		}
 		merged.interpolationNeed = merged.interpolationNeed || module.interpolationUsed
+		if module.dictState != nil {
+			for _, dict := range module.dictState.order {
+				if compilerTypes.IsText(dict.Dict.Key) {
+					// A text key is probed by the shared hash and the shared
+					// equality helper, so both are selected with it.
+					merged.hashNeed = true
+					merged.equalityNeed = true
+				}
+			}
+		}
 		if module.printState != nil && module.printState.used {
 			merged.printUsed = true
 		}
@@ -588,7 +604,7 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 			requirements.trap = true
 		}
 		if module.stringUsed {
-			// hex_string/hex_strand storage and the UTF-8 helpers use
+			// hex_string storage, the inline text structs, and the UTF-8 validator use
 			// uint8_t, size_t, free, ckd_add, and memcpy (<string.h>);
 			// diagnostic traps report through hex_runtime_trap.
 			requirements.add("stdckdint.h", "stddef.h", "stdint.h", "stdlib.h", "string.h")
@@ -602,8 +618,8 @@ func computeHeaderRequirements(merged *programEmission, modules []*moduleEmissio
 		}
 		if module.dictState != nil && len(module.dictState.order) > 0 {
 			// Dict headers carry size_t/uintptr_t, grow with ckd_mul,
-			// zero fresh regions with memset and probe Strand keys with
-			// memcmp (<string.h>), and trap.
+			// probe text keys with memcmp through the shared equality
+			// helper (<string.h>), and trap.
 			requirements.add("stdckdint.h", "stddef.h", "stdint.h", "string.h")
 			requirements.trap = true
 		}
@@ -1222,6 +1238,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		streams:        emission.ioState,
 		time:           emission.timeState,
 		files:          emission.fileState,
+		text:           emission.textState,
 		network:        emission.networkState,
 		process:        emission.processState,
 		signal:         emission.signalState,
@@ -1363,6 +1380,7 @@ type moduleHeaderInput struct {
 	streams     *generatedStreamState
 	time        *generatedTimeState
 	files       *generatedFileState
+	text        *generatedTextState
 	network     *generatedNetworkState
 	process     *generatedProcessState
 	signal      *generatedSignalState
@@ -1492,6 +1510,9 @@ func moduleHeader(input moduleHeaderInput) (string, error) {
 		return "", err
 	}
 	if err := writeFileInlineHelpers(&result, input.files, input.stringState, input.tags); err != nil {
+		return "", err
+	}
+	if err := writeTextInlineHelpers(&result, input.text, input.stringState, input.tags); err != nil {
 		return "", err
 	}
 	if err := writeNetworkInlineHelpers(&result, input.network, input.stringState, input.tags); err != nil {
@@ -1741,7 +1762,7 @@ func (writer *nominalBodyWriter) ensureUnion(union compilerTypes.Type) {
 
 // collectTypeRequirements folds one module's written checked types into the
 // program-wide standard-header and hex_eos requirement set.
-// Exact-width integers and their aliases (Rune, Byte) require <stdint.h>;
+// Exact-width integers and their aliases (Byte) require <stdint.h>;
 // Size and Nil require <stddef.h>; a written EoS type requires <stdint.h>
 // and the hex_eos typedef. The walk descends into ADT payloads, union
 // members, pointer pointees, signatures, and collection element types, so a
@@ -1755,8 +1776,8 @@ func collectTypeRequirements(program checker.Program, requirements *cHeaderRequi
 				// any allocation or Nil usage. Checked before IsInteger:
 				// Size is also an unsigned integer scalar.
 				requirements.add("stddef.h")
-			case compilerTypes.IsInteger(typ) || compilerTypes.IsRune(typ):
-				// Int8..Int64, UInt8..UInt64, Rune, and the Byte alias all
+			case compilerTypes.IsInteger(typ):
+				// Int8..Int64, UInt8..UInt64, and the Byte alias all
 				// spell exact-width C types from <stdint.h>.
 				requirements.add("stdint.h")
 			case compilerTypes.IsEoS(typ):

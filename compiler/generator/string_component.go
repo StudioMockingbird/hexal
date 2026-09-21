@@ -1,19 +1,18 @@
 package generator
 
-import "unicode/utf8"
-
 // stringComponents returns the generated hexal/string.h and hexal/string.c
-// artifacts when String or Strand is reachable. The types,
-// literal declarations, UTF-8 helpers, and String operations migrate here
-// from hexal.h; literal storage and non-specialized bodies own the C file.
+// artifacts when any text type is reachable. The types, literal declarations,
+// inline capacity structs, UTF-8 validation, and text operations live here;
+// literal storage and non-specialized bodies own the C file.
 func stringComponents(merged *programEmission) ([]componentArtifact, error) {
 	if merged == nil || merged.stringState == nil || !merged.stringState.used {
 		return nil, nil
 	}
 	model := stringRenderModel{
-		NeedStrand:        merged.stringState.strand,
+		Inline:            buildInlineStringModels(merged.stringState),
 		NeedEquality:      merged.equalityNeed,
 		NeedOrdering:      merged.orderingNeed,
+		NeedHash:          merged.hashNeed,
 		NeedInterpolation: merged.interpolationNeed,
 		Literals:          buildStringLiteralModels(merged.stringState.All()),
 	}
@@ -23,8 +22,8 @@ func stringComponents(merged *programEmission) ([]componentArtifact, error) {
 	}, nil
 }
 
-// moduleStringComponent selects hexal/string.h for a module using String or
-// Strand.
+// moduleStringComponent selects hexal/string.h for a module using any text
+// type.
 func moduleStringComponent(emission *moduleEmission) []string {
 	if emission == nil || !emission.stringUsed {
 		return nil
@@ -33,26 +32,43 @@ func moduleStringComponent(emission *moduleEmission) []string {
 }
 
 // stringLiteralModel is one emitted String literal object pair: the object
-// base name, the payload bytes the source defines, and both lengths the
-// templates spell. The byte array carries a trailing zero, so ArraySize is
-// one past PayloadLength.
+// base name, the payload bytes the source defines, and the length the
+// templates spell. The byte array carries a trailing zero, so ArraySize is one
+// past PayloadLength.
 type stringLiteralModel struct {
 	Name          string
 	Payload       []uint8
 	ArraySize     int
 	PayloadLength int
-	RuneLength    int
+}
+
+// inlineStringModel is one emitted String<N> struct: its C name and capacity.
+type inlineStringModel struct {
+	CName    string
+	Capacity uint64
 }
 
 // stringRenderModel is the render model shared by the string.h and string.c
-// templates: the Strand requirement and the canonical program-wide literal
-// records in first-use order.
+// templates: the inline capacity structs, the demand-selected helpers, and the
+// canonical program-wide literal records in first-use order.
 type stringRenderModel struct {
-	NeedStrand        bool
+	Inline            []inlineStringModel
 	NeedEquality      bool
 	NeedOrdering      bool
+	NeedHash          bool
 	NeedInterpolation bool
 	Literals          []stringLiteralModel
+}
+
+// buildInlineStringModels lists the demanded capacities in ascending order, so
+// the emitted header is deterministic.
+func buildInlineStringModels(registry *literalRegistry) []inlineStringModel {
+	capacities := registry.inlineCapacities()
+	models := make([]inlineStringModel, 0, len(capacities))
+	for _, capacity := range capacities {
+		models = append(models, inlineStringModel{CName: registry.inline[capacity], Capacity: capacity})
+	}
+	return models
 }
 
 // buildStringLiteralModels converts the program-wide literal payloads into
@@ -65,7 +81,6 @@ func buildStringLiteralModels(payloads []string) []stringLiteralModel {
 			Payload:       []byte(payload),
 			ArraySize:     len(payload) + 1,
 			PayloadLength: len(payload),
-			RuneLength:    utf8.RuneCountInString(payload),
 		})
 	}
 	return literals

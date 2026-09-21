@@ -14,7 +14,7 @@ func TestNoResultCommandsRejectedInValuePositions(t *testing.T) {
 		{"list free", "fun f(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    let bad: Int32 = values.free(h)\nend\n", "free produces no value"},
 		{"dict insert", "fun f(h: Heap) do\n    let d: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    let bad: Int32 = d.insert(1, 2)\nend\n", "insert produces no value"},
 		{"dict free", "fun f(h: Heap) do\n    let d: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    let bad: Int32 = d.free(h)\nend\n", "free produces no value"},
-		{"string free", "fun f(h: Heap) do\n    let s: String = \"x\".to_string(h)\n    let bad: Int32 = s.free(h)\nend\n", "free produces no value"},
+		{"string free", "fun f(h: Heap) do\n    let s: String = \"x\".copy(h)\n    let bad: Int32 = s.free(h)\nend\n", "free produces no value"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			assertRejects(t, testCase.source, testCase.want)
@@ -29,7 +29,7 @@ func TestNoResultCommandsValidAsStatements(t *testing.T) {
 	}{
 		{"list push", "fun f(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    values.push(1)\n    values[0] = 2\n    values.clear()\n    values.free(h)\nend\n"},
 		{"dict insert", "fun f(h: Heap) do\n    let d: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    d.insert(1, 2)\n    d.free(h)\nend\n"},
-		{"string free", "fun f(h: Heap) do\n    let s: String = \"x\".to_string(h)\n    s.free(h)\nend\n"},
+		{"string free", "fun f(h: Heap) do\n    let s: String = \"x\".copy(h)\n    s.free(h)\nend\n"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			assertCompiles(t, testCase.source)

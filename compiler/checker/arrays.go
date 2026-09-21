@@ -124,12 +124,11 @@ func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checke
 		element = receiver.typ.List.Element
 		writable = true
 	}
-	if compilerTypes.IsString(receiver.typ) || compilerTypes.IsStrand(receiver.typ) {
-		// Text is UTF-8, so reaching the nth Rune walks from the start.
-		// Indexing spelled the same as an O(1) collection index hid that
-		// cost and made a positional loop quadratic; the cursor makes the
-		// traversal explicit and bytes() indexes in constant time.
-		diagnostic := typeErrorAt(expression.OpenBracket, "cannot index "+receiver.typ.Name+"; use rune_cursor() to walk Runes or bytes() for indexed byte access")
+	if compilerTypes.IsText(receiver.typ) {
+		// Text is UTF-8 and is a sequence of bytes, not of characters, so
+		// indexing it would read as character access. bytes() gives indexed
+		// byte access in constant time and names the unit.
+		diagnostic := typeErrorAt(expression.OpenBracket, "cannot index "+receiver.typ.Name+"; use bytes() for indexed byte access")
 		return checkedExpression{token: expression.OpenBracket, diagnostic: &diagnostic}
 	}
 	if element == (compilerTypes.Type{}) && receiver.typ.Element != nil {

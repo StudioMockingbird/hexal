@@ -194,12 +194,11 @@ func collisionDomain(t *testing.T) ([]Type, *Environment) {
 
 // Definition-keying generated C names are unique per distinct canonical type.
 // The deleted encoder was injective over its own encoding but not over type
-// identity: Rune and UInt32 share the C spelling uint32_t, so Rune | Nil and
-// UInt32 | Nil received one shared hex_t_ wrapper name and one program-wide
-// tag, defining the same struct tag twice. The arena registry must keep
-// distinct types on distinct names. Ptr is excluded: a pointer names no
-// definition, and Ptr<Rune> and Ptr<UInt32> legitimately share the spelling
-// uint32_t*.
+// identity: two distinct scalar types could share one C spelling, so their
+// unions received one shared hex_t_ wrapper name and one program-wide tag,
+// defining the same struct tag twice. The arena registry must keep distinct
+// types on distinct names. Ptr is excluded: a pointer names no definition,
+// and pointers to types with one spelling legitimately share it.
 // assertCNamesInjective checks that no two distinct canonical types among
 // named share a definition-keying "hex_"-prefixed C name. It is
 // parameterized over (Type, name) pairs rather than closing over the type
@@ -221,19 +220,18 @@ func assertCNamesInjective(t failer, named map[Type]string) {
 
 // Definition-keying generated C names are unique per distinct canonical type.
 // The deleted encoder was injective over its own encoding but not over type
-// identity: Rune and UInt32 share the C spelling uint32_t, so Rune | Nil and
-// UInt32 | Nil received one shared hex_t_ wrapper name and one program-wide
-// tag, defining the same struct tag twice. The arena registry must keep
-// distinct types on distinct names. Ptr is excluded: a pointer names no
-// definition, and Ptr<Rune> and Ptr<UInt32> legitimately share the spelling
-// uint32_t*.
+// identity: two distinct scalar types could share one C spelling, so their
+// unions received one shared hex_t_ wrapper name and one program-wide tag,
+// defining the same struct tag twice. The arena registry must keep distinct
+// types on distinct names. Ptr is excluded: a pointer names no definition,
+// and pointers to types with one spelling legitimately share it.
 func TestDefinitionKeyingCNamesNeverCollide(t *testing.T) {
 	types, _ := collisionDomain(t)
 	named := make(map[Type]string, len(types))
 	for _, typ := range types {
-		// Only definition-keying names participate: a scalar builtin such as
-		// Rune and UInt32 legitimately shares the C spelling uint32_t, which
-		// introduces no typedef and starts no hex_ name, exactly like Ptr.
+		// Only definition-keying names participate: a scalar builtin's C
+		// spelling introduces no typedef and starts no hex_ name, exactly like
+		// Ptr.
 		named[typ] = typ.CName
 	}
 	assertCNamesInjective(t, named)

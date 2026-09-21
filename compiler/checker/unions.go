@@ -23,11 +23,10 @@ func isContextualExpression(expression parser.Expression) bool {
 // is how `match` was nearly shipped taking Int32 from nowhere.
 //
 // The flag exists because the two callers ask over different sets. Union
-// injection reaches only the arithmetic-and-numeric-literal forms, and
-// widening it would change which contextual unions compile today. Inference
-// must additionally reject every form that consumes context.expected: string
-// literals, nil, array literals, and match, none of which the union path
-// ever offers.
+// injection reaches the arithmetic-and-numeric-literal forms and string
+// literals, whose type is one of several text forms. Inference must
+// additionally reject every form that consumes context.expected: nil, array
+// literals, and match, none of which the union path ever offers.
 func isContextualForInference(expression parser.Expression) bool {
 	return contextualExpression(expression, true)
 }
@@ -46,8 +45,10 @@ func contextualExpression(expression parser.Expression, forInference bool) bool 
 		return isArithmeticToken(expression.Operator.Lexeme) &&
 			contextualExpression(expression.Left, forInference) && contextualExpression(expression.Right, forInference)
 	case parser.StringLiteral, parser.RawStringLiteral:
-		// A string literal is valid as String and as Strand.
-		return forInference
+		// A string literal is valid as String and as any String<N> whose
+		// capacity holds it, so a union of text forms picks the first written
+		// member that accepts it.
+		return true
 	case parser.NilLiteral:
 		// nil needs an expected union containing Nil.
 		return forInference
@@ -94,7 +95,10 @@ func checkContextualUnion(expression parser.Expression, expected compilerTypes.T
 			ctx.names.flow = candidateFlow
 		}
 		checked := checkExpression(expression, expressionContext{expected: candidate, foldConstants: true}, ctx)
-		if len(initializerDiagnostics(checked)) == 0 {
+		// A candidate that yields a value the union has no member for (a
+		// string literal checked against Int32 is still a String) is not a
+		// match: the next written candidate is tried instead.
+		if len(initializerDiagnostics(checked)) == 0 && unionDestinationIndex(expected.Type, checked.typ) >= 0 {
 			return injectIntoUnion(checked, expected.Type)
 		}
 		ctx.names.flow = originalFlow

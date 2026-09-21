@@ -184,12 +184,12 @@ func TestGenerateDeferRoutesBreakAndReturn(t *testing.T) {
 // The List and Dict growth helpers keep every capacity temporary in size_t
 // and lower doubling, element-region byte sizing, and the Dict load-factor
 // decision through checked arithmetic; List relocation uses one guarded
-// memcpy, a fresh Dict bucket region zeroes with one memset, Strand key
-// probes compare the canonical 32-byte representation with memcmp, every
+// memcpy, a fresh Dict bucket region is allocated zeroed, text key
+// probes compare the logical bytes through the shared helper, every
 // diagnostic reports through hex_runtime_trap, and no compiler-owned NULL or
 // raw fputs remains.
 func TestGenerateListAndDictCheckedGrowth(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    let labels: Dict<Strand, Int32> = Dict<Strand, Int32>(h)\n    defer labels.free(h)\n    labels.insert(\"a\", 1)\nend")
+	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    let labels: Dict<String<128>, Int32> = Dict<String<128>, Int32>(h)\n    defer labels.free(h)\n    labels.insert(\"a\", 1)\nend")
 	files := generateOne(t, program)
 	listH := files["hexal/list.h"]
 	dictH := files["hexal/dict.h"]
@@ -212,8 +212,8 @@ func TestGenerateListAndDictCheckedGrowth(t *testing.T) {
 		"ckd_add(&length_plus_one, dict->length, 1)",
 		"ckd_mul(&load_times_10, length_plus_one, 10)",
 		"ckd_mul(&capacity_times_7, dict->capacity, 7)",
-		"memcmp(region[index].key.data, key.data, 32) != 0",
-		"memcmp(dict->buckets[index].key.data, key.data, 32) != 0",
+		"!hex_equal_text(hex_text_inline(&region[index].key), hex_text_inline(&key))",
+		"!hex_equal_text(hex_text_inline(&dict->buckets[index].key), hex_text_inline(&key))",
 		"hex_runtime_trap(\"[Runtime Error] dictionary capacity is not representable\\n\")",
 	} {
 		if !strings.Contains(dictH, want) {

@@ -12,7 +12,7 @@ type arrayComponentModel struct {
 	// is the only content naming the slice component. The include is guarded
 	// on it so a declared dependency is always a used one.
 	NeedsSlice bool
-	// NeedsHeapString is true when some specialization's element is String,
+	// NeedsHeapString is true when some specialization's element is text,
 	// whose spelling (hex_string) is defined by hexal/string.h -- a direct
 	// dependency of this file, not something a consumer's own include order
 	// can be relied on to supply first.
@@ -45,7 +45,7 @@ type arrayComponentRecord struct {
 	// reaches neither and gets the typedef alone.
 	NeedsAt    bool
 	NeedsAtMut bool
-	// NeedsHeapString is true when this specialization's element is String.
+	// NeedsHeapString is true when this specialization's element is text.
 	NeedsHeapString bool
 	NeedsFile       bool
 	NeedsNetwork    bool
@@ -75,7 +75,7 @@ func arrayComponentRecordFor(array compilerTypes.Type, sliceState *generatedSlic
 		MutSliceCName:   mutSliceCName,
 		NeedsAt:         demand.read,
 		NeedsAtMut:      demand.write,
-		NeedsHeapString: compilerTypes.IsString(element),
+		NeedsHeapString: compilerTypes.IsText(element),
 		NeedsFile:       compilerTypes.IsFile(element),
 		NeedsNetwork:    elementNeedsNetwork(element),
 		NeedsProcess:    elementNeedsProcess(element),

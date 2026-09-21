@@ -59,12 +59,12 @@
     {
       "id": "values-text-record",
       "name": "Text record",
-      "description": "Combines String, Strand, Byte, and Rune values in one small record-like object.",
+      "description": "Combines an inline String\u003cN\u003e, a String, and a Byte in one small record-like object.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Entry is struct name: Strand, note: String, first: Rune, kind: Byte end",
-        "let entry: Entry= Entry(name = \"hexal\", note = \"hi\", first = 'h', kind = b'\\x01')",
-        "let initial: Rune= entry.first",
+        "type Entry is struct name: String<31>, note: String, first: Byte, kind: Byte end",
+        "let entry: Entry= Entry(name = \"hexal\", note = \"hi\", first = b'h', kind = b'\\x01')",
+        "let initial: Byte= entry.first",
         "let header: Size= entry.name.length()",
         "let kind_value: Byte= entry.kind"
       ]},
@@ -91,7 +91,7 @@
       "description": "Copies an object, mutates the original, and reads the unchanged copy to demonstrate value copying.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Meter is struct mut reading: Int32, unit: Strand end",
+        "type Meter is struct mut reading: Int32, unit: String<31> end",
         "let mut live: Meter= Meter(reading = 10, unit = \"kwh\")",
         "let snapshot: Meter= live",
         "live.reading = 42",
@@ -165,14 +165,14 @@
     {
       "id": "values-literal-normalization",
       "name": "Literal normalization",
-      "description": "Uses escaped strings, bytes, runes, and numeric separators together in a normalized value.",
+      "description": "Uses escaped strings, bytes, and numeric separators together in a normalized value.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "let greeting: String= \"a\\\"b\\\\c\\nd\\te\"",
         "let marker: Byte= b'\\x41'",
-        "let symbol: Rune= '\\u{03BB}'",
+        "let symbol: String= \"\\u{03BB}\"",
         "let mask: UInt32= 0xFF00_FF00",
-        "let combined: UInt32= mask + symbol.to\u003cUInt32\u003e()"
+        "let combined: UInt32= mask + symbol.length().to\u003cUInt32\u003e()"
       ]},
       "features": ["literals", "text"]
     }

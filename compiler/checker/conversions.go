@@ -109,9 +109,7 @@ func checkConversionCall(call parser.CallExpression, callee parser.PropertyExpre
 }
 
 // conversionPairValid applies the source/destination conversion matrix.
-// Integer
-// means the eight fixed-width integer types plus Size; Rune is not a numeric
-// arithmetic type and participates only in checked integer conversion.
+// Integer means the eight fixed-width integer types plus Size.
 func conversionPairValid(source, target compilerTypes.Type) bool {
 	if compilerTypes.ContainsTypeParameter(source) || compilerTypes.ContainsTypeParameter(target) {
 		// Dependent conversion: the closed specialization must resolve one
@@ -121,16 +119,11 @@ func conversionPairValid(source, target compilerTypes.Type) bool {
 	switch {
 	case compilerTypes.IsFloat(source) && compilerTypes.IsFloat(target):
 		return true
-	case compilerTypes.IsFloat(source) && compilerTypes.IsInteger(target) && !compilerTypes.IsRune(target):
+	case compilerTypes.IsFloat(source) && compilerTypes.IsInteger(target):
 		return true
 	case compilerTypes.IsInteger(source) && compilerTypes.IsFloat(target):
 		return true
 	case compilerTypes.IsInteger(source) && compilerTypes.IsInteger(target):
-		// Integer-to-Rune checks Unicode scalar validity; Rune is excluded
-		// from Rune-to-Rune and from arithmetic participation.
-		if compilerTypes.IsRune(source) && compilerTypes.IsRune(target) {
-			return false
-		}
 		return true
 	}
 	return false
@@ -180,18 +173,6 @@ func foldIntegerConversion(value constant.Value, source, target compilerTypes.Ty
 	integer := constant.ToInt(value)
 	if integer.Kind() == constant.Unknown {
 		return nil, diagnosticAt(typeErrorAt(token, "value is not an integer"))
-	}
-	if compilerTypes.IsRune(target) {
-		// Integer-to-Rune checks Unicode scalar validity: the value must be
-		// in U+0000..U+10FFFF and outside the surrogate range.
-		if constant.Compare(integer, gotoken.LSS, constant.MakeInt64(0)) ||
-			constant.Compare(integer, gotoken.GTR, constant.MakeInt64(0x10FFFF)) ||
-			constant.Compare(integer, gotoken.GEQ, constant.MakeInt64(0xD800)) &&
-				constant.Compare(integer, gotoken.LEQ, constant.MakeInt64(0xDFFF)) {
-			diagnostic := typeErrorAt(token, fmt.Sprintf("value %s is not a valid Unicode scalar value for Rune", integer.String()))
-			return nil, &diagnostic
-		}
-		return integer, nil
 	}
 	minimum, maximum := constantIntegerRange(target)
 	if constant.Compare(integer, gotoken.LSS, minimum) || constant.Compare(integer, gotoken.GTR, maximum) {

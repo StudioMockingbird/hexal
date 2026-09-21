@@ -7,7 +7,7 @@ import (
 )
 
 func TestErrorNewConstruction(t *testing.T) {
-	result := compileSource("fun demo() do\n    let err: Error = Error(ErrorKind.Other(header = \"File Error\"), \"file not found\")\n    let header: Strand = err.header()\n    let message: String = err.message\nend")
+	result := compileSource("fun demo() do\n    let err: Error = Error(ErrorKind.Other(header = \"File Error\"), \"file not found\")\n    let header: String<128> = err.header()\n    let message: String<256> = err.message\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -21,7 +21,7 @@ func TestErrorNewConstruction(t *testing.T) {
 		"size_t hex_m_line;",
 		"size_t hex_m_column;",
 		"hex_t_ErrorKind hex_m_kind;",
-		"const hex_string *hex_m_message;",
+		"hex_string_256 hex_m_message;",
 	} {
 		if !strings.Contains(errorH, want) {
 			t.Fatalf("hexal/error.h = %q, want %q", errorH, want)
@@ -41,6 +41,56 @@ func TestErrorNewConstruction(t *testing.T) {
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
+		}
+	}
+}
+
+// An Error owns nothing: both constructors take any text form, a literal is
+// measured at compile time (exactly 256 and 128 bytes compile), and the
+// coercion is confined to those two sites.
+func TestErrorInlineConstructionAndBounds(t *testing.T) {
+	message256 := strings.Repeat("m", 256)
+	header128 := strings.Repeat("h", 128)
+	accepted := "fun demo(h: Heap) do\n" +
+		"    let heap: String = \"x\".copy(h)\n    defer heap.free(h)\n" +
+		"    let small: String<16> = \"x\"\n    let large: String<512> = \"y\"\n" +
+		"    let a: Error = Error(ErrorKind.Other(header = \"" + header128 + "\"), \"" + message256 + "\")\n" +
+		"    let b: Error = Error(ErrorKind.Other(header = heap), heap)\n" +
+		"    let c: Error = Error(ErrorKind.Other(header = small), small)\n" +
+		"    let d: Error = Error(ErrorKind.Other(header = large), large)\n" +
+		"    let e: String<128> = a.header()\n    let f: String<128> = ErrorKind.Other(header = \"x\").header()\n" +
+		"end"
+	if result := compileSource(accepted); result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	for _, tc := range []struct{ source, want string }{
+		{"let e: Error = Error(ErrorKind.Other(header = \"h\"), \"" + message256 + "m\")\n", "Error message literal exceeds 256 UTF-8 bytes"},
+		{"let e: Error = Error(ErrorKind.Other(header = \"" + header128 + "h\"), \"m\")\n", "ErrorKind.Other header literal exceeds 128 UTF-8 bytes"},
+		{"fun f(h: Heap) do\n    let long: String = \"x\".copy(h)\n    let bounded: String<16> = long\nend", "expected String<16> initializer; got String"},
+		{"fun f(h: Heap) do\n    let e: Error = Error(ErrorKind.Other(header = \"h\"), 1)\nend", "Error message requires text; got Int32"},
+		{"fun f(h: Heap) do\n    let e: Error = Error(ErrorKind.Other(header = \"h\"), \"m\")\n    e.free(h)\nend", "Error has no method named free"},
+	} {
+		result := compileSource(tc.source)
+		if result.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(result.Stderr, "\n"), tc.want) {
+			t.Fatalf("Compile(%.60q) stderr = %#v, want %q", tc.source, result.Stderr, tc.want)
+		}
+	}
+}
+
+// A computed message or header is measured where it is copied into the Error,
+// and the trap names the bound; nothing truncates.
+func TestErrorComputedTextChecksItsBound(t *testing.T) {
+	result := compileSource("fun demo(h: Heap) do\n    let long: String = \"x\".copy(h)\n    let e: Error = Error(ErrorKind.Other(header = long), long)\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	all := rootC(t, result) + rootH(t, result) + moduleFile(t, result, "hexal/error.h")
+	for _, want := range []string{
+		"[Runtime Error] Error message exceeds 256 bytes",
+		"[Runtime Error] ErrorKind.Other header exceeds 128 bytes",
+	} {
+		if !strings.Contains(all, want) {
+			t.Fatalf("generated output lacks the trap text %q", want)
 		}
 	}
 }

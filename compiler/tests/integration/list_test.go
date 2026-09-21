@@ -117,7 +117,7 @@ func TestListReturnHandoff(t *testing.T) {
 func TestListOfStrings(t *testing.T) {
 	// A stored literal is never freed by the collection or by a pop; a
 	// runtime String popped out of the list is freed explicitly.
-	result := compileSource("fun demo(h: Heap) do\n    let names: List<String> = List<String>(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    let runtime: String = \"bob\".to_string(h)\n    names.push(runtime)\n    names[0] = \"carol\"\n    let popped: String = names.pop()\n    popped.free(h)\n    let first: String = names[0]\nend")
+	result := compileSource("fun demo(h: Heap) do\n    let names: List<String> = List<String>(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    let runtime: String = \"bob\".copy(h)\n    names.push(runtime)\n    names[0] = \"carol\"\n    let popped: String = names.pop()\n    popped.free(h)\n    let first: String = names[0]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -171,7 +171,7 @@ func TestListRestrictions(t *testing.T) {
 }
 
 func TestListStringElementsAreShallow(t *testing.T) {
-	source := "fun demo(h: Heap) do\n    let names: List<String> = List<String>(h)\n    let text: String = \"hi\".to_string(h)\n    names.push(text)\n    names.free(h)\n    text.free(h)\nend\n"
+	source := "fun demo(h: Heap) do\n    let names: List<String> = List<String>(h)\n    let text: String = \"hi\".copy(h)\n    names.push(text)\n    names.free(h)\n    text.free(h)\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)

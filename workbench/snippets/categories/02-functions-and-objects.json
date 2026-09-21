@@ -8,7 +8,7 @@
       "description": "Returns a label from a function using conditional branches.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun classify(temp: Float64): Strand do",
+        "fun classify(temp: Float64): String<31> do",
         "    if temp < 0.0 then",
         "        return \"cold\"",
         "    elseif temp < 20.0 then",
@@ -17,7 +17,7 @@
         "        return \"hot\"",
         "    end",
         "end",
-        "let label: Strand= classify(15.0)"
+        "let label: String<31> = classify(15.0)"
       ]},
       "features": ["functions", "if-elseif-else"],
       "reservedWords": ["fun", "if", "elseif", "else", "return", "end", "do", "then"]
@@ -77,10 +77,10 @@
       "description": "Defines and calls a function without a return value.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun notify(name: Strand) do",
+        "fun notify(name: String<31>) do",
         "    print(\"notify \", name)",
         "end",
-        "let boot: Strand= \"boot\"",
+        "let boot: String<31> = \"boot\"",
         "notify(boot)"
       ]},
       "features": ["no-result-functions", "print"],
@@ -96,8 +96,8 @@
         "    return value",
         "end",
         "let number: Int32= identity(7)",
-        "let word: Strand= \"seven\"",
-        "let text: Strand= identity(word)"
+        "let word: String<31> = \"seven\"",
+        "let text: String<31> = identity(word)"
       ]},
       "features": ["generics", "functions"],
       "reservedWords": ["fun", "return", "end", "do"]
@@ -124,7 +124,7 @@
       "description": "Passes an object to print as a structured value.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Status is struct name: Strand, code: Int32 end",
+        "type Status is struct name: String<31>, code: Int32 end",
         "let status: Status= Status(name = \"ok\", code = 200)",
         "print(status)"
       ]},

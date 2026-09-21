@@ -257,15 +257,6 @@ void hex_print_float32(hex_print_buffer *out, float value) {
     int n = snprintf(buffer, sizeof buffer, "%.9g", value);
     hex_print_text(out, (const uint8_t *)buffer, (size_t)n);
 }
-void hex_print_rune(hex_print_buffer *out, uint32_t value) {
-    uint8_t bytes[4];
-    size_t length = 0;
-    if (value < 0x80) { bytes[0] = (uint8_t)value; length = 1; }
-    else if (value < 0x800) { bytes[0] = (uint8_t)(0xC0 | (value >> 6)); bytes[1] = (uint8_t)(0x80 | (value & 0x3F)); length = 2; }
-    else if (value < 0x10000) { bytes[0] = (uint8_t)(0xE0 | (value >> 12)); bytes[1] = (uint8_t)(0x80 | ((value >> 6) & 0x3F)); bytes[2] = (uint8_t)(0x80 | (value & 0x3F)); length = 3; }
-    else { bytes[0] = (uint8_t)(0xF0 | (value >> 18)); bytes[1] = (uint8_t)(0x80 | ((value >> 12) & 0x3F)); bytes[2] = (uint8_t)(0x80 | ((value >> 6) & 0x3F)); bytes[3] = (uint8_t)(0x80 | (value & 0x3F)); length = 4; }
-    hex_print_text(out, bytes, length);
-}
 // hex_print_quoted_text appends every run of plain (unescaped) bytes between
 // escape points in one step instead of one byte at a time: none of the fixed
 // ASCII escape triggers below can appear as a UTF-8 continuation byte
@@ -304,23 +295,4 @@ void hex_print_quoted_text(hex_print_buffer *out, const uint8_t *data, size_t le
         hex_print_text(out, data + run_start, index - run_start);
     }
     hex_print_text(out, (const uint8_t *)"\"", 1);
-}
-void hex_print_quoted_rune(hex_print_buffer *out, uint32_t value) {
-    hex_print_text(out, (const uint8_t *)"'", 1);
-    switch (value) {
-    case '\\': hex_print_text(out, (const uint8_t *)"\\\\", 2); break;
-    case 0: hex_print_text(out, (const uint8_t *)"\\0", 2); break;
-    case '\n': hex_print_text(out, (const uint8_t *)"\\n", 2); break;
-    case '\r': hex_print_text(out, (const uint8_t *)"\\r", 2); break;
-    case '\t': hex_print_text(out, (const uint8_t *)"\\t", 2); break;
-    default:
-        if (value < 0x20 || value == 0x7F) {
-            char escape[16];
-            int n = snprintf(escape, sizeof escape, "\\u{%X}", value);
-            hex_print_text(out, (const uint8_t *)escape, (size_t)n);
-        } else {
-            hex_print_rune(out, value);
-        }
-    }
-    hex_print_text(out, (const uint8_t *)"'", 1);
 }

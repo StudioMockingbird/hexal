@@ -1,9 +1,11 @@
 # RFC 0224: Byte-Oriented Strings and Inline Capacity
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion; not scheduled. Thirteen decisions are settled and
-  all six blocking issues are resolved. No open questions remain; a list of
-  unspecified contracts remains before an implementation spec can be written
+- Status: Implemented. Nineteen decisions were settled and every Validation
+  item passes. Settled decisions 13 gated implementation on RFC 0223 landing;
+  the author directed implementation to proceed without it, so the Dict work
+  here (text keys, one shared text helper) landed before 0223's reconciliation
+  of the deleted `Strand` hash, which remains 0223's to close
 - Created: 2026-09-20
 - Updated: 2026-09-21
 - History: this RFC began as a proposal to replace both `Strand` and
@@ -19,8 +21,8 @@
   RFC 0160 (memory-bug inventory); RFC 0165 (local alias diagnosis); RFC 0223
   (Dict correctness), concurrently reconciling the `Strand` hash this RFC
   deletes; and RFC 0226 (inline bounded sequences)
-- Does not update `docs/reference.md`: implementation and reference migration
-  require a later decision
+- Updates `docs/reference.md` and `GRAMMAR.ebnf`, as the implementation
+  requires
 
 ## Summary
 
@@ -207,6 +209,14 @@ Today's `Strand` uses a NUL terminator purely as an internal sentinel — every
 operation scans (`while (index < 32 && text.data[index] != 0)`) and it is
 never handed to C as a `char *`, so nothing in interop depends on it.
 
+**Heap allocations keep one trailing zero byte, outside the length.**
+`String.c_pointer()` hands C a `char *` and relies on it; nothing else does.
+It is not part of the handle, is not counted by `byte_length`, and is not
+stored in an inline value. Every heap-producing operation (`from_bytes`,
+`concat`, `interpolate`, `copy`) writes it, and static literals carry it. An
+embedded NUL still ends the string on the C side, exactly as today. `String<N>`
+has no `c_pointer()`; see Settled decisions 17.
+
 What this buys:
 
 - every read operation is O(1) at any N;
@@ -331,7 +341,7 @@ fun log(tag: String<16>) do ... end
 log(some_string)                                   # type error: explicit conversion required
 log(try String<16>.from_bytes(some_string.bytes()))  # explicit; failure is handled
 
-return Error(ErrorKind.InvalidInput(), some_string)  # coerces; traps if over 512
+return Error(ErrorKind.InvalidInput(), some_string)  # coerces; traps if over 256
 ```
 
 The exception is warranted by structure, not convenience: error construction
@@ -463,6 +473,196 @@ is exactly what this RFC adopts and generalizes. Landing it first means this
 RFC inherits a correct hash rather than changing one mid-flight, and 0223's
 other findings are independently true today regardless of `Strand`'s fate.
 
+### 14. Printing and interpolation
+
+`String<N>` prints and interpolates exactly as `String` does, at every
+capacity. Direct text prints raw, nested text prints quoted and escaped, and
+the capacity is never shown. One print path over `(bytes, length)` serves every
+text form, for the same reason Settled decisions 11 gives for equality.
+
+In interpolation, any text operand — a `String` or a `String<M>` of any `M` —
+contributes only its bytes and gains no lifetime relation to the result. The
+supported-operand list becomes "`String` and every `String<N>`" where it
+named `String` and `Strand`.
+
+`String<N>.interpolate(template)` follows the heap form's template rules: the
+template must contain at least one interpolation and `{{ ... }}` is valid only
+as that call's argument. It takes no `Heap`. **Every embedded expression
+evaluates exactly once, left to right, before capacity is checked**, so an
+overflow can never skip or repeat a side effect. Overflow returns `| Error`,
+never a truncated value.
+
+### 15. Typed `for` binders are permitted on every collection
+
+The annotation from Settled decisions 3 is accepted on every source, not only
+where it is required. A binder's annotation must be the exact canonical type of
+what that binder receives — no conversion, and no weakening (`Slice<Byte>` does
+not annotate a `Slice<mut Byte>` element). Aliases are transparent, so `Byte`
+and `UInt8` are the same annotation.
+
+| Source | Binder | Annotation |
+|---|---|---|
+| Array, Slice, List | value | optional; must be `T` |
+| Dict | key, value | optional; must be `K`, `V` |
+| Text (`String`, `String<N>`) | value | **required**; must be `Byte` |
+| Any source with an index binder | index | optional; must be `Size` |
+
+- The annotation attaches to the binder it follows and binders are annotated
+  independently, so the two- and three-binder forms need no new rule:
+  `for i, b: Byte in text` is valid, and `i` stays `Size` without one.
+- The requirement applies to exactly the binder whose type the source does not
+  determine. Over text that is the value binder; the index binder is always
+  `Size` and is never required to be annotated.
+- A missing required annotation names the binder, the source type, and that its
+  element type must be annotated. A disagreeing annotation names both types.
+  `for c: Rune in text` is a Name Error until RFC 0227 restores the type.
+- Binders remain fresh immutable copies. An annotation carries no `mut`.
+- **Text iteration reads a snapshot.** A heap `String` copies its handle. A
+  `String<N>` is materialized into one inline copy before the loop, the rule a
+  temporary `Strand` already follows, so reassigning a `mut` binding inside the
+  body cannot change what the loop reads or leave the captured length stale.
+  The cost is one copy of the value.
+
+### 16. Positions, union injection, and generics
+
+`String<N>` is a complete, finite, copyable value and is valid in every
+position under Position eligibility. Assignment, arguments, returns, object
+members, ADT payloads, union members, collection elements, Dict values, Task
+arguments and results, Channel elements, and Heap, Stash, and Pool allocations
+copy the inline region. Nothing needs cleanup: freeing a `List<String<N>>`
+releases only the list's storage.
+
+**Every position requires the exact type.** The only conversions into a
+`String<N>` destination are identity and a contextual string literal, which is
+checked against N at compile time. There is no widening, narrowing, or
+`String` conversion in any position; a `String<16>` passed to a `String<32>`
+parameter is a type error that names `widen<32>()`.
+
+**Union injection.** A `String<N>` value injects only into a union that holds
+`String<N>` itself. There is no smallest-fitting-member search, so a
+`String<16>` does not inject into `String<32> | Nil`. A union may hold several
+capacities (`String<16> | String<32>`): they are distinct canonical members,
+and `is` and type-mode `match` select exactly one.
+
+A contextual literal follows the existing rule that written order chooses among
+contextual candidates, unchanged: the first written member that accepts it wins.
+
+```hexal
+let a: String<16> | String<32> = "hello"   # String<16>
+let b: String<32> | String<16> = "hello"   # String<32>
+let c: String<4> | String<32> = "hello"    # String<32>: 5 bytes skip the first member
+```
+
+The rule is recorded because text now gives it a visible representation
+difference: with `String | String<16>`, written order also decides whether a
+literal becomes a static heap handle or an inline value.
+
+**Generics and inference.**
+
+- User generic parameters stay types only (Settled decisions 10), so no
+  function is generic over a capacity. `T = String<16>` is a valid
+  substitution, and `List<String<16>>` and `List<String<32>>` are different
+  types. Code that must accept any capacity takes `Slice<Byte>`.
+- Capacity is never inferred: not from a literal's length, and not from a
+  binding's declared type. `let s = "hi"` remains rejected as a bare contextual
+  literal. `let s = String<16>.from_bytes(b)` is valid because the call names
+  its capacity, and has type `String<16> | Error`.
+- `String<1_024>` and `String<1024>` are one canonical type, identical across
+  modules, like `Array<T, N>`.
+
+### 17. C ABI and layout
+
+- **Generated form.** One C struct per canonical capacity, emitted once per
+  compilation and shared by every module, laid out as in Settled decisions 5.
+  It passes, returns, and copies by value like `Array` does. A copy copies the
+  whole struct.
+- **The tail is unspecified.** Bytes past `byte_length` have no defined value
+  and no operation reads them — equality, hashing, printing, and `bytes()` all
+  work from `(bytes, length)`. An implementation may leave them uninitialized.
+- **Pointee.** `String<N>` is a valid `Ptr` pointee, and `@place` yields
+  `Ptr<String<N>>` or `Ptr<mut String<N>>`. The reference's exclusion of
+  `String` as a pointee is scoped to the unparameterized heap form: it owns an
+  allocation and carries its own aliasing rules, where `String<N>` owns nothing
+  and is a plain value like `Array`. `offset` and indexing are permitted, since
+  only Array, Slice, and List pointees are rejected there.
+- **`size_of` and `align_of`.** `size_of<String<N>>()` reports the C `sizeof`
+  of the generated struct and `align_of<String<N>>()` its alignment, both
+  target-resolved Size constants. Both need one explicit literal N. The size is
+  at least `8 + N` and is rounded to alignment: `String<31>` is 40 on a 64-bit
+  target. `size_of<String>()` is unchanged, since it reports the handle.
+- **Foreign declarations.** `String<N>` has no stable foreign ABI. As a
+  foreign parameter, result, global, or foreign record field it reports the
+  existing `<type> has no supported C ABI mapping for target <target>`.
+  `Ptr<String<N>>` crosses like any other pointer, as an address whose layout C
+  must treat as opaque. Text crosses to C as bytes and a length through
+  `bytes()` and `Slice<Byte>.pointer()`, which is unsafe and not
+  NUL-terminated.
+- **`c_pointer()`.** `String.c_pointer()` is unchanged, backed by the trailing
+  zero from Settled decisions 5. `String<N>` has no `c_pointer()`: it reports
+  the generic `String<N> has no method c_pointer`, which is what `Strand`
+  reports today. `checker/strings.go` also carries a `Strand` branch worded
+  "copy it to a String first" that no receiver can reach — `Strand` dispatches
+  to its own method checker — and it is deleted, not carried over.
+- **Imported C arrays.** Nothing in the current import surface maps a C
+  character array, and none may map to `String<N>`: a `char[N]` carries neither
+  a length nor a validity guarantee. If one is added, its type is
+  `Array<Byte, N>`, and it becomes text only through `String<M>.from_bytes`.
+
+### 18. Provenance of `bytes()` and `slice()` into inline storage
+
+`bytes()` and `slice(start, end)` on a `String<N>` require a source place,
+exactly as `Array.slice` does. A temporary receiver is rejected at compile time
+because there is no place to point into, so a call result or `try` result must
+be bound before its bytes can be taken:
+
+```hexal
+let s = try String<16>.from_bytes(input)   # bind first
+let b = s.bytes()                          # valid
+
+f().bytes()                                # rejected: no source place
+```
+
+The result is a read-only `Slice<Byte>`. There is no `Slice<mut Byte>` over
+text. It addresses the inline storage, so it dangles when the binding is
+reassigned or leaves scope. That is the existing Slice contract — the backing
+store is the programmer's responsibility — and this RFC adds no tracking.
+Whatever diagnosis RFC 0160 and RFC 0165 give a Slice outliving a local `Array`
+applies to `String<N>` identically. A slice of a heap `String` is unchanged.
+
+### 19. Failure kinds and messages
+
+Two conditions can fail, and each has one kind and one fixed message, the same
+on the heap and inline forms:
+
+| Condition | `ErrorKind` | `Error.message` |
+|---|---|---|
+| Result is not well-formed UTF-8 | `InvalidInput` | `invalid UTF-8 in string` |
+| Result does not fit the inline capacity | `ResourceExhausted` | `string exceeds capacity` |
+
+- **Distinct kinds, because callers branch on kind.** Classification compares
+  `error.kind`, never message text. A caller that wants to degrade on a length
+  problem but reject bad data needs the two to differ, as in Settled decisions
+  8's bounded-conversion example.
+- **No new kind.** `InvalidInput` already covers local contract failures on
+  caller-supplied data. `ResourceExhausted` covers a bounded resource running
+  out, which a fixed capacity is. Adding a kind would grow the language surface
+  for a condition these describe correctly.
+- **Messages are fixed, authored, and allocation-free.** They embed no length,
+  offset, or capacity, following every other built-in producer. Both are
+  23 bytes, so they fit `String<256>` by construction, and they belong in the
+  message-inventory test from Settled decisions 8.
+- **Capacity is checked first, then content.** A value that is both too long
+  and malformed reports `string exceeds capacity`, so the outcome does not
+  depend on validation order.
+- **Validation covers the result.** `String<N>.concat(left, right)` takes two
+  byte slices, so a multi-byte sequence split across them is valid once joined
+  and is accepted. Heap `concat` appends to text that is already valid, so it
+  validates only what it appends.
+- The old trap `[Runtime Error] invalid UTF-8 in string` is removed with the
+  behavior it belonged to; the Error message reuses its wording.
+- A failure allocates nothing and produces no partial value. Heap allocation
+  failure is unchanged and still traps with `heap allocation failed`.
+
 ## Alignment with Hexal's goals
 
 Aligns:
@@ -529,17 +729,24 @@ String.slice(start: Integer, end: Integer) -> Slice<Byte>     O(1), byte bounds
 String.copy(heap: Heap) -> String
 String.concat(heap: Heap, other: Slice<Byte>) -> String | Error
 String.from_bytes(heap: Heap, bytes: Slice<Byte>) -> String | Error
-String.interpolate(heap: Heap, template: InterpolationTemplate) -> String | Error
+String.interpolate(heap: Heap, template: InterpolationTemplate) -> String
 String.free(heap: Heap) -> no value
+String.c_pointer() -> Ptr<Byte>                               unsafe; unchanged
 ```
 
-Every operation is O(1) or an explicit allocation. Nothing decodes UTF-8.
-`from_bytes` is the one validating boundary: bytes become text only there.
+`String<N>` has the read operations `length`, `bytes`, `slice`, and `copy`, and
+no `free` or `c_pointer`. Every operation is O(1) or an explicit allocation. Nothing decodes UTF-8.
+`from_bytes` and `concat` are the validating boundaries: bytes become text only
+there, and the check covers the result, not each operand.
 
-**Every producing operation returns `| Error`, on both forms.** Malformed
+**Every operation that can fail returns `| Error`, on both forms.** Malformed
 UTF-8 arriving from a file, socket, or FFI boundary is a data condition, not a
 programmer mistake, and so is a capacity overflow on an inline destination.
-Both are reported, not trapped.
+Both are reported, not trapped. Those are `from_bytes` and `concat` on both
+forms and `interpolate` on the inline form. Heap `interpolate` and `copy` have
+no failure to report — their operands are already valid text, and heap
+allocation failure traps as it does everywhere — so they return a plain
+`String`. Kinds and messages are Settled decisions 19.
 
 This **changes shipped behavior**: heap `from_bytes` traps on malformed UTF-8
 today. Unifying the name while leaving the two halves with different failure
@@ -690,6 +897,7 @@ traversal uses of it are deleted.
 | Current | Proposed |
 |---|---|
 | `Strand` | `String<31>` to preserve capacity, or another explicit capacity |
+| `Dict<Strand, V>` | `Dict<String<128>, V>` for every in-tree use (tests, fixtures, snippets); other capacities are valid for new code |
 | `ErrorKind.Other(header: Strand)` | `ErrorKind.Other(header: String<128>)` |
 | `Error(kind, message: String)` | `Error(kind, message: String<256>)`; no cleanup |
 | `for r in text do` | `for b: Byte in text do` |
@@ -723,6 +931,15 @@ become false:
   and print type lists, the ordering rule, the match-scrutinee rule, the
   bitwise and `bit_cast` exclusion lists, and the "representation follows
   ownership" enumeration, which names `Strand` among inline value types.
+- *"Compiler-typed `self` and `for` binders are the remaining exceptions"* to
+  written types, which now admit a written `for` binder type (Settled
+  decisions 15).
+- *"String, List, Dict, and Slice cannot be `Ptr` pointees"*, which becomes
+  the unparameterized `String` only (Settled decisions 17).
+- The `for ... in` source table, whose text rows list `String, Strand`, and its
+  "temporary Arrays and Strands materialize once" sentence.
+- The `Strand` "no `c_pointer`" and "dispatch separately" statements, which
+  become `String<N>` statements.
 
 The migration must additionally audit grammar, type interning, literal
 contextual typing, Dict key eligibility and hashing, generated C helpers,
@@ -779,50 +996,500 @@ Listed with the other reference edits in Migration outline.
 | `Error`'s size change needs confirming | Settled decisions 7 — capacities set to 256 message / 128 header, `Error` ~432 bytes, with the reasoning for the smaller figure recorded there |
 | The capacity parameter is under-specified | Settled decisions 10 — compiler-owned only, literal only, `PositiveDecimalLiteral`, maximum 4096 |
 | Dict keys and the equality-codegen shortcut | Settled decisions 11 — `String<N>` eligible at every capacity, `String` not; one shared `hex_equal_text`/`hex_hash_text` replaces the per-type helpers |
-| Concurrent conflict with RFC 0223 | Settled decisions 12 — RFC 0223 lands first and this RFC inherits its hash semantics |
+| Concurrent conflict with RFC 0223 | Settled decisions 13 — RFC 0223 lands first and this RFC inherits its hash semantics |
 
-## Unspecified surface
+## Implementation plan
 
-- `print` and interpolation of `String<N>`.
-- Contextual and generic behavior: union injection
-  (`let x: String<16> | String<32> = "hello"` — which member?), argument
-  passing, returns, object members, ADT payloads, collection insertion,
-  inference.
-- Typed `for` binders beyond text: whether the annotation is permitted on
-  every collection (recommended, for symmetry) or only where required, and how
-  it interacts with the two- and three-binder forms.
-- C ABI: passing and returning by value, address-of, `Ptr` pointee,
-  `size_of`/`align_of`, foreign declarations, imported C arrays.
-- Provenance of `bytes()` into inline storage: a Slice into an inline value
-  dangles when that value is reassigned or leaves scope.
+Additive work comes first and removal last, so `Rune` and `Strand` keep
+compiling until the phase that deletes them. Every phase ends with `gofmt -l`,
+`go test ./...`, and `go vet ./...` clean; phases 1 to 6 also run the tagged
+C23 suite (`go test -tags c23 ./compiler/tests/c23validation`). Tests are named
+for the facet they protect and carry no RFC number. Fixture data is added to
+`compiler/tests/c23validation/fixtures_test.go`.
 
-## Validation sketch
+**Phase 0 — Preconditions and baseline.** RFC 0223 has landed. On the
+unmodified tree, record the full gate result, the snippet manifest, and the
+measurements listed under Measurements. Nothing else in this RFC starts before
+that.
 
-A later implementation spec must replace this with an exhaustive Validation
-section covering: `Rune`/`RuneCursor` removal and the diagnostics replacing
-each removed form; bare-quote literals rejected and the syntax reserved; byte
-literals and string escapes unaffected; typed `for` binders, including the
-required-annotation diagnostic for text and agreement checking elsewhere;
-`length()` and `slice()` byte semantics; literal capacity and UTF-8
-diagnostics; embedded-NUL acceptance in both forms; widening and narrowing
-conversions; computed construction; dynamic versus inline cleanup; equality
-and ordering across capacities; Dict key eligibility and hashing; the `Error`
-header migration and its size change; generated C and helper emission;
-manifest impact; and the absence of new ownership, borrow, lifetime, or
-automatic-cleanup rules.
+**Phase 1 — `String<N>` as a type.**
 
-It must additionally validate the over-long-text rule from Settled decisions
-8 in every half:
+- `compiler/types/collections.go`: add `StringCapacityType(n)` beside
+  `ArrayType`, interned by canonical key `string:N`, displayed `String<N>`, C
+  name `hex_string_<N>`, valid in every position except the Atomic and Unknown
+  exclusions, `N` limited to 1 through 4096. Add `IsInlineString` and
+  `IsText` (`String` or `String<N>`).
+- `compiler/checker/type_resolution.go`: resolve `String<N>` beside
+  `Array<T, N>` with the capacity diagnostics in Validation 3.
+- `compiler/checker/strings.go` and `operator_checking.go`: a contextual string
+  literal in a `String<N>` position replaces `checkedStringLiteralValue`'s
+  Strand branch; capacity and UTF-8 are checked at compile time, embedded NUL
+  is accepted.
+- `checker/strings.go`, `methods.go`: `String<N>` receives `length`, `bytes`,
+  `slice`, `copy`, `widen<M>`, and the static `from_bytes`, `concat`, and
+  `interpolate`, with the failure kinds and messages of Settled decisions 19.
+  It receives no `free`, no `c_pointer`, and no other method.
+- `checker/equality.go`, `operands.go`, `print.go`, `unions.go`, `foreign.go`:
+  mixed-form equality and ordering, printing, union injection and literal
+  selection by written order, `Ptr` pointee, and the foreign ABI rejection.
+- `generator/string_component.go`, `packages/string.h`, `strings.go`: emit one
+  struct per demanded capacity in `hexal/string.h`, ahead of every component
+  that names it, once per compilation. `interpolation.go`, `print.go`,
+  `unions.go`, `arrays.go`: lowering for the new type.
+- `compiler/generator/equality.go`, `equality_component.go`, `packages/
+  equality.h`: one `hex_equal_text` and one `hex_compare_text` over
+  `(bytes, length)` serving every text form.
 
-- an over-long `Error` message literal, and an over-long
-  `ErrorKind.Other` header literal, are each compile errors with exact
-  diagnostics;
-- a computed over-long message and header each trap with exact runtime
-  messages;
-- neither path truncates, at either capacity;
-- the coercion is confined: passing an over-long `String` to any *other*
-  bounded parameter is a **type error**, and `String<N>.from_bytes` still
-  returns `| Error` rather than trapping, on both forms;
-- **no compiler- or stdlib-authored message exceeds its capacity** — a test
-  over the message inventory, not a runtime check, since those messages are
-  authored text with known bounds.
+**Phase 2 — Typed `for` binders.** `compiler/parser/ast.go` and
+`statements.go`: `ForStatement.Binders` becomes a list of `ForBinder{Name,
+Type}`. `GRAMMAR.ebnf` and the EBNF at the head of `docs/reference.md` change
+together, and `grammar_test.go` still verifies. `checker/control_flow.go`
+checks each annotation against the source (Settled decisions 15); text iterates
+bytes and requires the annotation; `String<N>` iteration copies once.
+`generator/for.go` replaces the Rune-decoding text loop with a byte loop.
+Every existing `for r in text` test and snippet migrates in this phase.
+
+**Phase 3 — Byte semantics of `String`.**
+
+- `packages/string.h` and `.c`: `hex_string` drops `rune_length` and becomes
+  24 bytes. `length()` reads `byte_length`. `slice` uses byte bounds in O(1).
+  UTF-8 validation returns a status instead of trapping, and is used only by
+  `from_bytes` and `concat`. Heap producers write the trailing zero
+  (Settled decisions 5); literal storage keeps its own.
+- `checker/strings.go`, `generator/strings.go`: `from_bytes` and `concat` gain
+  `| Error`, `concat` takes `Slice<Byte>`, heap `interpolate` and `copy` stay
+  plain `String`. `to_string(heap)` becomes `copy(heap)`.
+- `generator/string_component.go`: literal records drop `RuneLength` and the
+  `utf8.RuneCountInString` call.
+- Every call site of `from_bytes` and `concat` in tests, fixtures, and snippets
+  gains a `try` or a match.
+
+**Phase 4 — `Error` migration.**
+
+- `compiler/types/error_kind.go`, `checker/errors.go`: `ErrorKind.Other`
+  carries `header: String<128>`, `Error.message` is `String<256>`, and
+  `header()` returns `String<128>`. `Error(kind, message)` accepts any text
+  form, checked at compile time when the length is known and at run time
+  otherwise (Settled decisions 8).
+- `generator/packages/error.h`: `hex_t_ErrorKind.other_header` and
+  `hex_t_Error.hex_m_message` become inline structs; `hex_error_kind_header`
+  returns the inline header.
+- Every runtime producer builds an inline message: `packages/file.c`, `io.c`,
+  `network.c`, `process.c`, `signal.c`, and the generator sites in `io.go`,
+  `time.go`, `corelib.go`, `concurrency.go`, `adt.go`, `emission.go`, and
+  `print.go`. Each message is authored text; none is built from unbounded data.
+- A message-inventory test asserts that no compiler- or stdlib-authored message
+  exceeds its capacity.
+
+**Phase 5 — Dict keys.**
+
+- `compiler/types/collections.go`: `IsDictKey` accepts `Int32` and every
+  `String<N>`; `DictType` interns `Dict<String<N>, V>` per capacity.
+  `checker/dicts.go`: the key diagnostics in Validation 7 replace
+  `dictionary key type must be Int32 or Strand`, and the key argument of
+  `insert`, `get`, `find`, `contains`, and `remove` is checked against the
+  exact key type.
+- `generator/dict_component.go` and `packages/dict.h`: the `StrandKey` flag,
+  the `memcmp` probe, and `hex_hash_Strand` are replaced by one
+  `hex_hash_text` and `hex_equal_text` over `(bytes, length)`, so a
+  `Dict<String<128>, V>` and a `Dict<String<16>, V>` share both helpers and
+  differ only in the stored key struct. The tail past `byte_length` is never
+  read.
+- Every in-tree `Dict<Strand, V>` migrates to `Dict<String<128>, V>`:
+  `integration/dict_test.go`, `integration/collections_test.go`,
+  `generator/dict_component_test.go`, `generator/alloc_test.go`,
+  `c23validation/fixtures_test.go`, and the `12-modules` snippet. A second
+  capacity is exercised alongside it so the rule is shown to hold at more than
+  one N.
+
+**Phase 6 — Removal sweep.** Delete `Rune`, `RuneCursor`, `Strand`, the
+bare-quote literal, `rune_cursor`, and `from_runes`, with the diagnostics of
+Validation 1. Delete every item on the sweep list below and record each as
+deleted or retained with a reason. Rewrite the four snippet categories that
+use `Rune` and the others that use `Strand`, and delete
+`integration/string_rune_length_test.go`, whose contract is replaced by the
+byte-length cases in `string_test.go`.
+
+**Phase 7 — Reference, status, snippets, and measurements.**
+
+- `docs/reference.md`: every rule listed under "Reference rules this
+  invalidates", plus the `for` source table, the representation-follows-
+  ownership enumeration and its clarifying sentence, the position and
+  interpolation and print lists, the `Error` and `ErrorKind` signatures, the
+  Dict key rule, the `Ptr` pointee exclusion, and the layout-intrinsics note.
+- `docs/status.md`: add no entry unless work remains with an owning spec.
+- Rebuild the snippet manifest by the procedure in `AGENTS.md`, review which
+  artifacts moved, and record the breakdown in the commit message.
+- Rebuild the compiler and `bin/hexal`, run `hexal play`, and load every
+  rewritten snippet in the workbench.
+- Run the Measurements.
+
+**Phase 8 — Closure.** Only when every Validation item passes: set `Status:`
+to implemented with the date, and move this file to `docs/specs/archived/`.
+
+### Sweep list
+
+Code that exists only because `Strand` or the rune count exists, to be deleted
+in Phase 6 or named as retained with a reason:
+
+- `hex_strand`, `hex_strand_rune_length`, `hex_strand_byte_length`,
+  `hex_strand_to_string`, the `NeedStrand` template flag, and the per-type
+  `Strand` compare helper in `generator/equality.go`.
+- `StrandKey`, the `memcmp` probe, and `hex_hash_Strand` in
+  `generator/dict_component.go` and `packages/dict.h`.
+- `hex_string.rune_length`, `stringLiteralModel.RuneLength`, and the
+  `utf8.RuneCountInString` call in `string_component.go`.
+- `hex_rune_cursor`, `hex_string_rune_cursor`, `hex_utf8_decode`,
+  `hex_utf8_encode`, `hex_string_from_runes`, and every trap in `string.c` that
+  fires during traversal rather than validation.
+- `checkStrandMethodCall`, `checkRuneCursorMethodCall`, and the unreachable
+  `Strand` branch of `c_pointer` in `checker/strings.go`.
+- The `Strand literal exceeds 31 UTF-8 bytes` and `Strand literal cannot
+  contain NUL` diagnostics, and `dictionary key type must be Int32 or Strand`.
+- The `String.from_runes` mention in the `String has no such operation`
+  diagnostic.
+- `RuneLiteral` in `lexer.go` and `ast.go`, `scanQuotedBody`'s rune path,
+  `IsRune`, `IsRuneCursor`, `StrandType`, and their protected-name and
+  exclusion-list entries in `types.go`, `bitwise.go`, `conversions.go`,
+  `adt.go`, and `operands.go`.
+- Rune and Strand entries in `compiler/tests/c23validation/
+  trap_inventory_test.go` and the fuzz corpus under
+  `compiler/tests/fuzz/testdata`.
+
+## Validation
+
+This section is exhaustive. Diagnostics are written `[Class] message`. A test
+asserts the message text exactly and the class, and asserts nothing else about
+the diagnostic list.
+
+### 1. Removals
+
+- `let c: Rune = 'x'`, `Slice<Rune>`, and any other `Rune` in a type position
+  report `[Type Error] unknown type Rune; Rune was removed: text is bytes, use
+  Byte`.
+- `RuneCursor` reports `unknown type RuneCursor; RuneCursor was removed with
+  Rune`.
+- `Strand` reports `unknown type Strand; use String<N> (String<31> keeps the
+  former capacity)`.
+- A bare-quote literal, including `'a'`, `'\u{41}'`, and an unterminated `'`,
+  reports the lexer diagnostic `bare-quote literals are reserved; use b'a' for
+  a byte or "a" for text`.
+- `s.rune_cursor()` reports `String has no method rune_cursor`.
+- `String.from_runes(h, x)` and any other unknown static operation report
+  `String has no such operation; use String.from_bytes(heap, view) or
+  String.interpolate(heap, template)`.
+- Unaffected, each proven by a program that compiles and runs: byte literals
+  `b'a'` and `\xHH`; string literals with `\u{1F600}` and `é` producing the same
+  UTF-8 bytes; `bytes()`; and `slice()`.
+
+### 2. Text is bytes
+
+- `length()` on `String` and on `String<N>` returns the byte count: `"héllo"` is
+  6, and `"\u{1F600}"` is 4.
+- `slice(a, b)` uses byte bounds on both forms. `s.slice(0, 1)` on `"é"` is one
+  byte, is legal, and re-validates as malformed if passed to `from_bytes`.
+- `slice` out of range traps with the existing `string slice bounds out of
+  range` on both forms, and is O(1): the generated C contains no loop.
+- `hex_string` has no `rune_length` field, and no generated helper computes or
+  carries a rune count.
+- Embedded NUL is accepted by literals and by both `from_bytes` forms, and
+  `"a\0b".length()` is 3 on both forms.
+
+### 3. `String<N>` the type
+
+- `String<16>`, `String<1_024>`, and `String<1024>` resolve; the last two are
+  one canonical type, also across two modules.
+- `String<0>`, `String<n>` for a name, `String<T>` for a generic parameter, and
+  `String<3.5>` report `String capacity must be a positive integer literal`.
+- `String<4097>` reports `String capacity 4097 exceeds the maximum of 4096`;
+  `String<4096>` compiles.
+- `String<1, 2>` reports `String takes at most one capacity argument`.
+- `let s: String<5> = "hello"` compiles; `let s: String<4> = "hello"` reports
+  `String<4> literal exceeds 4 UTF-8 bytes`; a multi-byte literal is measured
+  in bytes, so `String<2> = "é"` compiles and `String<1> = "é"` does not.
+- A literal with invalid UTF-8 keeps `string literal contains invalid UTF-8`.
+- `let s = "hi"` remains rejected as a bare contextual literal.
+- Types intern once: `List<String<16>>` and `List<String<32>>` are different
+  types.
+
+### 4. Conversions and producing operations
+
+- `small.widen<64>()` on a `String<16>` returns `String<64>` with no `| Error`;
+  `widen<8>()` on a `String<16>` reports `widen<M> requires M greater than or
+  equal to N`; `widen<16>()` is accepted.
+- `String<N>.from_bytes` on an exact fit, one byte short, and one byte over N;
+  `String<N>.concat(left, right)` and `String<N>.interpolate(template)` on the
+  same three.
+- `String<N>.from_bytes(s.bytes())` for a heap `String`, a wider `String<M>`,
+  and a narrower one; the narrowing fails only when the text does not fit.
+- `String<N>.copy(heap)` and `String.copy(heap)` produce an owned `String`
+  needing one `free`; inline text needs none and produces no allocation.
+- `String.concat(heap, other: Slice<Byte>)` accepts an operand from any text
+  form via `bytes()`.
+- `to_string(heap)` reports `String has no method to_string`.
+
+### 5. Failures
+
+- The kind and message table of Settled decisions 19, on every failing
+  operation on both forms: malformed UTF-8 is `InvalidInput` with `invalid UTF-8
+  in string`; inline overflow is `ResourceExhausted` with `string exceeds
+  capacity`.
+- Input both too long and malformed reports the capacity failure.
+- A multi-byte sequence split across the operands of `String<N>.concat` is
+  accepted; heap `concat` of a malformed appended operand fails.
+- No failure allocates or yields a partial value. Heap allocation failure still
+  traps with `heap allocation failed`.
+- The old trap `[Runtime Error] invalid UTF-8 in string` is unreachable from
+  `from_bytes` and `concat`, and its entry in the trap inventory is removed.
+- Heap `interpolate` and `copy` return a plain `String`: assigning either to a
+  `String` binding compiles, and applying `try` to it is rejected.
+
+### 6. Equality, ordering, and hashing
+
+- `==`, `!=`, `<`, `<=`, `>`, `>=` across every pairing of `String`,
+  `String<16>`, and `String<64>`, in both operand orders, for equal content,
+  unequal content, a strict prefix, and an embedded NUL; results are bytewise.
+- Operands each evaluate exactly once, left before right.
+- Equal bytes in different capacities are equal and hash equally.
+- Canonically equivalent but byte-different text compares unequal.
+- Generated C: one `hex_equal_text` and one `hex_compare_text`, each emitted
+  once per program, and no per-capacity or per-type text helper.
+
+### 7. Dict keys
+
+- `Dict<String<128>, V>` compiles for `V` of `Int32`, `String`, a struct, and
+  `List<Int32>`, with `insert`, `get`, `find`, `contains`, `remove`, `length`,
+  and `free`, each round-tripping.
+- Key capacities other than 128 are valid: `Dict<String<16>, V>` and
+  `Dict<String<128>, V>` in one program are two types with separate
+  specializations.
+- `Dict<String, V>` reports `dictionary key type String is not allowed: a Dict
+  stores its keys, and String does not own its bytes; use String<N>`.
+- `Dict<Bool, V>` and any other key type report `dictionary key type must be
+  Int32 or String<N>`.
+- A literal key of exactly 128 bytes is accepted; 129 bytes reports `String<128>
+  literal exceeds 128 UTF-8 bytes`.
+- A key built at run time by `String<128>.from_bytes` over 129 bytes yields
+  `Error`, so no key is ever inserted.
+- A `String<16>` key given to a `Dict<String<128>, V>` reports
+  `dictionary key requires String<128>; got String<16>; use widen<128>()`, the
+  same for `insert`, `get`, `find`, `contains`, and `remove`; `key.widen<128>()`
+  is accepted.
+- Keys `"a\0b"` and `"a\0c"` are distinct entries; `"a"` and `"a\0"` are
+  distinct entries.
+- A 128-byte non-ASCII key and its ASCII lookalike of equal length are distinct;
+  the same bytes find the same entry.
+- Overwrite, remove followed by re-insert, growth across a rehash with 128-byte
+  keys, and 1000 distinct keys, each reading back correctly.
+- Iteration `for k, v in dict` accepts `k: String<128>`, rejects
+  `k: String<16>` with the agreement diagnostic of Validation 9, and iterates a
+  version-checked traversal unchanged.
+- Generated C: the key struct precedes the Dict struct in the header, the shared
+  `hex_hash_text` and `hex_equal_text` are each emitted once regardless of
+  capacity count, no `hex_hash_Strand` or `memcmp`-over-the-whole-array probe
+  remains, and neither helper reads past `byte_length`.
+- Two Dict specializations differing only in key capacity in two modules, one
+  program, define each struct once.
+
+### 8. Positions, unions, and generics
+
+- `String<N>` compiles and copies by value in: binding, assignment, argument,
+  return, object member, ADT payload, union member, `List` element, `Array`
+  element, `Slice` element, Dict value, Task argument and result, Channel
+  element, and `Heap`, `Stash`, and `Pool` allocation.
+- `List<String<N>>.free` releases only list storage.
+- `String<16>` passed to a `String<32>` parameter reports `f argument 1
+  requires String<32>; got String<16>; use widen<32>()`; the same in return,
+  member, and payload positions with each position's existing prefix. A `String`
+  to `String<16>` reports the suffix `; use String<16>.from_bytes(...) for a
+  checked conversion`, and `String<16>` to `String` reports `; use copy(heap)`.
+- `let a: String<16> | String<32> = "hello"` is `String<16>`;
+  `String<32> | String<16>` is `String<32>`; `String<4> | String<32>` with a
+  5-byte literal is `String<32>`; no member fitting reports `no member of ...
+  accepts this expression`.
+- A `String<16>` value injects into `String<16> | Nil`, and is rejected for
+  `String<32> | Nil`.
+- `is String<16>` and a type-mode `match` distinguish `String<16>` from
+  `String<32>` in one union.
+- No integer generic parameter exists: `String<N>` in a user generic is
+  reported by Validation 3. `T = String<16>` substitutes.
+- `let s = String<16>.from_bytes(b)` compiles, typed `String<16> | Error`.
+
+### 9. Typed `for` binders
+
+- Annotation accepted and exact on `List`, `Array`, `Slice`, and `Dict` at one,
+  two, and three binders, including `for i: Size, x: Int32 in list`.
+- A wrong annotation reports `for binder x is annotated Int64, but List<Int32>
+  yields Int32 there`; a wrong index annotation reports the same with `Size`.
+- `Byte` and `UInt8` are the same annotation. `Slice<Byte>` does not annotate a
+  `Slice<mut Byte>` element.
+- `for b in text` reports `for binder b over String has an ambiguous element
+  type; annotate it, for example for b: Byte in ...`, for `String` and for
+  `String<N>`, and for the two-binder form when only the index is annotated.
+- `for i, b: Byte in text` and `for b: Byte in text` compile and yield the bytes
+  of `"héllo"` in order, six of them.
+- `for c: Rune in text` reports Validation 1's `unknown type Rune`.
+- The `List<X | Y>` cases of Settled decisions 3: the plain binder and the
+  `X | Y` annotation compile; `for a: X in l` is rejected.
+- Snapshot: reassigning a `mut String<N>` inside the loop body does not change
+  the bytes read or the count.
+- Binders stay immutable: assigning to an annotated binder is rejected exactly
+  as for an unannotated one.
+- The `ForBinder` grammar verifies under `grammar_test.go`.
+
+### 10. Printing and interpolation
+
+- `print` of `String<N>` at two capacities, direct and inside a struct, list,
+  and Dict, matches `String` byte for byte, raw when direct and quoted and
+  escaped when nested.
+- A `String<M>` operand of any capacity interpolates into heap and inline
+  templates, contributing only its bytes.
+- `String<N>.interpolate` takes no `Heap`, requires at least one interpolation,
+  and rejects `{{ }}` outside the call.
+- On overflow, every embedded expression has evaluated exactly once, in order,
+  and the result is `Error`; the side-effect order is identical on the fitting
+  and the overflowing call.
+
+### 11. `Error` and `ErrorKind`
+
+- `ErrorKind.Other(header = "x")` and `Error(kind, "x")` compile with the
+  inline types; `Error.header()` and `ErrorKind.header()` return `String<128>`;
+  `Error.message` is `String<256>`.
+- An `Error` value owns nothing: no `free`, and no allocation on a build-and-
+  discard path, shown under the debug allocation counters.
+- Compile-time: an over-long literal reports `Error message literal exceeds 256
+  UTF-8 bytes` and `ErrorKind.Other header literal exceeds 128 UTF-8 bytes`;
+  exactly 256 and 128 compile.
+- Run time: a computed message over 256 bytes traps with `[Runtime Error] Error
+  message exceeds 256 bytes`; a computed header over 128 traps with `[Runtime
+  Error] ErrorKind.Other header exceeds 128 bytes`; neither truncates.
+- Both constructors accept a `String`, a `String<M>` of any `M`, and a literal.
+- The coercion is confined: an over-long `String` to any other bounded
+  parameter is the type error of Validation 8, and `String<N>.from_bytes` still
+  returns `| Error`.
+- Equality of two `ErrorKind.Other` values compares header bytes; propagation
+  through `try` preserves location.
+- Message inventory: every message the compiler and the runtime components
+  produce is at most 256 bytes, and every `Other` header at most 128.
+- Every runtime component (`file`, `io`, `network`, `process`, `signal`, `time`)
+  still returns the same kind and message text as before.
+
+### 12. Layout, pointers, and the C ABI
+
+- `size_of<String<31>>()` is 40 and `align_of` is 8 on `x86_64-linux-gnu`;
+  `size_of<String>()` is unchanged; `size_of<String<N>>` with a non-literal N is
+  rejected.
+- `size_of<Error>()` is 432 on `x86_64-linux-gnu`.
+- `Ptr<String<N>>` and `Ptr<mut String<N>>` are valid, `@place` yields them, and
+  `^p = other` replaces the whole value. `Ptr<String>` is still rejected, and
+  `offset` and indexing on `Ptr<String<N>>` compile.
+- `String<N>` as a foreign parameter, result, global, and record field reports
+  `String<N> has no supported C ABI mapping for target <target>`;
+  `Ptr<String<N>>` crosses.
+- `String<N>` has no `c_pointer`: `String<N> has no method c_pointer`.
+  `String.c_pointer()` on heap text, on a literal, and on the result of
+  `from_bytes`, `concat`, `interpolate`, and `copy` yields a NUL-terminated
+  string in C, checked by `strlen` in a fixture.
+
+### 13. Provenance
+
+- `bytes()` and `slice()` on a `String<N>` binding, a member, and a `mut`
+  binding compile and return a read-only `Slice<Byte>`; no `Slice<mut Byte>`
+  exists over text.
+- On a temporary receiver, such as `f().bytes()`, both report `a Slice cannot be
+  rooted in a temporary String<N>`; binding first compiles.
+- A slice read after reassigning its `mut` binding is the programmer's
+  responsibility, and no new diagnostic exists.
+
+### 14. Generated C
+
+Each is asserted on the emitted text:
+
+- `hex_string` has exactly `data`, `byte_length`, and `storage_kind`.
+- One struct per demanded capacity, defined once per program, in
+  `hexal/string.h` and before every header that names it; no struct for an
+  undemanded capacity.
+- A program using none of the text types emits no string component.
+- No `hex_rune_cursor`, `hex_strand`, `rune_length`, `hex_utf8_decode`, or
+  `hex_utf8_encode` appears in any output.
+- Include order, linkage, and declaration-before-use hold in `error.h`, `dict.h`,
+  and every module header naming a `String<N>`.
+- No unused helper is emitted for an unused capacity.
+
+### 15. C23 compile, link, and run
+
+Fixtures in `fixtures_test.go`, each compiled under every resolved toolchain
+with `-std=c23 -Wall -Wextra -Werror`, linked, run, and run under UBSan where
+the gate supports it:
+
+- `inline-string-runs`: construction, `length`, `bytes`, `slice`, `widen`,
+  `copy`, equality, and ordering across capacities, with exact stdout.
+- `inline-string-failures-run`: each failure of Validation 5, with the returned
+  kind and message printed.
+- `text-bytes-run`: `length` of non-ASCII text, byte `slice`, embedded NUL, and
+  the trailing zero via `strlen`.
+- `dict-string-key-runs`: the `Dict<String<128>, V>` cases of Validation 7,
+  including growth, embedded NUL, and the 128-byte boundary, with exact stdout.
+- `typed-for-runs`: byte iteration, the snapshot case, and `List`, `Dict`, and
+  `Array` annotations.
+- `error-inline-runs`: an `Error` built with a runtime-built message, its
+  header, propagation, and no allocation.
+- `error-message-overflow-traps`: the message trap, expecting `[Runtime Error]
+  Error message exceeds 256 bytes`; and the header trap.
+- `sizes-run`: prints `size_of` and `align_of` of `String<31>`, `String`, and
+  `Error`.
+- A program that puts `String<16>` and `String<128>` in two modules and compiles
+  and links.
+- The removed-trap and new-trap literals are entered in the trap inventory with
+  a disposition.
+
+### 16. Conformance, cleanup, and documentation
+
+- No new ownership, borrow, lifetime, or automatic-cleanup rule exists;
+  verified by the absence of any such checker code change.
+- Programs that compiled before and use none of the removed forms keep their
+  behavior, except `length()` and `slice()` on non-ASCII text (Settled decisions
+  4) and the `| Error` results.
+- The snippet manifest moves only for programs that use text, `Error`, or Dict
+  keys; the artifact breakdown is reviewed and recorded, and the baseline is
+  regenerated by the `AGENTS.md` procedure and never by hand.
+- Every sweep-list entry is deleted, or retained with a stated reason.
+- `docs/reference.md` states every changed rule and disagrees with neither the
+  code nor this RFC; the reference EBNF matches `GRAMMAR.ebnf`.
+- `docs/status.md` names no completed work.
+- Ordinary tests remain pure Go and invoke no external tool.
+- `.tmp/` is empty.
+
+### Measurements
+
+Recorded on `x86_64-linux-gnu`, before and after, and reported; none has a
+pass threshold except where a size is stated.
+
+- `sizeof(hex_string)` is 24, `sizeof(hex_string_31)` is 40, and
+  `sizeof(hex_t_Error)` is 432, asserted by the `sizes-run` fixture.
+- A build-and-discard of an `Error` with a runtime-built message performs zero
+  heap allocations, against one before.
+- Generated size and build-and-link time for the text, error, and Dict fixtures.
+- The existing benchmark suite's text and Error cases, before and after.
+
+### Test map
+
+| Validation | Tests |
+| --- | --- |
+| 1 Removals | `integration/string_test.go`, `syntax_test.go`, `literals_test.go`; `lexer/lexer_test.go` |
+| 2 Text is bytes | `integration/string_test.go`, `text_conformance_test.go` |
+| 3 The type | `integration/inline_string_test.go`; `types/types_test.go` |
+| 4 Conversions | `integration/inline_string_test.go`; c23 `inline-string-runs` |
+| 5 Failures | `integration/inline_string_test.go`, `string_test.go`; c23 `inline-string-failures-run`, `trap_inventory_test.go` |
+| 6 Equality | `integration/equality_test.go`, `inline_string_test.go`; `generator/string_component_test.go`; c23 `text-comparison-matrix-runs` |
+| 7 Dict keys | `integration/dict_test.go`; `generator/dict_component_test.go`; c23 `dict-string-key-runs`, `inline-string-two-modules-runs` |
+| 8 Positions | `integration/inline_string_test.go`; c23 `inline-string-runs` |
+| 9 Typed `for` | `integration/for_test.go`; `grammar_test.go`; c23 `typed-for-runs` |
+| 10 Print, interpolation | `integration/print_test.go`, `inline_string_test.go`; c23 `text-print-and-interpolation-runs` |
+| 11 `Error` | `integration/error_test.go`; `generator/error_component_test.go`, `error_inventory_test.go`; c23 `error-inline-runs`, `error-message-overflow-traps`, `error-header-overflow-traps` |
+| 12 Layout, ABI | `integration/inline_string_test.go`; c23 `sizes-run`, `text-bytes-run` |
+| 13 Provenance | `integration/inline_string_test.go` |
+| 14 Generated C | `generator/inline_string_test.go`, `string_component_test.go`, `dict_component_test.go`, `error_component_test.go` |
+| 15 C23 | `c23validation/fixtures_test.go`, `trap_inventory_test.go` |
+| 16 Conformance | `workbench/snippets` manifest test; review checklist |
+

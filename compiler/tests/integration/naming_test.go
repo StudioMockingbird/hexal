@@ -51,9 +51,9 @@ func TestBuiltinTypeNamesAreProtected(t *testing.T) {
 	names := map[string]string{
 		"Int8": "", "Int16": "", "Int32": "", "Int64": "",
 		"UInt8": "", "UInt16": "", "UInt32": "", "UInt64": "",
-		"Float32": "", "Float64": "", "Bool": "", "Rune": "", "Byte": "", "Size": "",
-		"String": "", "Strand": "", "RuneCursor": "",
-		"List": "", "Dict": "", "View": "", "Slice": "", "Array": "",
+		"Float32": "", "Float64": "", "Bool": "", "Byte": "", "Size": "",
+		"String": "",
+		"List":   "", "Dict": "", "View": "", "Slice": "", "Array": "",
 		"Fun": "", "Unknown": "", "Nil": "",
 		"Task": "", "Channel": "", "Mutex": "", "Atomic": "", "Heap": "",
 		"EoS": "", "Error": "",

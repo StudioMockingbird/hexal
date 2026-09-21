@@ -24,9 +24,8 @@ type sequenceSlot struct {
 // side-effect-free read on an expression kind that also carries mutating or
 // allocating names: CollectionMethodCallExpression covers push/clear/pop
 // (mutate) alongside length/get/contains (read); StringMethodCallExpression
-// covers concat/to_string/free (allocate or deallocate) alongside
-// length/bytes/slice/rune_cursor (read); RuneCursorMethodCallExpression's
-// has_next reads state that next() advances; ChannelMethodCallExpression's
+// covers concat/copy/free (allocate or deallocate) alongside
+// length/bytes/slice/widen (read); ChannelMethodCallExpression's
 // length/capacity/is_closed read alongside send/receive/close/free.
 func pureAccessorMethodName(kind checker.ExpressionKind, name string) bool {
 	switch kind {
@@ -37,11 +36,9 @@ func pureAccessorMethodName(kind checker.ExpressionKind, name string) bool {
 		}
 	case checker.StringMethodCallExpression:
 		switch name {
-		case "length", "bytes", "slice", "rune_cursor":
+		case "length", "bytes", "slice", "widen":
 			return true
 		}
-	case checker.RuneCursorMethodCallExpression:
-		return name == "has_next"
 	case checker.ChannelMethodCallExpression:
 		switch name {
 		case "length", "capacity", "is_closed":
@@ -67,12 +64,13 @@ func expressionMayObserve(node *checker.Expression, state *expressionValidation)
 	}
 	switch node.Kind {
 	case checker.CollectionMethodCallExpression, checker.StringMethodCallExpression,
-		checker.RuneCursorMethodCallExpression, checker.ChannelMethodCallExpression:
+		checker.ChannelMethodCallExpression:
 		if !pureAccessorMethodName(node.Kind, node.Name) {
 			return true
 		}
 	case checker.CallExpression, checker.MethodCallExpression,
-		checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.StringInterpolateExpression,
+		checker.StringFromBytesExpression, checker.StringInterpolateExpression,
+		checker.InlineStringConstructExpression, checker.TextCoerceExpression,
 		checker.ListNewExpression, checker.DictNewExpression, checker.TryExpression, checker.PrintExpression,
 		checker.SpawnExpression, checker.TaskYieldExpression, checker.TaskMethodCallExpression,
 		checker.ChannelConstructorExpression,
@@ -352,6 +350,10 @@ func hoistSequencingInExpression(node *checker.Expression, body *strings.Builder
 	switch node.Kind {
 	case checker.TryExpression, checker.SpawnExpression, checker.StringInterpolateExpression:
 		return nil
+	case checker.InlineStringConstructExpression:
+		if node.Name == "interpolate" {
+			return nil
+		}
 	case checker.CollectionMethodCallExpression:
 		if node.Name == "find" && node.OperandType.Dict != nil {
 			return nil
@@ -411,9 +413,8 @@ func hoistSequencingInExpression(node *checker.Expression, body *strings.Builder
 		return hoistOperandSequence(node.Arguments, body, state, indent)
 	case checker.BinaryOperationExpression, checker.DeepEqualityExpression, checker.StringCompareExpression,
 		checker.UnionEqualityExpression:
-		// DeepEqualityExpression (== and != on String, Strand, List, and
-		// object types), StringCompareExpression (<, <=, >, >= on String
-		// and Strand), and UnionEqualityExpression (== and != on two
+		// DeepEqualityExpression (== and != on text, List, and object
+		// types), StringCompareExpression (<, <=, >, >= on text), and UnionEqualityExpression (== and != on two
 		// canonical unions) are still binary expressions from the source
 		// language's point of slice and render their Left/Right through the
 		// same render-with-expected-type pattern BinaryOperationExpression
@@ -432,6 +433,10 @@ func hoistSequencingInExpression(node *checker.Expression, body *strings.Builder
 			if rightType, ok := expressionTypeWithState(*node.Right, state); ok {
 				rightExpected = rightType
 			}
+		}
+		// Two text operands may be different forms; the right one keeps its own.
+		if (node.Kind == checker.DeepEqualityExpression || node.Kind == checker.StringCompareExpression) && compilerTypes.IsText(node.OperandType) {
+			rightExpected = node.RightType
 		}
 		return hoistSequenceSlots([]sequenceSlot{
 			{

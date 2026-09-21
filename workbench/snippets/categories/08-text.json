@@ -5,33 +5,29 @@
     {
       "id": "text-text-inspection",
       "name": "Text inspection",
-      "description": "Read the first rune and first byte from a string.",
+      "description": "Read the first byte from a string through its byte slice.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(): Bool do",
         "    let text: String= \"caf\\u{00E9}\"",
-        "    let cursor: RuneCursor= text.rune_cursor()",
-        "    let first: Rune= cursor.next()",
         "    let raw: Slice\u003cByte\u003e = text.bytes()",
         "    let first_byte: Byte= raw[0]",
-        "    return (first == 'c') and (first_byte == b'c')",
+        "    return (first_byte == b'c') and (raw.length() == 5)",
         "end"
       ]},
       "features": ["text", "slices"],
       "reservedWords": ["fun", "return", "end", "and", "do"]
     },
     {
-      "id": "text-rune-cursor",
-      "name": "Rune cursor",
-      "description": "Iterate through text using a RuneCursor.",
+      "id": "text-byte-iteration",
+      "name": "Byte iteration",
+      "description": "Iterate through text with a typed for binder; text is a sequence of bytes, so the element type is written.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun count_letters(text: String): Int32 do",
-        "    let cursor: RuneCursor= text.rune_cursor()",
         "    let mut letters: Int32= 0",
-        "    while cursor.has_next() do",
-        "        let value: Rune= cursor.next()",
-        "        if value == ' ' then",
+        "    for b: Byte in text do",
+        "        if b == b' ' then",
         "            continue",
         "        end",
         "        letters = letters + 1",
@@ -39,8 +35,8 @@
         "    return letters",
         "end"
       ]},
-      "features": ["text", "while"],
-      "reservedWords": ["fun", "while", "do", "if", "continue", "return", "end", "mut", "then"]
+      "features": ["text", "for"],
+      "reservedWords": ["fun", "for", "in", "do", "if", "continue", "return", "end", "mut", "then"]
     },
     {
       "id": "text-byte-view",
@@ -111,37 +107,39 @@
     {
       "id": "text-string-building",
       "name": "String building",
-      "description": "Build a runtime String with concat and to_string, then free it exactly once.",
+      "description": "Build a runtime String with concat and copy, then free it exactly once.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun load_body(h: Heap): String | Error do",
-        "    return \"ready\".to_string(h)",
+        "    return \"ready\".copy(h)",
         "end",
         "fun build_report(h: Heap): Int32 | Error do",
-        "    let prefix: String= \"report: \".to_string(h)",
+        "    let prefix: String= \"report: \".copy(h)",
         "    errdefer prefix.free(h)",
         "    let body: String= try load_body(h)",
-        "    let full: String= prefix.concat(h, body)",
+        "    errdefer body.free(h)",
+        "    let full: String= try prefix.concat(h, body.bytes())",
         "    let length: Size= full.length()",
         "    body.free(h)",
         "    full.free(h)",
         "    prefix.free(h)",
-        "    return length.to<Int32>()",
+        "    return length.to\u003cInt32\u003e()",
         "end"
       ]},
       "features": ["text", "errors", "try-errdefer"],
       "reservedWords": ["fun", "return", "end", "errdefer", "try", "do"]
     },
     {
-      "id": "text-strand-inline",
-      "name": "Inline strand",
-      "description": "Use Strand as an inline literal-only value and convert it to a String.",
+      "id": "text-inline-string",
+      "name": "Inline text",
+      "description": "Use String\u003cN\u003e as an inline value with a fixed capacity, widen it explicitly, and copy it to a heap String.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(h: Heap): Bool do",
-        "    let label: Strand= \"hexal\"",
+        "    let label: String\u003c16\u003e = \"hexal\"",
         "    let empty: Bool= label.length() == 0",
-        "    let text: String= label.to_string(h)",
+        "    let wide: String\u003c64\u003e = label.widen\u003c64\u003e()",
+        "    let text: String= wide.copy(h)",
         "    let count: Size= text.length()",
         "    text.free(h)",
         "    return (count == 5) and (empty == false)",
@@ -153,7 +151,7 @@
     {
       "id": "text-comparison",
       "name": "Text comparison",
-      "description": "Compare String values by bytes and order them lexicographically.",
+      "description": "Compare text by bytes and order it lexicographically, across String and inline String\u003cN\u003e values.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(): Bool do",
@@ -161,9 +159,10 @@
         "    let right: String= \"abd\"",
         "    let same: Bool= left == right",
         "    let ordered: Bool= left \u003c right",
-        "    let key: Strand= \"abc\"",
-        "    let strand_less: Bool= key \u003c \"abd\"",
-        "    return !same and ordered and strand_less",
+        "    let key: String\u003c8\u003e = \"abc\"",
+        "    let inline_less: Bool= key \u003c \"abd\"",
+        "    let crossed: Bool= key == left",
+        "    return !same and ordered and inline_less and crossed",
         "end"
       ]},
       "features": ["text", "equality-ordering"],
@@ -172,17 +171,17 @@
     {
       "id": "text-protocol-parser",
       "name": "Text protocol",
-      "description": "Small tokenizing parser loop over String runes, terminated by EoS; longer than 20 lines because it demonstrates as, match, then, and eos together.",
+      "description": "Small tokenizing parser loop over String bytes, terminated by EoS; longer than 20 lines because it demonstrates as, match, then, and eos together.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "type Token is union | Digit as value: Rune end | Other as value: Rune end end",
+        "type Token is union | Digit as value: Byte end | Other as value: Byte end end",
         "",
-        "fun next_token(cursor: RuneCursor): Token | EoS do",
-        "    if !cursor.has_next() then",
+        "fun next_token(bytes: Slice\u003cByte\u003e, position: Size): Token | EoS do",
+        "    if position \u003e= bytes.length() then",
         "        return eos",
         "    end",
-        "    let letter: Rune= cursor.next()",
-        "    let token: Token= match (letter \u003e= '0') and (letter \u003c= '9')",
+        "    let letter: Byte= bytes[position]",
+        "    let token: Token= match (letter \u003e= b'0') and (letter \u003c= b'9')",
         "    | true then Token.Digit(value = letter)",
         "    | false then Token.Other(value = letter)",
         "    end",
@@ -190,15 +189,17 @@
         "end",
         "",
         "fun digit_sum(text: String): Int32 do",
-        "    let cursor: RuneCursor= text.rune_cursor()",
+        "    let bytes: Slice\u003cByte\u003e = text.bytes()",
+        "    let mut position: Size= 0",
         "    let mut total: Int32= 0",
         "    while true do",
-        "        let step: Token | EoS= next_token(cursor)",
+        "        let step: Token | EoS= next_token(bytes, position)",
         "        if step is EoS then",
         "            break",
         "        end",
         "        let add: Int32= (match step is | Token.Digit then 1 | Token.Other then 0 end)",
         "        total = total + add",
+        "        position = position + 1",
         "    end",
         "    return total",
         "end"
@@ -209,13 +210,13 @@
     {
       "id": "text-multibyte-length",
       "name": "Multibyte length",
-      "description": "Distinguish String rune length from the byte length of its UTF-8 slice.",
+      "description": "length() counts bytes: a String's length is the byte length of its UTF-8 slice.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(): Bool do",
-        "    let text: String= \"Aλ🙂\"",
+        "    let text: String= \"A\u03bb\ud83d\ude42\"",
         "    let bytes: Slice\u003cByte\u003e = text.bytes()",
-        "    return (text.length() == 3) and (bytes.length() == 7)",
+        "    return (text.length() == 7) and (bytes.length() == 7)",
         "end"
       ]},
       "features": ["text", "slices", "equality-ordering"],
@@ -224,12 +225,12 @@
     {
       "id": "text-multibyte-slice",
       "name": "Multibyte slice",
-      "description": "Slice a String with rune bounds and inspect the returned byte slice.",
+      "description": "Slice a String with byte bounds and inspect the returned byte slice.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(): Size do",
-        "    let text: String= \"AλB\"",
-        "    let part: Slice\u003cByte\u003e = text.slice(1, 2)",
+        "    let text: String= \"A\u03bbB\"",
+        "    let part: Slice\u003cByte\u003e = text.slice(1, 3)",
         "    return part.length()",
         "end"
       ]},
@@ -239,54 +240,19 @@
     {
       "id": "text-from-bytes",
       "name": "String from bytes",
-      "description": "Construct a String from a valid UTF-8 byte slice.",
+      "description": "Construct a String from a valid UTF-8 byte slice; malformed bytes are reported as an Error.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun demo(h: Heap): Size do",
+        "fun demo(h: Heap): Size | Error do",
         "    let bytes: Array\u003cByte, 3\u003e = [b'H', b'i', b'!']",
         "    let view: Slice\u003cByte\u003e = bytes.slice(0, 3)",
-        "    let text: String= String.from_bytes(h, view)",
+        "    let text: String= try String.from_bytes(h, view)",
         "    defer text.free(h)",
         "    return text.length()",
         "end"
       ]},
-      "features": ["text", "arrays", "slices", "heap-allocation", "defer"],
-      "reservedWords": ["fun", "return", "end", "defer", "do"]
-    },
-    {
-      "id": "text-from-runes",
-      "name": "String from runes",
-      "description": "Construct a String from a rune slice and inspect the result.",
-      "entrypoint": "app.hex",
-      "sources": {"app.hex": [
-        "fun demo(h: Heap): Size do",
-        "    let runes: Array\u003cRune, 2\u003e = ['λ', '!']",
-        "    let view: Slice\u003cRune\u003e = runes.slice(0, 2)",
-        "    let text: String= String.from_runes(h, view)",
-        "    defer text.free(h)",
-        "    return text.length()",
-        "end"
-      ]},
-      "features": ["text", "arrays", "slices", "heap-allocation", "defer"],
-      "reservedWords": ["fun", "return", "end", "defer", "do"]
-    },
-    {
-      "id": "text-independent-cursors",
-      "name": "Independent rune cursors",
-      "description": "Copy a rune cursor and advance the copies independently over shared text.",
-      "entrypoint": "app.hex",
-      "sources": {"app.hex": [
-        "fun demo(): Bool do",
-        "    let text: String= \"abc\"",
-        "    let left: RuneCursor= text.rune_cursor()",
-        "    let right: RuneCursor= text.rune_cursor()",
-        "    let first: Rune= left.next()",
-        "    let same: Rune= right.next()",
-        "    return (first == same) and left.has_next() and right.has_next()",
-        "end"
-      ]},
-      "features": ["text", "equality-ordering"],
-      "reservedWords": ["fun", "return", "end", "and", "do"]
+      "features": ["text", "arrays", "slices", "heap-allocation", "defer", "errors"],
+      "reservedWords": ["fun", "return", "end", "defer", "try", "do"]
     },
     {
       "id": "text-raw-path",
@@ -351,7 +317,7 @@
     {
       "id": "text-interpolation-unicode",
       "name": "Unicode text interpolation",
-      "description": "An interpolated String embeds another String's Unicode content by rune, not by byte.",
+      "description": "An interpolated String embeds another String's Unicode content as its bytes; length() counts bytes.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(): Bool do",
@@ -359,7 +325,7 @@
         "    let name: String= \"caf\\u{00E9}\"",
         "    let message: String= String.interpolate(heap, \"hello {{name}}\")",
         "    defer message.free(heap)",
-        "    return message.length() == 10",
+        "    return message.length() == 11",
         "end"
       ]},
       "features": ["text", "heap-allocation", "defer"],

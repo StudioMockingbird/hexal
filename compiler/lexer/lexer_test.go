@@ -396,15 +396,23 @@ func TestLexByteAndNumericLiterals(t *testing.T) {
 	}
 }
 
-func TestLexRuneLiteral(t *testing.T) {
-	tokens, err := Lex("'A' 'é' '\\n' '\\u{1F980}'")
-	if err != nil || len(tokens) != 5 {
-		t.Fatalf("Lex returned tokens=%#v err=%v, want four Rune literals and EOF", tokens, err)
-	}
-	for _, token := range tokens[:4] {
-		if token.Kind != RuneLiteral {
-			t.Fatalf("token = %#v, want a RuneLiteral", token)
+func TestLexBareQuoteLiteralIsReserved(t *testing.T) {
+	want := "bare-quote literals are reserved; use b'a' for a byte or \"a\" for text"
+	for _, source := range []string{"'a'", "'\\u{41}'", "'ab'", "'é'", "'unterminated"} {
+		_, err := Lex(source)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("Lex(%q) error = %v, want %q", source, err, want)
 		}
+	}
+}
+
+func TestLexByteLiteralsAndStringEscapesSurviveBareQuoteRemoval(t *testing.T) {
+	tokens, err := Lex("b'a' b'\\x41' \"h\u00e9llo \\u{1F600}\"")
+	if err != nil || len(tokens) != 4 {
+		t.Fatalf("Lex returned tokens=%#v err=%v, want two byte literals, a string literal, and EOF", tokens, err)
+	}
+	if tokens[0].Kind != ByteLiteral || tokens[1].Kind != ByteLiteral || tokens[2].Kind != StringLiteral {
+		t.Fatalf("token kinds = %v %v %v, want ByteLiteral ByteLiteral StringLiteral", tokens[0].Kind, tokens[1].Kind, tokens[2].Kind)
 	}
 }
 
@@ -413,15 +421,6 @@ func TestLexRejectsInvalidByteForms(t *testing.T) {
 		_, err := Lex(source)
 		if err == nil || !strings.Contains(err.Error(), "Byte literal") && !strings.Contains(err.Error(), "escape") {
 			t.Fatalf("Lex(%q) error = %v, want a Byte literal diagnostic", source, err)
-		}
-	}
-}
-
-func TestLexRejectsInvalidRuneForms(t *testing.T) {
-	for _, source := range []string{"'ab'", "'\\u{D800}'", "'\\u{110000}'", "'\\x41'"} {
-		_, err := Lex(source)
-		if err == nil || !strings.Contains(err.Error(), "Rune literal") && !strings.Contains(err.Error(), "escape") && !strings.Contains(err.Error(), "Unicode scalar") {
-			t.Fatalf("Lex(%q) error = %v, want a Rune literal diagnostic", source, err)
 		}
 	}
 }

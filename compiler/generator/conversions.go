@@ -43,11 +43,11 @@ func classifyConversion(source, target compilerTypes.Type) conversionKind {
 		// Identity; Byte/UInt8 identity follows canonical aliasing.
 		return conversionIdentity
 	}
-	// Fixed-width integer or Rune to Float32/Float64: every core integer
+	// Fixed-width integer to Float32/Float64: every core integer
 	// value fits the float exponent range, so the cast is direct. This
 	// includes Size to float, which is direct today and needs no width
 	// evidence.
-	if compilerTypes.IsFloat(target) && (compilerTypes.IsInteger(source) || compilerTypes.IsRune(source)) {
+	if compilerTypes.IsFloat(target) && compilerTypes.IsInteger(source) {
 		return conversionDirect
 	}
 	// Float32 to Float64 widens; a widening cannot overflow.
@@ -55,11 +55,7 @@ func classifyConversion(source, target compilerTypes.Type) conversionKind {
 		return conversionDirect
 	}
 	if compilerTypes.IsInteger(source) && compilerTypes.IsInteger(target) {
-		// Integer to Rune validates Unicode scalar range, so it is always
-		// checked. Rune to UInt32 is same width, so the <= UINT32_MAX guard
-		// would be vacuous; the cast is direct.
-		if !compilerTypes.IsRune(target) &&
-			(integerRangeFits(source, target) || compilerTypes.IsRune(source) && compilerTypes.Equal(target, compilerTypes.UInt32)) {
+		if integerRangeFits(source, target) {
 			return conversionDirect
 		}
 		return conversionChecked
@@ -113,15 +109,7 @@ func discoverGeneratedConversions(program checker.Program) ([]conversionSpec, []
 // Size, which requires the 64-bit size_t target profile assertion.
 
 func conversionHelperName(spec conversionSpec) string {
-	sourceSuffix := spec.source.CName
-	if compilerTypes.IsRune(spec.source) {
-		sourceSuffix = "rune"
-	}
-	targetSuffix := spec.target.CName
-	if compilerTypes.IsRune(spec.target) {
-		targetSuffix = "rune"
-	}
-	return "hex_convert_" + sourceSuffix + "_" + targetSuffix
+	return "hex_convert_" + spec.source.CName + "_" + spec.target.CName
 }
 
 func writeConversionHelper(result *strings.Builder, spec conversionSpec) error {
@@ -131,17 +119,6 @@ func writeConversionHelper(result *strings.Builder, spec conversionSpec) error {
 	targetC := target.CName
 	body := ""
 	switch {
-	case compilerTypes.IsRune(target):
-		// Integer-to-Rune checks Unicode scalar validity, not just the 32-bit
-		// range: the value must be in U+0000..U+10FFFF and outside the
-		// surrogate range. The negative check applies only to signed sources;
-		// an unsigned C type makes `value < 0` an always-false comparison.
-		negative := ""
-		if compilerTypes.IsSignedInteger(source) {
-			negative = "value < 0 || "
-		}
-		body = "    if (" + negative + "value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)) {\n        hex_runtime_trap(\"[Runtime Error] numeric operation failed\\n\");\n    }\n"
-		body += "    return (" + targetC + ")value;\n"
 	case compilerTypes.IsInteger(source) && compilerTypes.IsInteger(target):
 		if integerRangeFits(source, target) {
 			body = "    return (" + targetC + ")value;\n"

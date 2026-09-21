@@ -462,7 +462,7 @@ func checkArgumentsWithRest(callee string, expected []compilerTypes.TypeUse, wri
 		}
 		if checked.typ != (compilerTypes.Type{}) && !assignable(want.Type, checked.typ) {
 			diagnostics = append(diagnostics, typeErrorAt(checked.token,
-				fmt.Sprintf("%s argument %d requires %s; got %s", callee, index+1, want.Type.Name, checked.typ.Name)))
+				fmt.Sprintf("%s argument %d requires %s; got %s", callee, index+1, want.Type.Name, checked.typ.Name)+textMismatchHint(want.Type, checked.typ)))
 			continue
 		}
 		if diagnostic := restEscapeDiagnostic(checked.source, checked.token); diagnostic != nil {

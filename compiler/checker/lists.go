@@ -154,7 +154,7 @@ func listElementArgument(expression parser.Expression, fallback lexer.Token, ele
 		return Operand{}, &diagnostics[0]
 	}
 	if !assignable(element, checked.typ) {
-		diagnostic := typeErrorAt(checked.token, "list element requires "+element.Name+"; got "+checked.typ.Name)
+		diagnostic := typeErrorAt(checked.token, "list element requires "+element.Name+"; got "+checked.typ.Name+textMismatchHint(element, checked.typ))
 		return Operand{}, &diagnostic
 	}
 	if diagnostic := atomicCopyDiagnostic(checked.source, fallback); diagnostic != nil {

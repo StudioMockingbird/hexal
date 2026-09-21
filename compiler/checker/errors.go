@@ -59,12 +59,12 @@ func checkErrorNewCall(call parser.CallExpression, callee lexer.Token, ctx check
 	if !compilerTypes.IsErrorKind(kind.typ) {
 		return checkedExpression{token: kind.token, diagnostic: diagnosticAt(typeErrorAt(kind.token, "Error requires ErrorKind as its first argument; use Error(ErrorKind.Other(header = ...), message)"))}
 	}
-	message := checkInitializer(call.Arguments[1], compilerTypes.NewTypeUse(compilerTypes.StringType), tokenOf(call.Arguments[1]), ctx)
+	// The message is the one text argument that coerces into a bounded
+	// capacity implicitly: a literal is measured at compile time, any other
+	// text when it is copied.
+	message := checkBoundedText(call.Arguments[1], compilerTypes.ErrorMessageText, "Error message", ctx)
 	if diagnostics := initializerDiagnostics(message); len(diagnostics) > 0 {
 		return checkedExpression{token: tokenOf(call.Arguments[1]), diagnostics: diagnostics}
-	}
-	if !compilerTypes.IsString(message.typ) {
-		return checkedExpression{token: message.token, diagnostic: diagnosticAt(typeErrorAt(message.token, "Error expects kind: ErrorKind and message: String; got "+message.typ.Name))}
 	}
 
 	object := compilerTypes.ErrorType.Object
@@ -108,10 +108,10 @@ func checkErrorMethodCall(call parser.CallExpression, callee parser.PropertyExpr
 		Kind:        ErrorHeaderExpression,
 		Operand:     &receiver.source.Node,
 		OperandType: compilerTypes.ErrorType,
-		ResultType:  compilerTypes.StrandType,
+		ResultType:  compilerTypes.ErrorHeaderText,
 	}
-	source := Operand{Kind: ExpressionOperand, Type: compilerTypes.StrandType, Name: "header", Node: node}
-	return checkedExpression{source: source, typ: compilerTypes.StrandType, token: callee.Property}
+	source := Operand{Kind: ExpressionOperand, Type: compilerTypes.ErrorHeaderText, Name: "header", Node: node}
+	return checkedExpression{source: source, typ: compilerTypes.ErrorHeaderText, token: callee.Property}
 }
 
 // checkErrorKindMethodCall resolves ErrorKind.header(), the same allocation-
@@ -128,10 +128,10 @@ func checkErrorKindMethodCall(call parser.CallExpression, callee parser.Property
 		Kind:        ErrorKindHeaderExpression,
 		Operand:     &receiver.source.Node,
 		OperandType: compilerTypes.ErrorKindType,
-		ResultType:  compilerTypes.StrandType,
+		ResultType:  compilerTypes.ErrorHeaderText,
 	}
-	source := Operand{Kind: ExpressionOperand, Type: compilerTypes.StrandType, Name: "header", Node: node}
-	return checkedExpression{source: source, typ: compilerTypes.StrandType, token: callee.Property}
+	source := Operand{Kind: ExpressionOperand, Type: compilerTypes.ErrorHeaderText, Name: "header", Node: node}
+	return checkedExpression{source: source, typ: compilerTypes.ErrorHeaderText, token: callee.Property}
 }
 
 // checkTryExpression resolves the `try` form: the operand must be a

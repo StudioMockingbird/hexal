@@ -97,53 +97,116 @@ func TestDictInt32Lifecycle(t *testing.T) {
 	}
 }
 
-func TestDictStrandKeys(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    let labels: Dict<Strand, Int32> = Dict<Strand, Int32>(h)\n    defer labels.free(h)\n    labels.insert(\"alice\", 1)\n    labels.insert(\"bob\", 2)\n    let present: Bool = labels.contains(\"alice\")\n    let score: Int32 = labels.get(\"bob\")\n    let key: Strand = \"carol\"\n    labels.insert(key, 3)\nend")
+func TestDictStringKeys(t *testing.T) {
+	result := compileSource("fun demo(h: Heap) do\n    let labels: Dict<String<128>, Int32> = Dict<String<128>, Int32>(h)\n    defer labels.free(h)\n    labels.insert(\"alice\", 1)\n    labels.insert(\"bob\", 2)\n    let present: Bool = labels.contains(\"alice\")\n    let score: Int32 = labels.get(\"bob\")\n    let key: String<128> = \"carol\"\n    labels.insert(key, 3)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef struct hex_strand {",
-		"uint8_t data[32];",
-		"hex_dict_insert_Strand_Int32(hex_v_labels, (hex_strand){{ 97, 108, 105, 99, 101, 0 }}, 1);",
-		"hex_dict_contains_Strand_Int32(hex_v_labels, (hex_strand){{ 97, 108, 105, 99, 101, 0 }})",
-		"hex_v_score = hex_dict_get_Strand_Int32(hex_v_labels, (hex_strand){{ 98, 111, 98, 0 }});",
-		"hex_dict_insert_Strand_Int32(hex_v_labels, hex_v_key, 3);",
-		"hex_hash_Strand",
+		"typedef struct hex_string_128 {",
+		"uint8_t data[128];",
+		"hex_dict_insert_String_128__Int32(hex_v_labels, (hex_string_128){ .byte_length = 5, .data = { 97, 108, 105, 99, 101, } }, 1);",
+		"hex_dict_contains_String_128__Int32(hex_v_labels, (hex_string_128){ .byte_length = 5, .data = { 97, 108, 105, 99, 101, } })",
+		"hex_v_score = hex_dict_get_String_128__Int32(hex_v_labels, (hex_string_128){ .byte_length = 3, .data = { 98, 111, 98, } });",
+		"hex_dict_insert_String_128__Int32(hex_v_labels, hex_v_key, 3);",
+		"hex_hash_text",
 	} {
-		// The strand representation lives in the string component; the
-		// dict call sites stay in the module files and the hashing and
-		// probing live in the dict component.
+		// The key struct lives in the string component; the dict call sites
+		// stay in the module files and the probing lives in the dict component.
 		all := rootC(t, result) + rootH(t, result) + hexalH(t, result) + result.Files["hexal/string.h"] + dictH(t, result)
 		if !strings.Contains(all, want) {
 			t.Fatalf("generated output = %q, want %q", all, want)
 		}
 	}
-	// Strand Dict probing compares the canonical zero-filled 32-byte key
-	// representation with one direct memcmp and emits no per-Dict
-	// key-equality wrapper; diagnostics report through hex_runtime_trap and
-	// no compiler-owned NULL or raw fputs remains.
+	// Text Dict probing compares the logical bytes through the shared helper,
+	// hashes only those bytes, and emits no per-Dict key-equality wrapper or
+	// per-key-type hash; diagnostics report through hex_runtime_trap and no
+	// compiler-owned NULL or raw fputs remains.
 	header := dictH(t, result)
 	for _, want := range []string{
-		"memcmp(region[index].key.data, key.data, 32) != 0",
-		"memcmp(dict->buckets[index].key.data, key.data, 32) != 0",
+		"hex_hash_text(hex_text_inline(&key))",
+		"!hex_equal_text(hex_text_inline(&region[index].key), hex_text_inline(&key))",
+		"!hex_equal_text(hex_text_inline(&dict->buckets[index].key), hex_text_inline(&key))",
 		"hex_runtime_trap(\"[Runtime Error] dictionary key not found\\n\")",
 	} {
 		if !strings.Contains(header, want) {
 			t.Fatalf("hexal/dict.h does not contain %q:\n%s", want, header)
 		}
 	}
-	for _, forbid := range []string{"hex_dict_key_equal_", "fputs(", "NULL"} {
+	for _, forbid := range []string{"hex_dict_key_equal_", "fputs(", "NULL", "hex_hash_Strand", "memcmp("} {
 		if strings.Contains(header, forbid) {
 			t.Fatalf("hexal/dict.h retains %q:\n%s", forbid, header)
 		}
 	}
 }
 
+// Text keys of any capacity are valid, and different capacities are different
+// types with separate specializations in one program.
+func TestDictKeyCapacitiesAreDistinctTypes(t *testing.T) {
+	result := compileSource("fun demo(h: Heap) do\n    let a: Dict<String<16>, Int32> = Dict<String<16>, Int32>(h)\n    defer a.free(h)\n    let b: Dict<String<128>, Int32> = Dict<String<128>, Int32>(h)\n    defer b.free(h)\n    a.insert(\"x\", 1)\n    b.insert(\"x\", 2)\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	header := dictH(t, result)
+	for _, want := range []string{"hex_dict_insert_String_16__Int32", "hex_dict_insert_String_128__Int32"} {
+		if !strings.Contains(header, want) {
+			t.Fatalf("hexal/dict.h lacks %s:\n%s", want, header)
+		}
+	}
+	// The shared helpers exist once however many capacities are keyed.
+	for _, once := range []string{"hex_hash_text(const", "hex_equal_text(const"} {
+		if count := strings.Count(hexalH(t, result)+dictH(t, result)+result.Files["hexal/string.h"], once); count > 2 {
+			t.Fatalf("%s is defined %d times", once, count)
+		}
+	}
+}
+
+// Only Int32 and String<N> are keys; the heap String, which does not own its
+// bytes, and every other type report their own diagnostic. Literal keys are
+// measured against the key capacity and other capacities are converted by hand.
+func TestDictKeyDiagnostics(t *testing.T) {
+	long128 := strings.Repeat("a", 128)
+	assertKey := func(source, want string) {
+		t.Helper()
+		result := compileSource(source)
+		if result.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(result.Stderr, "\n"), want) {
+			t.Fatalf("Compile(%q) stderr = %#v, want %q", source, result.Stderr, want)
+		}
+	}
+	assertKey("fun demo(h: Heap) do\n    let d: Dict<String, Int32> = Dict<String, Int32>(h)\nend", "dictionary key type String is not allowed: a Dict stores its keys, and String does not own its bytes; use String<N>")
+	assertKey("fun demo(h: Heap) do\n    let d: Dict<Bool, Int32> = Dict<Bool, Int32>(h)\nend", "dictionary key type must be Int32 or String<N>")
+	assertKey("fun demo(h: Heap) do\n    let d: Dict<String<128>, Int32> = Dict<String<128>, Int32>(h)\n    d.insert(\""+long128+"b\", 1)\nend", "String<128> literal exceeds 128 UTF-8 bytes")
+	for _, call := range []string{"insert(key, 1)", "get(key)", "find(key)", "contains(key)", "remove(key)"} {
+		assertKey("fun demo(h: Heap) do\n    let d: Dict<String<128>, Int32> = Dict<String<128>, Int32>(h)\n    let key: String<16> = \"x\"\n    d."+call+"\nend", "dictionary key requires String<128>; got String<16>; use widen<128>()")
+	}
+	assertKey("fun demo(h: Heap) do\n    let d: Dict<String<16>, Int32> = Dict<String<16>, Int32>(h)\n    let key: String<128> = \"x\"\n    d.insert(key, 1)\nend", "dictionary key requires String<16>; got String<128>; use String<16>.from_bytes(...) for a checked conversion")
+	// The exact-capacity literal and the widened key are accepted.
+	if result := compileSource("fun demo(h: Heap) do\n    let d: Dict<String<128>, Int32> = Dict<String<128>, Int32>(h)\n    defer d.free(h)\n    d.insert(\"" + long128 + "\", 1)\n    let key: String<16> = \"x\"\n    d.insert(key.widen<128>(), 2)\nend"); result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+}
+
+// Iterating a text-keyed Dict binds the key at its capacity; the annotation
+// must agree with it, and the traversal is the same version-checked one.
+func TestDictTextKeyIteration(t *testing.T) {
+	prefix := "fun demo(h: Heap) do\n    let d: Dict<String<128>, Int32> = Dict<String<128>, Int32>(h)\n    defer d.free(h)\n"
+	result := compileSource(prefix + "    for k: String<128>, v: Int32 in d do\n    end\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	if !strings.Contains(rootC(t, result), "hex_dict_version") && !strings.Contains(rootC(t, result), "version") {
+		t.Fatalf("the Dict traversal lost its version check:\n%s", rootC(t, result))
+	}
+	result = compileSource(prefix + "    for k: String<16>, v: Int32 in d do\n    end\nend")
+	if result.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(result.Stderr, "\n"), "for binder k is annotated String<16>, but Dict<String<128>, Int32> yields String<128> there") {
+		t.Fatalf("stderr = %#v, want the agreement diagnostic", result.Stderr)
+	}
+}
+
 func TestDictStringValues(t *testing.T) {
 	// A stored literal is never freed by the collection or by a remove; a
 	// runtime String removed from the dict is freed explicitly.
-	result := compileSource("fun demo(h: Heap) do\n    let people: Dict<Int32, String> = Dict<Int32, String>(h)\n    defer people.free(h)\n    people.insert(1, \"alice\")\n    let runtime: String = \"bob\".to_string(h)\n    people.insert(2, runtime)\n    let removed: String = people.remove(2)\n    removed.free(h)\n    people.insert(1, \"carol\")\n    let name: String = people.get(1)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    let people: Dict<Int32, String> = Dict<Int32, String>(h)\n    defer people.free(h)\n    people.insert(1, \"alice\")\n    let runtime: String = \"bob\".copy(h)\n    people.insert(2, runtime)\n    let removed: String = people.remove(2)\n    removed.free(h)\n    people.insert(1, \"carol\")\n    let name: String = people.get(1)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -208,7 +271,7 @@ func TestDictShallowCopySemantics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"fun demo(h: Heap) do\n    let scores: Dict<Bool, Int32> = Dict<Bool, Int32>(h)\nend", "dictionary key type must be Int32 or Strand"},
+		{"fun demo(h: Heap) do\n    let scores: Dict<Bool, Int32> = Dict<Bool, Int32>(h)\nend", "dictionary key type must be Int32 or String<N>"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {

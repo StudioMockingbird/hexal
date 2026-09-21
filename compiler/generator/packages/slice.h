@@ -18,10 +18,20 @@ static inline {{.CName}} {{.HelperPrefix}}slice_{{.Suffix}}({{.CName}} slice, ui
 }
 {{end}}
 {{- end -}}
+{{- define "slicetext" -}}
+#ifndef HEXAL_TEXT_{{.Capacity}}_DEFINED
+#define HEXAL_TEXT_{{.Capacity}}_DEFINED
+typedef struct {{.CName}} {
+    size_t byte_length;
+    uint8_t data[{{.Capacity}}];
+} {{.CName}};
+static_assert(offsetof({{.CName}}, data) == sizeof(size_t), "inline text layout");
+#endif
+{{end -}}
 #ifndef HEXAL_SLICE_H
 #define HEXAL_SLICE_H
 
 #include "hexal.h"
 {{if .NeedsHeapString}}typedef struct hex_string hex_string;
-{{end}}{{template "slicebody" .}}
+{{end}}{{range .InlineTexts}}{{template "slicetext" .}}{{end}}{{template "slicebody" .}}
 #endif

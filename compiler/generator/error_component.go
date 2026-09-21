@@ -11,6 +11,7 @@ import (
 type errorKindVariantModel struct {
 	Tag           string
 	HeaderLiteral string
+	HeaderLength  int
 }
 
 // errorComponentModel is the render model for packages/error.h: every unit
@@ -46,6 +47,7 @@ func buildErrorComponentModel(tags *tagRegistry) errorComponentModel {
 		model.KindVariants = append(model.KindVariants, errorKindVariantModel{
 			Tag:           errorKindTag(tags, name),
 			HeaderLiteral: fmt.Sprintf("%q", header),
+			HeaderLength:  len(header),
 		})
 	}
 	return model

@@ -2,7 +2,7 @@ package types
 
 // ErrorKind is the protected builtin classification carried by every Error.
 // Every variant but Other is a unit variant; Other carries the one caller-
-// supplied Strand header for a failure with no closed classification.
+// supplied String<128> header for a failure with no closed classification.
 
 // ErrorKindVariantNames is the fixed, declaration-ordered variant list. Order
 // here is the order ErrorKind.header() derivation, match declaration order,
@@ -75,7 +75,7 @@ func errorKindType() Type {
 	variants := make([]AdtVariant, len(ErrorKindVariantNames))
 	for index, name := range ErrorKindVariantNames {
 		if name == "Other" {
-			variants[index] = AdtVariant{Name: name, Payload: []ObjectMember{{Name: "header", Type: StrandType, Use: NewTypeUse(StrandType)}}}
+			variants[index] = AdtVariant{Name: name, Payload: []ObjectMember{{Name: "header", Type: ErrorHeaderText, Use: NewTypeUse(ErrorHeaderText)}}}
 			continue
 		}
 		variants[index] = AdtVariant{Name: name}

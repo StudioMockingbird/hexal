@@ -15,6 +15,7 @@ type Arena struct {
 	nullableTypes map[string]Type
 	funTypes      map[string]Type
 	arrayTypes    map[string]Type
+	stringTypes   map[string]Type
 	sliceTypes    map[string]Type
 	listTypes     map[string]Type
 	dictTypes     map[string]Type
@@ -51,6 +52,7 @@ func NewArena() *Arena {
 		nullableTypes:    make(map[string]Type),
 		funTypes:         make(map[string]Type),
 		arrayTypes:       make(map[string]Type),
+		stringTypes:      make(map[string]Type),
 		sliceTypes:       make(map[string]Type),
 		listTypes:        make(map[string]Type),
 		dictTypes:        make(map[string]Type),
@@ -66,6 +68,11 @@ func NewArena() *Arena {
 	}
 	for _, builtin := range builtinTypes {
 		arena.ReserveDefinitionName(builtin.CName, builtin)
+	}
+	for _, text := range builtinInlineStrings {
+		arena.stringTypes[text.CanonicalKey] = text
+		arena.collectionCNames[text.CName] = true
+		arena.ReserveDefinitionName(text.CName, text)
 	}
 	for _, union := range builtinStructuralUnions {
 		arena.unionTypes[union.CanonicalKey] = union

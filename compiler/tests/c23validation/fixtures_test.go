@@ -25,12 +25,12 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "list-compiles",
 		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values[0] = 9\n    let first: Int32 = values[0]\n    values[1] = 5\n    let last: Int32 = values.pop()\n    values.clear()\n    values.push(7)\n    let view: Slice<Int32> = values.slice(0, 1)\n    let total: Int32 = view[0]\n    let names: List<String> = List<String>(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    let runtime: String = \"bob\".to_string(h)\n    names.push(runtime)\n    let popped: String = names.pop()\n    popped.free(h)\n    let name: String = names[0]\nend"},
+		sources:    map[string]string{"app.hex": "fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values[0] = 9\n    let first: Int32 = values[0]\n    values[1] = 5\n    let last: Int32 = values.pop()\n    values.clear()\n    values.push(7)\n    let view: Slice<Int32> = values.slice(0, 1)\n    let total: Int32 = view[0]\n    let names: List<String> = List<String>(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    let runtime: String = \"bob\".copy(h)\n    names.push(runtime)\n    let popped: String = names.pop()\n    popped.free(h)\n    let name: String = names[0]\nend"},
 	},
 	{
 		name:       "dict-compiles",
 		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "fun demo(h: Heap) do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    let present: Bool = scores.contains(1)\n    let first: Int32 = scores.get(1)\n    let removed: Int32 = scores.remove(2)\n    let labels: Dict<Strand, Int32> = Dict<Strand, Int32>(h)\n    defer labels.free(h)\n    labels.insert(\"alice\", 1)\n    let score: Int32 = labels.get(\"alice\")\n    let people: Dict<Int32, String> = Dict<Int32, String>(h)\n    defer people.free(h)\n    people.insert(1, \"bob\")\n    let name: String = people.get(1)\nend"},
+		sources:    map[string]string{"app.hex": "fun demo(h: Heap) do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    let present: Bool = scores.contains(1)\n    let first: Int32 = scores.get(1)\n    let removed: Int32 = scores.remove(2)\n    let labels: Dict<String<128>, Int32> = Dict<String<128>, Int32>(h)\n    defer labels.free(h)\n    labels.insert(\"alice\", 1)\n    let score: Int32 = labels.get(\"alice\")\n    let people: Dict<Int32, String> = Dict<Int32, String>(h)\n    defer people.free(h)\n    people.insert(1, \"bob\")\n    let name: String = people.get(1)\nend"},
 	},
 	{
 		name:       "equality-compiles",
@@ -40,7 +40,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "string-compiles",
 		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "fun make_text(h: Heap): String do\n    return \"ready\".to_string(h)\nend\nfun demo(h: Heap) do\n    let text: String = make_text(h)\n    defer text.free(h)\n    let loud: String = text.concat(h, \"!\")\n    let raw: Slice<UInt8> = text.bytes()\n    let first: UInt8 = raw[0]\n    let part: Slice<UInt8> = text.slice(0, 2)\n    let second: UInt8 = part[1]\n    loud.free(h)\nend"},
+		sources:    map[string]string{"app.hex": "fun make_text(h: Heap): String do\n    return \"ready\".copy(h)\nend\nfun demo(h: Heap): Int32 | Error do\n    let text: String = make_text(h)\n    defer text.free(h)\n    let loud: String = try text.concat(h, \"!\".bytes())\n    let raw: Slice<UInt8> = text.bytes()\n    let first: UInt8 = raw[0]\n    let part: Slice<UInt8> = text.slice(0, 2)\n    let second: UInt8 = part[1]\n    loud.free(h)\n    return 0\nend"},
 	},
 	{
 		name:       "error-try-compiles",
@@ -55,14 +55,14 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "numeric-iteration-compiles",
 		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "fun demo(h: Heap) do\n    let wide: Int64 = 9_000_000_000\n    let narrowed: Int8 = wide.to<Int8>()\n    let wrapped: UInt8 = (200).to<UInt8>()\n    let whole: Int32 = 3.75.to<Int32>()\n    let mut left: Int32 = 7\n    let mut right: Int32 = 3\n    let quotient: Int32 = left / right\n    let remainder: Int32 = left % right\n    let fixed: Array<Int32, 3> = [10, 20, 30]\n    let mut total: Int32 = 0\n    for value in fixed do\n        total = total + value\n    end\n    for i, value in fixed do\n        total = total + value + i.to<Int32>()\n    end\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    for value in view do\n        total = total + value\n    end\n    let text: String = \"cafe\"\n    let mut runes: Int32 = 0\n    for rune in text do\n        runes = runes + 1\n    end\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    for value in values do\n        total = total + value\n    end\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    for key, value in scores do\n        total = total + key + value\n    end\n    let size: Size = values.length()\nend"},
+		sources:    map[string]string{"app.hex": "fun demo(h: Heap) do\n    let wide: Int64 = 9_000_000_000\n    let narrowed: Int8 = wide.to<Int8>()\n    let wrapped: UInt8 = (200).to<UInt8>()\n    let whole: Int32 = 3.75.to<Int32>()\n    let mut left: Int32 = 7\n    let mut right: Int32 = 3\n    let quotient: Int32 = left / right\n    let remainder: Int32 = left % right\n    let fixed: Array<Int32, 3> = [10, 20, 30]\n    let mut total: Int32 = 0\n    for value in fixed do\n        total = total + value\n    end\n    for i, value in fixed do\n        total = total + value + i.to<Int32>()\n    end\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    for value in view do\n        total = total + value\n    end\n    let text: String = \"cafe\"\n    let mut runes: Int32 = 0\n    for rune: Byte in text do\n        runes = runes + 1\n    end\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    for value in values do\n        total = total + value\n    end\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    for key, value in scores do\n        total = total + key + value\n    end\n    let size: Size = values.length()\nend"},
 	},
 
 	// Tier 2: exact runtime output.
 	{
 		name:        "list-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values[0] = 9\n    let first: Int32 = values[0]\n    values[1] = 5\n    let last: Int32 = values.pop()\n    values.clear()\n    values.push(7)\n    let view: Slice<Int32> = values.slice(0, 1)\n    let total: Int32 = view[0]\n    let names: List<String> = List<String>(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    let runtime: String = \"bob\".to_string(h)\n    names.push(runtime)\n    let popped: String = names.pop()\n    popped.free(h)\n    let name: String = names[0]\n    return (first == 9) and (last == 5) and (total == 7) and (name.length() == 5)\nend\nprint(demo(Heap()))\n"},
+		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values[0] = 9\n    let first: Int32 = values[0]\n    values[1] = 5\n    let last: Int32 = values.pop()\n    values.clear()\n    values.push(7)\n    let view: Slice<Int32> = values.slice(0, 1)\n    let total: Int32 = view[0]\n    let names: List<String> = List<String>(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    let runtime: String = \"bob\".copy(h)\n    names.push(runtime)\n    let popped: String = names.pop()\n    popped.free(h)\n    let name: String = names[0]\n    return (first == 9) and (last == 5) and (total == 7) and (name.length() == 5)\nend\nprint(demo(Heap()))\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
@@ -86,7 +86,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "scalar-match-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun classify(op: Int32): Int32 do\n    return match op\n    | 1 then 10\n    | 2 then 20\n    | else then 0\n    end\nend\nfun size_label(n: Size): Int32 do\n    return match n\n    | 0 then 100\n    | else then 200\n    end\nend\nfun rune_label(r: Rune): Int32 do\n    return match r\n    | 'A' then 65\n    | else then 0\n    end\nend\nlet marker: EoS = eos\nlet eos_value: Int32 = match marker\n    | eos then 7\nend\nprint((classify(1) == 10) and (classify(2) == 20) and (classify(3) == 0) and (size_label(0) == 100) and (size_label(5) == 200) and (rune_label('A') == 65) and (rune_label('B') == 0) and (eos_value == 7))\n"},
+		sources:     map[string]string{"app.hex": "fun classify(op: Int32): Int32 do\n    return match op\n    | 1 then 10\n    | 2 then 20\n    | else then 0\n    end\nend\nfun size_label(n: Size): Int32 do\n    return match n\n    | 0 then 100\n    | else then 200\n    end\nend\nfun byte_label(r: Byte): Int32 do\n    return match r\n    | b'A' then 65\n    | else then 0\n    end\nend\nlet marker: EoS = eos\nlet eos_value: Int32 = match marker\n    | eos then 7\nend\nprint((classify(1) == 10) and (classify(2) == 20) and (classify(3) == 0) and (size_label(0) == 100) and (size_label(5) == 200) and (byte_label(b'A') == 65) and (byte_label(b'B') == 0) and (eos_value == 7))\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
@@ -105,7 +105,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "dict-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    let present: Bool = scores.contains(1)\n    let first: Int32 = scores.get(1)\n    let removed: Int32 = scores.remove(2)\n    scores.insert(3, 30)\n    scores.insert(4, 40)\n    scores.insert(5, 50)\n    let grown: Int32 = scores.get(5)\n    let labels: Dict<Strand, Int32> = Dict<Strand, Int32>(h)\n    defer labels.free(h)\n    labels.insert(\"alice\", 1)\n    let score: Int32 = labels.get(\"alice\")\n    return present and (first == 10) and (removed == 20) and (grown == 50) and (score == 1)\nend\nprint(demo(Heap()))\n"},
+		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    scores.insert(2, 20)\n    let present: Bool = scores.contains(1)\n    let first: Int32 = scores.get(1)\n    let removed: Int32 = scores.remove(2)\n    scores.insert(3, 30)\n    scores.insert(4, 40)\n    scores.insert(5, 50)\n    let grown: Int32 = scores.get(5)\n    let labels: Dict<String<128>, Int32> = Dict<String<128>, Int32>(h)\n    defer labels.free(h)\n    labels.insert(\"alice\", 1)\n    let score: Int32 = labels.get(\"alice\")\n    return present and (first == 10) and (removed == 20) and (grown == 50) and (score == 1)\nend\nprint(demo(Heap()))\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
@@ -226,13 +226,13 @@ var fixtureCatalog = []fixture{
 			"        j = j + 1\n" +
 			"    end\n" +
 			"    let afterGrowth: Bool = allFound and !growing.contains(10) and (growing.length() == 19)\n" +
-			"    let labels: Dict<Strand, Int32> = Dict<Strand, Int32>(h)\n" +
+			"    let labels: Dict<String<128>, Int32> = Dict<String<128>, Int32>(h)\n" +
 			"    defer labels.free(h)\n" +
 			"    labels.insert(\"k2\", 2)\n" +
 			"    labels.insert(\"k11\", 11)\n" +
 			"    labels.insert(\"k19\", 19)\n" +
-			"    let removedStrand: Int32 = labels.remove(\"k11\")\n" +
-			"    let afterStrand: Bool = labels.contains(\"k2\") and labels.contains(\"k19\") and !labels.contains(\"k11\") and (labels.get(\"k2\") == 2) and (labels.get(\"k19\") == 19)\n" +
+			"    let removedText: Int32 = labels.remove(\"k11\")\n" +
+			"    let afterText: Bool = labels.contains(\"k2\") and labels.contains(\"k19\") and !labels.contains(\"k11\") and (labels.get(\"k2\") == 2) and (labels.get(\"k19\") == 19)\n" +
 			"    let mut result: Bool = (removedMiddle == 200) and afterMiddle\n" +
 			"    result = result and (removedHead == 100) and afterHead\n" +
 			"    result = result and reinsert\n" +
@@ -240,7 +240,7 @@ var fixtureCatalog = []fixture{
 			"    result = result and (lenAfter == 2)\n" +
 			"    result = result and (removedWrap == 2) and afterWrap\n" +
 			"    result = result and (removedGrown == 20) and afterGrowth\n" +
-			"    result = result and (removedStrand == 11) and afterStrand\n" +
+			"    result = result and (removedText == 11) and afterText\n" +
 			"    return result\n" +
 			"end\n" +
 			"print(demo(Heap()))\n"},
@@ -264,14 +264,375 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "string-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    let text: String = \"ready\".to_string(h)\n    defer text.free(h)\n    let loud: String = text.concat(h, \"!\")\n    defer loud.free(h)\n    let ok: Bool = loud.length() == 6\n    let part: Slice<UInt8> = text.slice(0, 2)\n    let second: UInt8 = part[1]\n    return ok and (second == 101)\nend\nprint(demo(Heap()))\n"},
+		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    let text: String = \"ready\".copy(h)\n    defer text.free(h)\n    let joined: String | Error = text.concat(h, \"!\".bytes())\n    if joined is Error then\n        return false\n    end\n    let loud: String = joined\n    defer loud.free(h)\n    let ok: Bool = loud.length() == 6\n    let part: Slice<UInt8> = text.slice(0, 2)\n    let second: UInt8 = part[1]\n    return ok and (second == 101)\nend\nprint(demo(Heap()))\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
 		name:        "string-owned-cleanup-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    let built: String = String.interpolate(h, \"n={{ 41 }}\")\n    defer built.free(h)\n    let copied: String = built.to_string(h)\n    defer copied.free(h)\n    return built.length() == 4\nend\nprint(demo(Heap()))\n"},
+		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    let built: String = String.interpolate(h, \"n={{ 41 }}\")\n    defer built.free(h)\n    let copied: String = built.copy(h)\n    defer copied.free(h)\n    return built.length() == 4\nend\nprint(demo(Heap()))\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "inline-string-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
+			"    let small: String<16> = \"hello\"\n" +
+			"    let wide: String<64> = small.widen<64>()\n" +
+			"    let heap: String = small.copy(h)\n" +
+			"    defer heap.free(h)\n" +
+			"    let joined: String<48> | Error = String<48>.concat(small.bytes(), \" world\".bytes())\n" +
+			"    if joined is Error then\n" +
+			"        return false\n" +
+			"    end\n" +
+			"    let length_ok: Bool = (small.length() == 5) and (wide.length() == 5) and (joined.length() == 11)\n" +
+			"    let part: Slice<Byte> = joined.slice(6, 11)\n" +
+			"    let slice_ok: Bool = (part.length() == 5) and (part[0] == b'w')\n" +
+			"    let equal_ok: Bool = (small == wide) and (wide == heap) and (heap == small) and (small != joined)\n" +
+			"    let order_ok: Bool = (small < joined) and (joined > heap) and (heap <= wide) and (wide >= small)\n" +
+			"    return length_ok and slice_ok and equal_ok and order_ok\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "inline-string-failures-run",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun classify(outcome: String<4> | Error) do\n" +
+			"    if outcome is Error then\n" +
+			"        print(outcome.header(), \": \", outcome.message, \"\\n\")\n" +
+			"        return\n" +
+			"    end\n" +
+			"    print(\"ok \", outcome.length(), \"\\n\")\n" +
+			"end\n" +
+			"fun classify_heap(outcome: String | Error) do\n" +
+			"    if outcome is Error then\n" +
+			"        print(outcome.header(), \": \", outcome.message, \"\\n\")\n" +
+			"        return\n" +
+			"    end\n" +
+			"    print(\"heap ok\\n\")\n" +
+			"end\n" +
+			"fun demo(h: Heap) do\n" +
+			"    let exact: Array<Byte, 4> = [97, 98, 99, 100]\n" +
+			"    let over: Array<Byte, 5> = [97, 98, 99, 100, 101]\n" +
+			"    let bad: Array<Byte, 2> = [0xC3, 0x28]\n" +
+			"    let both: Array<Byte, 5> = [0xFF, 97, 97, 97, 97]\n" +
+			"    let lead: Array<Byte, 1> = [0xC3]\n" +
+			"    let tail: Array<Byte, 1> = [0xA9]\n" +
+			"    classify(String<4>.from_bytes(exact.slice(0, 4)))\n" +
+			"    classify(String<4>.from_bytes(over.slice(0, 5)))\n" +
+			"    classify(String<4>.from_bytes(bad.slice(0, 2)))\n" +
+			"    classify(String<4>.from_bytes(both.slice(0, 5)))\n" +
+			"    classify(String<4>.concat(lead.slice(0, 1), tail.slice(0, 1)))\n" +
+			"    classify(String<4>.concat(exact.slice(0, 4), tail.slice(0, 1)))\n" +
+			"    classify_heap(String.from_bytes(h, bad.slice(0, 2)))\n" +
+			"    classify_heap(String.from_bytes(h, exact.slice(0, 4)))\n" +
+			"    let base: String = \"ab\".copy(h)\n" +
+			"    classify_heap(base.concat(h, bad.slice(0, 2)))\n" +
+			"    classify_heap(base.concat(h, tail.slice(0, 1)))\n" +
+			"end\n" +
+			"demo(Heap())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "ok 4\nresource exhausted: string exceeds capacity\ninvalid input: invalid UTF-8 in string\nresource exhausted: string exceeds capacity\nok 2\nresource exhausted: string exceeds capacity\ninvalid input: invalid UTF-8 in string\nheap ok\ninvalid input: invalid UTF-8 in string\ninvalid input: invalid UTF-8 in string\n"},
+	},
+	{
+		name:       "text-comparison-matrix-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun agree(a: String<16>, b: String<16>, h: Heap): Bool do\n" +
+			"    let aw: String<64> = a.widen<64>()\n" +
+			"    let bw: String<64> = b.widen<64>()\n" +
+			"    let ah: String = a.copy(h)\n" +
+			"    defer ah.free(h)\n" +
+			"    let bh: String = b.copy(h)\n" +
+			"    defer bh.free(h)\n" +
+			"    let eq: Bool = a == b\n" +
+			"    let lt: Bool = a < b\n" +
+			"    let gt: Bool = a > b\n" +
+			"    let same_eq: Bool = ((aw == b) == eq) and ((a == bw) == eq) and ((ah == b) == eq) and ((a == bh) == eq) and ((ah == bw) == eq) and ((aw == bh) == eq) and ((ah == bh) == eq)\n" +
+			"    let same_lt: Bool = ((aw < b) == lt) and ((a < bw) == lt) and ((ah < b) == lt) and ((a < bh) == lt) and ((ah < bw) == lt) and ((aw < bh) == lt) and ((ah < bh) == lt)\n" +
+			"    let same_gt: Bool = ((aw > b) == gt) and ((a > bw) == gt) and ((ah > b) == gt) and ((a > bh) == gt) and ((ah > bw) == gt) and ((aw > bh) == gt) and ((ah > bh) == gt)\n" +
+			"    let same_ne: Bool = ((aw != b) == (!eq)) and ((ah != bw) == (!eq)) and ((a != bh) == (!eq))\n" +
+			"    let same_le: Bool = ((aw <= b) == (lt or eq)) and ((ah >= bw) == (gt or eq))\n" +
+			"    return same_eq and same_lt and same_gt and same_ne and same_le\n" +
+			"end\n" +
+			"fun left(): String<16> do\n    print(\"L\")\n    return \"ab\"\nend\n" +
+			"fun right(): String<64> do\n    print(\"R\")\n    return \"ab\"\nend\n" +
+			"fun demo(h: Heap) do\n" +
+			"    print(agree(\"ab\", \"ab\", h), \" \", agree(\"ab\", \"ac\", h), \" \", agree(\"ab\", \"abc\", h), \" \", agree(\"a\\0b\", \"a\\0c\", h), \" \", agree(\"a\", \"a\\0\", h), \"\\n\")\n" +
+			"    let nul: String<16> = \"a\\0\"\n" +
+			"    let plain: String<16> = \"a\"\n" +
+			"    print(plain == nul, \" \", plain < nul, \" \", nul > plain, \"\\n\")\n" +
+			"    let composed: String<16> = \"\\u{e9}\"\n" +
+			"    let decomposed: String<16> = \"e\\u{301}\"\n" +
+			"    print(composed == decomposed, \" \", composed.length(), \" \", decomposed.length(), \"\\n\")\n" +
+			"    let both: Bool = left() == right()\n" +
+			"    print(\" \", both, \"\\n\")\n" +
+			"end\n" +
+			"demo(Heap())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true true true true true\nfalse true true\nfalse 2 3\nLR true\n"},
+	},
+	{
+		name:       "text-print-and-interpolation-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type Inline is struct name: String<8>, note: String<64> end\n" +
+			"type Heaped is struct name: String, note: String end\n" +
+			"fun a(): Int32 do\n    print(\"a\")\n    return 1\nend\n" +
+			"fun b(): Int32 do\n    print(\"b\")\n    return 2\nend\n" +
+			"fun c(): Int32 do\n    print(\"c\")\n    return 3\nend\n" +
+			"fun show8(v: String<8> | Error) do\n" +
+			"    if v is Error then\n        print(\"[\", v.header(), \": \", v.message, \"]\\n\")\n        return\n    end\n" +
+			"    print(\"[\", v, \"]\\n\")\nend\n" +
+			"fun show4(v: String<4> | Error) do\n" +
+			"    if v is Error then\n        print(\"[\", v.header(), \": \", v.message, \"]\\n\")\n        return\n    end\n" +
+			"    print(\"[\", v, \"]\\n\")\nend\n" +
+			"fun demo(h: Heap) do\n" +
+			"    let small: String<8> = \"hi\\\"x\"\n" +
+			"    let wide: String<64> = \"hi\\\"x\"\n" +
+			"    let heap: String = \"hi\\\"x\"\n" +
+			"    print(small, \"|\", wide, \"|\", heap, \"\\n\")\n" +
+			"    print(Inline(name = \"hi\\\"x\", note = \"n\\ty\"), \"\\n\")\n" +
+			"    print(Heaped(name = \"hi\\\"x\", note = \"n\\ty\"), \"\\n\")\n" +
+			"    let l8: List<String<8>> = List<String<8>>(h)\n    defer l8.free(h)\n    l8.push(\"a\\\"b\")\n" +
+			"    let lh: List<String> = List<String>(h)\n    defer lh.free(h)\n    lh.push(\"a\\\"b\")\n" +
+			"    print(l8, \" \", lh, \"\\n\")\n" +
+			"    let d8: Dict<String<8>, String<8>> = Dict<String<8>, String<8>>(h)\n    defer d8.free(h)\n    d8.insert(\"k\", \"v\")\n" +
+			"    print(d8, \"\\n\")\n" +
+			"    let joined: String = String.interpolate(h, \"<{{ small }}{{ wide }}{{ heap }}>\")\n    defer joined.free(h)\n" +
+			"    print(joined, \"\\n\")\n" +
+			"    let inline: String<32> | Error = String<32>.interpolate(\"<{{ small }}{{ wide }}{{ heap }}>\")\n" +
+			"    if inline is Error then\n        print(\"error\\n\")\n    else\n        print(inline, \"\\n\")\n    end\n" +
+			"    show8(String<8>.interpolate(\"{{ a() }}-{{ b() }}-{{ c() }}\"))\n" +
+			"    show4(String<4>.interpolate(\"{{ a() }}-{{ b() }}-{{ c() }}\"))\n" +
+			"end\n" +
+			"demo(Heap())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "hi\"x|hi\"x|hi\"x\nInline { name = \"hi\\\"x\", note = \"n\\ty\" }\nHeaped { name = \"hi\\\"x\", note = \"n\\ty\" }\n[\"a\\\"b\"] [\"a\\\"b\"]\n{\"k\": \"v\"}\n<hi\"xhi\"xhi\"x>\n<hi\"xhi\"xhi\"x>\nabc[1-2-3]\nabc[resource exhausted: string exceeds capacity]\n"},
+	},
+	{
+		name:       "text-bytes-run",
+		entrypoint: "app.hex",
+		project:    compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
+		sources: map[string]string{"app.hex": "extern c from <string.h> do\n" +
+			"    fun c_strlen as \"strlen\"(text: Ptr<Byte> | Nil as \"const char *\"): Size as \"size_t\"\n" +
+			"end\n" +
+			"fun c_length(text: String): Size do\n" +
+			"    unsafe do\n" +
+			"        return c_strlen(text.c_pointer())\n" +
+			"    end\n" +
+			"end\n" +
+			"fun demo(h: Heap): Bool do\n" +
+			"    let accented: String = \"héllo\"\n" +
+			"    let length_ok: Bool = accented.length() == 6\n" +
+			"    let nul: String<8> = \"a\\0b\"\n" +
+			"    let nul_heap: String = nul.copy(h)\n" +
+			"    defer nul_heap.free(h)\n" +
+			"    let nul_bytes: Slice<Byte> = nul_heap.bytes()\n" +
+			"    let nul_ok: Bool = (nul.length() == 3) and (nul_heap.length() == 3) and (nul_bytes[1] == 0)\n" +
+			"    let split: Slice<Byte> = accented.slice(1, 2)\n" +
+			"    let split_ok: Bool = split.length() == 1\n" +
+			"    let base: String = \"abc\".copy(h)\n" +
+			"    defer base.free(h)\n" +
+			"    let piece: Array<Byte, 3> = [97, 98, 99]\n" +
+			"    let built: String | Error = String.from_bytes(h, piece.slice(0, 3))\n" +
+			"    if built is Error then\n" +
+			"        return false\n" +
+			"    end\n" +
+			"    let joined: String | Error = base.concat(h, piece.slice(0, 3))\n" +
+			"    if joined is Error then\n" +
+			"        return false\n" +
+			"    end\n" +
+			"    let interpolated: String = String.interpolate(h, \"a{{ 1 }}c\")\n" +
+			"    defer built.free(h)\n" +
+			"    defer joined.free(h)\n" +
+			"    defer interpolated.free(h)\n" +
+			"    let terminated: Bool = (c_length(\"abc\") == 3) and (c_length(base) == 3) and (c_length(built) == 3) and (c_length(joined) == 6) and (c_length(interpolated) == 3) and (c_length(nul_heap) == 1)\n" +
+			"    return length_ok and nul_ok and split_ok and terminated\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "dict-string-key-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
+			"    let labels: Dict<String<128>, Int32> = Dict<String<128>, Int32>(h)\n" +
+			"    defer labels.free(h)\n" +
+			"    labels.insert(\"alice\", 1)\n" +
+			"    labels.insert(\"bob\", 2)\n" +
+			"    labels.insert(\"a\\0b\", 3)\n" +
+			"    labels.insert(\"a\\0c\", 4)\n" +
+			"    labels.insert(\"a\", 5)\n" +
+			"    labels.insert(\"a\\0\", 6)\n" +
+			"    let nul_ok: Bool = (labels.get(\"a\\0b\") == 3) and (labels.get(\"a\\0c\") == 4) and (labels.get(\"a\") == 5) and (labels.get(\"a\\0\") == 6)\n" +
+			"    let widened: String<16> = \"alice\"\n" +
+			"    let cross_ok: Bool = labels.get(widened.widen<128>()) == 1\n" +
+			"    let exact: String<128> = \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"\n" +
+			"    labels.insert(exact, 7)\n" +
+			"    let boundary_ok: Bool = labels.get(exact) == 7\n" +
+			"    labels.insert(\"alice\", 10)\n" +
+			"    let overwrite_ok: Bool = (labels.get(\"alice\") == 10) and (labels.length() == 7)\n" +
+			"    let removed: Int32 = labels.remove(\"bob\")\n" +
+			"    labels.insert(\"bob\", 20)\n" +
+			"    let reinsert_ok: Bool = (removed == 2) and (labels.get(\"bob\") == 20)\n" +
+			"    let counts: Dict<String<16>, Int32> = Dict<String<16>, Int32>(h)\n" +
+			"    defer counts.free(h)\n" +
+			"    let mut n: Int32 = 0\n" +
+			"    while n < 1000 do\n" +
+			"        let key: String<16> | Error = String<16>.interpolate(\"key{{n}}\")\n" +
+			"        if key is Error then\n" +
+			"            return false\n" +
+			"        end\n" +
+			"        counts.insert(key, n)\n" +
+			"        n = n + 1\n" +
+			"    end\n" +
+			"    let mut grown_ok: Bool = counts.length() == 1000\n" +
+			"    let probe: String<16> | Error = String<16>.interpolate(\"key{{777}}\")\n" +
+			"    if probe is Error then\n" +
+			"        return false\n" +
+			"    end\n" +
+			"    grown_ok = grown_ok and (counts.get(probe) == 777)\n" +
+			"    let mut total: Int32 = 0\n" +
+			"    for k, v in labels do\n" +
+			"        total = total + v\n" +
+			"    end\n" +
+			"    let iterate_ok: Bool = total == (10 + 20 + 3 + 4 + 5 + 6 + 7)\n" +
+			"    return nul_ok and cross_ok and boundary_ok and overwrite_ok and reinsert_ok and grown_ok and iterate_ok\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "typed-for-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
+			"    let text: String = \"héllo\"\n" +
+			"    let mut bytes: Int32 = 0\n" +
+			"    for b: Byte in text do\n" +
+			"        bytes = bytes + 1\n" +
+			"    end\n" +
+			"    let mut indexed: Int32 = 0\n" +
+			"    for i: Size, b: Byte in text do\n" +
+			"        indexed = indexed + i.to<Int32>()\n" +
+			"    end\n" +
+			"    let mut mutable: String<8> = \"ab\"\n" +
+			"    let mut seen: Int32 = 0\n" +
+			"    for b: Byte in mutable do\n" +
+			"        mutable = \"wxyz\"\n" +
+			"        seen = seen + 1\n" +
+			"    end\n" +
+			"    let list: List<Int32> = List<Int32>(h)\n" +
+			"    defer list.free(h)\n" +
+			"    list.push(3)\n" +
+			"    list.push(4)\n" +
+			"    let mut sum: Int32 = 0\n" +
+			"    for v: Int32 in list do\n" +
+			"        sum = sum + v\n" +
+			"    end\n" +
+			"    for i: Size, v: Int32 in list do\n" +
+			"        sum = sum + i.to<Int32>()\n" +
+			"    end\n" +
+			"    let fixed: Array<Int32, 3> = [1, 2, 3]\n" +
+			"    for v: Int32 in fixed do\n" +
+			"        sum = sum + v\n" +
+			"    end\n" +
+			"    let dict: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n" +
+			"    defer dict.free(h)\n" +
+			"    dict.insert(1, 10)\n" +
+			"    for k: Int32, v: Int32 in dict do\n" +
+			"        sum = sum + k + v\n" +
+			"    end\n" +
+			"    for i: Size, k: Int32, v: Int32 in dict do\n" +
+			"        sum = sum + i.to<Int32>()\n" +
+			"    end\n" +
+			"    return (bytes == 6) and (indexed == 15) and (seen == 2) and (mutable.length() == 4) and (sum == 25)\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "error-inline-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun build(h: Heap, label: String, code: Int32): Error do\n" +
+			"    let message: String<256> | Error = String<256>.interpolate(\"failed {{label}} with {{code}}\")\n" +
+			"    if message is Error then\n" +
+			"        return message\n" +
+			"    end\n" +
+			"    return Error(ErrorKind.Other(header = \"Custom\"), message)\n" +
+			"end\n" +
+			"fun propagate(h: Heap): Int32 | Error do\n" +
+			"    let failure: Error = build(h, \"open\", 7)\n" +
+			"    return failure\n" +
+			"end\n" +
+			"fun demo(h: Heap): Bool do\n" +
+			"    let outcome: Int32 | Error = propagate(h)\n" +
+			"    if outcome is Error then\n" +
+			"        print(outcome.header(), \": \", outcome.message, \"\\n\")\n" +
+			"        let literal: Error = Error(ErrorKind.NotFound(), \"plain\")\n" +
+			"        print(literal.header(), \": \", literal.message, \"\\n\")\n" +
+			"        let wide: String<200> = \"wide message\"\n" +
+			"        let widened: Error = Error(ErrorKind.InvalidInput(), wide)\n" +
+			"        print(widened.message, \"\\n\")\n" +
+			"        let heap_text: String = \"from heap\".copy(h)\n" +
+			"        defer heap_text.free(h)\n" +
+			"        let owned: Error = Error(ErrorKind.Other(header = heap_text), heap_text)\n" +
+			"        print(owned.header(), \"/\", owned.message, \"\\n\")\n" +
+			"        return outcome.kind == ErrorKind.Other(header = \"Custom\")\n" +
+			"    end\n" +
+			"    return false\n" +
+			"end\n" +
+			"print(demo(Heap()), \"\\n\")\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "Custom: failed open with 7\nnot found: plain\nwide message\nfrom heap/from heap\ntrue\n"},
+	},
+	{
+		name:       "error-message-overflow-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap) do\n" +
+			"    let long: String = String.interpolate(h, \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa{{ 1 }}\")\n" +
+			"    defer long.free(h)\n" +
+			"    let failure: Error = Error(ErrorKind.InvalidInput(), long)\n" +
+			"    print(failure.message)\n" +
+			"end\n" +
+			"demo(Heap())\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] Error message exceeds 256 bytes"},
+	},
+	{
+		name:       "error-header-overflow-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap) do\n" +
+			"    let long: String = String.interpolate(h, \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb{{ 1 }}\")\n" +
+			"    defer long.free(h)\n" +
+			"    let kind: ErrorKind = ErrorKind.Other(header = long)\n" +
+			"    print(kind.header())\n" +
+			"end\n" +
+			"demo(Heap())\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] ErrorKind.Other header exceeds 128 bytes"},
+	},
+	{
+		name:        "sizes-run",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "print(size_of<String<31>>(), \" \", align_of<String<31>>(), \" \", size_of<Error>(), \" \", size_of<String>(), \"\\n\")\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "40 8 432 8\n"},
+	},
+	{
+		name:       "inline-string-two-modules-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{
+			"app.hex": "import\n" +
+				"    Labels from \"./labels\"\n" +
+				"end\n" +
+				"let label: String<16> = Labels.short()\n" +
+				"let long: String<128> = Labels.long_label()\n" +
+				"print(label.length(), \" \", long.length(), \" \", label == \"tag\", \"\\n\")\n",
+			"labels.hex": "fun short(): String<16> do\n" +
+				"    return \"tag\"\n" +
+				"end\n" +
+				"fun long_label(): String<128> do\n" +
+				"    return \"longer tag\"\n" +
+				"end\n" +
+				"export\n" +
+				"    short,\n" +
+				"    long_label\n" +
+				"end\n",
+		},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "3 10 true\n"},
 	},
 	{
 		name:        "print-runs",
@@ -288,7 +649,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "print-collections-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    print(values)\n    let text: String = \"hi\".to_string(h)\n    defer text.free(h)\n    print(text)\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    print(scores)\nend\ndemo(Heap())\n"},
+		sources:     map[string]string{"app.hex": "fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    print(values)\n    let text: String = \"hi\".copy(h)\n    defer text.free(h)\n    print(text)\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    print(scores)\nend\ndemo(Heap())\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "[1, 2]hi{1: 10}"},
 	},
 	{
@@ -316,13 +677,30 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
-		// Neither String nor Strand is indexable (docs/reference.md, Text):
-		// reaching the nth Rune of UTF-8 walks from the start, so a
-		// positional [] would be quadratic behind O(1) syntax. Every access
-		// below goes through rune_cursor() instead.
-		name:        "text-conformance-runs",
-		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    let byte: UInt8 = b'\\xFF'\n    let byte_ok: Bool = byte == 255\n    let letter: Rune = '\\u{00E9}'\n    let crab: Rune = '\\u{1F980}'\n    let rune_ok: Bool = (letter == 233) and (crab == 129408)\n    let text: String = \"caf\\u{00E9} \\u{1F980}\"\n    let count: Size = text.length()\n    let length_ok: Bool = count == 6\n    let cursor: RuneCursor = text.rune_cursor()\n    let first: Rune = cursor.next()\n    cursor.next()\n    cursor.next()\n    let accented: Rune = cursor.next()\n    let index_ok: Bool = (first == 99) and (accented == 233)\n    let mut seen: Int32 = 4\n    while cursor.has_next() do\n        let value: Rune = cursor.next()\n        seen = seen + 1\n    end\n    let cursor_ok: Bool = seen == 6\n    let label: Strand = \"hexal\"\n    let label_text: String = label.to_string(h)\n    defer label_text.free(h)\n    let label_cursor: RuneCursor = label_text.rune_cursor()\n    let label_first: Rune = label_cursor.next()\n    let strand_ok: Bool = (label.length() == 5) and (label_first == 104)\n    let runes: Array<Rune, 2> = [letter, crab]\n    let view: Slice<Rune> = runes.slice(0, 2)\n    let encoded: String = String.from_runes(h, view)\n    let encoded_cursor: RuneCursor = encoded.rune_cursor()\n    let encoded_first: Rune = encoded_cursor.next()\n    let encoded_ok: Bool = (encoded.length() == 2) and (encoded_first == 233)\n    encoded.free(h)\n    return byte_ok and rune_ok and length_ok and index_ok and cursor_ok and strand_ok and encoded_ok\nend\nprint(demo(Heap()))\n"},
+		// Text is a sequence of bytes and neither form is indexable
+		// (docs/reference.md, Text): bytes() gives constant-time indexed byte
+		// access and a typed for binder names the unit it walks.
+		name:       "text-conformance-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
+			"    let byte: UInt8 = b'\\xFF'\n" +
+			"    let byte_ok: Bool = byte == 255\n" +
+			"    let text: String = \"caf\\u{00E9} \\u{1F980}\"\n" +
+			"    let length_ok: Bool = text.length() == 10\n" +
+			"    let raw: Slice<Byte> = text.bytes()\n" +
+			"    let index_ok: Bool = (raw[0] == 99) and (raw[3] == 195) and (raw[4] == 169)\n" +
+			"    let mut seen: Int32 = 0\n" +
+			"    for b: Byte in text do\n" +
+			"        seen = seen + 1\n" +
+			"    end\n" +
+			"    let iteration_ok: Bool = seen == 10\n" +
+			"    let label: String<16> = \"hexal\"\n" +
+			"    let label_text: String = label.copy(h)\n" +
+			"    defer label_text.free(h)\n" +
+			"    let label_ok: Bool = (label.length() == 5) and (label_text.length() == 5) and (label == label_text)\n" +
+			"    return byte_ok and length_ok and index_ok and iteration_ok and label_ok\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 
@@ -393,18 +771,6 @@ var fixtureCatalog = []fixture{
 		entrypoint:  "app.hex",
 		sources:     map[string]string{"app.hex": "fun demo(stop: Int32) do\n    let text: String = \"hex\"\n    let view: Slice<UInt8> = text.slice(0, stop)\n    print(view.length())\nend\ndemo(100)\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] string slice bounds out of range"},
-	},
-	{
-		name:        "malformed-utf8-traps",
-		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(h: Heap) do\n    let bytes: Array<UInt8, 2> = [0xC3, 0x28]\n    let view: Slice<UInt8> = bytes.slice(0, 2)\n    let text: String = String.from_bytes(h, view)\n    print(text)\nend\ndemo(Heap())\n"},
-		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] invalid UTF-8 in string"},
-	},
-	{
-		name:        "rune-cursor-exhaustion-traps",
-		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo() do\n    let text: String = \"hex\"\n    let cursor: RuneCursor = text.rune_cursor()\n    cursor.next()\n    cursor.next()\n    cursor.next()\n    let late: Rune = cursor.next()\n    print(late)\nend\ndemo()\n"},
-		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] RuneCursor has no next value"},
 	},
 	{
 		name:        "string-literal-free-traps",
@@ -1351,12 +1717,10 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{zeroExit: true, exactStdout: strings.Repeat("Point { x = 1, y = 2 }", 8)},
 	},
 	// The formatter families the print catalog does not otherwise execute:
-	// Rune, Strand, Array, Slice, and a union variant with a payload. Each
+	// inline text, Array, Slice, and a union variant with a payload. Each
 	// one appends to the same call's builder, so a helper threading the
 	// wrong destination shows up as missing output. Error printing is not
-	// included: a program that prints an Error emits a Strand length helper
-	// the String component only declares alongside interpolation, which is a
-	// separate component-selection defect this suite would otherwise trip on.
+	// included here.
 	{
 		name:       "print-remaining-formatters-runs",
 		entrypoint: "app.hex",
@@ -1365,15 +1729,15 @@ var fixtureCatalog = []fixture{
 			"| Square as a: Int32 end\n" +
 			"end\n" +
 			"fun demo() do\n" +
-			"    let letter: Rune = (65).to<Rune>()\n" +
-			"    let label: Strand = \"tag\"\n" +
+			"    let letter: Byte = b'A'\n" +
+			"    let label: String<8> = \"tag\"\n" +
 			"    let mut fixed: Array<Int32, 2> = [1, 2]\n" +
 			"    let view: Slice<Int32> = fixed.slice(0, 2)\n" +
 			"    let shape: Shape = Shape.Circle(r = 7)\n" +
 			"    print(letter, label, fixed, view, shape)\n" +
 			"end\n" +
 			"demo()\n"},
-		expectation: &processExpectation{zeroExit: true, exactStdout: "Atag[1, 2][1, 2]Shape.Circle { r = 7 }"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "65tag[1, 2][1, 2]Shape.Circle { r = 7 }"},
 	},
 	// The builder's inline storage is 256 bytes, so these lengths sit either
 	// side of its first growth: an empty call, the last inline length, the

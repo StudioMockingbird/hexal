@@ -264,7 +264,16 @@ func checkVariantConstructorCall(call parser.CallExpression, ownerName string, a
 				fieldUse = compilerTypes.NewTypeUse(live)
 			}
 		}
-		checked := checkInitializer(argumentExpression, fieldUse, *label, ctx)
+		var checked checkedExpression
+		if compilerTypes.IsErrorKind(adtType) && variant.Name == "Other" {
+			// The header is the second text argument that coerces into a
+			// bounded capacity implicitly, for the same reason the Error
+			// message does: error construction has nowhere to report a
+			// failure.
+			checked = checkBoundedText(argumentExpression, compilerTypes.ErrorHeaderText, "ErrorKind.Other header", ctx)
+		} else {
+			checked = checkInitializer(argumentExpression, fieldUse, *label, ctx)
+		}
 		if nestedDiagnostics := initializerDiagnostics(checked); len(nestedDiagnostics) > 0 {
 			diagnostics = append(diagnostics, nestedDiagnostics...)
 			continue
@@ -723,7 +732,7 @@ func checkMatchExpression(expression parser.MatchExpression, context expressionC
 			if expression.TypeMode {
 				return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, "value patterns are not valid in type mode"))}
 			}
-			if compilerTypes.IsFloat(scrutineeType) || compilerTypes.IsString(scrutineeType) || compilerTypes.IsStrand(scrutineeType) {
+			if compilerTypes.IsFloat(scrutineeType) || compilerTypes.IsText(scrutineeType) {
 				diagnostic := typeErrorAt(token, fmt.Sprintf("match value mode does not support %s scrutinees; use Bool, EoS, or an integer-like type", scrutineeType.Name))
 				return checkedExpression{token: token, diagnostic: diagnosticAt(diagnostic)}
 			}
@@ -923,8 +932,6 @@ func scalarPatternToken(pattern parser.ScalarPattern) lexer.Token {
 	case parser.IntegerLiteral:
 		return literal.Token
 	case parser.ByteLiteral:
-		return literal.Token
-	case parser.RuneLiteral:
 		return literal.Token
 	}
 	return lexer.Token{}

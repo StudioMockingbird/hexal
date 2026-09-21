@@ -11,23 +11,21 @@ import (
 )
 
 // literalEscapeSet selects the escape grammar of one quoted literal form.
-// String and Rune share the Unicode escape set; Byte adds \xHH and excludes
-// \" and \u{...}.
+// String uses the Unicode escape set; Byte adds \xHH and excludes \" and
+// \u{...}.
 type literalEscapeSet int
 
 // The concrete literalEscapeSet values, named for the literal form whose
 // escape grammar they select.
 const (
 	ByteEscapes literalEscapeSet = iota
-	RuneEscapes
 	StringEscapes
 )
 
-// DecodeLiteralBody decodes the inner body of a Byte, Rune, or String
-// literal (without the surrounding quotes) into payload bytes. It validates
-// every escape, Byte cardinality (exactly one byte), Rune cardinality
-// (exactly one Unicode scalar), and UTF-8 validity of the whole payload.
-// The returned message is empty on success.
+// DecodeLiteralBody decodes the inner body of a Byte or String literal
+// (without the surrounding quotes) into payload bytes. It validates every
+// escape, Byte cardinality (exactly one byte), and UTF-8 validity of the whole
+// payload. The returned message is empty on success.
 func DecodeLiteralBody(body string, set literalEscapeSet) ([]byte, string) {
 	payload := make([]byte, 0, len(body))
 	for index := 0; index < len(body); index++ {
@@ -108,18 +106,6 @@ func DecodeLiteralBody(body string, set literalEscapeSet) ([]byte, string) {
 	}
 	if set == ByteEscapes && len(payload) != 1 {
 		return nil, "Byte literal must contain exactly one byte"
-	}
-	if set == RuneEscapes {
-		if !utf8.Valid(payload) {
-			return nil, "Rune literal must contain exactly one Unicode scalar"
-		}
-		decoded, width := utf8.DecodeRune(payload)
-		if decoded == utf8.RuneError && width <= 1 {
-			return nil, "Rune literal must contain exactly one Unicode scalar"
-		}
-		if len(payload) != width {
-			return nil, "Rune literal must contain exactly one Unicode scalar"
-		}
 	}
 	if set == StringEscapes && !utf8.Valid(payload) {
 		return nil, "string literal contains invalid UTF-8"
@@ -217,7 +203,6 @@ const (
 	Do
 	Let
 	ByteLiteral
-	RuneLiteral
 	Import
 	Export
 	Unsafe
@@ -322,8 +307,6 @@ func (kind TokenKind) String() string {
 		return "}}"
 	case ByteLiteral:
 		return "byte literal"
-	case RuneLiteral:
-		return "rune literal"
 	case Mut:
 		return "mut"
 	case Type:
@@ -579,23 +562,14 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 		column += end - index
 		index = end
 	case ch == '\'':
-		start, startColumn := index, column
+		// The bare-quote form is reserved for a future code-point literal. Its
+		// body is skipped so one literal reports one diagnostic.
+		startColumn := column
 		index++
 		column++
-		end, closed := scanQuotedBody(source, index, line, column)
-		if !closed {
-			diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "unterminated Rune literal"))
-		}
-		bodyEnd := end
-		if closed {
-			bodyEnd = end - 1
-		}
-		if _, message := DecodeLiteralBody(source[index:bodyEnd], RuneEscapes); message != "" {
-			diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, message))
-			tokens = append(tokens, Token{Kind: EOF, Line: line, Column: startColumn})
-		} else {
-			tokens = append(tokens, Token{Kind: RuneLiteral, Lexeme: source[start:end], Line: line, Column: startColumn})
-		}
+		end, _ := scanQuotedBody(source, index, line, column)
+		diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "bare-quote literals are reserved; use b'a' for a byte or \"a\" for text"))
+		tokens = append(tokens, Token{Kind: EOF, Line: line, Column: startColumn})
 		column += end - index
 		index = end
 	case ch == 'r' && rawStringOpens(source, index+1) >= 0:

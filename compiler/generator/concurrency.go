@@ -241,7 +241,7 @@ func discoverGeneratedConcurrency(program checker.Program, functions map[string]
 	}
 	if state.used {
 		literals.used = true
-		literals.strand = true
+		literals.requireErrorText()
 		state.fileLiteral = literals.Intern(logicalKey)
 		if state.spawnFail {
 			state.taskCreationFailed = literals.Intern(taskCreationFailed)
@@ -330,7 +330,7 @@ func (state *generatedConcurrencyState) writeErrorHelper(result *strings.Builder
 	fmt.Fprintf(result, "        .hex_m_line = line,\n")
 	fmt.Fprintf(result, "        .hex_m_column = column,\n")
 	fmt.Fprintf(result, "        .hex_m_kind = kind,\n")
-	fmt.Fprintf(result, "        .hex_m_message = message,\n")
+	fmt.Fprintf(result, "        .hex_m_message = hex_error_message(hex_text_heap(message)),\n")
 	fmt.Fprintf(result, "    };\n}\n")
 }
 

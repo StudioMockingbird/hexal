@@ -234,6 +234,7 @@ Before claiming completion, run:
 - The required compiler rebuild and `hexal play` workbench validation.
 
 For every validation item, report:
+
 - Whether the item is complete, incomplete, or blocked.
 
 If any issue remains, fix it before completion. If it cannot be fixed without a semantic decision, stop and ask me in simple language with concrete code examples and recommended options. Do not hide failures behind weakened tests, regenerated hashes, skipped cases, or a premature “implemented” status.

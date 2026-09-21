@@ -46,7 +46,7 @@
       "description": "Use relational decisions to classify a number.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun classify(value: Int32): Strand do",
+        "fun classify(value: Int32): String<31> do",
         "    if value < 0 then",
         "        return \"negative\"",
         "    elseif value < 10 then",
@@ -127,23 +127,6 @@
       ]},
       "features": ["lossless-widening"],
       "reservedWords": ["fun", "return", "end", "do"]
-    },
-    {
-      "id": "numeric-rune-conversion",
-      "name": "Rune conversion",
-      "description": "Convert a numeric code point into a Rune.",
-      "entrypoint": "app.hex",
-      "sources": {"app.hex": [
-        "fun demo(): Bool do",
-        "    let code: UInt32= 0x41",
-        "    let letter: Rune= code.to\u003cRune\u003e()",
-        "    let same: Bool= letter == 'A'",
-        "    let back: UInt32= letter.to\u003cUInt32\u003e()",
-        "    return same and (back == code)",
-        "end"
-      ]},
-      "features": ["numeric-conversions"],
-      "reservedWords": ["fun", "return", "end", "and", "do"]
     },
     {
       "id": "numeric-bit-cast",

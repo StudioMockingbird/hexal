@@ -27,20 +27,20 @@ func parseMatchArms(t *testing.T, source string) []MatchArm {
 }
 
 func TestParseScalarMatchPatterns(t *testing.T) {
-	arms := parseMatchArms(t, "let r: Int32 = match op\n| 1 then 1\n| -1 then 2\n| 0x1 then 3\n| 'a' then 4\n| b'a' then 5\n| eos then 6\n| else then 7\nend")
-	if len(arms) != 7 {
-		t.Fatalf("arms = %d, want 7", len(arms))
+	arms := parseMatchArms(t, "let r: Int32 = match op\n| 1 then 1\n| -1 then 2\n| 0x1 then 3\n| b'a' then 4\n| eos then 5\n| else then 6\nend")
+	if len(arms) != 6 {
+		t.Fatalf("arms = %d, want 6", len(arms))
 	}
-	for index := 0; index < 5; index++ {
+	for index := 0; index < 4; index++ {
 		if _, ok := arms[index].Pattern.(ScalarPattern); !ok {
 			t.Fatalf("arm %d pattern = %T, want ScalarPattern", index, arms[index].Pattern)
 		}
 	}
-	if _, ok := arms[5].Pattern.(EosPattern); !ok {
-		t.Fatalf("arm 5 pattern = %T, want EosPattern", arms[5].Pattern)
+	if _, ok := arms[4].Pattern.(EosPattern); !ok {
+		t.Fatalf("arm 4 pattern = %T, want EosPattern", arms[4].Pattern)
 	}
-	if _, ok := arms[6].Pattern.(ElsePattern); !ok {
-		t.Fatalf("arm 6 pattern = %T, want ElsePattern", arms[6].Pattern)
+	if _, ok := arms[5].Pattern.(ElsePattern); !ok {
+		t.Fatalf("arm 5 pattern = %T, want ElsePattern", arms[5].Pattern)
 	}
 	unsigned, ok := arms[0].Pattern.(ScalarPattern)
 	if !ok || unsigned.Minus.Kind == lexer.Minus {

@@ -255,7 +255,7 @@ func TestReleaseLaneSnippetCatalog(t *testing.T) {
 var representativeModePrograms = map[string]map[string]string{
 	"trivial":     {"app.hex": "print(\"ok\")\n"},
 	"collections": {"app.hex": "fun demo(h: Heap): Int32 do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(7)\n    values.push(35)\n    return values[0] + values[1]\nend\nprint(demo(Heap()))\n"},
-	"text":        {"app.hex": "fun demo(h: Heap): Size do\n    let text: String = \"ready\".to_string(h)\n    defer text.free(h)\n    let loud: String = text.concat(h, \"!\")\n    defer loud.free(h)\n    return loud.length()\nend\nprint(demo(Heap()))\n"},
+	"text":        {"app.hex": "fun demo(h: Heap): Size do\n    let text: String = \"ready\".copy(h)\n    defer text.free(h)\n    let joined: String | Error = text.concat(h, \"!\".bytes())\n    if joined is Error then\n        return 0\n    end\n    let loud: String = joined\n    defer loud.free(h)\n    return loud.length()\nend\nprint(demo(Heap()))\n"},
 }
 
 // TestReleaseExecutablesAreSmallerAndUndebuggable checks the two properties a

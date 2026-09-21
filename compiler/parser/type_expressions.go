@@ -90,6 +90,25 @@ type SliceTypeExpression struct {
 
 func (SliceTypeExpression) typeExpressionNode() {}
 
+// StringTypeExpression names the inline text type String<N>. Arguments are
+// kept as written so the checker owns every capacity diagnostic: exactly one
+// positive decimal literal is valid, and anything else is reported there.
+type StringTypeExpression struct {
+	Keyword   lexer.Token
+	Arguments []TypeExpression
+}
+
+func (StringTypeExpression) typeExpressionNode() {}
+
+// LiteralTypeArgument is a numeric literal in type-argument position: the
+// capacity of String<N> or of a widen<M>() call. It is not a type; every
+// consumer other than a capacity position rejects it through type resolution.
+type LiteralTypeArgument struct {
+	Token lexer.Token
+}
+
+func (LiteralTypeArgument) typeExpressionNode() {}
+
 // MutTypeArgument marks one `mut T` call-site type argument, as in
 // Slice<mut T>.from_pointer(...). Only the Slice bridge consumes the
 // marking; every other generic consumer rejects it through type resolution.
@@ -259,6 +278,13 @@ func (parser *Parser) primaryTypeExpression() (TypeExpression, error) {
 			return nil, err
 		}
 		return ArrayTypeExpression{Keyword: name, Element: element, Length: length}, nil
+	}
+	if name.Lexeme == "String" && parser.check(lexer.Less) {
+		arguments, err := parser.typeArgumentList()
+		if err != nil {
+			return nil, err
+		}
+		return StringTypeExpression{Keyword: name, Arguments: arguments}, nil
 	}
 	if name.Lexeme == "Ptr" {
 		if _, err := parser.consume(lexer.Less, "'<'"); err != nil {

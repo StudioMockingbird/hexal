@@ -10,7 +10,7 @@ import (
 // hexal.h/heap.h/string.h includes, and exactly one trailing newline; the
 // owning module header includes the component.
 func TestDictComponentEmitsReachableSpecializationsOnce(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    let labels: Dict<Strand, Int32> = Dict<Strand, Int32>(h)\n    defer labels.free(h)\n    labels.insert(\"a\", 1)\nend")
+	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    let labels: Dict<String<128>, Int32> = Dict<String<128>, Int32>(h)\n    defer labels.free(h)\n    labels.insert(\"a\", 1)\nend")
 	files := generateOne(t, program)
 	dictH := files["hexal/dict.h"]
 	if dictH == "" {
@@ -25,10 +25,10 @@ func TestDictComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 	if count := strings.Count(dictH, "typedef struct hex_dict_entry_"); count != 2 {
 		t.Fatalf("hexal/dict.h defines %d entry structs, want 2: %q", count, dictH)
 	}
-	if !strings.Contains(dictH, "typedef struct hex_dict_entry_Int32_Int32 {") || !strings.Contains(dictH, "typedef struct hex_dict_entry_Strand_Int32 {") {
-		t.Fatalf("hexal/dict.h = %q, want Int32 and Strand specializations", dictH)
+	if !strings.Contains(dictH, "typedef struct hex_dict_entry_Int32_Int32 {") || !strings.Contains(dictH, "typedef struct hex_dict_entry_String_128__Int32 {") {
+		t.Fatalf("hexal/dict.h = %q, want Int32 and String<128> specializations", dictH)
 	}
-	if strings.Index(dictH, "hex_dict_entry_Int32_Int32") > strings.Index(dictH, "hex_dict_entry_Strand_Int32") {
+	if strings.Index(dictH, "hex_dict_entry_Int32_Int32") > strings.Index(dictH, "hex_dict_entry_String_128__Int32") {
 		t.Fatalf("hexal/dict.h = %q, specializations must follow C-name order", dictH)
 	}
 	if !strings.Contains(files["modules/app.h"], "#include \"hexal/dict.h\"") {
@@ -41,9 +41,9 @@ func TestDictComponentEmitsReachableSpecializationsOnce(t *testing.T) {
 // Go-written definitions byte for byte (entry and dict structs, the
 // once-per-key-kind hash helpers, every typed inline operation, growth with
 // the checked ckd_mul chain and the memset region init, the load-factor
-// checked operands, the direct Strand memcmp probes, and trap messages).
+// checked operands, the shared text hash and equality probes, and trap messages).
 func TestDictComponentHexalHeaderOwnsNoDictText(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    let labels: Dict<Strand, Int32> = Dict<Strand, Int32>(h)\n    defer labels.free(h)\n    labels.insert(\"a\", 1)\nend")
+	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    let labels: Dict<String<128>, Int32> = Dict<String<128>, Int32>(h)\n    defer labels.free(h)\n    labels.insert(\"a\", 1)\nend")
 	files := generateOne(t, program)
 	if strings.Contains(files["hexal.h"], "hex_dict_") || strings.Contains(files["hexal.h"], "hex_hash_") {
 		t.Fatalf("hexal.h = %q, dict definitions must live in hexal/dict.h", files["hexal.h"])
@@ -216,52 +216,43 @@ static inline void hex_dict_free_Int32_Int32(hex_heap h, hex_dict_Int32_Int32 *d
     hex_heap_free(dict);
 }
 
-typedef struct hex_dict_entry_Strand_Int32 {
+typedef struct hex_dict_entry_String_128__Int32 {
     bool active;
-    hex_strand key;
+    hex_string_128 key;
     int32_t value;
-} hex_dict_entry_Strand_Int32;
-typedef struct hex_dict_Strand_Int32 {
-    hex_dict_entry_Strand_Int32 *buckets;
+} hex_dict_entry_String_128__Int32;
+typedef struct hex_dict_String_128__Int32 {
+    hex_dict_entry_String_128__Int32 *buckets;
     size_t length;
     size_t capacity;
     size_t version;
-} hex_dict_Strand_Int32;
-
-static inline uint64_t hex_hash_Strand(hex_strand key) {
-    uint64_t hash = 14695981039346656037ULL;
-    for (size_t index = 0; index < 32; index++) {
-        hash ^= key.data[index];
-        hash *= 1099511628211ULL;
-    }
-    return hash;
-}
-static inline uint64_t hex_dict_probe_Strand_Int32_region(hex_dict_entry_Strand_Int32 *region, uint64_t capacity, hex_strand key) {
-    uint64_t hash = hex_hash_Strand(key);
+} hex_dict_String_128__Int32;
+static inline uint64_t hex_dict_probe_String_128__Int32_region(hex_dict_entry_String_128__Int32 *region, uint64_t capacity, hex_string_128 key) {
+    uint64_t hash = hex_hash_text(hex_text_inline(&key));
     size_t index = hash & (capacity - 1);
-    while (region[index].active && memcmp(region[index].key.data, key.data, 32) != 0) {
+    while (region[index].active && !hex_equal_text(hex_text_inline(&region[index].key), hex_text_inline(&key))) {
         index = (index + 1) & (capacity - 1);
     }
     return index;
 }
-static inline uint64_t hex_dict_probe_Strand_Int32(const hex_dict_Strand_Int32 *dict, hex_strand key) {
-    uint64_t hash = hex_hash_Strand(key);
+static inline uint64_t hex_dict_probe_String_128__Int32(const hex_dict_String_128__Int32 *dict, hex_string_128 key) {
+    uint64_t hash = hex_hash_text(hex_text_inline(&key));
     size_t index = hash & (dict->capacity - 1);
-    while (dict->buckets[index].active && memcmp(dict->buckets[index].key.data, key.data, 32) != 0) {
+    while (dict->buckets[index].active && !hex_equal_text(hex_text_inline(&dict->buckets[index].key), hex_text_inline(&key))) {
         index = (index + 1) & (dict->capacity - 1);
     }
     return index;
 }
-static inline hex_dict_Strand_Int32 *hex_dict_new_Strand_Int32(hex_heap h) {
+static inline hex_dict_String_128__Int32 *hex_dict_new_String_128__Int32(hex_heap h) {
     (void)h;
-    hex_dict_Strand_Int32 *header = hex_heap_allocate(sizeof(hex_dict_Strand_Int32));
+    hex_dict_String_128__Int32 *header = hex_heap_allocate(sizeof(hex_dict_String_128__Int32));
     header->buckets = nullptr;
     header->length = 0;
     header->capacity = 0;
     header->version = 0;
     return header;
 }
-static inline void hex_dict_grow_Strand_Int32(hex_dict_Strand_Int32 *dict) {
+static inline void hex_dict_grow_String_128__Int32(hex_dict_String_128__Int32 *dict) {
     size_t next = 8;
     if (dict->capacity != 0) {
         if (ckd_mul(&next, dict->capacity, 2)) {
@@ -269,17 +260,17 @@ static inline void hex_dict_grow_Strand_Int32(hex_dict_Strand_Int32 *dict) {
         }
     }
     size_t bytes;
-    if (ckd_mul(&bytes, next, sizeof(hex_dict_entry_Strand_Int32))) {
+    if (ckd_mul(&bytes, next, sizeof(hex_dict_entry_String_128__Int32))) {
         hex_runtime_trap("[Runtime Error] dictionary capacity is not representable\n");
     }
     // An empty bucket is the all-zero representation, so the region is
     // allocated zeroed rather than allocated and then cleared. The checked
     // multiplication above owns the capacity message, so the checked total
     // is passed through as one count.
-    hex_dict_entry_Strand_Int32 *region = hex_heap_allocate_zeroed(1, bytes);
+    hex_dict_entry_String_128__Int32 *region = hex_heap_allocate_zeroed(1, bytes);
     for (size_t index = 0; index < dict->capacity; index++) {
         if (dict->buckets[index].active) {
-            uint64_t probe = hex_dict_probe_Strand_Int32_region(region, next, dict->buckets[index].key);
+            uint64_t probe = hex_dict_probe_String_128__Int32_region(region, next, dict->buckets[index].key);
             region[probe] = dict->buckets[index];
         }
     }
@@ -289,9 +280,9 @@ static inline void hex_dict_grow_Strand_Int32(hex_dict_Strand_Int32 *dict) {
     dict->buckets = region;
     dict->capacity = next;
 }
-static inline void hex_dict_insert_Strand_Int32(hex_dict_Strand_Int32 *dict, hex_strand key, int32_t value) {
+static inline void hex_dict_insert_String_128__Int32(hex_dict_String_128__Int32 *dict, hex_string_128 key, int32_t value) {
     if (dict->capacity == 0) {
-        hex_dict_grow_Strand_Int32(dict);
+        hex_dict_grow_String_128__Int32(dict);
     } else {
         size_t length_plus_one;
         size_t load_times_10;
@@ -300,10 +291,10 @@ static inline void hex_dict_insert_Strand_Int32(hex_dict_Strand_Int32 *dict, hex
             hex_runtime_trap("[Runtime Error] dictionary capacity is not representable\n");
     }
         if (load_times_10 >= capacity_times_7) {
-            hex_dict_grow_Strand_Int32(dict);
+            hex_dict_grow_String_128__Int32(dict);
         }
     }
-    size_t index = hex_dict_probe_Strand_Int32(dict, key);
+    size_t index = hex_dict_probe_String_128__Int32(dict, key);
     if (dict->buckets[index].active) {
         dict->buckets[index].value = value;
         dict->version++;
@@ -315,45 +306,45 @@ static inline void hex_dict_insert_Strand_Int32(hex_dict_Strand_Int32 *dict, hex
     dict->length++;
     dict->version++;
 }
-static inline int32_t hex_dict_get_Strand_Int32(const hex_dict_Strand_Int32 *dict, hex_strand key) {
+static inline int32_t hex_dict_get_String_128__Int32(const hex_dict_String_128__Int32 *dict, hex_string_128 key) {
     if (dict->capacity == 0) {
         hex_runtime_trap("[Runtime Error] dictionary key not found\n");
     }
-    size_t index = hex_dict_probe_Strand_Int32(dict, key);
+    size_t index = hex_dict_probe_String_128__Int32(dict, key);
     if (!dict->buckets[index].active) {
         hex_runtime_trap("[Runtime Error] dictionary key not found\n");
     }
     return dict->buckets[index].value;
 }
-static inline const int32_t *hex_dict_find_Strand_Int32(const hex_dict_Strand_Int32 *dict, hex_strand key) {
+static inline const int32_t *hex_dict_find_String_128__Int32(const hex_dict_String_128__Int32 *dict, hex_string_128 key) {
     if (dict->capacity == 0) {
         return nullptr;
     }
-    size_t index = hex_dict_probe_Strand_Int32(dict, key);
+    size_t index = hex_dict_probe_String_128__Int32(dict, key);
     if (!dict->buckets[index].active) {
         return nullptr;
     }
     return &dict->buckets[index].value;
 }
-static inline bool hex_dict_contains_Strand_Int32(const hex_dict_Strand_Int32 *dict, hex_strand key) {
+static inline bool hex_dict_contains_String_128__Int32(const hex_dict_String_128__Int32 *dict, hex_string_128 key) {
     if (dict->capacity == 0) {
         return false;
     }
-    size_t index = hex_dict_probe_Strand_Int32(dict, key);
+    size_t index = hex_dict_probe_String_128__Int32(dict, key);
     return dict->buckets[index].active;
 }
-// hex_dict_remove_Strand_Int32 repairs the occupied cluster after clearing the
+// hex_dict_remove_String_128__Int32 repairs the occupied cluster after clearing the
 // removed bucket: a linear probe stops at the first inactive bucket it sees,
 // so leaving a hole in the middle of a collision chain would strand every
 // active bucket past it. Backward-shift deletion (Knuth's Algorithm R) walks
 // forward from the freed slot while buckets stay active, relocating each one
 // to its own first valid slot exactly as insertion would place it, until the
 // scan reaches a bucket that is already inactive.
-static inline int32_t hex_dict_remove_Strand_Int32(hex_dict_Strand_Int32 *dict, hex_strand key) {
+static inline int32_t hex_dict_remove_String_128__Int32(hex_dict_String_128__Int32 *dict, hex_string_128 key) {
     if (dict->capacity == 0) {
         hex_runtime_trap("[Runtime Error] dictionary key not found\n");
     }
-    size_t removed = hex_dict_probe_Strand_Int32(dict, key);
+    size_t removed = hex_dict_probe_String_128__Int32(dict, key);
     if (!dict->buckets[removed].active) {
         hex_runtime_trap("[Runtime Error] dictionary key not found\n");
     }
@@ -361,9 +352,9 @@ static inline int32_t hex_dict_remove_Strand_Int32(hex_dict_Strand_Int32 *dict, 
     dict->buckets[removed].active = false;
     size_t scan = (removed + 1) & (dict->capacity - 1);
     while (dict->buckets[scan].active) {
-        hex_dict_entry_Strand_Int32 moving = dict->buckets[scan];
+        hex_dict_entry_String_128__Int32 moving = dict->buckets[scan];
         dict->buckets[scan].active = false;
-        size_t target = hex_dict_probe_Strand_Int32(dict, moving.key);
+        size_t target = hex_dict_probe_String_128__Int32(dict, moving.key);
         dict->buckets[target] = moving;
         scan = (scan + 1) & (dict->capacity - 1);
     }
@@ -371,7 +362,7 @@ static inline int32_t hex_dict_remove_Strand_Int32(hex_dict_Strand_Int32 *dict, 
     dict->version++;
     return value;
 }
-static inline void hex_dict_free_Strand_Int32(hex_heap h, hex_dict_Strand_Int32 *dict) {
+static inline void hex_dict_free_String_128__Int32(hex_heap h, hex_dict_String_128__Int32 *dict) {
     (void)h;
     if (dict->buckets != nullptr) {
         hex_heap_free(dict->buckets);

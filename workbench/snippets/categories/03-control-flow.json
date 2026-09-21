@@ -8,7 +8,7 @@
       "description": "Uses an if/elseif/else chain to classify a score.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun band(score: Int32): Strand do",
+        "fun band(score: Int32): String<31> do",
         "    if score >= 90 then",
         "        return \"A\"",
         "    elseif score >= 75 then",
@@ -17,7 +17,7 @@
         "        return \"C\"",
         "    end",
         "end",
-        "let grade: Strand= band(82)"
+        "let grade: String<31> = band(82)"
       ]},
       "features": ["functions", "if-elseif-else"],
       "reservedWords": ["fun", "if", "elseif", "else", "return", "end", "do", "then"]
@@ -123,7 +123,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(h: Heap) do",
-        "    let names: Dict\u003cInt32, Strand\u003e = Dict\u003cInt32, Strand\u003e(h)",
+        "    let names: Dict\u003cInt32, String<31>\u003e = Dict\u003cInt32, String<31>\u003e(h)",
         "    defer names.free(h)",
         "    names.insert(1, \"one\")",
         "    names.insert(2, \"two\")",
@@ -183,7 +183,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "let count: Int32= 0",
-        "let label: Strand= \"\"",
+        "let label: String<31> = \"\"",
         "let values: Slice\u003cInt32\u003e = Slice\u003cInt32\u003e.empty()",
         "let mut truthy: Int32= 0",
         "if count then",

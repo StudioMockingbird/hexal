@@ -263,7 +263,7 @@ func streamErrorArmWithKind(tags *tagRegistry, literals *literalRegistry, file s
 		return "", unknownExpressionDiagnostic("stream failure message is missing from the literal registry: " + payload)
 	}
 	tag, field := streamMemberRef(tags, union, compilerTypes.ErrorType)
-	return fmt.Sprintf("(%s){ .tag = %s, .payload.%s = (hex_t_Error){ .hex_m_file = %s, .hex_m_line = line, .hex_m_column = column, .hex_m_kind = (hex_t_ErrorKind){ .tag = %s }, .hex_m_message = &%s } }",
+	return fmt.Sprintf("(%s){ .tag = %s, .payload.%s = (hex_t_Error){ .hex_m_file = %s, .hex_m_line = line, .hex_m_column = column, .hex_m_kind = (hex_t_ErrorKind){ .tag = %s }, .hex_m_message = hex_error_message(hex_text_heap(&%s)) } }",
 		union.CName, tag, field, file, errorKindTag(tags, kindVariant), literals.CName(handle)), nil
 }
 

@@ -215,7 +215,7 @@ func TestImportedModuleRejectsRootReturn(t *testing.T) {
 // the same path as the identical loop inside a function; the checker's
 // top-level dispatch must not fall through to the fail-closed default.
 func TestTopLevelForStatementCompiles(t *testing.T) {
-	source := "let mut total: Int32 = 0\nlet fixed: Array<Int32, 3> = [1, 2, 3]\nfor value in fixed do\n    total = total + value\nend\nlet values: List<Int32> = List<Int32>(Heap())\nfor value in values do\n    total = total + value\nend\nlet text: String = \"hey\"\nfor rune in text do\n    total = total + rune.to<Int32>()\nend\n"
+	source := "let mut total: Int32 = 0\nlet fixed: Array<Int32, 3> = [1, 2, 3]\nfor value in fixed do\n    total = total + value\nend\nlet values: List<Int32> = List<Int32>(Heap())\nfor value in values do\n    total = total + value\nend\nlet text: String = \"hey\"\nfor b: Byte in text do\n    total = total + b.to<Int32>()\nend\n"
 	result := assertCompiles(t, source)
 	for _, want := range []string{
 		"const hex_array_Int32_3 *const hex_for_1 = &(hex_v_fixed);",

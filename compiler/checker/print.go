@@ -19,7 +19,7 @@ func printable(typ compilerTypes.Type) bool {
 	switch {
 	case compilerTypes.IsInteger(typ), compilerTypes.IsFloat(typ),
 		compilerTypes.Equal(typ, compilerTypes.Bool),
-		compilerTypes.IsRune(typ), compilerTypes.IsString(typ), compilerTypes.IsStrand(typ),
+		compilerTypes.IsText(typ),
 		compilerTypes.IsNil(typ), compilerTypes.IsError(typ):
 		return true
 	case typ.Object != nil:

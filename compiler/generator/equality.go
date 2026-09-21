@@ -124,7 +124,7 @@ func discoverEqualityTypes(program checker.Program) *generatedEqualityState {
 		Expression: func(node checker.Expression) error {
 			switch node.Kind {
 			case checker.DeepEqualityExpression:
-				if compilerTypes.IsString(node.OperandType) {
+				if compilerTypes.IsText(node.OperandType) {
 					state.needString = true
 					return nil
 				}
@@ -132,7 +132,7 @@ func discoverEqualityTypes(program checker.Program) *generatedEqualityState {
 			case checker.UnionEqualityExpression:
 				state.addComparedType(node.OperandType)
 			case checker.StringCompareExpression:
-				if compilerTypes.IsString(node.OperandType) {
+				if compilerTypes.IsText(node.OperandType) {
 					state.compareNeed = true
 				}
 			}
@@ -154,7 +154,7 @@ func discoverEqualityTypes(program checker.Program) *generatedEqualityState {
 // non-equality-capable aggregates stop the walk because their pointees are not
 // compared.
 func equalityTypeContainsString(typ compilerTypes.Type, seen map[string]bool) bool {
-	if compilerTypes.IsString(typ) {
+	if compilerTypes.IsText(typ) {
 		return true
 	}
 	if typ.Element != nil || typ.Dict != nil {
@@ -299,7 +299,7 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 		// union (see hexal/error.h); Other's tag is the only case whose
 		// bytes can differ, so equality does not need a full tag switch.
 		fmt.Fprintf(body, "%sif (%s.tag != %s.tag) return false;\n", indent, left, right)
-		fmt.Fprintf(body, "%sif (%s.tag == %s && memcmp(%s.other_header.data, %s.other_header.data, 32) != 0) return false;\n",
+		fmt.Fprintf(body, "%sif (%s.tag == %s && !hex_equal_text(hex_text_inline(&%s.other_header), hex_text_inline(&%s.other_header))) return false;\n",
 			indent, left, errorKindTag(tags, "Other"), left, right)
 	case typ.Adt != nil:
 		fmt.Fprintf(body, "%sif (%s.tag != %s.tag) return false;\n", indent, left, right)
@@ -346,12 +346,11 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 		writeEqualityComparisons(body, elementLeft, elementRight, typ.List.Element, indent+"    ", tags)
 		fmt.Fprintf(body, "%s}\n", indent)
 	case compilerTypes.IsString(typ):
-		fmt.Fprintf(body, "%sif (!hex_equal_hex_string(%s, %s)) return false;\n", indent, left, right)
-	case compilerTypes.IsStrand(typ):
-		// A Strand's NUL-free payload and mandatory zero-filled tail make the
-		// complete 32-byte representation canonical, so the whole value
-		// compares with one direct memcmp.
-		fmt.Fprintf(body, "%sif (memcmp(%s.data, %s.data, 32) != 0) return false;\n", indent, left, right)
+		fmt.Fprintf(body, "%sif (!hex_equal_text(hex_text_heap(%s), hex_text_heap(%s))) return false;\n", indent, left, right)
+	case compilerTypes.IsInlineString(typ):
+		// Inline text compares over its logical bytes only: the length, then
+		// that many bytes. Whatever follows the length is never read.
+		fmt.Fprintf(body, "%sif (!hex_equal_text(hex_text_inline(&(%s)), hex_text_inline(&(%s)))) return false;\n", indent, left, right)
 	case typ.Element != nil:
 		fmt.Fprintf(body, "%sif (!(%s == %s)) return false;\n", indent, left, right)
 	default:

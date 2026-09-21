@@ -350,11 +350,11 @@ func checkForeignConstantDeclaration(declaration parser.ExternConstant, header F
 // foreignConstantTypeAllowed reports whether one resolved type may be a
 // foreign constant's type. A foreign constant lowers to its exact C symbol and
 // is read without unsafe, so the value must be a side-effect-free C
-// expression: a scalar (integer, float, rune, or bool), a data pointer, or a
+// expression: a scalar (integer, float, or bool), a data pointer, or a
 // complete foreign record. A function pointer and an opaque (incomplete)
 // foreign record are rejected.
 func foreignConstantTypeAllowed(typ compilerTypes.Type) bool {
-	if compilerTypes.IsInteger(typ) || compilerTypes.IsFloat(typ) || compilerTypes.IsRune(typ) || isBool(typ) {
+	if compilerTypes.IsInteger(typ) || compilerTypes.IsFloat(typ) || isBool(typ) {
 		return true
 	}
 	if compilerTypes.IsForeignRecord(typ) {
@@ -573,7 +573,7 @@ func checkForeignValueType(typ compilerTypes.Type, token lexer.Token, target com
 		}
 		return nil
 	}
-	if compilerTypes.IsInteger(typ) || compilerTypes.IsFloat(typ) || isBool(typ) || compilerTypes.IsRune(typ) || compilerTypes.IsSize(typ) {
+	if compilerTypes.IsInteger(typ) || compilerTypes.IsFloat(typ) || isBool(typ) || compilerTypes.IsSize(typ) {
 		return nil
 	}
 	return diagnosticAt(typeErrorAt(token, typ.Name+" has no supported C ABI mapping for target "+string(target)))

@@ -35,22 +35,25 @@ func TestForInTemporaryArraySource(t *testing.T) {
 	}
 }
 
-func TestForInTextRunes(t *testing.T) {
-	result := compileSource("fun demo() do\n    let text: String = \"café\"\n    let mut count: Int32 = 0\n    for rune in text do\n        count = count + 1\n    end\n    for i, rune in text do\n        count = count + 1\n    end\n    let strand: Strand = \"hi\"\n    for i, rune in strand do\n        count = count + 1\n    end\nend")
+func TestForInTextBytes(t *testing.T) {
+	result := compileSource("fun demo() do\n    let text: String = \"caf\u00e9\"\n    let mut count: Int32 = 0\n    for b: Byte in text do\n        count = count + 1\n    end\n    for i, b: Byte in text do\n        count = count + 1\n    end\n    let inline: String<8> = \"hi\"\n    for i, b: Byte in inline do\n        count = count + 1\n    end\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
 		"const hex_string *const hex_for_1 = hex_v_text;",
-		"while (hex_for_1_offset < hex_for_1->byte_length) {",
-		"hex_utf8_next(hex_for_1->data, hex_for_1->byte_length, &hex_for_1_offset)",
-		"const uint32_t hex_v_rune = (hex_for_1_rune);",
-		"const size_t hex_v_i = hex_for_2_ordinal;",
-		"const hex_strand hex_for_3 = hex_v_strand;",
+		"for (size_t hex_for_1_index = 0; hex_for_1_index < hex_for_1->byte_length; hex_for_1_index++) {",
+		"const uint8_t hex_v_b = hex_for_1->data[hex_for_1_index];",
+		"const size_t hex_v_i = hex_for_2_index;",
+		"const hex_string_8 hex_for_3 = hex_v_inline;",
+		"hex_for_3_index < hex_for_3.byte_length",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
+	}
+	if strings.Contains(rootC(t, result), "hex_utf8_next") {
+		t.Fatalf("text iteration still decodes UTF-8")
 	}
 }
 
@@ -239,5 +242,90 @@ func TestForInNestedTraversalsCaptureIndependentVersions(t *testing.T) {
 	c := rootC(t, result)
 	if !strings.Contains(c, "hex_for_1_version") || !strings.Contains(c, "hex_for_2_version") {
 		t.Fatalf("modules/app.c = %q, want independent List traversal versions", c)
+	}
+}
+
+// A binder annotation is accepted exactly where it matches, at one, two, and
+// three binders, for every iterable; Byte and UInt8 are the same annotation.
+func TestForInBinderAnnotationsAgree(t *testing.T) {
+	result := compileSource("fun demo(h: Heap) do\n" +
+		"    let list: List<Int32> = List<Int32>(h)\n    defer list.free(h)\n" +
+		"    let fixed: Array<Int32, 2> = [1, 2]\n" +
+		"    let view: Slice<Int32> = fixed.slice(0, 2)\n" +
+		"    let bytes: Slice<Byte> = \"ab\".bytes()\n" +
+		"    let table: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer table.free(h)\n" +
+		"    for x: Int32 in list do\n    end\n" +
+		"    for i: Size, x: Int32 in list do\n    end\n" +
+		"    for x: Int32 in fixed do\n    end\n" +
+		"    for i: Size, x: Int32 in view do\n    end\n" +
+		"    for b: UInt8 in bytes do\n    end\n" +
+		"    for b: Byte in bytes do\n    end\n" +
+		"    for k: Int32, v: Int32 in table do\n    end\n" +
+		"    for i: Size, k: Int32, v: Int32 in table do\n    end\n" +
+		"end")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+}
+
+// A wrong value or index annotation, and a Slice<Byte> annotation over a mutable
+// element, report the disagreement; the binder stays immutable when annotated.
+func TestForInBinderAnnotationDiagnostics(t *testing.T) {
+	for _, tc := range []struct{ name, source, want string }{
+		{"value", "fun demo(h: Heap) do\n    let list: List<Int32> = List<Int32>(h)\n    for x: Int64 in list do\n    end\nend", "for binder x is annotated Int64, but List<Int32> yields Int32 there"},
+		{"index", "fun demo(h: Heap) do\n    let list: List<Int32> = List<Int32>(h)\n    for i: Int32, x: Int32 in list do\n    end\nend", "for binder i is annotated Int32, but List<Int32> yields Size there"},
+		{"dict key", "fun demo(h: Heap) do\n    let table: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    for k: Int64, v: Int32 in table do\n    end\nend", "for binder k is annotated Int64, but Dict<Int32, Int32> yields Int32 there"},
+		{"mutable element", "fun demo(h: Heap) do\n    let views: List<Slice<mut Byte>> = List<Slice<mut Byte>>(h)\n    for v: Slice<Byte> in views do\n    end\nend", "for binder v is annotated Slice<UInt8>, but List<Slice<mut UInt8>> yields Slice<mut UInt8> there"},
+		{"binder immutable", "fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    for x: Int32 in fixed do\n        x = 3\n    end\nend", "loop binder x is immutable"},
+	} {
+		result := compileSource(tc.source)
+		if result.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(result.Stderr, "\n"), tc.want) {
+			t.Fatalf("%s: stderr = %#v, want %q", tc.name, result.Stderr, tc.want)
+		}
+	}
+}
+
+// Text iteration has no default element type: the value binder must say what
+// it reads, for the heap form, every inline capacity, and the two-binder form
+// where only the index is annotated.
+func TestForInTextRequiresAnnotatedValueBinder(t *testing.T) {
+	for _, tc := range []struct{ name, source, want string }{
+		{"heap", "fun demo() do\n    let text: String = \"x\"\n    for b in text do\n    end\nend", "for binder b over String has an ambiguous element type; annotate it, for example for b: Byte in ..."},
+		{"inline", "fun demo() do\n    let text: String<8> = \"x\"\n    for b in text do\n    end\nend", "for binder b over String<8> has an ambiguous element type; annotate it, for example for b: Byte in ..."},
+		{"index only", "fun demo() do\n    let text: String<8> = \"x\"\n    for i: Size, b in text do\n    end\nend", "for binder b over String<8> has an ambiguous element type; annotate it, for example for b: Byte in ..."},
+		{"index unannotated", "fun demo() do\n    let text: String = \"x\"\n    for i, b in text do\n    end\nend", "for binder b over String has an ambiguous element type"},
+		{"rune", "fun demo() do\n    let text: String = \"x\"\n    for c: Rune in text do\n    end\nend", "unknown type Rune; Rune was removed: text is bytes, use Byte"},
+	} {
+		result := compileSource(tc.source)
+		if result.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(result.Stderr, "\n"), tc.want) {
+			t.Fatalf("%s: stderr = %#v, want %q", tc.name, result.Stderr, tc.want)
+		}
+	}
+}
+
+// A List of a union keeps the plain binder and accepts the whole union as the
+// annotation; annotating one member is rejected because the element may be any.
+func TestForInBinderOverUnionElements(t *testing.T) {
+	prefix := "fun demo(h: Heap) do\n    let l: List<Int32 | Bool> = List<Int32 | Bool>(h)\n    defer l.free(h)\n"
+	for _, body := range []string{"    for a in l do\n    end\n", "    for a: Int32 | Bool in l do\n    end\n"} {
+		if result := compileSource(prefix + body + "end"); result.ExitCode != compiler.ExitSuccess {
+			t.Fatalf("Compile(%q) = %v", body, result.Stderr)
+		}
+	}
+	result := compileSource(prefix + "    for a: Int32 in l do\n    end\nend")
+	if result.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(result.Stderr, "\n"), "for binder a is annotated Int32, but List<Bool | Int32> yields Bool | Int32 there") {
+		t.Fatalf("stderr = %#v, want the member-annotation diagnostic", result.Stderr)
+	}
+}
+
+// The loop reads a snapshot: reassigning the inline text inside the body cannot
+// change what is read or how often.
+func TestForInInlineTextIsASnapshot(t *testing.T) {
+	result := compileSource("fun demo() do\n    let mut text: String<8> = \"ab\"\n    let mut count: Int32 = 0\n    for b: Byte in text do\n        text = \"abcdefg\"\n        count = count + 1\n    end\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile failed: %v", result.Stderr)
+	}
+	if !strings.Contains(rootC(t, result), "const hex_string_8 hex_for_1 = hex_v_text;") {
+		t.Fatalf("the loop does not read a copy of the text:\n%s", rootC(t, result))
 	}
 }

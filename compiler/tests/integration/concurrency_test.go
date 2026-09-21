@@ -220,7 +220,7 @@ func TestAtomicOperationsCompile(t *testing.T) {
 	}
 }
 
-// An immutable Atomic<T> binding is mutable-through, like a RuneCursor: it
+// An immutable Atomic<T> binding is mutable-through: it
 // carries no top-level const, because its accessors take a non-const receiver
 // and a const-qualified load would be a qualifier-discarding cast.
 func TestAtomicBindingCarriesNoConstThatAccessorsReject(t *testing.T) {

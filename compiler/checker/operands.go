@@ -125,25 +125,37 @@ const (
 	// receiver. OperandType is the receiver type, Arguments holds the two
 	// index operands, and ResultType carries the result's access mode.
 	CollectionSliceExpression
-	// StringLiteralExpression is a static-provenance String literal; Name
-	// carries the decoded payload bytes.
+	// StringLiteralExpression is a String or String<N> literal; ResultType
+	// selects which, and Name carries the decoded payload bytes. A String
+	// literal has static provenance.
 	StringLiteralExpression
-	// StringMethodCallExpression is one built-in String method: length,
-	// bytes, slice, rune_cursor, to_string, concat, or free. Name
-	// selects the operation; Element
-	// is the byte slice element type for bytes and slice.
+	// StringMethodCallExpression is one built-in text method on String or
+	// String<N>: length, bytes, slice, copy, concat, free, c_pointer, or
+	// widen. Name selects the operation; OperandType is the receiver type.
+	// Element is the byte slice element type for bytes and slice. concat
+	// yields String | Error and carries its source site.
 	StringMethodCallExpression
-	// StringFromBytesExpression constructs a fresh owning String by copying
-	// a Slice<Byte> payload through a Heap.
+	// StringFromBytesExpression is String.from_bytes(heap, bytes): a fresh
+	// owning String copied from a Slice<Byte> once validated as UTF-8. The
+	// result is String | Error and carries its source site.
 	StringFromBytesExpression
-	// StringFromRunesExpression constructs a fresh owning String by
-	// validating and encoding a Slice<Rune> payload through a Heap.
-	StringFromRunesExpression
 	// StringInterpolateExpression is String.interpolate(heap, template): a
 	// fresh owning String built from a template's ordered literal-text and
 	// formatted-value segments. Operand is the checked Heap expression;
 	// InterpolationSegments holds the segments in source order.
 	StringInterpolateExpression
+	// InlineStringConstructExpression is String<N>.from_bytes, .concat, or
+	// .interpolate. Name selects the operation; OperandType is String<N>;
+	// ResultType is String<N> | Error; Arguments holds the byte operands and
+	// InterpolationSegments the template. It carries its source site.
+	InlineStringConstructExpression
+	// TextCoerceExpression copies a text value of any form into a bounded
+	// inline destination, trapping when it does not fit. It exists only for
+	// Error(kind, message) and ErrorKind.Other(header = ...). Operand is the
+	// text; OperandType is its type; ResultType is the destination; Name is the
+	// label the trap message names; MemberIndex is 1 when the copy needs the
+	// run-time capacity check and 0 when the source always fits.
+	TextCoerceExpression
 	// ListNewExpression constructs a fresh owning List<T> header through a
 	// Heap; Element is T.
 	ListNewExpression
@@ -171,10 +183,13 @@ const (
 	PrintExpression
 	// DeepEqualityExpression compares two non-scalar values through the
 	// per-type equality helper. OperandType is the compared type; Left and
-	// Right hold the operands; Operator is Equal or NotEqual.
+	// Right hold the operands; Operator is Equal or NotEqual. Text operands
+	// may be different forms: OperandType is then the left type and RightType
+	// the right, and the comparison is bytewise.
 	DeepEqualityExpression
-	// StringCompareExpression applies an ordering operator to two String or
-	// Strand values through the per-type bytewise compare helper.
+	// StringCompareExpression applies an ordering operator to two text values,
+	// each of any form, bytewise. OperandType is the left operand's type and
+	// RightType the right operand's.
 	StringCompareExpression
 	// WideningExpression casts an operand to a proven lossless numeric
 	// common type; OperandType is the source type and ResultType the
@@ -270,10 +285,6 @@ const (
 	// pointer and length for from_pointer; OperandType is the Slice type;
 	// Element is T.
 	SliceBridgeExpression
-	// RuneCursorMethodCallExpression is one RuneCursor method: has_next or
-	// next. Operand is the cursor descriptor; OperandType is the
-	// RuneCursor type.
-	RuneCursorMethodCallExpression
 	// StreamConstructorExpression is one standard-handle constructor:
 	// IO.stdin(), IO.stdout(), or IO.stderr(). Name selects the handle;
 	// OperandType is IO; ResultType is IO | Error. The capability the
@@ -456,6 +467,10 @@ type Expression struct {
 	Arguments   []Operand
 	Operator    Operator
 	OperandType compilerTypes.Type
+	// RightType is the right operand's type for a text comparison, where the
+	// two operands may be different text forms. The zero Type for every other
+	// kind.
+	RightType compilerTypes.Type
 	// OperandStorageType is TryExpression-only: the operand's real declared
 	// storage type, when it differs from OperandType because flow narrowing
 	// shrank the union. The generated C variable a narrowed read refers to

@@ -23,9 +23,9 @@ type dictComponentModel struct {
 // dictComponentRecord is one reachable Dict specialization's spelling and
 // selection facts: the struct C names, the accessor suffix, the spelled key
 // and value types, the once-per-header hash helper name, whether the key is
-// Strand (driving the memcmp probe and the FNV-1a hash body), and whether
-// this specialization is the first of its key kind and therefore emits that
-// helper. The template lays out the structs and the typed inline operations
+// text (an inline String<N>, probed and hashed over its logical bytes by the
+// shared text helpers), and whether this specialization is the first Int32
+// key and therefore emits that key's hash helper. The template lays out the structs and the typed inline operations
 // from these fields; canonical naming, ordering, and C spelling stay Go
 // decisions.
 type dictComponentRecord struct {
@@ -41,8 +41,7 @@ type dictComponentRecord struct {
 	// (String's "const hex_string *"): a textual "const " prefix there
 	// produces "const const hex_string * *", a duplicate qualifier.
 	FindValueSpelling string
-	HashHelper        string
-	StrandKey         bool
+	TextKey           bool
 	EmitHash          bool
 	NeedsFile         bool
 	NeedsNetwork      bool
@@ -51,15 +50,13 @@ type dictComponentRecord struct {
 }
 
 // dictComponentRecordFor builds the spelling record of one Dict
-// specialization. hashEmitted is per rendered header: the first Strand-key
-// dict of the header emits the shared hash helper.
+// specialization. hashEmitted is per rendered header: the first Int32-key
+// dict of the header emits the Int32 hash helper. A text key needs none of its
+// own: hex_hash_text and hex_equal_text serve every capacity.
 func dictComponentRecordFor(dict compilerTypes.Type, hashEmitted map[string]bool) dictComponentRecord {
 	key := dict.Dict.Key
-	strandKey := compilerTypes.IsStrand(key)
+	textKey := compilerTypes.IsText(key)
 	hashHelper := "hex_hash_Int32"
-	if strandKey {
-		hashHelper = "hex_hash_Strand"
-	}
 	suffix := dictSuffix(dict)
 	valueSpelling := typeSpelling(dict.Dict.Value)
 	findValueSpelling := "const " + valueSpelling
@@ -73,9 +70,8 @@ func dictComponentRecordFor(dict compilerTypes.Type, hashEmitted map[string]bool
 		KeySpelling:       typeSpelling(key),
 		ValueSpelling:     valueSpelling,
 		FindValueSpelling: findValueSpelling,
-		HashHelper:        hashHelper,
-		StrandKey:         strandKey,
-		EmitHash:          !hashEmitted[hashHelper],
+		TextKey:           textKey,
+		EmitHash:          !textKey && !hashEmitted[hashHelper],
 		NeedsFile:         compilerTypes.IsFile(dict.Dict.Value),
 		NeedsNetwork:      elementNeedsNetwork(dict.Dict.Value),
 		NeedsProcess:      elementNeedsProcess(dict.Dict.Value),
@@ -97,7 +93,9 @@ func dictComponents(merged *programEmission) ([]componentArtifact, error) {
 			continue
 		}
 		record := dictComponentRecordFor(dict, hashEmitted)
-		hashEmitted[record.HashHelper] = true
+		if !record.TextKey {
+			hashEmitted["hex_hash_Int32"] = true
+		}
 		records = append(records, record)
 	}
 	if len(records) == 0 {

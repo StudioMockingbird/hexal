@@ -812,7 +812,7 @@ func TestPointeeEligibilityMatrix(t *testing.T) {
 		name   string
 		source string
 	}{
-		{"String", "fun f(h: Heap) do\n    let s: String = \"x\".to_string(h)\n    let p: Ptr<String> = @s\nend\n"},
+		{"String", "fun f(h: Heap) do\n    let s: String = \"x\".copy(h)\n    let p: Ptr<String> = @s\nend\n"},
 		{"List", "fun f(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    let p: Ptr<List<Int32>> = @values\nend\n"},
 		{"Dict", "fun f(h: Heap) do\n    let d: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    let p: Ptr<Dict<Int32, Int32>> = @d\nend\n"},
 		{"View", "fun f() do\n    let v: Slice<Int32> = Slice<Int32>.empty()\n    let p: Ptr<Slice<Int32>> = @v\nend\n"},

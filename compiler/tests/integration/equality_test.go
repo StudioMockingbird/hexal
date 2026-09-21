@@ -94,25 +94,26 @@ func TestEqualityUnavailable(t *testing.T) {
 }
 
 func TestStringEqualityAndOrdering(t *testing.T) {
-	result := compileSource("fun demo() do\n    let left: String = \"abc\"\n    let right: String = \"abd\"\n    let same: Bool = left == right\n    let less: Bool = left < right\n    let atMost: Bool = left <= right\n    let greater: Bool = left > right\n    let atLeast: Bool = left >= right\n    let a: Strand = \"abc\"\n    let b: Strand = \"abd\"\n    let strandLess: Bool = a < b\nend")
+	result := compileSource("fun demo() do\n    let left: String = \"abc\"\n    let right: String = \"abd\"\n    let same: Bool = left == right\n    let less: Bool = left < right\n    let atMost: Bool = left <= right\n    let greater: Bool = left > right\n    let atLeast: Bool = left >= right\n    let a: String<8> = \"abc\"\n    let b: String<8> = \"abd\"\n    let inlineLess: Bool = a < b\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	// The string equality and ordering helpers live in hexal/string.h and
-	// hexal/string.c with external linkage.
+	// The one shared equality helper and the one shared ordering helper live in
+	// hexal/string.h and hexal/string.c with external linkage, and take a byte
+	// view, so they serve every text form.
 	stringH := moduleFile(t, result, "hexal/string.h")
 	stringC := moduleFile(t, result, "hexal/string.c")
 	for _, want := range []string{
-		"bool hex_equal_hex_string(const hex_string *left, const hex_string *right);",
-		"int hex_compare_hex_string(const hex_string *left, const hex_string *right);",
+		"bool hex_equal_text(hex_text left, hex_text right);",
+		"int hex_compare_text(hex_text left, hex_text right);",
 	} {
 		if !strings.Contains(stringH, want) {
 			t.Fatalf("hexal/string.h = %q, want %q", stringH, want)
 		}
 	}
 	for _, want := range []string{
-		"bool hex_equal_hex_string(const hex_string *left, const hex_string *right) {",
-		"int hex_compare_hex_string(const hex_string *left, const hex_string *right) {",
+		"bool hex_equal_text(hex_text left, hex_text right) {",
+		"int hex_compare_text(hex_text left, hex_text right) {",
 	} {
 		if !strings.Contains(stringC, want) {
 			t.Fatalf("hexal/string.c = %q, want %q", stringC, want)
@@ -121,56 +122,53 @@ func TestStringEqualityAndOrdering(t *testing.T) {
 	// The module file spells the comparisons calling the extern helpers.
 	output := rootC(t, result) + rootH(t, result)
 	for _, want := range []string{
-		"hex_v_same = hex_equal_hex_string(hex_v_left, hex_v_right);",
-		"(hex_compare_hex_string(hex_v_left, hex_v_right) < 0)",
-		"(hex_compare_hex_string(hex_v_left, hex_v_right) <= 0)",
-		"(hex_compare_hex_string(hex_v_left, hex_v_right) > 0)",
-		"(hex_compare_hex_string(hex_v_left, hex_v_right) >= 0)",
-		"memcmp(hex_v_a.data, hex_v_b.data, 32) < 0",
+		"hex_v_same = hex_equal_text(hex_text_heap(hex_v_left), hex_text_heap(hex_v_right));",
+		"(hex_compare_text(hex_text_heap(hex_v_left), hex_text_heap(hex_v_right)) < 0)",
+		"(hex_compare_text(hex_text_heap(hex_v_left), hex_text_heap(hex_v_right)) <= 0)",
+		"(hex_compare_text(hex_text_heap(hex_v_left), hex_text_heap(hex_v_right)) > 0)",
+		"(hex_compare_text(hex_text_heap(hex_v_left), hex_text_heap(hex_v_right)) >= 0)",
+		"(hex_compare_text(hex_text_inline(&(hex_v_a)), hex_text_inline(&(hex_v_b))) < 0)",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
 	}
-	// String equality compares length first, then one memcmp over the shared
-	// nonzero length; ordering memcmp's the shorter nonzero length and falls
-	// back to the length comparison. No global Strand equality/ordering
-	// helpers are emitted.
+	// Equality compares length first, then one memcmp over the shared nonzero
+	// length; ordering memcmp's the shorter nonzero length and falls back to
+	// the length comparison.
 	for _, want := range []string{
-		"memcmp(left->data, right->data, left->byte_length)",
-		"memcmp(left->data, right->data, limit)",
+		"memcmp(left.data, right.data, left.length)",
+		"memcmp(left.data, right.data, limit)",
 	} {
 		if !strings.Contains(stringC, want) {
 			t.Fatalf("hexal/string.c lacks %q: %q", want, stringC)
 		}
 	}
-	for _, forbidden := range []string{"static bool hex_equal_hex_strand(", "static int hex_compare_hex_strand("} {
+	for _, forbidden := range []string{"hex_equal_hex_string", "hex_compare_hex_string", "hex_equal_hex_strand", "hex_compare_hex_strand"} {
 		if strings.Contains(stringC, forbidden) || strings.Contains(stringH, forbidden) {
-			t.Fatalf("generated output retains deleted helper %q", forbidden)
+			t.Fatalf("generated output retains a per-type helper %q", forbidden)
 		}
 	}
 }
 
-// String and Strand equality/ordering produce identical results through
-// memcmp. Empty values skip the standard memory call safely, prefix and
-// differing-length payloads compare against the canonical zero-filled tail,
-// non-ASCII UTF-8 compares bytewise, and the maximum 31-byte Strand payload
-// still lowers to one direct 32-byte memcmp.
-func TestTextEqualityOrderingThroughMemcmp(t *testing.T) {
-	maxPayload := strings.Repeat("a", 31)
+// Every pairing of text forms compares bytewise in either operand order, and
+// capacity never participates: equal bytes are equal in every form. Empty
+// values skip the standard memory call safely, non-ASCII UTF-8 compares
+// bytewise, and a maximum-length inline value is compared over its length.
+func TestTextEqualityOrderingAcrossForms(t *testing.T) {
 	source := "fun demo() do\n" +
 		"    let emptyA: String = \"\"\n" +
-		"    let emptyB: String = \"\"\n" +
+		"    let emptyB: String<8> = \"\"\n" +
 		"    let sameEmpty: Bool = emptyA == emptyB\n" +
-		"    let prefix: String = \"café\"\n" +
-		"    let longer: Bool = prefix < \"café!\"\n" +
-		"    let full: Strand = \"" + maxPayload + "\"\n" +
-		"    let fullSame: Bool = full == full\n" +
-		"    let tail: Strand = \"aa\"\n" +
-		"    let tailLess: Bool = tail < full\n" +
-		"    let emptyStrandA: Strand = \"\"\n" +
-		"    let emptyStrandB: Strand = \"\"\n" +
-		"    let sameEmptyStrand: Bool = emptyStrandA == emptyStrandB\n" +
+		"    let prefix: String = \"caf\u00e9\"\n" +
+		"    let longer: Bool = prefix < \"caf\u00e9!\"\n" +
+		"    let full: String<64> = \"" + strings.Repeat("a", 64) + "\"\n" +
+		"    let small: String<4> = \"aa\"\n" +
+		"    let mixed: Bool = full == small\n" +
+		"    let reversed: Bool = small < full\n" +
+		"    let heap: String = \"aa\"\n" +
+		"    let crossed: Bool = small == heap\n" +
+		"    let crossedBack: Bool = heap != small\n" +
 		"end"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
@@ -178,44 +176,43 @@ func TestTextEqualityOrderingThroughMemcmp(t *testing.T) {
 	}
 	output := rootC(t, result) + rootH(t, result)
 	for _, want := range []string{
-		"hex_equal_hex_string(hex_v_emptyA, hex_v_emptyB)",
-		"memcmp(hex_v_full.data, hex_v_full.data, 32)",
-		"memcmp(hex_v_tail.data, hex_v_full.data, 32) < 0",
-		"memcmp(hex_v_emptyStrandA.data, hex_v_emptyStrandB.data, 32)",
+		"hex_equal_text(hex_text_heap(hex_v_emptyA), hex_text_inline(&(hex_v_emptyB)))",
+		"hex_equal_text(hex_text_inline(&(hex_v_full)), hex_text_inline(&(hex_v_small)))",
+		"hex_compare_text(hex_text_inline(&(hex_v_small)), hex_text_inline(&(hex_v_full))) < 0",
+		"hex_equal_text(hex_text_inline(&(hex_v_small)), hex_text_heap(hex_v_heap))",
+		"(!hex_equal_text(hex_text_heap(hex_v_heap), hex_text_inline(&(hex_v_small))))",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("generated output lacks %q:\n%q\n%q", want, rootC(t, result), rootH(t, result))
 		}
 	}
-	if strings.Contains(output, "static bool hex_equal_hex_strand(") || strings.Contains(output, "static int hex_compare_hex_strand(") {
-		t.Fatalf("generated output retains a global Strand equality/ordering helper")
+	if strings.Contains(output, "memcmp(hex_v_") {
+		t.Fatalf("a text comparison bypasses the shared helper")
 	}
 }
 
-func TestStrandMemberEqualityUsesMemcmp(t *testing.T) {
-	source := "type Label is struct tag: Strand, end\nfun demo() do\n    let left: Label = Label(tag = \"a\")\n    let right: Label = Label(tag = \"a\")\n    let same: Bool = left == right\nend"
+func TestInlineTextMemberEqualityUsesLogicalBytes(t *testing.T) {
+	source := "type Label is struct tag: String<16>, end\nfun demo() do\n    let left: Label = Label(tag = \"a\")\n    let right: Label = Label(tag = \"a\")\n    let same: Bool = left == right\nend"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	output := rootC(t, result) + rootH(t, result)
 	for _, want := range []string{
-		"if (memcmp((*left).hex_m_tag.data, (*right).hex_m_tag.data, 32) != 0) return false;",
+		"if (!hex_equal_text(hex_text_inline(&((*left).hex_m_tag)), hex_text_inline(&((*right).hex_m_tag)))) return false;",
 		"hex_equal_hex_t_m3_app_Label(&(hex_v_left), &(hex_v_right))",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("generated output lacks %q:\n%q\n%q", want, rootC(t, result), rootH(t, result))
 		}
 	}
-	if strings.Contains(output, "static bool hex_equal_hex_strand(") {
-		t.Fatalf("generated output retains the global Strand equality helper")
-	}
 }
 
-func TestStringStrandEqualityRejected(t *testing.T) {
-	result := compileSource("fun demo() do\n    let text: String = \"abc\"\n    let key: Strand = \"abc\"\n    let bad: Bool = text == key\nend")
+// Text of any two forms compares; text against a non-text operand does not.
+func TestTextEqualityRejectsNonTextOperand(t *testing.T) {
+	result := compileSource("fun demo() do\n    let text: String = \"abc\"\n    let number: Int32 = 1\n    let bad: Bool = text == number\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "equality requires identical canonical non-numeric operand types") {
-		t.Fatalf("Compile stderr = %#v, want strict text-type diagnostic", result.Stderr)
+		t.Fatalf("Compile stderr = %#v, want strict operand-type diagnostic", result.Stderr)
 	}
 }
 
@@ -279,7 +276,7 @@ end
 		}
 	}
 	if !strings.Contains(equality, "#include <string.h>") {
-		t.Fatalf("hexal/equality.h omits <string.h> for Error's Strand comparison:\n%s", equality)
+		t.Fatalf("hexal/equality.h omits <string.h> for Error's text comparison:\n%s", equality)
 	}
 	for _, module := range []string{"modules/app.h", "modules/math.h"} {
 		if !strings.Contains(result.Files[module], `#include "hexal/equality.h"`) {
@@ -372,8 +369,8 @@ func TestGenericEqualityRecheckedAtSpecialization(t *testing.T) {
 	}
 	// The specialized String equality calls the extern helper from
 	// hexal/string.h; the module header includes string.h.
-	if !strings.Contains(rootH(t, result), "hex_equal_hex_string") && !strings.Contains(moduleFile(t, result, "hexal/string.h"), "hex_equal_hex_string") {
-		t.Fatalf("no hex_equal_hex_string in module header or string.h: modules/app.h = %q, hexal/string.h = %q", rootH(t, result), moduleFile(t, result, "hexal/string.h"))
+	if !strings.Contains(rootH(t, result), "hex_equal_text") && !strings.Contains(moduleFile(t, result, "hexal/string.h"), "hex_equal_text") {
+		t.Fatalf("no hex_equal_text in module header or string.h: modules/app.h = %q, hexal/string.h = %q", rootH(t, result), moduleFile(t, result, "hexal/string.h"))
 	}
 }
 

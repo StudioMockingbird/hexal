@@ -411,10 +411,10 @@ func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDept
 
 	seen := make(map[string]bool, len(statement.Binders))
 	for _, binder := range statement.Binders {
-		if seen[binder.Lexeme] {
-			diagnostics = append(diagnostics, nameErrorAt(binder, "duplicate loop binder name "+binder.Lexeme))
+		if seen[binder.Name.Lexeme] {
+			diagnostics = append(diagnostics, nameErrorAt(binder.Name, "duplicate loop binder name "+binder.Name.Lexeme))
 		}
-		seen[binder.Lexeme] = true
+		seen[binder.Name.Lexeme] = true
 	}
 
 	// The source is read as a value but keeps its place addressability when
@@ -434,12 +434,19 @@ func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDept
 		return checked, append(diagnostics, diagnosticsFromSource...)
 	}
 
-	binderTypes, arityDiagnostic := forBinderTypes(source.typ, statement.Binders)
+	binderNames := make([]lexer.Token, len(statement.Binders))
+	for index, binder := range statement.Binders {
+		binderNames[index] = binder.Name
+	}
+	binderTypes, arityDiagnostic := forBinderTypes(source.typ, binderNames)
 	if arityDiagnostic != nil {
 		return checked, append(diagnostics, *arityDiagnostic)
 	}
 	if len(binderTypes) != len(statement.Binders) {
 		return checked, append(diagnostics, typeErrorAt(statement.Keyword, "for-in binder count does not match the source type"))
+	}
+	if annotationDiagnostics := checkForBinderAnnotations(statement.Binders, binderTypes, source.typ, ctx); len(annotationDiagnostics) > 0 {
+		return checked, append(diagnostics, annotationDiagnostics...)
 	}
 
 	parentState := ctx.names.flow
@@ -452,13 +459,13 @@ func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDept
 	for index, binder := range statement.Binders {
 		binderType := binderTypes[index]
 		bound := binding{typ: binderType, use: compilerTypes.NewTypeUse(binderType), loopBinder: true, id: ctx.names.newBindingID()}
-		bodyScope.local[binder.Lexeme] = bound
+		bodyScope.local[binder.Name.Lexeme] = bound
 		checked.Binders = append(checked.Binders, ForBinder{
-			Name:         binder.Lexeme,
+			Name:         binder.Name.Lexeme,
 			Type:         binderType,
 			Binding:      bound.id,
-			SourceLine:   binder.Line,
-			SourceColumn: binder.Column,
+			SourceLine:   binder.Name.Line,
+			SourceColumn: binder.Name.Column,
 		})
 	}
 
@@ -513,12 +520,12 @@ func forBinderTypes(source compilerTypes.Type, binders []lexer.Token) ([]compile
 			diagnostic := typeErrorAt(binders[0], "sequence iteration requires one value binder or index and value binders")
 			return nil, &diagnostic
 		}
-	case compilerTypes.IsString(source) || compilerTypes.IsStrand(source):
+	case compilerTypes.IsText(source):
 		switch len(binders) {
 		case 1:
-			return []compilerTypes.Type{compilerTypes.Rune}, nil
+			return []compilerTypes.Type{compilerTypes.UInt8}, nil
 		case 2:
-			return []compilerTypes.Type{compilerTypes.SizeType, compilerTypes.Rune}, nil
+			return []compilerTypes.Type{compilerTypes.SizeType, compilerTypes.UInt8}, nil
 		default:
 			diagnostic := typeErrorAt(binders[0], "sequence iteration requires one value binder or index and value binders")
 			return nil, &diagnostic
@@ -747,7 +754,7 @@ func checkReturnStatement(statement parser.ReturnStatement, ctx checkContext) (S
 	}
 	if value.typ != (compilerTypes.Type{}) && !assignable(*ctx.names.result, value.typ) {
 		return checked, compilerTypes.Diagnostics{typeErrorAt(value.token,
-			fmt.Sprintf("%s returns %s; got %s", ctx.names.owner, ctx.names.result.Name, value.typ.Name))}
+			fmt.Sprintf("%s returns %s; got %s", ctx.names.owner, ctx.names.result.Name, value.typ.Name)+textMismatchHint(*ctx.names.result, value.typ))}
 	}
 	if diagnostic := restEscapeDiagnostic(value.source, value.token); diagnostic != nil {
 		return checked, compilerTypes.Diagnostics{*diagnostic}
@@ -791,4 +798,39 @@ func checkRootReturnStatement(statement parser.ReturnStatement, ctx checkContext
 	source := value.source
 	checked.Value = &source
 	return checked, nil
+}
+
+// checkForBinderAnnotations checks the written types of a for-in header
+// against what the source yields to each binder. An annotation is permitted on
+// every binder of every source and must be exactly the type that binder
+// receives: no conversion and no weakening. It is required on exactly the
+// binder whose type the source does not determine. Text is the only such
+// source: it is a sequence of bytes today and will also be a sequence of code
+// points, so the element type belongs to the iteration, not to the collection.
+// The index binder is always Size and is never required to be annotated.
+func checkForBinderAnnotations(binders []parser.ForBinder, binderTypes []compilerTypes.Type, source compilerTypes.Type, ctx checkContext) compilerTypes.Diagnostics {
+	diagnostics := make(compilerTypes.Diagnostics, 0)
+	textSource := compilerTypes.IsText(source)
+	for index, binder := range binders {
+		valueBinder := index == len(binders)-1
+		if binder.Type == nil {
+			if textSource && valueBinder {
+				diagnostics = append(diagnostics, typeErrorAt(binder.Name, fmt.Sprintf(
+					"for binder %s over %s has an ambiguous element type; annotate it, for example for %s: Byte in ...",
+					binder.Name.Lexeme, source.Name, binder.Name.Lexeme)))
+			}
+			continue
+		}
+		use, diagnostic := resolveTypeUse(binder.Type, binder.Name, ctx.typeEnvironment, ctx.names.generics)
+		if diagnostic != nil {
+			diagnostics = append(diagnostics, *diagnostic)
+			continue
+		}
+		if !compilerTypes.Equal(use.Type, binderTypes[index]) {
+			diagnostics = append(diagnostics, typeErrorAt(binder.Name, fmt.Sprintf(
+				"for binder %s is annotated %s, but %s yields %s there",
+				binder.Name.Lexeme, use.Type.Name, source.Name, binderTypes[index].Name)))
+		}
+	}
+	return diagnostics
 }

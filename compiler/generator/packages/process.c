@@ -792,18 +792,20 @@ hex_t_Error hex_process_error(size_t line, size_t column, int status, bool pipe,
         break;
     default: {
         if (!hex_handle_error_kind(status, &kind)) {
-            hex_strand header = {0};
+            hex_string_128 header = {0};
             if (pipe) {
                 static const char text[] = "pipe error";
+                header.byte_length = sizeof(text) - 1;
                 memcpy(header.data, text, sizeof(text) - 1);
             } else {
                 static const char text[] = "process error";
+                header.byte_length = sizeof(text) - 1;
                 memcpy(header.data, text, sizeof(text) - 1);
             }
             kind = (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_Other, .other_header = header};
         }
     }
     }
-    return (hex_t_Error){.hex_m_line = line, .hex_m_column = column, .hex_m_kind = kind, .hex_m_message = message};
+    return (hex_t_Error){.hex_m_line = line, .hex_m_column = column, .hex_m_kind = kind, .hex_m_message = hex_error_message(hex_text_heap(message))};
 }
 {{- end}}

@@ -337,7 +337,7 @@ func checkDeclaration(declaration parser.Declaration, ctx checkContext, itemInde
 	var declaredUse compilerTypes.TypeUse
 	if declaration.Type != nil {
 		if token, tooLate := firstTypeNameDeclaredAtOrAfter(declaration.Type, itemIndex, typeIndexByName); tooLate {
-			diagnostics = append(diagnostics, typeErrorAt(token, "unknown type "+token.Lexeme))
+			diagnostics = append(diagnostics, typeErrorAt(token, unknownTypeMessage(token.Lexeme)))
 		} else {
 			resolved, typeDiagnostic := resolveTypeUse(declaration.Type, declaration.Name, ctx.typeEnvironment, ctx.names.generics)
 			declaredUse = resolved
@@ -584,7 +584,7 @@ func bindingMismatchDiagnostic(name string, declaredType, actualType compilerTyp
 func typeMismatchDiagnostic(declaredType, actualType compilerTypes.Type, token lexer.Token) compilerTypes.Diagnostic {
 	message := assignabilityMismatchMessage(declaredType, actualType)
 	if message == "" {
-		message = fmt.Sprintf("expected %s initializer; got %s", declaredType.Name, actualType.Name)
+		message = fmt.Sprintf("expected %s initializer; got %s", declaredType.Name, actualType.Name) + textMismatchHint(declaredType, actualType)
 	}
 	return typeErrorAt(token, message)
 }

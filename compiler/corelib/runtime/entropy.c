@@ -14,7 +14,6 @@ static const uint8_t hex_entropy_msg_bytes[] = "secure random fill failed";
 static const hex_string hex_entropy_msg = {
     .data = hex_entropy_msg_bytes,
     .byte_length = sizeof(hex_entropy_msg_bytes) - 1,
-    .rune_length = sizeof(hex_entropy_msg_bytes) - 1,
     .storage_kind = HEX_STRING_STATIC,
 };
 

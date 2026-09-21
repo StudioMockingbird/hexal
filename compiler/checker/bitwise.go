@@ -10,7 +10,7 @@ import (
 
 // BitCastEligibleType reports whether typ may be a bit_cast source or
 // destination: a fixed-representation scalar at 8, 16, 32, or 64 bits.
-// Size, Rune, Bool, pointers, aggregates, and managed values are rejected.
+// Size, Bool, pointers, aggregates, and managed values are rejected.
 func BitCastEligibleType(typ compilerTypes.Type) bool {
 	return bitCastEligibleType(typ)
 }
@@ -28,10 +28,9 @@ func bitCastEligibleType(typ compilerTypes.Type) bool {
 }
 
 // endianEligibleType reports whether typ provides endian byte conversion:
-// every fixed-width integer, excluding Size (whose width follows the target)
-// and Rune (whose value is a Unicode scalar, not arbitrary 32-bit payload).
+// every fixed-width integer, excluding Size (whose width follows the target).
 func endianEligibleType(typ compilerTypes.Type) bool {
-	return compilerTypes.IsInteger(typ) && !compilerTypes.IsRune(typ) && !compilerTypes.Equal(typ, compilerTypes.SizeType)
+	return compilerTypes.IsInteger(typ) && !compilerTypes.Equal(typ, compilerTypes.SizeType)
 }
 
 // checkBitCastCall resolves `receiver.bit_cast<Dest>()`. The

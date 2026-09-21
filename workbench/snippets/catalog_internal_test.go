@@ -10,7 +10,7 @@ import (
 func TestValidateRejectsDuplicateSnippetID(t *testing.T) {
 	categories := []Category{
 		{ID: "values", Name: "Values", Snippets: []Snippet{{ID: "one", Name: "One", Entrypoint: "app.hex", Sources: map[string]string{"app.hex": "let value: Int32 = 1\n"}}}},
-		{ID: "text", Name: "Text", Snippets: []Snippet{{ID: "one", Name: "One", Entrypoint: "app.hex", Sources: map[string]string{"app.hex": "let label: Strand = \"a\"\n"}}}},
+		{ID: "text", Name: "Text", Snippets: []Snippet{{ID: "one", Name: "One", Entrypoint: "app.hex", Sources: map[string]string{"app.hex": "let label: String<31> = \"a\"\n"}}}},
 	}
 	if err := validate(categories); err == nil || !strings.Contains(err.Error(), "duplicate snippet") {
 		t.Fatalf("validate() = %v, want a duplicate-snippet failure", err)

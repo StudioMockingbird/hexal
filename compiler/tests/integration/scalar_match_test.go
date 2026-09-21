@@ -26,7 +26,6 @@ func TestScalarMatchAdmittedFamilies(t *testing.T) {
 		{"UInt32", "UInt32", "1", "1"},
 		{"UInt64", "UInt64", "1", "1"},
 		{"Size", "Size", "1", "1"},
-		{"Rune", "Rune", "'A'", "'A'"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -109,8 +108,7 @@ func TestScalarMatchNoNarrowingFact(t *testing.T) {
 	}
 }
 
-// A rune pattern naming a surrogate is rejected by the ordinary Rune validity
-// rule.
-func TestScalarMatchRuneSurrogate(t *testing.T) {
-	assertRejects(t, "let op: Rune = 'A'\nlet r: Int32 = match op\n| '\\u{D800}' then 10\n| else then 0\nend\n", "invalid Unicode scalar value in escape")
+// A bare-quote pattern is reserved syntax, not a scalar arm.
+func TestScalarMatchBareQuotePatternIsReserved(t *testing.T) {
+	assertRejects(t, "let op: Int32 = 1\nlet r: Int32 = match op\n| 'A' then 10\n| else then 0\nend\n", "bare-quote literals are reserved")
 }

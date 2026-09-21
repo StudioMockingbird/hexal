@@ -26,66 +26,29 @@
 #endif
 {{end}}
 
-// hex_program_validate_utf8 mirrors hex_utf8_next's branching exactly, but
-// reports invalid encoding by returning false instead of trapping: host path
-// and argument bytes are untrusted input, never a Hexal-proven-valid String.
-static bool hex_program_validate_utf8(const uint8_t *data, size_t length, size_t *rune_length) {
-    size_t index = 0;
-    size_t runes = 0;
-    while (index < length) {
-        uint8_t lead = data[index];
-        size_t width;
-        if (lead < 0x80) {
-            width = 1;
-        } else {
-            if (lead < 0xC2 || lead >= 0xF5 || index + 2 > length) {
-                return false;
-            }
-            uint8_t first = data[index + 1];
-            if ((lead == 0xE0 && first < 0xA0) || (lead == 0xED && first >= 0xA0) ||
-                (lead == 0xF0 && first < 0x90) || (lead == 0xF4 && first >= 0x90)) {
-                return false;
-            }
-            width = (lead < 0xE0) ? 2 : (lead < 0xF0) ? 3 : 4;
-            if (index + width > length) {
-                return false;
-            }
-            for (size_t continuation = 1; continuation < width; continuation++) {
-                if ((data[index + continuation] & 0xC0) != 0x80) {
-                    return false;
-                }
-            }
-        }
-        index += width;
-        runes++;
-    }
-    *rune_length = runes;
-    return true;
-}
 {{if .Paths}}
 
 // Every message below is a fixed, process-lifetime C string literal: none is
 // a Hexal String literal, so none goes through the module literal registry.
 static const uint8_t hex_program_msg_cwd_bytes[] = "current directory unavailable";
-static const hex_string hex_program_msg_cwd = {hex_program_msg_cwd_bytes, sizeof(hex_program_msg_cwd_bytes) - 1, sizeof(hex_program_msg_cwd_bytes) - 1, HEX_STRING_STATIC};
+static const hex_string hex_program_msg_cwd = {.data = hex_program_msg_cwd_bytes, .byte_length = sizeof(hex_program_msg_cwd_bytes) - 1, .storage_kind = HEX_STRING_STATIC};
 static const uint8_t hex_program_msg_home_bytes[] = "home directory unavailable";
-static const hex_string hex_program_msg_home = {hex_program_msg_home_bytes, sizeof(hex_program_msg_home_bytes) - 1, sizeof(hex_program_msg_home_bytes) - 1, HEX_STRING_STATIC};
+static const hex_string hex_program_msg_home = {.data = hex_program_msg_home_bytes, .byte_length = sizeof(hex_program_msg_home_bytes) - 1, .storage_kind = HEX_STRING_STATIC};
 static const uint8_t hex_program_msg_tmp_bytes[] = "temporary directory unavailable";
-static const hex_string hex_program_msg_tmp = {hex_program_msg_tmp_bytes, sizeof(hex_program_msg_tmp_bytes) - 1, sizeof(hex_program_msg_tmp_bytes) - 1, HEX_STRING_STATIC};
+static const hex_string hex_program_msg_tmp = {.data = hex_program_msg_tmp_bytes, .byte_length = sizeof(hex_program_msg_tmp_bytes) - 1, .storage_kind = HEX_STRING_STATIC};
 static const uint8_t hex_program_msg_exe_bytes[] = "executable path unavailable";
-static const hex_string hex_program_msg_exe = {hex_program_msg_exe_bytes, sizeof(hex_program_msg_exe_bytes) - 1, sizeof(hex_program_msg_exe_bytes) - 1, HEX_STRING_STATIC};
+static const hex_string hex_program_msg_exe = {.data = hex_program_msg_exe_bytes, .byte_length = sizeof(hex_program_msg_exe_bytes) - 1, .storage_kind = HEX_STRING_STATIC};
 static const uint8_t hex_program_msg_busy_bytes[] = "path changed during query";
-static const hex_string hex_program_msg_busy = {hex_program_msg_busy_bytes, sizeof(hex_program_msg_busy_bytes) - 1, sizeof(hex_program_msg_busy_bytes) - 1, HEX_STRING_STATIC};
+static const hex_string hex_program_msg_busy = {.data = hex_program_msg_busy_bytes, .byte_length = sizeof(hex_program_msg_busy_bytes) - 1, .storage_kind = HEX_STRING_STATIC};
 static const uint8_t hex_program_msg_utf8_bytes[] = "path is not valid UTF-8";
-static const hex_string hex_program_msg_utf8 = {hex_program_msg_utf8_bytes, sizeof(hex_program_msg_utf8_bytes) - 1, sizeof(hex_program_msg_utf8_bytes) - 1, HEX_STRING_STATIC};
+static const hex_string hex_program_msg_utf8 = {.data = hex_program_msg_utf8_bytes, .byte_length = sizeof(hex_program_msg_utf8_bytes) - 1, .storage_kind = HEX_STRING_STATIC};
 
 // hex_program_owned_string_or_null validates data as UTF-8 and, only if
 // valid, copies it into one caller-Heap allocation. It never traps: an
 // allocation or validation failure returns nullptr, and the caller maps that
 // to the operation's own ErrorKind.
 static const hex_string *hex_program_owned_string_or_null(const uint8_t *data, size_t length, bool *invalid) {
-    size_t runes;
-    if (!hex_program_validate_utf8(data, length, &runes)) {
+    if (!hex_utf8_valid(data, length)) {
         *invalid = true;
         return nullptr;
     }
@@ -99,7 +62,7 @@ static const hex_string *hex_program_owned_string_or_null(const uint8_t *data, s
         *invalid = false;
         return nullptr;
     }
-    storage->header = (hex_string){.data = storage->bytes, .byte_length = length, .rune_length = runes, .storage_kind = HEX_STRING_OWNED};
+    storage->header = (hex_string){.data = storage->bytes, .byte_length = length, .storage_kind = HEX_STRING_OWNED};
     if (length != 0) {
         memcpy(storage->bytes, data, length);
     }
@@ -317,8 +280,7 @@ static void hex_program_release_partial_arguments(const hex_string **items, size
 // Windows command-line buffer are host-owned. The returned handle is marked
 // non-owning so a user String.free cannot release this snapshot.
 static const hex_string *hex_program_argument_string_or_null(const uint8_t *data, size_t length, bool *invalid) {
-    size_t runes;
-    if (!hex_program_validate_utf8(data, length, &runes)) {
+    if (!hex_utf8_valid(data, length)) {
         *invalid = true;
         return nullptr;
     }
@@ -332,7 +294,7 @@ static const hex_string *hex_program_argument_string_or_null(const uint8_t *data
         *invalid = false;
         return nullptr;
     }
-    storage->header = (hex_string){.data = storage->bytes, .byte_length = length, .rune_length = runes, .storage_kind = HEX_STRING_NONOWNING};
+    storage->header = (hex_string){.data = storage->bytes, .byte_length = length, .storage_kind = HEX_STRING_NONOWNING};
     if (length != 0) {
         memcpy(storage->bytes, data, length);
     }
@@ -349,9 +311,9 @@ static void hex_program_argv_fail(hex_t_ErrorKind kind, const hex_string *messag
 
 #if defined(_WIN32)
 static const uint8_t hex_program_msg_args_bytes[] = "program arguments unavailable";
-static const hex_string hex_program_msg_args = {hex_program_msg_args_bytes, sizeof(hex_program_msg_args_bytes) - 1, sizeof(hex_program_msg_args_bytes) - 1, HEX_STRING_STATIC};
+static const hex_string hex_program_msg_args = {.data = hex_program_msg_args_bytes, .byte_length = sizeof(hex_program_msg_args_bytes) - 1, .storage_kind = HEX_STRING_STATIC};
 static const uint8_t hex_program_msg_args_unicode_bytes[] = "program argument is not valid Unicode";
-static const hex_string hex_program_msg_args_unicode = {hex_program_msg_args_unicode_bytes, sizeof(hex_program_msg_args_unicode_bytes) - 1, sizeof(hex_program_msg_args_unicode_bytes) - 1, HEX_STRING_STATIC};
+static const hex_string hex_program_msg_args_unicode = {.data = hex_program_msg_args_unicode_bytes, .byte_length = sizeof(hex_program_msg_args_unicode_bytes) - 1, .storage_kind = HEX_STRING_STATIC};
 
 void hex_program_arguments_init(void) {
     int argc = 0;
@@ -414,9 +376,9 @@ void hex_program_arguments_init(void) {
 }
 #else
 static const uint8_t hex_program_msg_args_bytes[] = "program arguments unavailable";
-static const hex_string hex_program_msg_args = {hex_program_msg_args_bytes, sizeof(hex_program_msg_args_bytes) - 1, sizeof(hex_program_msg_args_bytes) - 1, HEX_STRING_STATIC};
+static const hex_string hex_program_msg_args = {.data = hex_program_msg_args_bytes, .byte_length = sizeof(hex_program_msg_args_bytes) - 1, .storage_kind = HEX_STRING_STATIC};
 static const uint8_t hex_program_msg_args_utf8_bytes[] = "program argument is not valid UTF-8";
-static const hex_string hex_program_msg_args_utf8 = {hex_program_msg_args_utf8_bytes, sizeof(hex_program_msg_args_utf8_bytes) - 1, sizeof(hex_program_msg_args_utf8_bytes) - 1, HEX_STRING_STATIC};
+static const hex_string hex_program_msg_args_utf8 = {.data = hex_program_msg_args_utf8_bytes, .byte_length = sizeof(hex_program_msg_args_utf8_bytes) - 1, .storage_kind = HEX_STRING_STATIC};
 
 void hex_program_arguments_init(int argc, char **argv) {
     if (argc < 0) {
@@ -436,8 +398,7 @@ void hex_program_arguments_init(int argc, char **argv) {
     }
     for (size_t index = 0; index < count; index++) {
         size_t byteLength = strlen(argv[index]);
-        size_t runes;
-        if (!hex_program_validate_utf8((const uint8_t *)argv[index], byteLength, &runes)) {
+        if (!hex_utf8_valid((const uint8_t *)argv[index], byteLength)) {
             hex_program_release_partial_arguments(items, index);
             hex_program_argv_fail((hex_t_ErrorKind){.tag = hex_tag_ErrorKind_InvalidInput}, &hex_program_msg_args_utf8);
             return;

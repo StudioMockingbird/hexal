@@ -69,5 +69,7 @@ static inline void hex_pool_destroy_{{.Suffix}}({{.CName}} *pool) {
 
 #include "hexal.h"
 #include "hexal/heap.h"
+{{if .NeedsString}}#include "hexal/string.h"
+{{end}}
 {{template "poolbody" .}}
 #endif

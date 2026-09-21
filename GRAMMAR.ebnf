@@ -92,9 +92,10 @@ IfStatement = "if"  Expression  "then"  Block
 WhileStatement = "while"  Expression  "do"  Block  "end" .
 ForStatement = "for"  ForBinders  "in"  Expression
                  "do"  Block  "end" .
-ForBinders = identifier
-              | identifier  ","  identifier
-              | identifier  ","  identifier  ","  identifier .
+ForBinders = ForBinder
+              | ForBinder  ","  ForBinder
+              | ForBinder  ","  ForBinder  ","  ForBinder .
+ForBinder = identifier  [ ":"  TypeExpression ] .
 
 TypeDefinition = StructDefinition | UnionDefinition
                   | UnitAdtShorthand | AliasTarget .
@@ -126,7 +127,8 @@ GenericTypeName = identifier  { "."  identifier } .
 
 TypeArgumentList = "<"  TypeArgument
                       { ","  TypeArgument }  ">" .
-TypeArgument = [ "mut" ]  TypeExpression .
+TypeArgument = [ "mut" ]  TypeExpression | CapacityArgument .
+CapacityArgument = integer_literal | decimal_floating_literal .
 ArrayType = "Array"  "<"  TypeExpression
               ","  PositiveDecimalLiteral  ">" .
 PositiveDecimalLiteral = nonzero_decimal_digit
@@ -173,7 +175,7 @@ PrimaryExpression = identifier | "self"
                      | ArrayLiteral | MatchExpression
                      | AnonymousFunctionLiteral
                      | integer_literal | decimal_floating_literal
-                     | byte_literal | rune_literal | string_literal
+                     | byte_literal | string_literal
                      | raw_string_literal | InterpolationTemplate
                      | "true" | "false" | "nil" | "eos"
                      | "("  Expression  ")" .
@@ -197,7 +199,7 @@ MatchArmExpression = "meta" .
 MatchPattern = "else" | "true" | "false" | "eos"
                 | ScalarPattern
                 | QualifiedVariantPattern | PrimaryTypeExpression .
-ScalarPattern = [ "-" ] ( integer_literal | byte_literal | rune_literal ) .
+ScalarPattern = [ "-" ] ( integer_literal | byte_literal ) .
 QualifiedVariantPattern = GenericTypeName  TypeArgumentList
                              "."  identifier .
 
@@ -247,10 +249,7 @@ byte_literal = "b"  "'"  byte_literal_body  "'" .
 byte_literal_body = printable_ascii_character | byte_escape .
 byte_escape = "\\"  ( "\\" | "'" | "n" | "r" | "t" | "0"
               | "x"  hex_digit  hex_digit ) .
-rune_literal = "'"  rune_literal_body  "'" .
-rune_literal_body = unicode_scalar | rune_escape .
-rune_escape = "\\"  ( "\\" | "'" | "\"" | "n" | "r" | "t" | "0"
-              | unicode_escape ) .
+// A single quote that does not follow "b" is reserved: it begins no literal.
 unicode_escape = "u{"  hex_digit  { hex_digit }  "}" .
 
 // Maximal munch: "--[" begins multiline_comment; any other "--" begins
@@ -261,7 +260,6 @@ multiline_comment = "--["  { comment_character }  "]--" .
 whitespace = " " | horizontal_tab | carriage_return | newline .
 string_character = "meta" .
 printable_ascii_character = "meta" .
-unicode_scalar = "meta" .
 non_newline_character = "meta" .
 comment_character = "meta" .
 horizontal_tab = "meta" .

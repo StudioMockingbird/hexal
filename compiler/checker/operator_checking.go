@@ -122,16 +122,6 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 		return operationBinaryResult(operator, left, right, left.typ, resultType, expression.Operator)
 	}
 
-	// Rune is not an arithmetic operand. Reject any binary
-	// arithmetic with a Rune operand before folding or common-type selection,
-	// owning same-type and mixed cases with one diagnostic at the operator.
-	if (operator == AddOperator || operator == SubtractOperator || operator == MultiplyOperator ||
-		operator == DivideOperator || operator == RemainderOperator) &&
-		(compilerTypes.IsRune(left.typ) || compilerTypes.IsRune(right.typ)) {
-		diagnostic := typeErrorAt(expression.Operator, fmt.Sprintf("operator %s requires numeric operands; got %s and %s", operator, left.typ.Name, right.typ.Name))
-		return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
-	}
-
 	// Mixed numeric arithmetic selects the unique least
 	// lossless common type before the operation; the result has that type
 	// and wraps at it.
@@ -828,22 +818,20 @@ func inferExpressionType(expression parser.Expression, expected compilerTypes.Ty
 		return expressionTypeHint{typ: compilerTypes.EoS, token: expression.Token}
 	case parser.StringLiteral:
 		// A literal in an expression position is String unless the
-		// context demands a Strand.
+		// context demands an inline String<N>.
 		typ := compilerTypes.StringType
-		if compilerTypes.IsStrand(expected) {
-			typ = compilerTypes.StrandType
+		if compilerTypes.IsInlineString(expected) {
+			typ = expected
 		}
 		return expressionTypeHint{typ: typ, token: expression.Token}
 	case parser.RawStringLiteral:
 		typ := compilerTypes.StringType
-		if compilerTypes.IsStrand(expected) {
-			typ = compilerTypes.StrandType
+		if compilerTypes.IsInlineString(expected) {
+			typ = expected
 		}
 		return expressionTypeHint{typ: typ, token: expression.Token}
 	case parser.ByteLiteral:
 		return expressionTypeHint{typ: compilerTypes.UInt8, token: expression.Token}
-	case parser.RuneLiteral:
-		return expressionTypeHint{typ: compilerTypes.Rune, token: expression.Token}
 	case parser.VariableExpression, parser.PropertyExpression, parser.IndexExpression:
 		place := checkPlace(expression, ctx)
 		return expressionTypeHint{typ: place.typ, token: place.token, diagnostic: place.diagnostic}
@@ -997,9 +985,9 @@ func operatorAllowsType(operator Operator, typ compilerTypes.Type) bool {
 }
 
 // isBitwiseEligible reports whether typ may participate in bitwise
-// and shift operations: a fixed-width integer or Size, excluding Rune.
+// and shift operations: a fixed-width integer or Size.
 func isBitwiseEligible(typ compilerTypes.Type) bool {
-	return compilerTypes.IsInteger(typ) && !compilerTypes.IsRune(typ)
+	return compilerTypes.IsInteger(typ)
 }
 
 func operandContextType(operator Operator, expected compilerTypes.Type) compilerTypes.Type {

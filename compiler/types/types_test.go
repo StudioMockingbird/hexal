@@ -68,6 +68,45 @@ func TestPtrTypeIsInterned(t *testing.T) {
 	}
 }
 
+// Every capacity is one canonical type within a compilation: asking again
+// yields the same identity and C name, different capacities are different
+// types, and a capacity outside 1 through the maximum names no type.
+func TestInlineStringTypeIsInterned(t *testing.T) {
+	environment := NewEnvironment()
+	first := environment.InlineStringType(16)
+	second := environment.InlineStringType(16)
+	if !Equal(first, second) || first.CName != second.CName {
+		t.Fatalf("InlineStringType(16) values differ: %#v != %#v", first, second)
+	}
+	if first.Name != "String<16>" || first.CName != "hex_string_16" || first.InlineString == nil || first.InlineString.Capacity != 16 {
+		t.Fatalf("String<16> = %#v, want name String<16>, C name hex_string_16, capacity 16", first)
+	}
+	other := environment.InlineStringType(32)
+	if Equal(first, other) || first.CName == other.CName {
+		t.Fatalf("String<16> and String<32> must be distinct types: %#v %#v", first, other)
+	}
+	if !IsText(first) || !IsInlineString(first) || IsString(first) {
+		t.Fatalf("String<16> classification is wrong: text=%v inline=%v heap=%v", IsText(first), IsInlineString(first), IsString(first))
+	}
+	for _, capacity := range []uint64{0, MaxInlineStringCapacity + 1} {
+		if typ := environment.InlineStringType(capacity); typ != (Type{}) {
+			t.Fatalf("InlineStringType(%d) = %#v, want the zero type", capacity, typ)
+		}
+	}
+	if typ := environment.InlineStringType(MaxInlineStringCapacity); typ.InlineString == nil {
+		t.Fatalf("InlineStringType(%d) must resolve", MaxInlineStringCapacity)
+	}
+}
+
+// The Error text capacities are the same identities the checker resolves for
+// a written String<128> and String<256>.
+func TestErrorTextCapacitiesShareTheWrittenTypes(t *testing.T) {
+	environment := NewEnvironment()
+	if !Equal(environment.InlineStringType(ErrorHeaderCapacity), ErrorHeaderText) || !Equal(environment.InlineStringType(ErrorMessageCapacity), ErrorMessageText) {
+		t.Fatal("a written String<128> or String<256> is not the Error text type")
+	}
+}
+
 func TestPointerInterningIsCompilationScoped(t *testing.T) {
 	first := NewEnvironment().PtrType(Int32)
 	second := NewEnvironment().PtrType(Int32)

@@ -18,8 +18,8 @@ func TestInferredDeclarationTakesTheInitializersType(t *testing.T) {
 	for _, testCase := range []struct{ name, source, want string }{
 		{
 			"constructor",
-			"fun demo(h: Heap) do\n    let names = Dict<Int32, Strand>(h)\n    names.free(h)\nend",
-			"hex_dict_Int32_Strand *const hex_v_names = hex_dict_new_Int32_Strand(",
+			"fun demo(h: Heap) do\n    let names = Dict<Int32, String<8>>(h)\n    names.free(h)\nend",
+			"hex_dict_Int32_String_8_ *const hex_v_names = hex_dict_new_Int32_String_8_(",
 		},
 		{
 			"named object literal",
@@ -84,12 +84,11 @@ func TestInferredDeclarationRejectsContextualInitializers(t *testing.T) {
 }
 
 func TestInferredDeclarationAcceptsDistinctLiteralTypes(t *testing.T) {
-	result := assertCompiles(t, "fun demo() do\n    let flag = true\n    let done = eos\n    let byte = b'A'\n    let rune = 'A'\nend")
+	result := assertCompiles(t, "fun demo() do\n    let flag = true\n    let done = eos\n    let byte = b'A'\nend")
 	for _, want := range []string{
 		"const bool hex_v_flag = true;",
 		"const hex_eos hex_v_done =",
 		"const uint8_t hex_v_byte = 65;",
-		"const uint32_t hex_v_rune = 65;",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
@@ -136,8 +135,8 @@ func TestInferredDeclarationCarriesMutability(t *testing.T) {
 // checked declaration.
 func TestInferredAndAnnotatedDeclarationsGenerateIdenticalC(t *testing.T) {
 	const prelude = "fun compute(): Int64 do\n    return 7\nend\ntype Entry is struct x: Int32, end\nfun demo(h: Heap) do\n"
-	inferred := assertCompiles(t, prelude+"    let total = compute()\n    let e = Entry(x = 1,)\n    let names = Dict<Int32, Strand>(h)\n    names.free(h)\nend")
-	annotated := assertCompiles(t, prelude+"    let total: Int64 = compute()\n    let e: Entry = Entry(x = 1,)\n    let names: Dict<Int32, Strand> = Dict<Int32, Strand>(h)\n    names.free(h)\nend")
+	inferred := assertCompiles(t, prelude+"    let total = compute()\n    let e = Entry(x = 1,)\n    let names = Dict<Int32, String<8>>(h)\n    names.free(h)\nend")
+	annotated := assertCompiles(t, prelude+"    let total: Int64 = compute()\n    let e: Entry = Entry(x = 1,)\n    let names: Dict<Int32, String<8>> = Dict<Int32, String<8>>(h)\n    names.free(h)\nend")
 	for _, key := range []string{"modules/app.c", "modules/app.h", "hexal.h"} {
 		if inferred.Files[key] != annotated.Files[key] {
 			t.Fatalf("%s differs between the inferred and annotated forms:\n--- inferred ---\n%s\n--- annotated ---\n%s", key, inferred.Files[key], annotated.Files[key])

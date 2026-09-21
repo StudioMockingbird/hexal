@@ -93,7 +93,7 @@ let u16: UInt16 = 4
 let u8: UInt8 = 5
 let f64: Float64 = 6.5
 let f32: Float32 = 7.5
-let strand: Strand = "a"
+let inline: String<8> = "a"
 let flag: Bool = true
 let i16: Int16 = 10
 let a1: Int32 = identity(i32)
@@ -103,7 +103,7 @@ let a4: UInt16 = identity(u16)
 let a5: UInt8 = identity(u8)
 let a6: Float64 = identity(f64)
 let a7: Float32 = identity(f32)
-let a8: Strand = identity(strand)
+let a8: String<8> = identity(inline)
 let a9: Bool = identity(flag)
 let a10: Int16 = identity(i16)
 let box1: Box<Int32> = Box(value = i32)
@@ -114,8 +114,8 @@ let box3: Box<UInt32> = Box(value = u32)
 let b3: UInt32 = box3.get()
 let box4: Box<Float64> = Box(value = f64)
 let b4: Float64 = box4.get()
-let box5: Box<Strand> = Box(value = strand)
-let b5: Strand = box5.get()`,
+let box5: Box<String<8>> = Box(value = inline)
+let b5: String<8> = box5.get()`,
 		},
 		entrypoint: "app.hex",
 	},
@@ -210,7 +210,7 @@ end`,
     totals.insert(2, 75)
     let fixed: Array<Float64, 4> = [1.5, 2.5, 3.5, 4.5]
     let view: Slice<Float64> = fixed.slice(0, 4)
-    let names: List<Strand> = List<Strand>(h)
+    let names: List<String<8>> = List<String<8>>(h)
     defer names.free(h)
     names.push("alpha")
     names.push("beta")
@@ -227,11 +227,9 @@ end`,
 		name: "text",
 		sources: map[string]string{
 			"app.hex": `fun count_letters(text: String): Int32 do
-    let cursor: RuneCursor = text.rune_cursor()
     let mut letters: Int32 = 0
-    while cursor.has_next() do
-        let value: Rune = cursor.next()
-        if value == ' ' then
+    for value: Byte in text do
+        if value == b' ' then
             continue
         end
         letters = letters + 1
@@ -241,8 +239,8 @@ end
 fun demo(h: Heap): Int32 do
     let text: String = "caf\u{00E9} finale \u{03BB}"
     let raw: Slice<Byte> = text.bytes()
-    let label: Strand = "hexal"
-    let runtime: String = label.to_string(h)
+    let label: String<8> = "hexal"
+    let runtime: String = label.copy(h)
     let mut total: Int32 = count_letters(text) + raw[1].to<Int32>() + runtime.length().to<Int32>()
     runtime.free(h)
     return total

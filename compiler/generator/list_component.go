@@ -13,7 +13,7 @@ type listComponentModel struct {
 	// NeedsSlice is true when some specialization has a slice helper, which
 	// is the only content naming the slice component.
 	NeedsSlice bool
-	// NeedsHeapString is true when some specialization's element is String,
+	// NeedsHeapString is true when some specialization's element is text,
 	// whose spelling (a pointer to hex_string) is defined by
 	// hexal/string.h -- a direct dependency of this file, not something a
 	// consumer's own include order can be relied on to supply first.
@@ -47,7 +47,7 @@ type listComponentRecord struct {
 	// descriptors over the element when reachable; either may be empty.
 	SliceCName    string
 	MutSliceCName string
-	// NeedsHeapString is true when this specialization's element is String.
+	// NeedsHeapString is true when this specialization's element is text.
 	NeedsHeapString  bool
 	NeedsConcurrency bool
 	NeedsFile        bool
@@ -82,7 +82,7 @@ func listComponentRecordFor(list compilerTypes.Type, sliceState *generatedSliceS
 		AtReadReturn:     atReadReturn,
 		SliceCName:       sliceCName,
 		MutSliceCName:    mutSliceCName,
-		NeedsHeapString:  compilerTypes.IsString(element),
+		NeedsHeapString:  compilerTypes.IsText(element),
 		NeedsConcurrency: element.Task != nil || element.Channel != nil || compilerTypes.IsMutex(element),
 		NeedsFile:        compilerTypes.IsFile(element),
 		NeedsNetwork:     elementNeedsNetwork(element),

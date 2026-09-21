@@ -335,8 +335,8 @@ static hex_t_ErrorKind hex_file_error_kind(int status, bool opening) {
         if (hex_handle_error_kind(status, &mapped)) {
             return mapped;
         }
-        hex_strand header = {0};
         static const char text[] = "filesystem error";
+        hex_string_128 header = { .byte_length = sizeof(text) - 1 };
         memcpy(header.data, text, sizeof(text) - 1);
         return (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_Other, .other_header = header};
     }
@@ -349,6 +349,6 @@ hex_t_Error hex_file_error(size_t line, size_t column, const hex_string *file, i
         .hex_m_line = line,
         .hex_m_column = column,
         .hex_m_kind = hex_file_error_kind(status, opening),
-        .hex_m_message = message,
+        .hex_m_message = hex_error_message(hex_text_heap(message)),
     };
 }

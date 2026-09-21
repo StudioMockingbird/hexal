@@ -111,6 +111,81 @@ func (environment *Environment) ArrayType(element Type, length uint64) Type {
 	return typ
 }
 
+// MaxInlineStringCapacity is the largest String<N> capacity: one page, past
+// which an inline text value is the wrong tool for a stack.
+const MaxInlineStringCapacity = 4096
+
+// InlineStringInfo is the metadata of an inline text type, String<N>.
+type InlineStringInfo struct {
+	// Capacity is N, the number of payload bytes the value can hold.
+	Capacity uint64
+}
+
+func inlineStringKey(capacity uint64) string {
+	return "string:" + strconv.FormatUint(capacity, 10)
+}
+
+// InlineStringType constructs or retrieves the canonical String<N> type for
+// one capacity in 1 through MaxInlineStringCapacity. It returns the zero Type
+// outside that range.
+func (environment *Environment) InlineStringType(capacity uint64) Type {
+	if environment == nil || capacity == 0 || capacity > MaxInlineStringCapacity {
+		return Type{}
+	}
+	canonicalKey := inlineStringKey(capacity)
+	if cached, ok := environment.arena.stringTypes[canonicalKey]; ok {
+		return cached
+	}
+	identity := newTypeIdentity()
+	identity.signature = canonicalKey
+	length := strconv.FormatUint(capacity, 10)
+	typ := Type{
+		Name:         "String<" + length + ">",
+		CName:        environment.arena.uniqueCollectionCName("hex_string_"+length, Type{}),
+		CanonicalKey: canonicalKey,
+		InlineString: &InlineStringInfo{Capacity: capacity},
+		identity:     identity,
+	}
+	environment.arena.stringTypes[canonicalKey] = typ
+	return typ
+}
+
+// The two capacities Error fixes: an ErrorKind.Other header and an Error
+// message. They are compiler-owned instances, seeded into every arena so the
+// checker's own String<128> and String<256> resolve to the same identity.
+const (
+	ErrorHeaderCapacity  = 128
+	ErrorMessageCapacity = 256
+)
+
+var (
+	// ErrorHeaderText is String<128>, the ErrorKind.Other header type.
+	ErrorHeaderText = builtinInlineString(ErrorHeaderCapacity)
+	// ErrorMessageText is String<256>, the Error.message type.
+	ErrorMessageText = builtinInlineString(ErrorMessageCapacity)
+)
+
+var builtinInlineStrings = []Type{ErrorHeaderText, ErrorMessageText}
+
+func builtinInlineString(capacity uint64) Type {
+	identity := newTypeIdentity()
+	identity.signature = inlineStringKey(capacity)
+	length := strconv.FormatUint(capacity, 10)
+	return Type{
+		Name:         "String<" + length + ">",
+		CName:        "hex_string_" + length,
+		CanonicalKey: inlineStringKey(capacity),
+		InlineString: &InlineStringInfo{Capacity: capacity},
+		identity:     identity,
+	}
+}
+
+// IsInlineString reports whether typ is some String<N>.
+func IsInlineString(typ Type) bool { return typ.InlineString != nil }
+
+// IsText reports whether typ is a text type: the heap String or any String<N>.
+func IsText(typ Type) bool { return IsString(typ) || IsInlineString(typ) }
+
 // SliceType constructs or retrieves the canonical Slice<T> or Slice<mut T>
 // type of one element. Element eligibility follows the shared position
 // model; nested slices are valid, and each access mode interns separately.
@@ -461,14 +536,16 @@ func (environment *Environment) AtomicType(element Type) Type {
 	return typ
 }
 
-// IsDictKey reports whether typ may be a dictionary key: exactly Int32
-// or Strand.
+// IsDictKey reports whether typ may be a dictionary key: exactly Int32 or an
+// inline String<N> of any capacity. The heap String is not a key: a Dict stores
+// its keys, and a handle would leave the table pointing at bytes it does not
+// own.
 func IsDictKey(typ Type) bool {
-	return Equal(typ, Int32) || IsStrand(typ)
+	return Equal(typ, Int32) || IsInlineString(typ)
 }
 
 // DictType constructs or retrieves the canonical Dict<K, V> type of one key
-// and one collection-element value. Only Int32 and Strand keys are valid.
+// and one collection-element value. Only Int32 and String<N> keys are valid.
 func (environment *Environment) DictType(key, value Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, key, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||

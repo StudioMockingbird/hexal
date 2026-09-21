@@ -1064,7 +1064,8 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.ArrayLiteralExpression, checker.IndexExpression, checker.CollectionMethodCallExpression, checker.CollectionSliceExpression:
 		return validateCollectionExpression(node, expected, state)
-	case checker.StringLiteralExpression, checker.StringMethodCallExpression, checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.StringInterpolateExpression, checker.RuneCursorMethodCallExpression:
+	case checker.StringLiteralExpression, checker.StringMethodCallExpression, checker.StringFromBytesExpression, checker.StringInterpolateExpression,
+		checker.InlineStringConstructExpression, checker.TextCoerceExpression:
 		return validateTextExpression(node, expected, state)
 	case checker.ListNewExpression, checker.DictNewExpression:
 		return validateCollectionConstructor(node, expected, state)
@@ -1086,9 +1087,18 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		if node.Left == nil || node.Right == nil || node.OperandType == (compilerTypes.Type{}) || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) || node.Operator != checker.EqualOperator && node.Operator != checker.NotEqualOperator {
 			return unknownExpressionDiagnostic("deep equality has invalid checked metadata")
 		}
+		// Two text operands may be different forms; every other comparison
+		// has one compared type.
+		rightExpected := node.OperandType
+		if compilerTypes.IsText(node.OperandType) {
+			if !compilerTypes.IsText(node.RightType) {
+				return unknownExpressionDiagnostic("text equality has a non-text right operand")
+			}
+			rightExpected = node.RightType
+		}
 		leftType, leftOK := expressionTypeWithState(*node.Left, state)
 		rightType, rightOK := expressionTypeWithState(*node.Right, state)
-		if !leftOK || !rightOK || !compilerTypes.Equal(leftType, node.OperandType) || !compilerTypes.Equal(rightType, node.OperandType) {
+		if !leftOK || !rightOK || !compilerTypes.Equal(leftType, node.OperandType) || !compilerTypes.Equal(rightType, rightExpected) {
 			return unknownExpressionDiagnostic("deep equality operand does not match its compared type")
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
@@ -1097,7 +1107,7 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		if err := validateExpressionChildWithState(node.Left, node.OperandType, state); err != nil {
 			return err
 		}
-		return validateExpressionChildWithState(node.Right, node.OperandType, state)
+		return validateExpressionChildWithState(node.Right, rightExpected, state)
 	case checker.ConversionExpression:
 		if node.Operand == nil || node.OperandType == (compilerTypes.Type{}) || node.ResultType == (compilerTypes.Type{}) || node.MemberIndex < 0 || node.MemberIndex > 2 {
 			return unknownExpressionDiagnostic("numeric conversion has invalid checked metadata")
@@ -1118,7 +1128,7 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		}
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.ErrorHeaderExpression:
-		if node.Operand == nil || !compilerTypes.IsError(node.OperandType) || !compilerTypes.IsStrand(node.ResultType) {
+		if node.Operand == nil || !compilerTypes.IsError(node.OperandType) || !compilerTypes.Equal(node.ResultType, compilerTypes.ErrorHeaderText) {
 			return unknownExpressionDiagnostic("Error.header has invalid checked metadata")
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
@@ -1126,7 +1136,7 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		}
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.ErrorKindHeaderExpression:
-		if node.Operand == nil || !compilerTypes.IsErrorKind(node.OperandType) || !compilerTypes.IsStrand(node.ResultType) {
+		if node.Operand == nil || !compilerTypes.IsErrorKind(node.OperandType) || !compilerTypes.Equal(node.ResultType, compilerTypes.ErrorHeaderText) {
 			return unknownExpressionDiagnostic("ErrorKind.header has invalid checked metadata")
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
@@ -1224,7 +1234,7 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		}
 		return nil
 	case checker.StringCompareExpression:
-		if node.Left == nil || node.Right == nil || !compilerTypes.IsString(node.OperandType) && !compilerTypes.IsStrand(node.OperandType) || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) {
+		if node.Left == nil || node.Right == nil || !compilerTypes.IsText(node.OperandType) || !compilerTypes.IsText(node.RightType) || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) {
 			return unknownExpressionDiagnostic("text ordering has invalid checked metadata")
 		}
 		switch node.Operator {
@@ -1234,7 +1244,7 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		}
 		leftType, leftOK := expressionTypeWithState(*node.Left, state)
 		rightType, rightOK := expressionTypeWithState(*node.Right, state)
-		if !leftOK || !rightOK || !compilerTypes.Equal(leftType, node.OperandType) || !compilerTypes.Equal(rightType, node.OperandType) {
+		if !leftOK || !rightOK || !compilerTypes.Equal(leftType, node.OperandType) || !compilerTypes.Equal(rightType, node.RightType) {
 			return unknownExpressionDiagnostic("text ordering operand does not match its compared type")
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
@@ -1243,7 +1253,7 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		if err := validateExpressionChildWithState(node.Left, node.OperandType, state); err != nil {
 			return err
 		}
-		return validateExpressionChildWithState(node.Right, node.OperandType, state)
+		return validateExpressionChildWithState(node.Right, node.RightType, state)
 	default:
 		return unknownExpressionDiagnostic("unsupported checked expression")
 	}
@@ -1627,7 +1637,7 @@ func validateUnaryMetadata(node checker.Expression) error {
 			return unknownExpressionDiagnostic("logical not requires a truthy-compatible operand and a Bool result")
 		}
 	case checker.BitwiseNotOperator:
-		if !compilerTypes.Equal(node.OperandType, node.ResultType) || !compilerTypes.IsInteger(node.OperandType) || compilerTypes.IsRune(node.OperandType) {
+		if !compilerTypes.Equal(node.OperandType, node.ResultType) || !compilerTypes.IsInteger(node.OperandType) {
 			return unknownExpressionDiagnostic("complement has invalid checked types")
 		}
 	default:
@@ -1667,7 +1677,7 @@ func validateBinaryMetadata(node checker.Expression) error {
 		resultIsBool = true
 	case checker.BitwiseAndOperator, checker.BitwiseXorOperator, checker.BitwiseOrOperator,
 		checker.ShiftLeftOperator, checker.ShiftRightOperator:
-		if !compilerTypes.IsInteger(node.OperandType) || compilerTypes.IsRune(node.OperandType) || !compilerTypes.Equal(node.OperandType, node.ResultType) {
+		if !compilerTypes.IsInteger(node.OperandType) || !compilerTypes.Equal(node.OperandType, node.ResultType) {
 			return unknownExpressionDiagnostic("bitwise or shift operation has invalid checked types")
 		}
 	default:
@@ -1810,7 +1820,7 @@ func checkedPlaceMetadata(node checker.Expression, state *expressionValidation) 
 		}
 		return generatedPlace{typ: node.ResultType, addressable: parent.addressable, writable: parent.writable}, nil
 	case checker.IndexExpression:
-		if node.Operand == nil || len(node.Arguments) != 1 || node.OperandType.Array == nil && node.OperandType.Slice == nil && node.OperandType.List == nil && !compilerTypes.IsString(node.OperandType) && !compilerTypes.IsStrand(node.OperandType) {
+		if node.Operand == nil || len(node.Arguments) != 1 || node.OperandType.Array == nil && node.OperandType.Slice == nil && node.OperandType.List == nil {
 			return generatedPlace{}, unknownExpressionDiagnostic("place index has invalid checked metadata")
 		}
 		receiver, err := checkedPlaceMetadata(*node.Operand, state)
@@ -1832,16 +1842,14 @@ func checkedPlaceMetadata(node checker.Expression, state *expressionValidation) 
 			element = node.OperandType.Array.Element
 		} else if node.OperandType.Slice != nil {
 			element = node.OperandType.Slice.Element
-		} else if node.OperandType.List != nil {
-			element = node.OperandType.List.Element
 		} else {
-			element = compilerTypes.Rune
+			element = node.OperandType.List.Element
 		}
 		if node.ResultType != (compilerTypes.Type{}) && !compilerTypes.Equal(node.ResultType, element) {
 			return generatedPlace{}, unknownExpressionDiagnostic("place index result type does not match its element type")
 		}
 		// A Slice element place is never writable; a mutable Array place or
-		// any live List reference is. Text indexing is read-only.
+		// any live List reference is.
 		writable := node.OperandType.Array != nil && receiver.writable || node.OperandType.List != nil
 		return generatedPlace{typ: element, addressable: receiver.addressable, writable: writable}, nil
 	default:

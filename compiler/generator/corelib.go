@@ -182,7 +182,7 @@ func corelibErrorArm(tags *tagRegistry, file string, union compilerTypes.Type, k
 	if tag == "" || field == "" {
 		return "", unknownExpressionDiagnostic("core-library result union has no Error member")
 	}
-	return fmt.Sprintf("(%s){ .tag = %s, .payload.%s = (hex_t_Error){ .hex_m_file = %s, .hex_m_line = line, .hex_m_column = column, .hex_m_kind = %s, .hex_m_message = %s } }",
+	return fmt.Sprintf("(%s){ .tag = %s, .payload.%s = (hex_t_Error){ .hex_m_file = %s, .hex_m_line = line, .hex_m_column = column, .hex_m_kind = %s, .hex_m_message = hex_error_message(hex_text_heap(%s)) } }",
 		union.CName, tag, field, file, kind, message), nil
 }
 

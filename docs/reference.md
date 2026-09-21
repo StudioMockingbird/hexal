@@ -88,8 +88,8 @@ The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using 
   function declared later, but a root declaration's own type annotation keeps the same source-order
   restriction as a type declaration: it cannot name a type not yet declared.
 - Type and value names share one namespace. Protected names cannot be redeclared or shadowed.
-  Protected types are every scalar plus `Size`, `Byte`, `Rune`, `String`, `Strand`, `Nil`, `EoS`,
-   `Unknown`, `Heap`, `Error`, `ErrorKind`, `RuneCursor`, `Mutex`,
+  Protected types are every scalar plus `Size`, `Byte`, `String`, `Nil`, `EoS`,
+   `Unknown`, `Heap`, `Error`, `ErrorKind`, `Mutex`,
    and constructors `Ptr`,
    `Slice`, `Fun`, `Array`, `List`, `Dict`, `Task`, `Channel`, `Atomic`, `Stash`, `Pool`.
    The retired `MutPtr` and `View` names stay reserved but name no type; the never-implemented
@@ -108,7 +108,8 @@ The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using 
   float, or string literal, `nil`, an array literal, or a `match` whose every arm is contextual.
   Stating it on neither side is an error. Written parameters, members, ADT payloads, and results
   always require an explicit type. Compiler-typed `self` and `for` binders are the remaining
-  exceptions.
+  exceptions; a `for` binder may also be written with a type, which must equal the type it would
+  take (see `for ... in`).
 - `=` assigns to an existing writable place. It does not introduce a value binding. Module aliases
   and a labeled constructor argument (`name = value` inside a struct or ADT-variant call) retain
   their grammar-defined uses of `=`.
@@ -369,13 +370,15 @@ ABI type set on a qualified target:
   storage the scheduler reclaims through join or detach, and Stash, which exposes `reset`/`destroy`
   in place of `free`. A type that is inline or borrows
    storage is a value: it is passed by value and a copy copies its region. These are scalars,
-   `Strand`, Array, objects, ADTs, and Slice. A new type derives its representation from this
-   rule rather than from resemblance to an existing one.
+   `String<N>`, Array, objects, ADTs, and Slice. A new type derives its representation from this
+   rule rather than from resemblance to an existing one. `String<N>` is the case the rule exists
+   for: it is text like `String`, but it owns no allocation and exposes no `free`, so it is a
+   value, while the unparameterized `String` owns its bytes and is a handle.
 - The rule is ownership because the C struct shape does not decide it: `String` and `Slice<T>`
   are both a pointer and a length, and differ only in that `String` owns its bytes while a Slice
   borrows them. `String` is therefore a handle and a Slice is a descriptor value.
 - Every value is stored inline. Every copy copies the C representation. Scalars and
-  inline aggregates (`Strand`, Array, objects, ADTs) copy all inline bytes. Pointers and
+  inline aggregates (`String<N>`, Array, objects, ADTs) copy all inline bytes. Pointers and
   `String`, List, Dict, Task, Channel, Mutex, Stash, Pool copy their handle representation. Slice
   copies its pointer-length descriptor. Copies of a writable Slice alias the same elements;
   correct exclusive use is the programmer's responsibility. Heap copies a stateless token that selects the one default
@@ -383,7 +386,7 @@ ABI type set on a qualified target:
 - Assignment, arguments, returns, object/ADT construction, collection insertion, union injection,
   and Task capture are shallow copies. Copying does not invalidate the source.
 - Values referring to external state include String, List, Dict, Task, Channel, Mutex, Stash, Pool,
-  RuneCursor, Slice, and aggregates containing them. Copies alias the same state. Freeing one
+  Slice, and aggregates containing them. Copies alias the same state. Freeing one
   alias leaves others dangling; losing the last handle can leak. A Slice additionally never
   owns its backing Array, List, String, allocation, or foreign region: keeping that storage
   alive and unreallocated for every Slice use is the programmer's responsibility, and misuse
@@ -441,7 +444,6 @@ HeapAllocation
 | `Float32`, `Float64` | IEC 60559 binary32/64 | `float`, `double` |
 | `Size` | target-sized unsigned length/index | `size_t` |
 | `Byte` | transparent alias of `UInt8` | `uint8_t` |
-| `Rune` | Unicode scalar value | `uint32_t` |
 | `Nil` | zero-state `nil`; valid only as a union member | no stable foreign ABI |
 | `EoS` | zero-state completion `eos`; valid standalone | no stable foreign ABI |
 
@@ -454,8 +456,10 @@ HeapAllocation
   range, alignment, and representation. Hexal has no Size width, no width assertion, and never
   rejects a conforming target for its `sizeof(size_t)`. Size remains canonically distinct from
   fixed-width integers.
-- Rune is distinct from UInt32 and excludes surrogates. `Int`, `UInt`, `Float`, `Double`, `Char`,
-  `Long`, `ISize`, and `Void` are not built-ins.
+- `Int`, `UInt`, `Float`, `Double`, `Char`, `Long`, `ISize`, `Void`, `Rune`, `RuneCursor`, and
+  `Strand` are not built-ins. `Rune`, `RuneCursor`, and `Strand` were removed with rune-based
+  text; naming one reports a migration hint (`Rune` and `RuneCursor` point at `Byte`, `Strand` at
+  `String<N>`), and the names are not reserved.
 - Nil is valid only in a union containing at least one non-Nil member. Standalone Nil is invalid in
   aliases, bindings, parameters, results, members, payloads, collection positions, and generic
   arguments. The `nil` literal requires a contextual union containing Nil, except as a `print`
@@ -520,9 +524,10 @@ HeapAllocation
   with `== nil`, `!= nil`, or match before dereference. The null niche adds no tag or allocation.
 - `Unknown` is incomplete and valid only behind `Ptr` in either mode. One pointer layer may erase to or recover
   from Unknown; Unknown cannot be stored or dereferenced by value.
-- String, List, Dict, and Slice cannot be `Ptr` pointees. Each already carries its own
-  aliasing and invalidation rules over borrowed or allocated storage, and a pointer to one would add
-  a second aliasing layer with no defined semantics. This is not a general handle exclusion:
+- The unparameterized `String`, List, Dict, and Slice cannot be `Ptr` pointees. Each already carries
+  its own aliasing and invalidation rules over borrowed or allocated storage, and a pointer to one
+  would add a second aliasing layer with no defined semantics. `String<N>` is an inline value with
+  no such rules and is a valid pointee. This is not a general handle exclusion:
   `Task<R>`, `Channel<T>`, `Mutex`, `Stash<T>`, and `Pool<T>` are shared by handle copy and are
   valid pointees.
 - `Atomic<T>` cannot be a direct `Ptr` pointee. `Ptr<Atomic<T>>` and
@@ -735,8 +740,8 @@ HeapAllocation
 - Direct by-value recursion is invalid; pointer-indirect recursion and generic
   specialization are valid.
 - `match` is an expression and evaluates its scrutinee once. Value mode matches `true`/`false` and
-  scalar literals: an integer, byte, or rune literal with an optional leading minus over an
-  integer-like scrutinee (`Int8`..`Int64`, `UInt8`..`UInt64`/`Byte`, `Size`, `Rune`), plus `eos`
+  scalar literals: an integer or byte literal with an optional leading minus over an
+  integer-like scrutinee (`Int8`..`Int64`, `UInt8`..`UInt64`/`Byte`, `Size`), plus `eos`
   over an `EoS` scrutinee. A scalar literal is typed contextually to the scrutinee type through the
   ordinary literal path; an out-of-range literal is rejected at the pattern, and a repeated constant
   after contextual typing is a duplicate. An integer-like domain is open, so a final `else` is
@@ -791,7 +796,7 @@ destinations only. `none` means no fixed-width destination.
   target-dependent constants are guarded by a generated C `static_assert`; dynamic out-of-range
   values trap before casting. Canonical identities remain distinct.
 - Binary numeric operations choose the unique least type losslessly reachable from both operands.
-  Surrounding result context does not change that choice. Rune never widens implicitly.
+  Surrounding result context does not change that choice.
 
 ### Explicit conversion
 
@@ -801,7 +806,7 @@ destinations only. `none` means no fixed-width destination.
   unsafe C conversion.
 - Integer conversion preserves the mathematical value. Integer/float and float/float round nearest,
   ties-to-even; finite overflow traps. Float/integer truncates toward zero then checks range; NaN and
-  infinities are invalid. Rune conversions also check Unicode scalar validity.
+  infinities are invalid.
 - Bool/numeric and pointer conversions are invalid. Wrapping, saturating, unchecked,
   destination-named, and mode-selecting conversions do not exist.
 - `bit_cast<T>()` reinterprets same-width bits; it is not a value conversion.
@@ -814,25 +819,26 @@ destinations only. `none` means no fixed-width destination.
   divisors are compile errors; dynamic zero traps. A signed type's `MIN / -1` yields MIN and
   `MIN % -1` yields zero.
 - Floating arithmetic follows IEC 60559; `%` is integer-only and NaN comparisons follow IEC rules.
-- Bitwise operations accept fixed integers, excluding Size (whose width follows the target), Rune,
+- Bitwise operations accept fixed integers, excluding Size (whose width follows the target),
   Bool, pointers, aggregates, and managed values. Shift counts must be `0..width-1`; bad constants
   fail and bad dynamic counts trap. Signed right shift is arithmetic, unsigned zero-filling.
-- Rune supports equality, ordering, and checked `to<T>()` conversion. Rune is invalid for `+`, `-`,
-  `*`, `/`, `%`, unary `-`, `~`, `&`, `^`, `|`, `<<`, and `>>`.
-- `bit_cast<T>()` supports equal-width fixed integers and Float32/64, excluding pointers, Size, Rune,
+- `bit_cast<T>()` supports equal-width fixed integers and Float32/64, excluding pointers, Size,
   and aggregates. Fixed integers provide `to_le_bytes()`/`to_be_bytes()` and
   `T.from_le_bytes(array)`/`T.from_be_bytes(array)` through exact `Array<Byte, N>`.
 
 ### Equality, ordering, and truthiness
 
 - Numeric comparison uses the lossless common type. Other comparisons require identical canonical
-  types. Bool, Rune, EoS compare by value; pointers by identity; text by UTF-8 bytes; objects by
-  members; ADTs by tag/payload; unions by member; Array/Slice/List by length then elements.
+  types, except that any two text operands (`String` and `String<N>` of any capacity) compare
+  with each other. Bool and EoS compare by value; pointers by identity; text by its bytes, so
+  equal bytes are equal regardless of form or capacity and canonically equivalent but
+  byte-different text is unequal; objects by members; ADTs by tag/payload; unions by member; Array/Slice/List by length then elements.
 - `== nil` and `!= nil` test whether a union's active member is Nil. They require a union containing
   Nil, are the only Nil comparison, and read no payload. Nil has no standalone value to compare.
-- String and Strand are not mutually comparable. Functions, allocators, and Dicts have no
-  equality. An aggregate is comparable only when all recursively compared components are.
-- Ordering exists only for numeric scalars, Rune, String, and Strand. Duration, Instant, and WallTime
+- Functions, allocators, and Dicts have no equality. An aggregate is comparable only when all
+  recursively compared components are.
+- Ordering exists only for numeric scalars and text, and any two text forms order against each
+  other. Duration, Instant, and WallTime
   additionally compare and order by value against the same type, as defined under Time; they have
   no aggregate equality. Text uses unsigned-byte
   lexicographic order with shorter prefix first.
@@ -881,16 +887,24 @@ destinations only. `none` means no fixed-width destination.
 
 | Source | Binders | Binder types and order |
 | --- | ---: | --- |
-| Array, Slice, List, String, Strand | 1 | value |
-| Array, Slice, List, String, Strand | 2 | `index: Size`, value |
+| Array, Slice, List, String, `String<N>` | 1 | value |
+| Array, Slice, List, String, `String<N>` | 2 | `index: Size`, value |
 | Dict | 2 | key, value |
 | Dict | 3 | `index: Size`, key, value |
 
 Every other source/arity combination is invalid.
 
-- Text iterates decoded Runes; Dict order is unspecified.
+- Text iterates its bytes as `Byte`; Dict order is unspecified.
+- A binder may carry a written type, `for name: Type in source`, on any binder. The written type
+  must equal the type the binder would take (`Byte` and `UInt8` are the same type), and a
+  disagreement is rejected naming both types. The value binder over text is the one binder that
+  must be annotated, because text has no default element type: `for b: Byte in text`. The index
+  binder is `Size`. A `List<X | Y>` element binder is the whole union, so annotating it with one
+  member is rejected.
 - Finite-source traversal boundaries are captured once. Array places iterate in place; temporary
-  Arrays and Strands materialize once; handles copy shallowly.
+  Arrays materialize once and an inline text source is read from a copy taken before the loop, so
+  reassigning the text inside the body changes neither the bytes read nor their count; handles
+  copy shallowly.
 - Binders are fresh immutable copies each iteration and names in one header are distinct. Nullable or
   union sources must first narrow to one iterable type.
 - Array and Slice traversal has a fixed boundary. Element replacement is valid; there is no structural resize operation.
@@ -931,21 +945,35 @@ type ErrorKind is union
     | NetworkUnreachable
     | BrokenPipe
     | NotConnected
-    | Other as header: Strand end
+    | Other as header: String<128> end
 end
 
-Error(kind: ErrorKind, message: String) -> Error
-Error.header()                         -> Strand
-ErrorKind.header()                     -> Strand
+Error(kind: ErrorKind, message: String<256>) -> Error
+Error.header()                         -> String<128>
+ErrorKind.header()                     -> String<128>
 ```
+
+`Error` is entirely inline: its message is a `String<256>` and an `ErrorKind.Other` header is a
+`String<128>`, so an `Error` owns nothing, needs no cleanup, and cannot allocate when built. It is
+about 432 bytes on `x86_64-linux-gnu` (`size_of<Error>()`), and `T | Error` results move that much.
+`Error` is one concrete type, not generic over these capacities.
+
+- The two bounded positions, the `message` argument of `Error(kind, message)` and the `header`
+  argument of `ErrorKind.Other`, are the only places text of any form converts to a fixed capacity
+  implicitly. Each accepts a `String`, a `String<M>` of any `M`, or a literal. A literal longer
+  than the bound is a compile error (`Error message literal exceeds 256 UTF-8 bytes`,
+  `ErrorKind.Other header literal exceeds 128 UTF-8 bytes`); a computed text that does not fit
+  traps (`[Runtime Error] Error message exceeds 256 bytes`, `[Runtime Error] ErrorKind.Other header
+  exceeds 128 bytes`) and is never truncated. Every other bounded position keeps the exact-type
+  rule.
 
 - `ErrorKind` is a protected compiler-owned nominal type; it cannot be redeclared or shadowed. Every
   unit variant is constructed with the ordinary call shape (`ErrorKind.NotFound()`); `Other` is the
-  only payload variant and stores one caller-supplied `header: Strand`. `ErrorKind` is complete,
+  only payload variant and stores one caller-supplied `header: String<128>`. `ErrorKind` is complete,
   finite, copyable, equality-comparable, non-orderable, and no more Dict-key eligible than an
   equivalent ADT. `==` and `!=` compare variant identity; two `Other` values are equal only when
   their header bytes are equal.
-- `ErrorKind.header() -> Strand` and `Error.header() -> Strand` derive the same display header
+- `ErrorKind.header() -> String<128>` and `Error.header() -> String<128>` derive the same display header
   without allocation: the fixed text below for a unit variant, or the stored header for `Other`.
   Header text is presentation only; classification and equality never compare it.
 - A type-mode `match` whose scrutinee is exactly `ErrorKind` requires a final `else`, even when the
@@ -965,10 +993,11 @@ ErrorKind.header()                     -> Strand
   `NetworkUnreachable` "network unreachable", `BrokenPipe` "broken pipe",
   `NotConnected` "not connected".
 - Protected nominal `Error` has fixed immutable fields `file: String`, `line: Size`, `column: Size`,
-  `kind: ErrorKind`, `message: String`. There is no stored `header` field.
+  `kind: ErrorKind`, `message: String<256>`. `file` is a compiler-injected static literal handle
+  that is never freed. There is no stored `header` field.
 - `Error(kind, message)` is the only constructor and injects the current module's logical
   source key plus one-based line and UTF-8 byte column. Propagation preserves the location. A
-  Strand-first (or otherwise non-ErrorKind) first argument is rejected: `Error requires ErrorKind as
+  non-ErrorKind first argument is rejected: `Error requires ErrorKind as
   its first argument; use Error(ErrorKind.Other(header = ...), message)`.
 - Classification compares `error.kind`, never `error.header()` display text. Two Errors differing
   only in kind compare unequal even when their headers are byte-equal.
@@ -978,8 +1007,8 @@ ErrorKind.header()                     -> Strand
   non-native producer's message remains a fixed, allocation-free operation string that never embeds
   a native number.
 - Fallible functions return structural unions containing Error; there are no exceptions or hidden
-  result channels. Error copying is shallow. Runtime `message` String storage must remain live while
-  any alias can be inspected or printed.
+  result channels. An Error is a self-contained value: copying it copies its message and header, and
+  nothing must outlive it.
 - A try expression or try statement requires exactly one Error member and at least one success
   member. It evaluates once and returns Error unchanged. A try expression yields the normalized
   success value/union; a try statement discards it. Neither catches traps.
@@ -1198,61 +1227,111 @@ Dict<K,V>.length() -> Size
 Dict<K,V>.free(heap: Heap) -> no value
 ```
 
-- Open-addressing allocated dictionary. K is exactly Int32 or Strand; V follows List eligibility.
-  Missing get/remove trap; find returns Nil for a missing key; insert replaces.
+- Open-addressing allocated dictionary. K is exactly Int32 or `String<N>` for any capacity; V
+  follows List eligibility. The heap `String` is not a key, because a Dict stores its keys and
+  `String` does not own its bytes (`dictionary key type String is not allowed: a Dict stores its
+  keys, and String does not own its bytes; use String<N>`); any other key type reports
+  `dictionary key type must be Int32 or String<N>`. Dicts keyed at different capacities are
+  different types, and a key of another capacity is converted by hand
+  (`dictionary key requires String<128>; got String<16>; use widen<128>()`). A literal key is
+  measured against the key capacity at compile time. Missing get/remove trap; find returns Nil for
+  a missing key; insert replaces.
 - Keys and values copy shallowly. Reads/removal return aliases; replacement/free drop entries without
   freeing referents. Free releases only buckets/header. Overwriting the final reachable handle leaks
   its referent.
-- Hashing is internal and infallible for supported keys. Equal values hash equally; Strand hashes
-  logical payload excluding terminator/zero tail. Algorithm, seed, and iteration order are unstable
+- Hashing is internal and infallible for supported keys. Equal values hash equally; a text key
+  hashes and compares only its logical bytes (embedded NUL included, storage past `byte_length`
+  excluded), so equal bytes are one key at any capacity. Algorithm, seed, and iteration order are unstable
   and unspecified; no source hash operation exists.
 
 ## Text
 
 ```text
-String.length() -> Size
-String.bytes() -> Slice<Byte>
-String.slice(start: Integer, end: Integer) -> Slice<Byte>
-String.rune_cursor() -> RuneCursor
-String.to_string(heap: Heap) -> String
-String.concat(heap: Heap, other: String) -> String
-String.free(heap: Heap) -> no value
-String.from_bytes(heap: Heap, bytes: Slice<Byte>) -> String
-String.from_runes(heap: Heap, runes: Slice<Rune>) -> String
-String.interpolate(heap: Heap, template: InterpolationTemplate) -> String
-Strand.length() -> Size
-Strand.to_string(heap: Heap) -> String
-RuneCursor.has_next() -> Bool
-RuneCursor.next() -> Rune
+String        heap allocated, variable size, owns its bytes
+String<N>     inline value storage holding up to N bytes
 ```
 
+`N` is a positive decimal integer literal from 1 to 4096 (`String<1_024>` and `String<1024>` are
+one type). Any other spelling is rejected: `String capacity must be a positive integer literal`,
+`String capacity 4097 exceeds the maximum of 4096`, `String takes at most one capacity argument`.
+No name, expression, or generic parameter can stand for a capacity.
+
+```text
+String.length() -> Size                                       O(1)
+String.bytes() -> Slice<Byte>                                 O(1)
+String.slice(start: Integer, end: Integer) -> Slice<Byte>     O(1), byte bounds
+String.copy(heap: Heap) -> String
+String.concat(heap: Heap, other: Slice<Byte>) -> String | Error
+String.free(heap: Heap) -> no value
+String.from_bytes(heap: Heap, bytes: Slice<Byte>) -> String | Error
+String.interpolate(heap: Heap, template: InterpolationTemplate) -> String
+String.c_pointer() -> Ptr<Byte>                               unsafe
+
+String<N>.length() -> Size
+String<N>.bytes() -> Slice<Byte>
+String<N>.slice(start: Integer, end: Integer) -> Slice<Byte>
+String<N>.copy(heap: Heap) -> String
+String<N>.widen<M>() -> String<M>                             M >= N; infallible
+String<N>.from_bytes(bytes: Slice<Byte>) -> String<N> | Error
+String<N>.concat(left: Slice<Byte>, right: Slice<Byte>) -> String<N> | Error
+String<N>.interpolate(template: InterpolationTemplate) -> String<N> | Error
+```
+
+`String<N>` has no `free` and no `c_pointer`. `to_string`, `rune_cursor`, and `from_runes` do not
+exist.
+
 - Byte is UInt8. A byte literal contains exactly one printable ASCII byte or one of
-  `\\ \' \n \r \t \0 \xHH`.
-- A Rune literal contains one Unicode scalar and also supports `\"` and `\u{HEX}`; it is not a
-  grapheme cluster.
-- String is immutable UTF-8 behind a non-null pointer-sized handle. Runtime values use one
-  header-plus-bytes allocation; literals use static storage. Strand is immutable literal-only inline
-  32 bytes: at most 31 UTF-8 bytes, NUL, then zero fill; embedded NUL/invalid UTF-8/overflow reject.
-- String and Strand `length()` counts Runes; byte Slices count bytes. String stores the count in its
-  heap header, set at every construction, so `length()` is a field read and `slice` validates its
-  bounds without scanning. Strand has no room for a count and scans, bounded by its 31 payload bytes.
-  Neither is indexable: reaching the
-  nth Rune of UTF-8 walks from the start, so a positional loop would be quadratic behind O(1)
-  syntax. `rune_cursor` walks Runes in one pass and `bytes` gives indexed byte access.
-- String slice uses Rune bounds and returns the corresponding zero-copy UTF-8 bytes. `from_bytes`
-  validates before allocation and traps on malformed UTF-8.
-- RuneCursor borrows String; `next` traps after exhaustion. Copies hold independent positions over
-  the same storage.
+  `\\ \' \n \r \t \0 \xHH`. A single quote that does not follow `b` begins no literal and is
+  reported (`bare-quote literals are reserved; use b'a' for a byte or "a" for text`).
+- Text is validated UTF-8 bytes and nothing else: `length()` and `slice` count and bound by bytes
+  on every form, so `"héllo".length()` is 6, `slice` is O(1) and legal on a byte that splits a
+  sequence, and nothing in the language decodes text into characters. Text is not indexable; `bytes`
+  gives indexed byte access, and `for b: Byte in text` iterates bytes. A slice is bytes, not text:
+  feeding one back through `from_bytes` or `concat` validates it again.
+- `String` is immutable UTF-8 behind a non-null pointer-sized handle holding the data pointer, the
+  byte length, and the storage kind. Runtime values use one allocation with one trailing NUL that
+  the length does not count, so `c_pointer()` yields a NUL-terminated string; literals use static
+  storage. `String<N>` is a value of `byte_length` plus `N` bytes of storage (`size_of<String<31>>()`
+  is 40 on `x86_64-linux-gnu`); it owns nothing, copies with its bytes, and needs no cleanup.
+- `from_bytes` and `concat` are the validating boundaries: bytes become text only there, and
+  validation covers the joined result, so a multi-byte sequence split across the two operands of
+  `String<N>.concat` is accepted. Both forms return `| Error`. Capacity is checked before content,
+  so input that is both too long and malformed reports the capacity failure. Malformed input is
+  `InvalidInput` with message `invalid UTF-8 in string`; an inline overflow is `ResourceExhausted`
+  with message `string exceeds capacity`. No failure allocates or yields a partial value. Heap
+  `concat` appends to text that is already valid and validates only what it appends. Heap
+  `interpolate` and `copy` cannot fail and return a plain `String`; heap allocation failure still
+  traps.
+- A string literal takes the form its context names: a `String<N>` context measures it in bytes
+  and rejects it above N at compile time (`String<4> literal exceeds 4 UTF-8 bytes`); a `String`
+  context or an untyped position gives the static-backed heap form. A literal converts to a union
+  member by the first written member whose capacity holds it, so `String<16> | String<32>` holds a
+  `String<16>` and `String<32> | String<16>` a `String<32>`; when none fits, `no member of ...
+  accepts this expression`. A non-literal `String<M>` injects only into the member that is exactly
+  `String<M>`.
+- No implicit conversion exists between text forms in any position (binding, argument, return,
+  member, payload, element). A mismatch names the explicit route: `; use widen<M>()` when the
+  source fits, `; use String<N>.from_bytes(...) for a checked conversion` from `String`, and
+  `; use copy(heap)` to `String`. The one exception is the bounded Error text described under
+  Errors.
+- `bytes()` and `slice()` on a `String<N>` need an addressable place (a binding, a member, a `mut`
+  binding), since the slice would point into the value itself: on a temporary they report `a
+  Slice cannot be rooted in a temporary String<N>`. The slice reads the current bytes, so keeping
+  the place unassigned for the slice's use is the programmer's responsibility. No `Slice<mut Byte>`
+  over text exists.
 - Runtime String allocations require one matching free; all aliases then dangle. Literals must never
   be freed: a free the checker proves literal-backed is rejected, and any other literal-backed free
   traps at runtime. Runtime String storage records its ownership. Collection reads produce aliases
   without ownership transfer or lifetime protection.
-- String and Strand dispatch separately; Strand exposes no Slice into inline bytes.
+- `String<N>` is a valid `Ptr` pointee (`Ptr<String<N>>`, `@place`, `^p = other`); the
+  unparameterized `String` is not. Neither form has a C ABI mapping as a foreign parameter, result,
+  global, or record field (`String<N> has no supported C ABI mapping for target <target>`), but a
+  pointer to `String<N>` crosses as an address.
 - A raw string literal (`r"..."`, `r#"..."#`, `r##"..."##`, ...) copies its content byte-for-byte
   with no escape or interpolation processing; any number of `#` delimiters is accepted, and the
   literal closes at the first `"` followed by at least that many `#` characters. It is static-backed
-  like an interpreted literal (never freed) and identical in byte length, rune length, equality,
-  ordering, slicing, and print behavior to an interpreted literal with the same UTF-8 bytes.
+  like an interpreted literal (never freed) and identical in byte length, equality, ordering,
+  slicing, and print behavior to an interpreted literal with the same UTF-8 bytes.
 - Every interpreted string is scanned for unescaped `{{`, whether or not it appears inside
   `String.interpolate`; `\{` and `\}` are escapes producing literal braces, and a single unescaped
   `{`, `}`, or `}}` outside an active `{{ ... }}` region is literal text. A `{{ expression }}` found
@@ -1261,13 +1340,15 @@ RuneCursor.next() -> Rune
 - `String.interpolate(heap, template)` builds one heap-owned String: the Heap evaluates first and
   exactly once, then each embedded expression evaluates exactly once, left to right, formatted with
   the same spelling `print` uses (no quotes, separators, or trailing line break) and concatenated
-  with the template's literal text in source order. The template must contain at least one
+  with the template's literal text in source order. `String<N>.interpolate(template)` does the same
+  into inline storage with no Heap and returns `String<N> | Error`, failing with the capacity
+  failure when the result does not fit. The template must contain at least one
   interpolation; a plain literal with no braces or a raw literal is rejected, since raw text never
-  interpolates. Interpolation supports exactly Bool, Rune, every fixed-width signed and unsigned
-   integer, Size, Byte, Float32, Float64, String, and Strand; Nil, pointers, unions, structs, ADTs,
-   arrays, slices, lists, dictionaries, allocators, concurrency values, Error, and Fun are rejected.
-  The result follows the ordinary String allocation/free contract; borrowed String and Strand
-  operands contribute only their bytes and gain no new lifetime relation to the result.
+  interpolates. Interpolation supports exactly Bool, every fixed-width signed and unsigned
+  integer, Size, Byte, Float32, Float64, and text of any form; Nil, pointers, unions, structs, ADTs,
+  arrays, slices, lists, dictionaries, allocators, concurrency values, Error, and Fun are rejected.
+  The heap result follows the ordinary String allocation/free contract; borrowed text operands
+  contribute only their bytes and gain no new lifetime relation to the result.
 
 ## Output
 
@@ -1279,14 +1360,14 @@ print(first: Printable, rest: Printable...) -> no value
 
 - `print(arg, ...)` is protected, requires at least one argument, inserts no separator/newline, and
   returns no value. Arguments evaluate once left-to-right; output starts only after all evaluation.
-- Directly printable: Bool, fixed-width integers, Size, Byte, Float32, Float64, Rune, String, Strand,
-  Nil, and Error. Objects, ADTs, Array, Slice, List, and Dict are printable exactly when every
+- Directly printable: Bool, fixed-width integers, Size, Byte, Float32, Float64, text of any form
+  (`String` and `String<N>`), Nil, and Error. Objects, ADTs, Array, Slice, List, and Dict are printable exactly when every
   recursively visited component is printable. Every other canonical type is non-printable; unions
   must narrow to a printable member first. Failure identifies the first non-printable member path in
   declaration order.
 - A print argument is the one position that admits standalone Nil, so a union narrowed to Nil and the
   bare `nil` literal are both printable. Nil prints `nil` directly and nested.
-- Direct text/Rune is raw; nested text/Rune is quoted/escaped; Byte is numeric. Structural forms are
+- Direct text is raw; nested text is quoted/escaped; Byte is numeric. Structural forms are
   fixed, one line, and exactly:
 
 ```text
@@ -1933,8 +2014,8 @@ end
   keeps the original UTF-8 bytes on every target; only an attached Windows console additionally
   converts and delivers `print`'s text through native UTF-8-to-UTF-16 conversion and
   `WriteConsoleW`, through a fixed-size stack buffer with no heap allocation, chunked so a
-  multibyte scalar (and the UTF-16 surrogate pair it can produce) is never split. Quoted `String`
-  and `Rune` rendering batch each run of unescaped text through this same conversion instead of
+  multibyte scalar (and the UTF-16 surrogate pair it can produce) is never split. Quoted text
+  rendering batches each run of unescaped text through this same conversion instead of
   emitting it one byte at a time. `print` remains write-all and source-ordered on every target;
   conversion or console-write failure retains the exact runtime trap
   `[Runtime Error] standard output write failed`.
@@ -1963,7 +2044,9 @@ align_of<T>() -> Size
 
 - `size_of<T>()` and `align_of<T>()` require one explicit complete finite type and return Size C
   constant expressions. Reference-like types report source handle size. These operations do not make
-  arbitrary Array lengths valid.
+  arbitrary Array lengths valid. `String<N>` reports its inline size and alignment (`size_of<String<31>>()`
+  is 40 and `align_of<String<31>>()` is 8 on `x86_64-linux-gnu`) and requires a literal capacity;
+  `size_of<Error>()` is 432 there.
 
 ## Volatile operations
 
@@ -2096,7 +2179,7 @@ Ptr<mut T>.write_volatile(value: T) -> no value
   `<stdbool.h>`, `<limits.h>`, and `<float.h>` are never emitted), followed by the retained
   source-dependent `Size`-literal `SIZE_MAX` assertions, the shared `hex_eos` typedef exactly when
   generated C represents EoS, and the declaration of the one program-wide `hex_runtime_trap` when a
-  selected path can trap. It contains no Heap, Slice, String, Strand, Error, List, Dict, Array, Task,
+  selected path can trap. It contains no Heap, Slice, String, `String<N>`, Error, List, Dict, Array, Task,
   Channel, Mutex, or Atomic representation or helper, no String literal storage, no process-wide
   runtime state, no generic integer, byte-width, or float target probe, and no user-declared
   module-type definition or exported/cross-module user prototype. Its guard is `HEXAL_H`; every
@@ -2129,10 +2212,13 @@ Ptr<mut T>.write_volatile(value: T) -> no value
   Primitive `hex_print_*` declarations and definitions have one program-wide owner in that pair;
   module-owned aggregate print adapters remain in the consuming module header and include
   `hexal/print.h`.
-- String comparison demand is independent: `hex_equal_hex_string` is emitted in the String
-  component only for a String equality expression or a reachable recursive equality helper that
-  compares a String member; `hex_compare_hex_string` is emitted only for String ordering.
-  Strand equality and ordering use direct fixed-width byte comparison and select neither helper.
+- Text comparison demand is independent: `hex_equal_text` is emitted in the String component only
+  for a text equality expression, a text Dict key, or a reachable recursive equality helper that
+  compares a text member; `hex_compare_text` is emitted only for text ordering; `hex_hash_text`
+  only for a text Dict key. Each is emitted once per program and reads text through the same
+  `hex_text` view for every form and capacity, so no per-capacity or per-type text helper exists.
+  The `String<N>` struct for each demanded capacity is defined once in `hexal/string.h`, before
+  every header that names it, and none is emitted for a capacity the program does not use.
 - `hexal/equality.h` owns one helper per canonical program-owned equality aggregate: builtin-element
   Array, Slice, and List specializations and the compiler-owned Error object, including recursively
   composed program-owned forms. User objects, ADTs, structural unions, and collections whose

@@ -150,20 +150,6 @@ func TestNestedUnionEncodingIntegration(t *testing.T) {
 	}
 }
 
-// Rune and UInt32 share the C spelling uint32_t, so their unions must be
-// told apart by the registry, not by member C spellings: each union is
-// defined exactly once per translation unit.
-func TestRuneAndUInt32UnionsStayDistinct(t *testing.T) {
-	result := compileSource("let a: Rune | Nil = nil\nlet b: UInt32 | Nil = nil")
-	if result.ExitCode != compiler.ExitSuccess {
-		t.Fatalf("Compile rejected Rune/UInt32 union source: %v", result.Stderr)
-	}
-	rootH := rootH(t, result)
-	if strings.Count(rootH, "typedef struct hex_t_Rune_Nil") != 1 || strings.Count(rootH, "typedef struct hex_t_UInt32_Nil") != 1 {
-		t.Fatalf("Rune and UInt32 unions must be distinct and defined once:\n%s", rootH)
-	}
-}
-
 // A composed member spells its sanitized Hexal name; the wrapper name must
 // stay a plain C identifier.
 func TestComposedUnionMemberSpellingIsIdentifierSafe(t *testing.T) {

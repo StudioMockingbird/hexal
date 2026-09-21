@@ -35,7 +35,7 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 				// migration hint.
 				return compilerTypes.TypeUse{}, diagnosticAt(moduleErrorAt(expression.Name, hint))
 			}
-			message := "unknown type " + expression.Name.Lexeme
+			message := unknownTypeMessage(expression.Name.Lexeme)
 			return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, message))
 		}
 		return resolved, nil
@@ -93,6 +93,10 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		return resolveTypeUse(expression.Inner, fallback, typeEnvironment, generics)
 	case parser.ArrayTypeExpression:
 		return resolveArrayTypeUse(expression, fallback, typeEnvironment, generics)
+	case parser.StringTypeExpression:
+		return resolveStringTypeUse(expression, typeEnvironment)
+	case parser.LiteralTypeArgument:
+		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Token, "a numeric literal is only valid as a String capacity"))
 	case parser.PtrTypeExpression:
 		elementUse, diagnostic := resolveTypeUse(expression.Element, expression.Keyword, typeEnvironment, generics)
 		if diagnostic != nil {
@@ -214,6 +218,10 @@ func typeExpressionToken(expression parser.TypeExpression, fallback lexer.Token)
 		return expression.Token
 	case parser.PtrTypeExpression:
 		return expression.Keyword
+	case parser.StringTypeExpression:
+		return expression.Keyword
+	case parser.LiteralTypeArgument:
+		return expression.Token
 	case parser.FunctionTypeExpression:
 		return expression.Keyword
 	case parser.UnionTypeExpression:

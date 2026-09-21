@@ -31,7 +31,7 @@ func checkModuleConstant(declaration parser.Declaration, moduleID string, ctx ch
 	hasExpected := false
 	if declaration.Type != nil {
 		if token, tooLate := firstTypeNameDeclaredAtOrAfter(declaration.Type, itemIndex, typeIndexByName); tooLate {
-			return ModuleValueDeclaration{}, compilerTypes.Diagnostics{typeErrorAt(token, "unknown type "+token.Lexeme)}
+			return ModuleValueDeclaration{}, compilerTypes.Diagnostics{typeErrorAt(token, unknownTypeMessage(token.Lexeme))}
 		}
 		use, diagnostic := resolveTypeUse(declaration.Type, declaration.Name, ctx.typeEnvironment, ctx.names.generics)
 		if diagnostic != nil {

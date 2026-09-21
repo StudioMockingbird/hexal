@@ -9,7 +9,7 @@ import (
 )
 
 func TestConversionMethods(t *testing.T) {
-	result := compileSource("fun demo() do\n    let wide: Int64 = 9_000_000_000\n    let small: Int8 = 12\n    let narrowed: Int8 = wide.to<Int8>()\n    let whole: Int32 = 3.75.to<Int32>()\n    let size: Size = small.to<Size>()\n    let count: UInt32 = size.to<UInt32>()\n    let letter: Rune = wide.to<Rune>()\n    let code: UInt32 = letter.to<UInt32>()\nend")
+	result := compileSource("fun demo() do\n    let wide: Int64 = 9_000_000_000\n    let small: Int8 = 12\n    let narrowed: Int8 = wide.to<Int8>()\n    let whole: Int32 = 3.75.to<Int32>()\n    let size: Size = small.to<Size>()\n    let count: UInt32 = size.to<UInt32>()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -19,18 +19,10 @@ func TestConversionMethods(t *testing.T) {
 		"const int32_t hex_v_whole = 3;",
 		"hex_convert_int8_t_size_t(hex_v_small)",
 		"hex_convert_size_t_uint32_t(hex_v_size)",
-		"static inline uint32_t hex_convert_int64_t_rune(int64_t value) {",
-		"hex_v_letter = hex_convert_int64_t_rune(hex_v_wide);",
-		"(uint32_t)hex_v_letter",
 	} {
 		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(numericH(t, result), want) {
 			t.Fatalf("generated output = %q %q %q, want %q", rootC(t, result), rootH(t, result), numericH(t, result), want)
 		}
-	}
-	// Rune to UInt32 is same width: it lowers directly and never emits the
-	// old vacuous <= UINT32_MAX helper.
-	if strings.Contains(rootH(t, result), "hex_convert_rune_uint32_t") {
-		t.Fatalf("generated header = %q, Rune-to-UInt32 must not emit a helper", rootH(t, result))
 	}
 }
 
@@ -41,37 +33,12 @@ func TestCheckedConstantConversionDiagnostics(t *testing.T) {
 	}
 }
 
-func TestRuneScalarValidity(t *testing.T) {
-	for _, testCase := range []struct {
-		source string
-		want   string
-	}{
-		{"let good: Rune = (0x1F600).to<Rune>()", ""},
-		{"let surrogate: Rune = (0xD800).to<Rune>()", "not a valid Unicode scalar value"},
-		{"let high: Rune = (0x110000).to<Rune>()", "not a valid Unicode scalar value"},
-		{"let negative: Rune = (-1).to<Rune>()", "not a valid Unicode scalar value"},
-	} {
-		result := compileSource(testCase.source)
-		if testCase.want == "" {
-			if result.ExitCode != compiler.ExitSuccess {
-				t.Fatalf("Compile(%q) stderr = %#v, want 0", testCase.source, result.Stderr)
-			}
-			continue
-		}
-		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
-			t.Fatalf("Compile(%q) stderr = %#v, want %q", testCase.source, result.Stderr, testCase.want)
-		}
-	}
-}
-
 func TestConversionMatrixRejections(t *testing.T) {
 	for _, testCase := range []struct {
 		source string
 		want   string
 	}{
 		{"fun demo() do\n    let flag: Bool = true\n    let bad: Int32 = flag.to<Int32>()\nend", "Bool has no method named to"},
-		{"fun demo() do\n    let letter: Rune = (65).to<Rune>()\n    let bad: Rune = letter.to<Rune>()\nend", "supported scalar source and destination"},
-		{"fun demo() do\n    let whole: Float64 = 1.5\n    let bad: Rune = whole.to<Rune>()\nend", "supported scalar source and destination"},
 		{"fun demo() do\n    let value: Int32 = 1\n    let bad: Bool = value.to<Bool>()\nend", "supported scalar source and destination"},
 		{"fun demo() do\n    let value: Int32 = 1\n    let pointer: Ptr<Int32> = @value\n    let bad: UInt64 = pointer.to<UInt64>()\nend", "Ptr<Int32> has no method named to"},
 		{"fun demo() do\n    let value: Int32 = 1\n    let bad: Int32 = value.to()\nend", "to requires exactly 1 explicit type argument"},
@@ -142,8 +109,8 @@ func TestSizeHasNoImplicitNumericMixing(t *testing.T) {
 }
 
 // A typed value converts implicitly to exactly its permitted widening
-// targets in binding-initializer position, and to nothing else. Rune and
-// Size never widen.
+// targets in binding-initializer position, and to nothing else. Size never
+// widens.
 func TestLosslessWideningPairTable(t *testing.T) {
 	widening := map[string][]string{
 		"Int8":    {"Int16", "Int32", "Int64", "Float32", "Float64"},
@@ -155,7 +122,7 @@ func TestLosslessWideningPairTable(t *testing.T) {
 		"UInt32":  {"UInt64", "Int64", "Float64"},
 		"Float32": {"Float64"},
 	}
-	scalars := []string{"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Float32", "Float64", "Rune"}
+	scalars := []string{"Int8", "Int16", "Int32", "Int64", "UInt8", "UInt16", "UInt32", "UInt64", "Float32", "Float64"}
 	literal := map[string]string{"Float32": "1.5", "Float64": "1.5"}
 	for source, targets := range widening {
 		for _, target := range targets {
@@ -185,8 +152,8 @@ func TestLosslessWideningPairTable(t *testing.T) {
 			})
 		}
 	}
-	// Int64, UInt64, Float64, and Rune widen nowhere.
-	for _, source := range []string{"Int64", "UInt64", "Float64", "Rune"} {
+	// Int64, UInt64, and Float64 widen nowhere.
+	for _, source := range []string{"Int64", "UInt64", "Float64"} {
 		for _, target := range scalars {
 			if source == target {
 				continue
@@ -221,8 +188,8 @@ func TestDirectConversionLowering(t *testing.T) {
 	if strings.Contains(bodyH, "hex_convert_uint8_t_double") {
 		t.Fatalf("modules/app.h = %q, safe pair must not emit a helper", bodyH)
 	}
-	// Widening integer, unsigned to float, float widening, and Rune to
-	// UInt32 all cast inline.
+	// Widening integer, unsigned to float, and float widening all cast
+	// inline.
 	for _, testCase := range []struct {
 		source string
 		want   string
@@ -230,7 +197,6 @@ func TestDirectConversionLowering(t *testing.T) {
 		{"let value: Int16 = 3\nlet wide: Int64 = value.to<Int64>()", "(int64_t)hex_v_value"},
 		{"let value: UInt64 = 3\nlet wide: Float32 = value.to<Float32>()", "(float)hex_v_value"},
 		{"let value: Float32 = 1.5\nlet wide: Float64 = value.to<Float64>()", "(double)hex_v_value"},
-		{"let value: Rune = (65).to<Rune>()\nlet code: UInt32 = value.to<UInt32>()", "(uint32_t)hex_v_value"},
 	} {
 		source := "fun demo() do\n    " + testCase.source + "\nend"
 		result := assertCompiles(t, source)
@@ -273,14 +239,6 @@ func TestCheckedConversionLowering(t *testing.T) {
 	result = assertCompiles(t, "fun demo() do\n    let value: Int32 = -3\n    let code: UInt32 = value.to<UInt32>()\nend")
 	headerText := numericH(t, result)
 	for _, want := range []string{"static inline uint32_t hex_convert_int32_t_uint32_t(int32_t value) {", "if (!(value >= 0 && value <= UINT32_MAX)) {"} {
-		if !strings.Contains(headerText, want) {
-			t.Fatalf("hexal/numeric.h = %q, want %q", headerText, want)
-		}
-	}
-	// Integer to Rune retains Unicode scalar validation.
-	result = assertCompiles(t, "fun demo() do\n    let value: UInt32 = 0x1F600\n    let letter: Rune = value.to<Rune>()\nend")
-	headerText = numericH(t, result)
-	for _, want := range []string{"static inline uint32_t hex_convert_uint32_t_rune(uint32_t value) {", "value > 0x10FFFF || (value >= 0xD800 && value <= 0xDFFF)"} {
 		if !strings.Contains(headerText, want) {
 			t.Fatalf("hexal/numeric.h = %q, want %q", headerText, want)
 		}

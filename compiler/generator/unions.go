@@ -275,7 +275,7 @@ func unionMemberEqualityAvailable(typ compilerTypes.Type) bool {
 		return unionMemberEqualityAvailable(typ.Slice.Element)
 	case typ.List != nil:
 		return unionMemberEqualityAvailable(typ.List.Element)
-	case typ.Element != nil, compilerTypes.IsString(typ), compilerTypes.IsStrand(typ),
+	case typ.Element != nil, compilerTypes.IsText(typ),
 		compilerTypes.IsInteger(typ), compilerTypes.IsFloat(typ),
 		compilerTypes.Equal(typ, compilerTypes.Bool):
 		return true

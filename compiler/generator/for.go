@@ -10,13 +10,13 @@ import (
 
 // renderForStatement lowers the for-in form. The source is stabilized exactly
 // once: Array places iterate in place through their address, temporary Arrays
-// and Strands are materialized into one inline copy, and String, List, and
+// and inline text are materialized into one inline copy, and String, List, and
 // Dict sources copy their pointer-sized handle.
 //
-// Index semantics: Array, Slice, and List bind the Size loop counter directly
-// (a body `continue` lands on the loop increment). String, Strand, and Dict
-// loops pre-increment their produced-entry ordinal before the body, so a
-// body `continue` never skips the increment.
+// Index semantics: Array, Slice, List, and text bind the Size loop counter
+// directly (a body `continue` lands on the loop increment). Dict loops
+// pre-increment their produced-entry ordinal before the body, so a body
+// `continue` never skips the increment.
 func renderForStatement(body *strings.Builder, statement checker.ForStatement, state *expressionValidation, result *compilerTypes.Type, inFunction bool, indent string) error {
 	sourceType := statement.Source.Type
 	writeLineDirective(body, statement.SourceLine, state.filename)
@@ -56,9 +56,7 @@ func renderForStatement(body *strings.Builder, statement checker.ForStatement, s
 		return renderForSequence(body, statement, loopRender, state, indent)
 	case sourceType.List != nil:
 		return renderForSequence(body, statement, loopRender, state, indent)
-	case compilerTypes.IsString(sourceType):
-		return renderForText(body, statement, loopRender, state, indent)
-	case compilerTypes.IsStrand(sourceType):
+	case compilerTypes.IsText(sourceType):
 		return renderForText(body, statement, loopRender, state, indent)
 	case sourceType.Dict != nil:
 		return renderForDict(body, statement, loopRender, state, indent)
@@ -138,9 +136,12 @@ func renderForSequence(body *strings.Builder, statement checker.ForStatement, re
 	return nil
 }
 
-// renderForText lowers String and Strand iteration to a sequential UTF-8
-// cursor loop producing decoded Rune values. The produced-entry ordinal is
-// pre-incremented so a body `continue` never skips it.
+// renderForText lowers String and String<N> iteration to a plain byte loop:
+// text is a sequence of bytes and the loop binds each one. A heap String copies
+// its handle. An inline value is copied once into the loop's own storage first,
+// the rule a temporary Array follows, so reassigning a mutable binding inside
+// the body cannot change what the loop reads or leave its captured length
+// stale. A body `continue` lands on the loop increment.
 func renderForText(body *strings.Builder, statement checker.ForStatement, render forLoopRender, state *expressionValidation, indent string) error {
 	loop, binderNames, bodyText := render.loop, render.binderNames, render.bodyText
 	source, err := renderOperandWithState(statement.Source, state)
@@ -148,38 +149,26 @@ func renderForText(body *strings.Builder, statement checker.ForStatement, render
 		return err
 	}
 	sourceType := statement.Source.Type
-	if compilerTypes.IsStrand(sourceType) {
+	var byteLength, data string
+	if compilerTypes.IsInlineString(sourceType) {
 		fmt.Fprintf(body, "%sconst %s %s = %s;\n", indent, sourceType.CName, loop, source)
+		byteLength = fmt.Sprintf("%s.byte_length", loop)
+		data = fmt.Sprintf("%s.data", loop)
 	} else {
-		fmt.Fprintf(body, "%sconst %s *const %s = %s;\n", indent, sourceType.CName, loop, source)
-	}
-
-	offsetVariable := loop + "_offset"
-	ordinalVariable := loop + "_ordinal"
-	runeVariable := loop + "_rune"
-	hasIndex := len(statement.Binders) == 2
-	byteLength := fmt.Sprintf("%s.byte_length", loop)
-	data := fmt.Sprintf("%s.data", loop)
-	if !compilerTypes.IsStrand(sourceType) {
+		fmt.Fprintf(body, "%sconst hex_string *const %s = %s;\n", indent, loop, source)
 		byteLength = fmt.Sprintf("%s->byte_length", loop)
 		data = fmt.Sprintf("%s->data", loop)
 	}
 
-	fmt.Fprintf(body, "%ssize_t %s = 0;\n", indent, offsetVariable)
-	if hasIndex {
-		fmt.Fprintf(body, "%ssize_t %s = (size_t)-1;\n", indent, ordinalVariable)
-	}
-	fmt.Fprintf(body, "%swhile (%s < %s) {\n", indent, offsetVariable, byteLength)
-	fmt.Fprintf(body, "%s    uint64_t %s = hex_utf8_next(%s, %s, &%s);\n", indent, runeVariable, data, byteLength, offsetVariable)
-	if hasIndex {
-		fmt.Fprintf(body, "%s    %s++;\n", indent, ordinalVariable)
-	}
+	indexVariable := loop + "_index"
+	hasIndex := len(statement.Binders) == 2
+	fmt.Fprintf(body, "%sfor (size_t %s = 0; %s < %s; %s++) {\n", indent, indexVariable, indexVariable, byteLength, indexVariable)
 	writeLineDirective(body, statement.Binders[0].SourceLine, state.filename)
 	valueBinder := statement.Binders[len(statement.Binders)-1]
 	if hasIndex {
-		fmt.Fprintf(body, "%s    const size_t %s = %s;\n", indent, binderNames[0], ordinalVariable)
+		fmt.Fprintf(body, "%s    const size_t %s = %s;\n", indent, binderNames[0], indexVariable)
 	}
-	fmt.Fprintf(body, "%s    const %s %s = (%s);\n", indent, valueBinder.Type.CName, binderNames[len(binderNames)-1], runeVariable)
+	fmt.Fprintf(body, "%s    %s = %s[%s];\n", indent, declaration(valueBinder.Type, binderNames[len(binderNames)-1], false), data, indexVariable)
 	body.WriteString(bodyText.String())
 	fmt.Fprintf(body, "%s}\n", indent)
 	return nil

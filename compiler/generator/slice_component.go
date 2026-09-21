@@ -1,6 +1,8 @@
 package generator
 
 import (
+	"cmp"
+	"slices"
 	"strings"
 
 	compilerTypes "hexal/compiler/types"
@@ -18,6 +20,12 @@ type sliceComponentModel struct {
 	// hex_string reference this file emits is through a pointer, so the
 	// forward declaration is all it needs.
 	NeedsHeapString bool
+	// InlineTexts lists the inline String<N> capacities some specialization
+	// holds by value. Indexing and slicing a Slice<String<N>> takes element
+	// addresses, so the struct must be complete here; string.h cannot be
+	// included for the same cycle reason, so this file defines each struct
+	// under the same guard string.h uses and whichever is entered first wins.
+	InlineTexts []inlineStringModel
 }
 
 // sliceComponentRecord is one reachable Slice specialization's spelling facts:
@@ -58,6 +66,24 @@ func sliceComponentRecordFor(slice compilerTypes.Type) sliceComponentRecord {
 	}
 }
 
+// sliceInlineTexts collects the inline text capacities the slice records hold
+// by value, in ascending order.
+func sliceInlineTexts(specializations []compilerTypes.Type) []inlineStringModel {
+	seen := make(map[uint64]inlineStringModel)
+	for _, slice := range specializations {
+		if compilerTypes.IsInlineString(slice.Slice.Element) {
+			element := slice.Slice.Element
+			seen[element.InlineString.Capacity] = inlineStringModel{CName: element.CName, Capacity: element.InlineString.Capacity}
+		}
+	}
+	models := make([]inlineStringModel, 0, len(seen))
+	for _, model := range seen {
+		models = append(models, model)
+	}
+	slices.SortFunc(models, func(left, right inlineStringModel) int { return cmp.Compare(left.Capacity, right.Capacity) })
+	return models
+}
+
 // readOnlyElementSpelling qualifies the element itself, preserving pointer
 // element types such as String's const hex_string handle before the slice's
 // data pointer is appended by the template.
@@ -88,11 +114,13 @@ func sliceComponents(merged *programEmission) ([]componentArtifact, error) {
 		return nil, nil
 	}
 	records := make([]sliceComponentRecord, 0, len(merged.sliceState.slices))
+	owned := make([]compilerTypes.Type, 0, len(merged.sliceState.slices))
 	for _, slice := range merged.sliceState.slices {
 		if collectionElementModuleTyped(slice) {
 			continue
 		}
 		records = append(records, sliceComponentRecordFor(slice))
+		owned = append(owned, slice)
 	}
 	if len(records) == 0 && !merged.sliceState.required {
 		return nil, nil
@@ -100,7 +128,7 @@ func sliceComponents(merged *programEmission) ([]componentArtifact, error) {
 	return []componentArtifact{{
 		key:      "hexal/slice.h",
 		template: "slice.h",
-		model:    sliceComponentModel{Slices: records, NeedsHeapString: sliceRecordsNeedHeapString(records)},
+		model:    sliceComponentModel{Slices: records, NeedsHeapString: sliceRecordsNeedHeapString(records), InlineTexts: sliceInlineTexts(owned)},
 	}}, nil
 }
 

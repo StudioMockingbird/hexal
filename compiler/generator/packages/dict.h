@@ -11,34 +11,25 @@ typedef struct {{.CName}} {
     size_t capacity;
     size_t version;
 } {{.CName}};
-{{if .EmitHash}}{{if .StrandKey}}
-static inline uint64_t hex_hash_Strand(hex_strand key) {
-    uint64_t hash = 14695981039346656037ULL;
-    for (size_t index = 0; index < 32; index++) {
-        hash ^= key.data[index];
-        hash *= 1099511628211ULL;
-    }
-    return hash;
-}
-{{else}}
+{{if .EmitHash}}
 static inline uint64_t hex_hash_Int32(int32_t key) {
     uint64_t x = (size_t)(uint32_t)key + 0x9E3779B97F4A7C15ULL;
     x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ULL;
     x = (x ^ (x >> 27)) * 0x94D049BB133111EBULL;
     return x ^ (x >> 31);
 }
-{{end}}{{end}}static inline uint64_t hex_dict_probe_{{.Suffix}}_region({{.EntryName}} *region, uint64_t capacity, {{.KeySpelling}} key) {
-    uint64_t hash = {{.HashHelper}}(key);
+{{end}}static inline uint64_t hex_dict_probe_{{.Suffix}}_region({{.EntryName}} *region, uint64_t capacity, {{.KeySpelling}} key) {
+    uint64_t hash = {{if .TextKey}}hex_hash_text(hex_text_inline(&key)){{else}}hex_hash_Int32(key){{end}};
     size_t index = hash & (capacity - 1);
-    while (region[index].active && {{if .StrandKey}}memcmp(region[index].key.data, key.data, 32) != 0{{else}}region[index].key != key{{end}}) {
+    while (region[index].active && {{if .TextKey}}!hex_equal_text(hex_text_inline(&region[index].key), hex_text_inline(&key)){{else}}region[index].key != key{{end}}) {
         index = (index + 1) & (capacity - 1);
     }
     return index;
 }
 static inline uint64_t hex_dict_probe_{{.Suffix}}(const {{.CName}} *dict, {{.KeySpelling}} key) {
-    uint64_t hash = {{.HashHelper}}(key);
+    uint64_t hash = {{if .TextKey}}hex_hash_text(hex_text_inline(&key)){{else}}hex_hash_Int32(key){{end}};
     size_t index = hash & (dict->capacity - 1);
-    while (dict->buckets[index].active && {{if .StrandKey}}memcmp(dict->buckets[index].key.data, key.data, 32) != 0{{else}}dict->buckets[index].key != key{{end}}) {
+    while (dict->buckets[index].active && {{if .TextKey}}!hex_equal_text(hex_text_inline(&dict->buckets[index].key), hex_text_inline(&key)){{else}}dict->buckets[index].key != key{{end}}) {
         index = (index + 1) & (dict->capacity - 1);
     }
     return index;

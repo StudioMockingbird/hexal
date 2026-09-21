@@ -15,12 +15,12 @@ func TestStringLiteralBinding(t *testing.T) {
 	}
 	// The representation and the literal object pair live in the String
 	// component: hexal/string.h declares each object once with external
-	// const linkage, hexal/string.c defines it once.
+	// const linkage, hexal/string.c defines it once. The handle stores a byte
+	// length and no rune count.
 	for _, want := range []string{
 		"typedef struct hex_string {",
 		"const uint8_t *data;",
 		"size_t byte_length;",
-		"size_t rune_length;",
 		"extern const uint8_t hex_lit_0_bytes[6];",
 		"extern const hex_string hex_lit_0;",
 	} {
@@ -28,9 +28,12 @@ func TestStringLiteralBinding(t *testing.T) {
 			t.Fatalf("hexal/string.h = %q, want %q", stringH(t, result), want)
 		}
 	}
+	if strings.Contains(stringH(t, result), "rune_length") || strings.Contains(stringC(t, result), "rune_length") {
+		t.Fatalf("the String component still carries a rune count")
+	}
 	for _, want := range []string{
 		"const uint8_t hex_lit_0_bytes[6] = { 104, 101, 108, 108, 111, 0 };",
-		"const hex_string hex_lit_0 = { .data = hex_lit_0_bytes, .byte_length = 5, .rune_length = 5 };",
+		"const hex_string hex_lit_0 = { .data = hex_lit_0_bytes, .byte_length = 5 };",
 	} {
 		if !strings.Contains(stringC(t, result), want) {
 			t.Fatalf("hexal/string.c = %q, want %q", stringC(t, result), want)
@@ -57,9 +60,9 @@ func TestStringBytesAndSlice(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"const hex_slice_UInt8 hex_v_raw = hex_string_bytes(hex_v_text);",
+		"const hex_slice_UInt8 hex_v_raw = hex_text_bytes(hex_text_heap(hex_v_text));",
 		"*hex_slice_at_UInt8(hex_v_raw, (size_t)(0))",
-		"const hex_slice_UInt8 hex_v_part = hex_string_slice(hex_v_text, (size_t)(1), (size_t)(3));",
+		"const hex_slice_UInt8 hex_v_part = hex_text_slice(hex_text_heap(hex_v_text), (size_t)(1), (size_t)(3));",
 		"*hex_slice_at_UInt8(hex_v_part, (size_t)(0))",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
@@ -69,14 +72,14 @@ func TestStringBytesAndSlice(t *testing.T) {
 }
 
 func TestStringOwningLifecycle(t *testing.T) {
-	result := compileSource("fun make_text(h: Heap): String do\n    return \"ready\".to_string(h)\nend\nfun demo(h: Heap) do\n    let text: String = make_text(h)\n    defer text.free(h)\n    let loud: String = text.concat(h, \"!\")\n    loud.free(h)\nend")
+	result := compileSource("fun make_text(h: Heap): String do\n    return \"ready\".copy(h)\nend\nfun demo(h: Heap): Int32 | Error do\n    let text: String = make_text(h)\n    defer text.free(h)\n    let loud: String = try text.concat(h, \"!\".bytes())\n    loud.free(h)\n    return 0\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"return hex_string_to_string(hex_v_h, &hex_lit_0);",
+		"return hex_string_make(hex_v_h, hex_text_heap(&hex_lit_0));",
 		"hex_v_text = hex_f_m3_app_make_text(hex_v_h);",
-		"hex_v_loud = hex_string_concat(hex_v_h, hex_v_text, &hex_lit_1);",
+		"hex_string_concat_Error_String(hex_v_h, hex_text_heap(hex_v_text), hex_text_bytes(hex_text_heap(&hex_lit_1)), 7, 33)",
 		"hex_string_free(hex_v_h, hex_v_loud);",
 		"hex_string_free(hex_defer_capture_2, hex_defer_capture_1);",
 	} {
@@ -87,20 +90,23 @@ func TestStringOwningLifecycle(t *testing.T) {
 }
 
 func TestStringFromBytes(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    let text: String = \"abc\"\n    let raw: Slice<UInt8> = text.bytes()\n    let copy: String = String.from_bytes(h, raw)\n    copy.free(h)\nend")
+	result := compileSource("fun demo(h: Heap): Int32 | Error do\n    let text: String = \"abc\"\n    let raw: Slice<UInt8> = text.bytes()\n    let copy: String = try String.from_bytes(h, raw)\n    copy.free(h)\n    return 0\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootC(t, result), "hex_v_copy = hex_string_from_bytes(hex_v_h, (hex_v_raw).data, (hex_v_raw).length);") {
-		t.Fatalf("modules/app.c = %q, want from_bytes call", rootC(t, result))
+	if !strings.Contains(rootC(t, result), "hex_string_from_bytes_Error_String(hex_v_h, hex_v_raw, 4, 28)") {
+		t.Fatalf("modules/app.c = %q, want from_bytes adapter call", rootC(t, result))
+	}
+	if !strings.Contains(rootH(t, result), "hex_utf8_valid(bytes.data, bytes.length)") {
+		t.Fatalf("modules/app.h = %q, want the validating adapter", rootH(t, result))
 	}
 }
 
 // String construction and concatenation check the complete storage-header +
 // payload + terminator chain with ckd_add before the raw allocator sees any
-// sum, and each overflow stage selects its exact message.
+// sum, and the one shared join owns the overflow message.
 func TestStringAllocationSizeArithmetic(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    let text: String = \"abc\"\n    let raw: Slice<UInt8> = text.bytes()\n    let copy: String = String.from_bytes(h, raw)\n    copy.free(h)\n    let runes: Array<Rune, 1> = ['a']\n    let rune_view: Slice<Rune> = runes.slice(0, 1)\n    let encoded: String = String.from_runes(h, rune_view)\n    encoded.free(h)\n    let loud: String = text.concat(h, \"!\")\n    loud.free(h)\nend")
+	result := compileSource("fun demo(h: Heap): Int32 | Error do\n    let text: String = \"abc\"\n    let raw: Slice<UInt8> = text.bytes()\n    let copy: String = try String.from_bytes(h, raw)\n    copy.free(h)\n    let loud: String = try text.concat(h, \"!\".bytes())\n    loud.free(h)\n    return 0\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -110,31 +116,23 @@ func TestStringAllocationSizeArithmetic(t *testing.T) {
 	for _, want := range []string{
 		"ckd_add(&total, sizeof(hex_string_storage), length)",
 		"ckd_add(&total, total, 1)",
-		"ckd_add(&bytes, bytes, width)",
-		"ckd_add(&total, sizeof(hex_string_storage), bytes)",
-		"ckd_add(&length, left->byte_length, right->byte_length)",
-		"[Runtime Error] string allocation size overflow\\n",
+		"ckd_add(&length, left.length, right.length)",
 		"[Runtime Error] string concatenation length overflow\\n",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("hexal/string.c = %q, want %q", output, want)
 		}
 	}
-	// The validated payload and each concatenation input copy with guarded
-	// memcpy calls, so a zero-length input never passes a possibly invalid
-	// pointer to a standard memory function; diagnostics report through
-	// hex_runtime_trap, and no raw fputs or compiler-owned NULL remains in
-	// the String machinery.
+	// Each input copies with a guarded memcpy, so a zero-length input never
+	// passes a possibly invalid pointer to a standard memory function;
+	// diagnostics report through hex_runtime_trap, and no raw fputs or
+	// compiler-owned NULL remains in the String machinery.
 	for _, want := range []string{
-		"if (length != 0) {",
-		"memcpy(storage->bytes, data, length);",
-		"if (left->byte_length != 0) {",
-		"memcpy(storage->bytes, left->data, left->byte_length);",
-		"if (right->byte_length != 0) {",
-		"memcpy(storage->bytes + left->byte_length, right->data, right->byte_length);",
-		"hex_runtime_trap(\"[Runtime Error] string allocation size overflow\\n\")",
+		"if (left.length != 0) {",
+		"memcpy(storage->bytes, left.data, left.length);",
+		"if (right.length != 0) {",
+		"memcpy(storage->bytes + left.length, right.data, right.length);",
 		"hex_runtime_trap(\"[Runtime Error] string concatenation length overflow\\n\")",
-		"hex_runtime_trap(\"[Runtime Error] invalid UTF-8 in string\\n\")",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("hexal/string.c = %q, want %q", output, want)
@@ -145,6 +143,7 @@ func TestStringAllocationSizeArithmetic(t *testing.T) {
 		"sizeof(hex_string_storage) + ",
 		"fputs(",
 		"NULL",
+		"invalid UTF-8 in string",
 	} {
 		if strings.Contains(output, banned) {
 			t.Fatalf("hexal/string.c = %q, contains banned %q", output, banned)
@@ -156,17 +155,17 @@ func TestStringAllocationSizeArithmetic(t *testing.T) {
 // opaque handles still free at runtime.
 func TestStringShallowCopySemantics(t *testing.T) {
 	for _, source := range []string{
-		"fun demo(h: Heap) do\n    let owned: String = \"x\".to_string(h)\n    let other: String = owned\nend",
-		"fun demo(h: Heap) do\n    let owned: String = \"x\".to_string(h)\nend",
-		"fun demo(h: Heap) do\n    let owned: String = \"x\".to_string(h)\n    owned.free(h)\n    owned.free(h)\nend",
-		"fun demo(h: Heap) do\n    let mut owned: String = \"x\".to_string(h)\n    owned = \"y\".to_string(h)\nend",
-		"fun demo(h: Heap) do\n    let mut owned: String = \"x\".to_string(h)\n    owned.free(h)\n    owned = \"y\"\nend",
+		"fun demo(h: Heap) do\n    let owned: String = \"x\".copy(h)\n    let other: String = owned\nend",
+		"fun demo(h: Heap) do\n    let owned: String = \"x\".copy(h)\nend",
+		"fun demo(h: Heap) do\n    let owned: String = \"x\".copy(h)\n    owned.free(h)\n    owned.free(h)\nend",
+		"fun demo(h: Heap) do\n    let mut owned: String = \"x\".copy(h)\n    owned = \"y\".copy(h)\nend",
+		"fun demo(h: Heap) do\n    let mut owned: String = \"x\".copy(h)\n    owned.free(h)\n    owned = \"y\"\nend",
 		"fun make_text(h: Heap): String do\n    return \"ready\"\nend",
 		"fun make_text(h: Heap, source: String): String do\n    return source\nend",
 		"let owned: String = \"x\"",
 		"fun demo(h: Heap, source: String) do\n    source.free(h)\nend",
-		"fun demo(h: Heap, release: Bool) do\n    let owned: String = \"x\".to_string(h)\n    if release then\n        owned.free(h)\n    end\n    owned.free(h)\nend",
-		"fun demo(h: Heap, release: Bool) do\n    let owned: String = \"x\".to_string(h)\n    if release then\n        defer owned.free(h)\n    else\n        defer owned.free(h)\n    end\nend",
+		"fun demo(h: Heap, release: Bool) do\n    let owned: String = \"x\".copy(h)\n    if release then\n        owned.free(h)\n    end\n    owned.free(h)\nend",
+		"fun demo(h: Heap, release: Bool) do\n    let owned: String = \"x\".copy(h)\n    if release then\n        defer owned.free(h)\n    else\n        defer owned.free(h)\n    end\nend",
 	} {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("Compile(%q) exit code = %d (%v), want 0", source, result.ExitCode, result.Stderr)
@@ -175,7 +174,7 @@ func TestStringShallowCopySemantics(t *testing.T) {
 }
 
 func TestStringReturnHandoff(t *testing.T) {
-	result := compileSource("fun make_text(h: Heap): String do\n    let owned: String = \"x\".to_string(h)\n    return owned\nend\nfun demo(h: Heap) do\n    let text: String = make_text(h)\n    text.free(h)\nend")
+	result := compileSource("fun make_text(h: Heap): String do\n    let owned: String = \"x\".copy(h)\n    return owned\nend\nfun demo(h: Heap) do\n    let text: String = make_text(h)\n    text.free(h)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -194,9 +193,9 @@ func TestStringLiteralFreeRejected(t *testing.T) {
 		"type Box is struct text: String end\nfun demo(h: Heap) do\n    let box: Box = Box(text = \"x\")\n    box.text.free(h)\nend",
 		"type W is union | A as text: String end | B as x: Int32 end end\nlet h: Heap = Heap()\nlet w: W = W.A(text = \"x\")\nlet label: Int32 = match w is\n| W.A then w.text.free(h)\n| W.B then 0\nend",
 		"fun demo(h: Heap) do\n    let texts: Array<String, 2> = [\"a\", \"b\"]\n    texts[0].free(h)\nend",
-		"fun demo(h: Heap) do\n    let mut text: String = \"x\".to_string(h)\n    text = \"y\"\n    text.free(h)\nend",
-		"fun demo(h: Heap, release: Bool) do\n    let mut text: String = \"x\".to_string(h)\n    if release then\n        text = \"y\"\n    end\n    text.free(h)\nend",
-		"fun demo(h: Heap) do\n    let mut texts: Array<String, 2> = [\"a\".to_string(h), \"b\".to_string(h)]\n    let i: Size = 0\n    texts[i] = \"lit\"\n    texts[0].free(h)\nend",
+		"fun demo(h: Heap) do\n    let mut text: String = \"x\".copy(h)\n    text = \"y\"\n    text.free(h)\nend",
+		"fun demo(h: Heap, release: Bool) do\n    let mut text: String = \"x\".copy(h)\n    if release then\n        text = \"y\"\n    end\n    text.free(h)\nend",
+		"fun demo(h: Heap) do\n    let mut texts: Array<String, 2> = [\"a\".copy(h), \"b\".copy(h)]\n    let i: Size = 0\n    texts[i] = \"lit\"\n    texts[0].free(h)\nend",
 	}
 	for _, source := range rejected {
 		if result := compileSource(source); result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "cannot free a String literal") {
@@ -204,11 +203,11 @@ func TestStringLiteralFreeRejected(t *testing.T) {
 		}
 	}
 	accepted := []string{
-		"fun demo(h: Heap) do\n    let mut text: String = \"x\"\n    text = \"y\".to_string(h)\n    text.free(h)\nend",
+		"fun demo(h: Heap) do\n    let mut text: String = \"x\"\n    text = \"y\".copy(h)\n    text.free(h)\nend",
 		"fun demo(h: Heap, source: String) do\n    source.free(h)\nend",
 		"fun make_text(): String do\n    return \"ready\"\nend\nfun demo(h: Heap) do\n    let text: String = make_text()\n    text.free(h)\nend",
 		"fun demo(h: Heap) do\n    let values: List<String> = List<String>(h)\n    values.push(\"lit\")\n    let first: String = values[0]\n    first.free(h)\nend",
-		"fun demo(h: Heap) do\n    let raw: Slice<Byte> = \"hi\".bytes()\n    let text: String = String.from_bytes(h, raw)\n    text.free(h)\nend",
+		"fun demo(h: Heap): Int32 | Error do\n    let raw: Slice<Byte> = \"hi\".bytes()\n    let text: String = try String.from_bytes(h, raw)\n    text.free(h)\n    return 0\nend",
 		"fun demo(h: Heap) do\n    let text: String = String.interpolate(h, \"n={{ 1 }}\")\n    text.free(h)\nend",
 	}
 	for _, source := range accepted {
@@ -250,5 +249,26 @@ func TestStringInArrayIsStoredAndCopiedShallow(t *testing.T) {
 		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)
 		}
+	}
+}
+
+// length() counts bytes on both forms, in constant time, and slice() takes byte
+// bounds: a range that splits a UTF-8 sequence is legal and yields bytes.
+func TestTextLengthAndSliceAreBytes(t *testing.T) {
+	result := compileSource("fun demo() do\n    let heap: String = \"h\u00e9llo\"\n    let inline: String<16> = \"\\u{1F600}\"\n    let a: Size = heap.length()\n    let b: Size = inline.length()\n    let part: Slice<Byte> = heap.slice(1, 2)\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	for _, want := range []string{
+		"(hex_text_heap(hex_v_heap)).length",
+		"(hex_text_inline(&(hex_v_inline))).length",
+		"hex_text_slice(hex_text_heap(hex_v_heap), (size_t)(1), (size_t)(2))",
+	} {
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
+		}
+	}
+	if strings.Contains(stringH(t, result), "hex_utf8_next") || strings.Contains(stringC(t, result), "hex_utf8_next") {
+		t.Fatalf("byte slicing still walks UTF-8 sequences")
 	}
 }

@@ -378,7 +378,7 @@ func validateCallStatement(statement checker.CallStatement, state *expressionVal
 		checker.StashConstructorExpression, checker.StashMethodCallExpression,
 		checker.PoolConstructorExpression, checker.PoolMethodCallExpression,
 		checker.VolatileReadExpression, checker.VolatileWriteExpression,
-		checker.RuneCursorMethodCallExpression, checker.HeapFreeExpression, checker.HeapAllocateExpression,
+		checker.HeapFreeExpression, checker.HeapAllocateExpression,
 		checker.HeapAllocateAlignedExpression,
 		checker.BitCastExpression, checker.EndianConversionExpression, checker.ConversionExpression,
 		checker.LayoutExpression, checker.SliceBridgeExpression, checker.BytesOverExpression,
@@ -415,7 +415,7 @@ func renderCallStatement(statement checker.CallStatement, state *expressionValid
 		checker.StashConstructorExpression, checker.StashMethodCallExpression,
 		checker.PoolConstructorExpression, checker.PoolMethodCallExpression,
 		checker.VolatileReadExpression, checker.VolatileWriteExpression,
-		checker.RuneCursorMethodCallExpression, checker.HeapFreeExpression, checker.HeapAllocateExpression,
+		checker.HeapFreeExpression, checker.HeapAllocateExpression,
 		checker.HeapAllocateAlignedExpression,
 		checker.BitCastExpression, checker.EndianConversionExpression, checker.ConversionExpression,
 		checker.LayoutExpression, checker.SliceBridgeExpression, checker.BytesOverExpression,
@@ -633,6 +633,9 @@ type expressionValidation struct {
 	// across the value-copy the walker passes to each visit.
 	interpolationCounter  int
 	hoistedInterpolations map[*checker.Expression]string
+	// hoistedInlineInterpolations holds the result of each String<N>.interpolate
+	// call, keyed by its first segment's operand, which has no Heap to key on.
+	hoistedInlineInterpolations map[*checker.Expression]string
 	// spawnCounter and hoistedSpawns carry spawn prologues: each spawn's
 	// argument frame and task handle are declared before the statement
 	// renders, and the expression renders as the task handle.
@@ -829,12 +832,6 @@ func declaration(typ compilerTypes.Type, name string, mutable bool) string {
 			return typ.CName + " *" + name
 		}
 		return typ.CName + " *const " + name
-	}
-	if compilerTypes.IsRuneCursor(typ) {
-		// A RuneCursor is a mutable-through descriptor; next() advances its
-		// offset, so the binding carries no top-level const even without a
-		// mut declaration.
-		return typ.CName + " " + name
 	}
 	if typ.Atomic != nil {
 		// An Atomic is a mutable-through wrapper; its accessors take a
@@ -1115,7 +1112,8 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return "*(" + operand + ")", nil
 	case checker.IndexExpression, checker.ArrayLiteralExpression, checker.CollectionMethodCallExpression, checker.CollectionSliceExpression:
 		return renderCollectionExpression(node, state)
-	case checker.StringLiteralExpression, checker.StringMethodCallExpression, checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.StringInterpolateExpression, checker.RuneCursorMethodCallExpression:
+	case checker.StringLiteralExpression, checker.StringMethodCallExpression, checker.StringFromBytesExpression, checker.StringInterpolateExpression,
+		checker.InlineStringConstructExpression, checker.TextCoerceExpression:
 		return renderTextExpression(node, state)
 	case checker.ListNewExpression, checker.DictNewExpression:
 		return renderCollectionConstructor(node, state)
@@ -1135,6 +1133,9 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if node.Left == nil || node.Right == nil {
 			return "", unknownExpressionDiagnostic("deep equality without both operands")
 		}
+		if compilerTypes.IsText(node.OperandType) {
+			return renderTextEquality(node, state)
+		}
 		left, _, leftErr := renderHoistedExpressionNode(node.Left, &node.OperandType, state)
 		if leftErr != nil {
 			return "", leftErr
@@ -1143,18 +1144,9 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if rightErr != nil {
 			return "", rightErr
 		}
-		if !compilerTypes.IsString(node.OperandType) && !compilerTypes.IsStrand(node.OperandType) && !compilerTypes.IsList(node.OperandType) {
+		if !compilerTypes.IsList(node.OperandType) {
 			left = "&(" + left + ")"
 			right = "&(" + right + ")"
-		}
-		if compilerTypes.IsStrand(node.OperandType) {
-			// Strand equality is a direct memcmp of the canonical 32-byte
-			// zero-filled representation.
-			result := "(memcmp(" + left + ".data, " + right + ".data, 32) == 0)"
-			if node.Operator == checker.NotEqualOperator {
-				result = "(memcmp(" + left + ".data, " + right + ".data, 32) != 0)"
-			}
-			return result, nil
 		}
 		result := equalityHelperName(node.OperandType) + "(" + left + ", " + right + ")"
 		if node.Operator == checker.NotEqualOperator {
@@ -1390,7 +1382,7 @@ func renderUnaryOperationWithState(node checker.Expression, state *expressionVal
 		if !compilerTypes.Equal(node.OperandType, node.ResultType) {
 			return "", unknownExpressionDiagnostic("complement result type does not match its operand type")
 		}
-		if !compilerTypes.IsInteger(node.OperandType) || compilerTypes.IsRune(node.OperandType) {
+		if !compilerTypes.IsInteger(node.OperandType) {
 			return "", unknownExpressionDiagnostic("complement of an unsupported type")
 		}
 		return renderBitwiseComplement(node.OperandType, operand)
@@ -1482,13 +1474,13 @@ func renderBinaryOperationWithState(node checker.Expression, state *expressionVa
 		// Bitwise operations require an eligible integer type at the
 		// selected exact width.
 		arithmeticResult = true
-		if !compilerTypes.IsInteger(node.OperandType) || compilerTypes.IsRune(node.OperandType) {
+		if !compilerTypes.IsInteger(node.OperandType) {
 			return "", unknownExpressionDiagnostic("bitwise operation with an unsupported type")
 		}
 	case checker.ShiftLeftOperator, checker.ShiftRightOperator:
 		// Shifts preserve the left operand's type.
 		arithmeticResult = true
-		if !compilerTypes.IsInteger(node.OperandType) || compilerTypes.IsRune(node.OperandType) {
+		if !compilerTypes.IsInteger(node.OperandType) {
 			return "", unknownExpressionDiagnostic("shift operation with an unsupported type")
 		}
 	case checker.InvalidOperator, checker.NegateOperator, checker.LogicalNotOperator, checker.BitwiseNotOperator:
@@ -1623,8 +1615,6 @@ func unsignedCName(typ compilerTypes.Type) (string, bool) {
 		return "uint64_t", true
 	case compilerTypes.SizeType:
 		return "size_t", true
-	case compilerTypes.Rune:
-		return "uint32_t", true
 	default:
 		return "", false
 	}
@@ -1806,7 +1796,7 @@ func renderExpressionNodeWithExpectedState(node checker.Expression, expected *co
 		node.Kind == checker.ForeignFunctionReferenceExpression || node.Kind == checker.ForeignConstantExpression || node.Kind == checker.ForeignGlobalExpression ||
 		node.Kind == checker.CallExpression || node.Kind == checker.MethodCallExpression || node.Kind == checker.NilExpression ||
 		node.Kind == checker.IndexExpression || node.Kind == checker.CollectionMethodCallExpression || node.Kind == checker.CollectionSliceExpression ||
-		node.Kind == checker.StringLiteralExpression || node.Kind == checker.StringMethodCallExpression || node.Kind == checker.StringFromBytesExpression || node.Kind == checker.ListNewExpression || node.Kind == checker.DictNewExpression ||
+		node.Kind == checker.StringLiteralExpression || node.Kind == checker.StringMethodCallExpression || node.Kind == checker.StringFromBytesExpression || node.Kind == checker.InlineStringConstructExpression || node.Kind == checker.TextCoerceExpression || node.Kind == checker.ListNewExpression || node.Kind == checker.DictNewExpression ||
 		node.Kind == checker.DeepEqualityExpression || node.Kind == checker.StringCompareExpression || node.Kind == checker.WideningExpression || node.Kind == checker.ConversionExpression, nil
 }
 
@@ -1844,7 +1834,8 @@ func expressionResultType(node checker.Expression) (compilerTypes.Type, bool) {
 		checker.AdtConstructExpression, checker.AdtPayloadExpression, checker.MatchExpression,
 		checker.ArrayLiteralExpression, checker.IndexExpression, checker.CollectionMethodCallExpression,
 		checker.CollectionSliceExpression, checker.StringLiteralExpression, checker.StringMethodCallExpression,
-		checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.StringInterpolateExpression, checker.RuneCursorMethodCallExpression, checker.ListNewExpression, checker.DictNewExpression,
+		checker.StringFromBytesExpression, checker.StringInterpolateExpression, checker.InlineStringConstructExpression, checker.TextCoerceExpression,
+		checker.ListNewExpression, checker.DictNewExpression,
 		checker.DeepEqualityExpression, checker.StringCompareExpression, checker.WideningExpression, checker.ConversionExpression,
 		checker.SpawnExpression, checker.TaskYieldExpression, checker.TaskMethodCallExpression,
 		checker.ChannelConstructorExpression, checker.ChannelMethodCallExpression,

@@ -125,9 +125,9 @@ func TestGenericArityAndInferenceDiagnostics(t *testing.T) {
 // pass generator preflight for every specialization: the validation walk must
 // not fail closed on statement shapes the checker accepts.
 func TestGenericBodiesWithControlFlowSpecialize(t *testing.T) {
-	source := "fun cleanup(v: Int32) do\nend\nfun sweep<T>(values: List<T>): Int32 | Error do\n    errdefer cleanup(9)\n    defer cleanup(8)\n    let mut total: Int32 = 0\n    for value in values do\n        while total < 10 do\n            total = total + 1\n            if total > 100 then\n                break\n            end\n            continue\n        end\n    end\n    return total\nend\nfun demo(h: Heap): Int32 | Error do\n    let ints: List<Int32> = List<Int32>(h)\n    defer ints.free(h)\n    ints.push(1)\n    let a: Int32 = try sweep<Int32>(ints)\n    let strands: List<Strand> = List<Strand>(h)\n    defer strands.free(h)\n    strands.push(\"s\")\n    let b: Int32 = try sweep<Strand>(strands)\n    return a + b\nend\n"
+	source := "fun cleanup(v: Int32) do\nend\nfun sweep<T>(values: List<T>): Int32 | Error do\n    errdefer cleanup(9)\n    defer cleanup(8)\n    let mut total: Int32 = 0\n    for value in values do\n        while total < 10 do\n            total = total + 1\n            if total > 100 then\n                break\n            end\n            continue\n        end\n    end\n    return total\nend\nfun demo(h: Heap): Int32 | Error do\n    let ints: List<Int32> = List<Int32>(h)\n    defer ints.free(h)\n    ints.push(1)\n    let a: Int32 = try sweep<Int32>(ints)\n    let texts: List<String<8>> = List<String<8>>(h)\n    defer texts.free(h)\n    texts.push(\"s\")\n    let b: Int32 = try sweep<String<8>>(texts)\n    return a + b\nend\n"
 	result := assertCompiles(t, source)
-	if strings.Count(rootC(t, result), "hex_f_m3_app_sweep_Int32") < 1 || strings.Count(rootC(t, result), "hex_f_m3_app_sweep_Strand") < 1 {
+	if strings.Count(rootC(t, result), "hex_f_m3_app_sweep_Int32") < 1 || strings.Count(rootC(t, result), "hex_f_m3_app_sweep_String_8_") < 1 {
 		t.Fatalf("modules/app.c = %q, want both specializations", rootC(t, result))
 	}
 }

@@ -82,7 +82,7 @@ func (analysis *bodyAnalysis) statements(statements []parser.Statement, scope *c
 			analysis.expression(node.Source, scope, visible)
 			body := &captureScope{names: make(map[string]bool), parent: scope}
 			for _, binder := range node.Binders {
-				body.names[binder.Lexeme] = true
+				body.names[binder.Name.Lexeme] = true
 			}
 			analysis.statements(node.Body, body, visible)
 		case parser.UnsafeStatement:

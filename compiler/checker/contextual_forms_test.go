@@ -100,7 +100,6 @@ func readersOfExpectedType(t *testing.T) []string {
 // union path.
 func TestUnionInjectionPredicateIsUnchangedByTheInferenceCases(t *testing.T) {
 	for _, source := range []string{
-		`"hexal"`,
 		`nil`,
 		`[1, 2, 3]`,
 		`match ready | true then 1 | false then 0 end`,
@@ -113,9 +112,10 @@ func TestUnionInjectionPredicateIsUnchangedByTheInferenceCases(t *testing.T) {
 			t.Fatalf("%s is not contextual for inference, so := would accept it and default its type", source)
 		}
 	}
-	// The forms the union path already treats as contextual are unchanged
-	// under both questions.
-	for _, source := range []string{`0`, `1.5`, `-1`, `1 + 2`} {
+	// The forms the union path treats as contextual are unchanged under both
+	// questions. A string literal joined them because a union of text forms
+	// selects the first written member whose capacity holds the literal.
+	for _, source := range []string{`0`, `1.5`, `-1`, `1 + 2`, `"hexal"`} {
 		expression := parseOneExpression(t, source)
 		if !isContextualExpression(expression) || !isContextualForInference(expression) {
 			t.Fatalf("%s must stay contextual on both paths", source)

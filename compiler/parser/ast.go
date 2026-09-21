@@ -388,10 +388,18 @@ func (TryStatement) statementNode()    {}
 // optional Size index.
 type ForStatement struct {
 	Keyword lexer.Token
-	Binders []lexer.Token // 1, 2, or 3 names in written order
+	Binders []ForBinder // 1, 2, or 3 binders in written order
 	Source  Expression
 	Body    []Statement
 	End     lexer.Token
+}
+
+// ForBinder is one for-in binder: a name and an optional written type. The
+// checker owns every rule about the annotation, since whether it is optional,
+// required, or must agree depends on the source.
+type ForBinder struct {
+	Name lexer.Token
+	Type TypeExpression // nil when no annotation is written
 }
 
 func (ForStatement) topLevelItemNode() {}
@@ -513,15 +521,6 @@ type ByteLiteral struct {
 }
 
 func (ByteLiteral) expressionNode() {}
-
-// RuneLiteral is a single-quoted '...' literal carrying exactly one Unicode
-// scalar. The lexer validated the escape grammar and scalar validity; the
-// checker decodes the payload value.
-type RuneLiteral struct {
-	Token lexer.Token
-}
-
-func (RuneLiteral) expressionNode() {}
 
 // RawStringLiteral is an r"..." / r#"..."# literal before semantic
 // resolution. The token lexeme includes the 'r', its hash delimiters, and
@@ -671,7 +670,7 @@ type ElsePattern struct {
 func (ElsePattern) matchPatternNode() {}
 
 // ScalarPattern is one value-mode scalar arm: an optional leading minus and an
-// integer, byte, or rune literal. The checker types the literal contextually
+// integer or byte literal. The checker types the literal contextually
 // against the scrutinee type and owns range and duplicate diagnostics; the
 // parser assigns no value. Minus is the zero token when the literal is
 // unsigned.

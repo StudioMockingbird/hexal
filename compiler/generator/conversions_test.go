@@ -9,42 +9,40 @@ import (
 )
 
 // Classification matrix: identity for one canonical type, direct for the
-// proven non-trapping families (integer/Rune to float, Float32 widening,
+// proven non-trapping families (integer to float, Float32 widening,
 // domain-fitted integer widening), checked for everything else, with Size
 // never classified direct except identity and Size-to-float.
 func TestClassifyConversionMatrix(t *testing.T) {
 	scalars := []compilerTypes.Type{
 		compilerTypes.Int8, compilerTypes.Int16, compilerTypes.Int32, compilerTypes.Int64,
 		compilerTypes.UInt8, compilerTypes.UInt16, compilerTypes.UInt32, compilerTypes.UInt64,
-		compilerTypes.Rune, compilerTypes.Float32, compilerTypes.Float64, compilerTypes.SizeType,
+		compilerTypes.Float32, compilerTypes.Float64, compilerTypes.SizeType,
 	}
 	// Expected kind per row (source) across the targets in scalars order:
 	// I = identity, D = direct, C = checked.
 	expected := map[compilerTypes.Type]string{
-		// Int8:   I D D D C C C C C D D C
-		compilerTypes.Int8: "IDDDCCCCCDDC",
-		// Int16:  C I D D C C C C C D D C
-		compilerTypes.Int16: "CIDDCCCCCDDC",
-		// Int32:  C C I D C C C C C D D C
-		compilerTypes.Int32: "CCIDCCCCCDDC",
-		// Int64:  C C C I C C C C C D D C
-		compilerTypes.Int64: "CCCICCCCCDDC",
-		// UInt8:  C D D D I D D D C D D C
-		compilerTypes.UInt8: "CDDDIDDDCDDC",
-		// UInt16: C C D D C I D D C D D C
-		compilerTypes.UInt16: "CCDDCIDDCDDC",
-		// UInt32: C C C D C C I D C D D C
-		compilerTypes.UInt32: "CCCDCCIDCDDC",
-		// UInt64: C C C C C C C I C D D C
-		compilerTypes.UInt64: "CCCCCCCICDDC",
-		// Rune:   C C C D C C D D I D D C
-		compilerTypes.Rune: "CCCDCCDDIDDC",
-		// Float32:C C C C C C C C C I D C
-		compilerTypes.Float32: "CCCCCCCCCIDC",
-		// Float64:C C C C C C C C C C I C
-		compilerTypes.Float64: "CCCCCCCCCCIC",
-		// Size:   C C C C C C C C C D D I
-		compilerTypes.SizeType: "CCCCCCCCCDDI",
+		// Int8:   I D D D C C C C D D C
+		compilerTypes.Int8: "IDDDCCCCDDC",
+		// Int16:  C I D D C C C C D D C
+		compilerTypes.Int16: "CIDDCCCCDDC",
+		// Int32:  C C I D C C C C D D C
+		compilerTypes.Int32: "CCIDCCCCDDC",
+		// Int64:  C C C I C C C C D D C
+		compilerTypes.Int64: "CCCICCCCDDC",
+		// UInt8:  C D D D I D D D D D C
+		compilerTypes.UInt8: "CDDDIDDDDDC",
+		// UInt16: C C D D C I D D D D C
+		compilerTypes.UInt16: "CCDDCIDDDDC",
+		// UInt32: C C C D C C I D D D C
+		compilerTypes.UInt32: "CCCDCCIDDDC",
+		// UInt64: C C C C C C C I D D C
+		compilerTypes.UInt64: "CCCCCCCIDDC",
+		// Float32:C C C C C C C C I D C
+		compilerTypes.Float32: "CCCCCCCCIDC",
+		// Float64:C C C C C C C C C I C
+		compilerTypes.Float64: "CCCCCCCCCIC",
+		// Size:   C C C C C C C C D D I
+		compilerTypes.SizeType: "CCCCCCCCDDI",
 	}
 	for _, source := range scalars {
 		wantRow, ok := expected[source]
@@ -215,16 +213,6 @@ func TestRenderConversionClassification(t *testing.T) {
 				ResultType:  compilerTypes.Float64,
 			},
 			want: "(double)hex_v_value",
-		},
-		{
-			name: "direct Rune to UInt32",
-			node: checker.Expression{
-				Kind:        checker.ConversionExpression,
-				Operand:     expressionPointer(variableNode("letter")),
-				OperandType: compilerTypes.Rune,
-				ResultType:  compilerTypes.UInt32,
-			},
-			want: "(uint32_t)hex_v_letter",
 		},
 		{
 			name: "direct Float32 to Float64",

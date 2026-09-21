@@ -218,7 +218,7 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 		}
 		return nil
 	case checker.IndexExpression:
-		if node.Operand == nil || len(node.Arguments) != 1 || node.OperandType.Array == nil && node.OperandType.Slice == nil && node.OperandType.List == nil && !compilerTypes.IsString(node.OperandType) && !compilerTypes.IsStrand(node.OperandType) || !supportedGeneratedTypeWithState(node.OperandType, state) {
+		if node.Operand == nil || len(node.Arguments) != 1 || node.OperandType.Array == nil && node.OperandType.Slice == nil && node.OperandType.List == nil || !supportedGeneratedTypeWithState(node.OperandType, state) {
 			return unknownExpressionDiagnostic("index expression has invalid checked metadata")
 		}
 		var element compilerTypes.Type
@@ -226,10 +226,8 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 			element = node.OperandType.Array.Element
 		} else if node.OperandType.Slice != nil {
 			element = node.OperandType.Slice.Element
-		} else if node.OperandType.List != nil {
-			element = node.OperandType.List.Element
 		} else {
-			element = compilerTypes.Rune
+			element = node.OperandType.List.Element
 		}
 		if !compilerTypes.Equal(node.ResultType, element) {
 			return unknownExpressionDiagnostic("index expression has invalid checked metadata")

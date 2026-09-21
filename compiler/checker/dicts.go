@@ -9,7 +9,7 @@ import (
 )
 
 // resolveDictTypeUse resolves the built-in Dict<K, V> form written as an
-// ordinary generic type expression. K must be exactly Int32 or Strand; V
+// ordinary generic type expression. K must be exactly Int32 or String<N>; V
 // must be a collection element.
 func resolveDictTypeUse(expression parser.GenericTypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	if len(expression.Arguments) != 2 {
@@ -21,7 +21,10 @@ func resolveDictTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 	}
 	if !compilerTypes.IsDictKey(keyUse.Type) {
 		keyToken := typeExpressionToken(expression.Arguments[0], expression.Name)
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(keyToken, "dictionary key type must be Int32 or Strand"))
+		if compilerTypes.IsString(keyUse.Type) {
+			return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(keyToken, "dictionary key type String is not allowed: a Dict stores its keys, and String does not own its bytes; use String<N>"))
+		}
+		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(keyToken, "dictionary key type must be Int32 or String<N>"))
 	}
 	valueUse, diagnostic := resolveTypeUse(expression.Arguments[1], fallback, typeEnvironment, generics)
 	if diagnostic != nil {
@@ -161,15 +164,15 @@ func checkDictMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 }
 
 // checkDictKeyArgument checks one insert/get/contains/remove key against the
-// key type. A String literal in a Strand position retains Strand's
-// literal-only construction.
+// key type. A string literal in a String<N> position is measured against N at
+// compile time; any other text must already be exactly the key type.
 func checkDictKeyArgument(expression parser.Expression, fallback lexer.Token, keyType compilerTypes.Type, ctx checkContext) (Operand, *compilerTypes.Diagnostic) {
 	checked := checkInitializer(expression, compilerTypes.NewTypeUse(keyType), fallback, ctx)
 	if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 		return Operand{}, &diagnostics[0]
 	}
 	if !assignable(keyType, checked.typ) {
-		diagnostic := typeErrorAt(checked.token, "dictionary key requires "+keyType.Name+"; got "+checked.typ.Name)
+		diagnostic := typeErrorAt(checked.token, "dictionary key requires "+keyType.Name+"; got "+checked.typ.Name+textMismatchHint(keyType, checked.typ))
 		return Operand{}, &diagnostic
 	}
 	return checked.source, nil

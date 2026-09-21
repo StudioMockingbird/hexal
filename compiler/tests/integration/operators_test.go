@@ -278,44 +278,6 @@ func TestNaNComparisons(t *testing.T) {
 	}
 }
 
-func TestRuneBinaryArithmeticRejected(t *testing.T) {
-	rejected := []string{
-		"let r: Int32 = 'a' + 'b'\n",
-		"let r: Int32 = 'a' - 'b'\n",
-		"let r: Int32 = 'a' * 'b'\n",
-		"let r: Int32 = 'a' / 'b'\n",
-		"let r: Int32 = 'a' % 'b'\n",
-		"let r: Int32 = 'a' + 1\n",
-		"let r: Int32 = 1 + 'a'\n",
-		"let letter: Rune = 'a'\nlet r: Int32 = letter + 1\n",
-		"let letter: Rune = 'a'\nlet r: Int32 = 1 - letter\n",
-		"let letter: Rune = 'a'\nlet r: Int32 = letter - letter\n",
-		"let letter: Rune = 'a'\nlet r: Int32 = letter * letter\n",
-		"let letter: Rune = 'a'\nlet r: Int32 = letter / letter\n",
-		"let letter: Rune = 'a'\nlet r: Int32 = letter % letter\n",
-		"let letter: Rune = 'a'\nlet r: Int32 = 1 * letter\n",
-		"let letter: Rune = 'a'\nlet r: Int32 = 1 / letter\n",
-		"let letter: Rune = 'a'\nlet r: Int32 = 1 % letter\n",
-	}
-	for _, source := range rejected {
-		result := compileSource(source)
-		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "requires numeric operands") {
-			t.Fatalf("want numeric-operands diagnostic; got exit=%d stderr=%v\nsource: %s", result.ExitCode, result.Stderr, source)
-		}
-	}
-	accepted := []string{
-		"let ok: Bool = 'a' < 'b'\n",
-		"let ok: Bool = 'a' == 'a'\n",
-		"let code: UInt32 = 'a'.to<UInt32>()\n",
-		"let code: UInt32 = 'a'.to<UInt32>() + 1\n",
-	}
-	for _, source := range accepted {
-		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
-			t.Fatalf("want accept; got %v:\n%s", result.Stderr, source)
-		}
-	}
-}
-
 // Size-only arithmetic renders a uintmax_t intermediate, which requires
 // <stdint.h> even though no written type spells an exact-width integer:
 // Size selects <stddef.h> alone. The assertion is textual because the suite

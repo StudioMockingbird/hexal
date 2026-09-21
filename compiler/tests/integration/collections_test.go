@@ -10,7 +10,7 @@ func TestStorabilityRule(t *testing.T) {
 		"let names: Array<String, 4> = [\"a\", \"b\", \"c\", \"d\"]\n",
 		"let outer: List<List<Int32>> = List<List<Int32>>(Heap())\n",
 		"let views: List<Slice<Int32>> = List<Slice<Int32>>(Heap())\n",
-		"let lookup: Dict<Strand, List<Int32>> = Dict<Strand, List<Int32>>(Heap())\n",
+		"let lookup: Dict<String<128>, List<Int32>> = Dict<String<128>, List<Int32>>(Heap())\n",
 		"let value: String | Nil = nil\n",
 		"let value: List<Int32> | Nil = nil\n",
 		"let value: Slice<Int32> | Nil = nil\n",

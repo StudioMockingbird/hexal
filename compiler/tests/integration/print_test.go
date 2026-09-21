@@ -9,7 +9,7 @@ import (
 )
 
 func TestPrintScalars(t *testing.T) {
-	result := compileSource("fun demo() do\n    print(\"count = \", 42, \"\\n\")\n    print(true, false, nil)\n    print(1.5, -2.5, 3, -3)\n    let letter: Rune = (65).to<Rune>()\n    print(letter)\n    let size: Size = 7\n    print(size)\nend")
+	result := compileSource("fun demo() do\n    print(\"count = \", 42, \"\\n\")\n    print(true, false, nil)\n    print(1.5, -2.5, 3, -3)\n    let size: Size = 7\n    print(size)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -19,8 +19,7 @@ func TestPrintScalars(t *testing.T) {
 		"hex_print_bool(&hex_print_out_8, hex_print_arg_6);",
 		"hex_print_nil(&hex_print_out_8);",
 		"hex_print_float64(&hex_print_out_13, hex_print_arg_9);",
-		"hex_print_rune(&hex_print_out_15, hex_print_arg_14);",
-		"hex_print_size(&hex_print_out_17, hex_print_arg_16);",
+		"hex_print_size(&hex_print_out_15, hex_print_arg_14);",
 	} {
 		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)

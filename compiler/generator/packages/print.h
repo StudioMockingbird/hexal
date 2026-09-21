@@ -36,8 +36,6 @@ void hex_print_uint64(hex_print_buffer *out, uint64_t value);
 void hex_print_size(hex_print_buffer *out, size_t value);
 void hex_print_float32(hex_print_buffer *out, float value);
 void hex_print_float64(hex_print_buffer *out, double value);
-void hex_print_rune(hex_print_buffer *out, uint32_t value);
 void hex_print_quoted_text(hex_print_buffer *out, const uint8_t *data, size_t length);
-void hex_print_quoted_rune(hex_print_buffer *out, uint32_t value);
 
 #endif

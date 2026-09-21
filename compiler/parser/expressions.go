@@ -523,8 +523,6 @@ func (parser *Parser) primaryExpression() (Expression, error) {
 		}
 	case lexer.ByteLiteral:
 		expression = ByteLiteral{Token: parser.advance()}
-	case lexer.RuneLiteral:
-		expression = RuneLiteral{Token: parser.advance()}
 	case lexer.Match:
 		var err error
 		expression, err = parser.matchExpression()
@@ -739,8 +737,13 @@ func (parser *Parser) typeArgumentList() ([]TypeExpression, error) {
 }
 
 // typeArgument parses one call-site type argument, preserving an optional
-// leading `mut` marking for the Slice bridge.
+// leading `mut` marking for the Slice bridge. A numeric literal is a capacity
+// argument (String<N>, widen<M>()); it is kept as written for the checker.
 func (parser *Parser) typeArgument() (TypeExpression, error) {
+	switch parser.peek().Kind {
+	case lexer.Integer, lexer.HexInteger, lexer.BinaryInteger, lexer.OctalInteger, lexer.DecimalFloat:
+		return LiteralTypeArgument{Token: parser.advance()}, nil
+	}
 	if parser.check(lexer.Mut) {
 		mut := parser.advance()
 		inner, err := parser.typeExpression()
@@ -857,16 +860,16 @@ func (parser *Parser) matchPattern(typeMode bool) (MatchPattern, error) {
 	if parser.check(lexer.Eos) {
 		return EosPattern{Token: parser.advance()}, nil
 	}
-	if parser.check(lexer.Integer) || parser.check(lexer.HexInteger) || parser.check(lexer.BinaryInteger) || parser.check(lexer.OctalInteger) || parser.check(lexer.ByteLiteral) || parser.check(lexer.RuneLiteral) {
+	if parser.check(lexer.Integer) || parser.check(lexer.HexInteger) || parser.check(lexer.BinaryInteger) || parser.check(lexer.OctalInteger) || parser.check(lexer.ByteLiteral) {
 		return parser.scalarPattern(lexer.Token{})
 	}
 	if parser.check(lexer.Minus) {
 		minus := parser.advance()
 		switch parser.peekAt(0).Kind {
-		case lexer.Integer, lexer.HexInteger, lexer.BinaryInteger, lexer.OctalInteger, lexer.ByteLiteral, lexer.RuneLiteral:
+		case lexer.Integer, lexer.HexInteger, lexer.BinaryInteger, lexer.OctalInteger, lexer.ByteLiteral:
 			return parser.scalarPattern(minus)
 		default:
-			return nil, parser.errorAtCurrent("expected an integer, byte, or rune literal after '-' in a match pattern")
+			return nil, parser.errorAtCurrent("expected an integer or byte literal after '-' in a match pattern")
 		}
 	}
 	if parser.check(lexer.Identifier) && parser.peekAt(1).Kind == lexer.Less && parser.genericVariantFollows() {
@@ -913,10 +916,8 @@ func (parser *Parser) scalarPattern(minus lexer.Token) (MatchPattern, error) {
 		literal = IntegerLiteral{Token: token}
 	case lexer.ByteLiteral:
 		literal = ByteLiteral{Token: token}
-	case lexer.RuneLiteral:
-		literal = RuneLiteral{Token: token}
 	default:
-		return nil, parser.errorAtCurrent("expected an integer, byte, or rune literal in a match pattern")
+		return nil, parser.errorAtCurrent("expected an integer or byte literal in a match pattern")
 	}
 	return ScalarPattern{Minus: minus, Literal: literal}, nil
 }

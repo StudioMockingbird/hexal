@@ -145,8 +145,8 @@ static hex_t_ErrorKind hex_io_error_kind(bool windows_codes, long long code) {
     }
 {{end -}}
 #endif
-    hex_strand fallback = {{"{0}"}};
     static const char text[] = "IO error";
+    hex_string_128 fallback = { .byte_length = sizeof(text) - 1 };
     for (size_t index = 0; index < sizeof(text) - 1; index++) {
         fallback.data[index] = (uint8_t)text[index];
     }
@@ -167,7 +167,7 @@ hex_t_Error hex_io_error(size_t line, size_t column, const hex_string *file, con
         .hex_m_line = line,
         .hex_m_column = column,
         .hex_m_kind = kind,
-        .hex_m_message = message,
+        .hex_m_message = hex_error_message(hex_text_heap(message)),
     };
 }
 

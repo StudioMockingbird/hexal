@@ -241,13 +241,13 @@ func TestRemovedMethodSpellingsDiagnoseReplacement(t *testing.T) {
 	}{
 		{"let fixed: Array<Int32, 2> = [1, 2] let bad: Int32 = fixed.at(0)", "Array<Int32, 2> has no method at"},
 		{"fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    let first: Int32 = values.at(0)\nend", "List<Int32> has no method at"},
-		{"let text: String = \"hi\" let first: Rune = text.at(0)", "String has no method at"},
-		{"let label: Strand = \"hi\" let first: Rune = label.at(0)", "Strand has no method at"},
+		{"let text: String = \"hi\" let first: Byte = text.at(0)", "String has no method at"},
+		{"let label: String<8> = \"hi\" let first: Byte = label.at(0)", "String<8> has no method at"},
 		{"let fixed: Array<Int32, 2> = [1, 2] let bad: Bool = fixed.is_empty()", "Array<Int32, 2> has no method is_empty"},
 		{"let fixed: Array<Int32, 3> = [1, 2, 3] let view: Slice<Int32> = fixed.slice(0, 2) let bad: Bool = view.is_empty()", "Slice<Int32> has no method is_empty"},
 		{"fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    let empty: Bool = values.is_empty()\nend", "List<Int32> has no method is_empty"},
 		{"let text: String = \"hi\" let bad: Bool = text.is_empty()", "String has no method is_empty"},
-		{"let label: Strand = \"hi\" let bad: Bool = label.is_empty()", "Strand has no method is_empty"},
+		{"let label: String<8> = \"hi\" let bad: Bool = label.is_empty()", "String<8> has no method is_empty"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
@@ -258,12 +258,12 @@ func TestRemovedMethodSpellingsDiagnoseReplacement(t *testing.T) {
 
 // String.bytes is retained because its replacement would be asymptotically
 // worse; it still lowers to its constant-time helper (positive test, not an
-// absence check). is_empty was removed from String and Strand once the
-// cached rune count made length() == 0 the identical O(1) test.
+// absence check). is_empty was removed from every text form once the stored
+// byte length made length() == 0 the identical O(1) test.
 func TestRetainedTextOperationsKeepConstantTimeHelpers(t *testing.T) {
-	result := assertCompiles(t, "fun demo(h: Heap): Bool do\n    let text: String = \"hello\"\n    let raw: Slice<UInt8> = text.bytes()\n    let label: Strand = \"hexal\"\n    return (text.length() == 0) and (label.length() == 0)\nend\n")
+	result := assertCompiles(t, "fun demo(h: Heap): Bool do\n    let text: String = \"hello\"\n    let raw: Slice<UInt8> = text.bytes()\n    let label: String<8> = \"hexal\"\n    return (text.length() == 0) and (label.length() == 0)\nend\n")
 	for _, want := range []string{
-		"hex_string_bytes(",
+		"hex_text_bytes(",
 	} {
 		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(hexalH(t, result), want) {
 			t.Fatalf("generated output lacks the retained constant-time helper %q", want)

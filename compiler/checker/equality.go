@@ -64,7 +64,7 @@ func EqualityAvailable(typ compilerTypes.Type) (bool, string) {
 		// Pointer identity equality never dereferences the pointee, so it
 		// stays finite and always available.
 		return true, ""
-	case compilerTypes.IsString(typ), compilerTypes.IsStrand(typ),
+	case compilerTypes.IsText(typ),
 		compilerTypes.IsInteger(typ), compilerTypes.IsFloat(typ),
 		compilerTypes.Equal(typ, compilerTypes.Bool), compilerTypes.IsNil(typ):
 		return true, ""
@@ -104,12 +104,12 @@ func equalityUnavailableDiagnostic(typ compilerTypes.Type, reason string, token 
 
 // orderingAvailable reports whether typ supports the ordering operators.
 func orderingAvailable(typ compilerTypes.Type) bool {
-	return compilerTypes.IsString(typ) || compilerTypes.IsStrand(typ)
+	return compilerTypes.IsText(typ)
 }
 
 // checkDeepComparison resolves ==, !=, and the ordering operators that the
 // ordinary identical-scalar path does not own: lossless numeric widening,
-// pointer identity, String and Strand text comparison, and the recursive
+// pointer identity, text comparison, and the recursive
 // equality helpers for objects, ADTs, and sequences. It returns nil when
 // the plain binary path should continue.
 func checkDeepComparison(operator Operator, left, right checkedExpression, token lexer.Token, names *scope) *checkedExpression {
@@ -136,6 +136,27 @@ func checkDeepComparison(operator Operator, left, right checkedExpression, token
 		leftNode := widenNode(expressionNode(left.source), left.typ, common)
 		rightNode := widenNode(expressionNode(right.source), right.typ, common)
 		node := operationBinaryNode(operator, leftNode, rightNode, common, compilerTypes.Bool)
+		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Bool, Node: node}
+		return &checkedExpression{source: source, typ: compilerTypes.Bool, token: token}
+	}
+	if compilerTypes.IsText(left.typ) && compilerTypes.IsText(right.typ) {
+		// Every text form is one family: two operands compare bytewise
+		// whichever forms hold them, and capacity never participates.
+		leftNode := expressionNode(left.source)
+		rightNode := expressionNode(right.source)
+		kind := DeepEqualityExpression
+		if ordering {
+			kind = StringCompareExpression
+		}
+		node := Expression{
+			Kind:        kind,
+			Left:        &leftNode,
+			Right:       &rightNode,
+			Operator:    operator,
+			OperandType: left.typ,
+			RightType:   right.typ,
+			ResultType:  compilerTypes.Bool,
+		}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Bool, Node: node}
 		return &checkedExpression{source: source, typ: compilerTypes.Bool, token: token}
 	}

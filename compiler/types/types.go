@@ -73,6 +73,8 @@ type Type struct {
 	Adt *AdtType
 	// Array holds the metadata of fixed inline array types.
 	Array *ArrayInfo
+	// InlineString holds the metadata of inline text types, String<N>.
+	InlineString *InlineStringInfo
 	// Slice holds the metadata of non-owning contiguous slice types.
 	Slice *SliceInfo
 	// List holds the metadata of owning growable list types.
@@ -804,9 +806,6 @@ func IsNil(typ Type) bool { return typ.identity != nil && typ.identity == Nil.id
 // IsEoS reports whether typ is the canonical EoS type.
 func IsEoS(typ Type) bool { return typ.identity != nil && typ.identity == EoS.identity }
 
-// IsRune reports whether typ is the canonical Rune type.
-func IsRune(typ Type) bool { return typ.identity != nil && typ.identity == Rune.identity }
-
 // IsError reports whether typ is the canonical Error type.
 func IsError(typ Type) bool { return typ.identity != nil && typ.identity == ErrorType.identity }
 
@@ -815,12 +814,6 @@ func IsUnknown(typ Type) bool { return typ.identity != nil && typ.identity == Un
 
 // IsHeap reports whether typ is the canonical Heap type.
 func IsHeap(typ Type) bool { return typ.identity != nil && typ.identity == Heap.identity }
-
-// IsRuneCursor reports whether typ is the canonical RuneCursor descriptor
-// type.
-func IsRuneCursor(typ Type) bool {
-	return typ.identity != nil && typ.identity == RuneCursorType.identity
-}
 
 // IsPointerLike reports whether typ is a pointer, a function pointer, or a
 // nullable form of either: the values that can hold Nil.
@@ -1028,6 +1021,10 @@ func isCanonicalForEnvironment(environment *Environment, typ Type, state *canoni
 	}
 	if typ.Array != nil {
 		return isCanonicalArray(environment, typ, state)
+	}
+	if typ.InlineString != nil {
+		return typ.InlineString.Capacity >= 1 && typ.InlineString.Capacity <= MaxInlineStringCapacity &&
+			typ.identity.signature == inlineStringKey(typ.InlineString.Capacity)
 	}
 	if typ.Slice != nil {
 		return isCanonicalSlice(environment, typ, state)
@@ -1316,9 +1313,6 @@ func IsProtectedTypeName(name string) bool {
 	return false
 }
 
-// IsStrand reports whether typ is the canonical Strand type.
-func IsStrand(typ Type) bool { return typ.identity != nil && typ.identity == StrandType.identity }
-
 // IsSize reports whether typ is the canonical target-sized Size type.
 func IsSize(typ Type) bool { return typ.identity != nil && typ.identity == SizeType.identity }
 
@@ -1338,18 +1332,14 @@ func scalarType(name, cName string, kind ScalarKind, bits int) Type {
 // Package-level canonical builtins. Scalars share one package-level identity,
 // so they compare equal across compilation environments.
 var (
-	Int8   = scalarType("Int8", "int8_t", ScalarSignedInteger, 8)
-	Int16  = scalarType("Int16", "int16_t", ScalarSignedInteger, 16)
-	Int32  = scalarType("Int32", "int32_t", ScalarSignedInteger, 32)
-	Int64  = scalarType("Int64", "int64_t", ScalarSignedInteger, 64)
-	UInt8  = scalarType("UInt8", "uint8_t", ScalarUnsignedInteger, 8)
-	UInt16 = scalarType("UInt16", "uint16_t", ScalarUnsignedInteger, 16)
-	UInt32 = scalarType("UInt32", "uint32_t", ScalarUnsignedInteger, 32)
-	UInt64 = scalarType("UInt64", "uint64_t", ScalarUnsignedInteger, 64)
-	// Rune is the spelling for a Unicode scalar value. It lowers to the
-	// uint32_t scalar value set so text iteration and conversions share the
-	// ordinary unsigned machinery.
-	Rune    = scalarType("Rune", "uint32_t", ScalarUnsignedInteger, 32)
+	Int8    = scalarType("Int8", "int8_t", ScalarSignedInteger, 8)
+	Int16   = scalarType("Int16", "int16_t", ScalarSignedInteger, 16)
+	Int32   = scalarType("Int32", "int32_t", ScalarSignedInteger, 32)
+	Int64   = scalarType("Int64", "int64_t", ScalarSignedInteger, 64)
+	UInt8   = scalarType("UInt8", "uint8_t", ScalarUnsignedInteger, 8)
+	UInt16  = scalarType("UInt16", "uint16_t", ScalarUnsignedInteger, 16)
+	UInt32  = scalarType("UInt32", "uint32_t", ScalarUnsignedInteger, 32)
+	UInt64  = scalarType("UInt64", "uint64_t", ScalarUnsignedInteger, 64)
 	Float32 = scalarType("Float32", "float", ScalarFloat, 32)
 	Float64 = scalarType("Float64", "double", ScalarFloat, 64)
 	Bool    = scalarType("Bool", "bool", ScalarBool, 1)
@@ -1394,12 +1384,6 @@ var (
 		CanonicalKey: "String",
 		identity:     newTypeIdentity(),
 	}
-	StrandType = Type{
-		Name:         "Strand",
-		CName:        "hex_strand",
-		CanonicalKey: "Strand",
-		identity:     newTypeIdentity(),
-	}
 	// SizeType is the target-sized unsigned integer corresponding to C's
 	// size_t. It is a distinct canonical type even where its width matches
 	// a fixed-width integer.
@@ -1425,15 +1409,6 @@ var (
 		CanonicalKey: "Mutex",
 		identity:     newTypeIdentity(),
 	}
-	// RuneCursorType is the non-owning UTF-8 cursor: one descriptor holding
-	// the source byte pointer, byte length, and current byte offset. It is
-	// an inline value with one canonical identity.
-	RuneCursorType = Type{
-		Name:         "RuneCursor",
-		CName:        "hex_rune_cursor",
-		CanonicalKey: "RuneCursor",
-		identity:     newTypeIdentity(),
-	}
 )
 
 // errorType constructs the canonical built-in Error object, linking its
@@ -1447,7 +1422,7 @@ func errorType() Type {
 			{Name: "line", Type: SizeType},
 			{Name: "column", Type: SizeType},
 			{Name: "kind", Type: ErrorKindType},
-			{Name: "message", Type: StringType},
+			{Name: "message", Type: ErrorMessageText},
 		},
 	}
 	identity := newTypeIdentity()
@@ -1468,7 +1443,6 @@ var builtinTypes = map[string]Type{
 	"UInt16":  UInt16,
 	"UInt32":  UInt32,
 	"UInt64":  UInt64,
-	"Rune":    Rune,
 	"Float32": Float32,
 	"Float64": Float64,
 	"Nil":     Nil,
@@ -1476,14 +1450,12 @@ var builtinTypes = map[string]Type{
 	"Unknown": Unknown,
 	"Heap":    Heap,
 	"String":  StringType,
-	"Strand":  StrandType,
 	"Size":    SizeType,
 	"Error":   ErrorType,
 	"Mutex":   MutexType,
 	// Byte is the canonical transparent alias of UInt8; both spellings
 	// share one identity and one C representation.
-	"Byte":       UInt8,
-	"RuneCursor": RuneCursorType,
+	"Byte": UInt8,
 }
 
 // Lookup resolves a builtin type by name.

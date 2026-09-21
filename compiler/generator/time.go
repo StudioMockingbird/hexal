@@ -234,7 +234,7 @@ func writeTimeInlineHelpers(result *strings.Builder, state *generatedTimeState, 
 				"    if (hex_wall_time_now(&now)) {\n"+
 				"        return (%s){ .tag = %s, .payload.%s = now };\n"+
 				"    }\n"+
-				"    return (%s){ .tag = %s, .payload.%s = (hex_t_Error){ .hex_m_file = &%s, .hex_m_line = line, .hex_m_column = column, .hex_m_kind = (hex_t_ErrorKind){ .tag = %s }, .hex_m_message = &%s } };\n"+
+				"    return (%s){ .tag = %s, .payload.%s = (hex_t_Error){ .hex_m_file = &%s, .hex_m_line = line, .hex_m_column = column, .hex_m_kind = (hex_t_ErrorKind){ .tag = %s }, .hex_m_message = hex_error_message(hex_text_heap(&%s)) } };\n"+
 				"}\n",
 			union.CName, streamAdapterSuffix(union),
 			union.CName, wallTag, wallField,

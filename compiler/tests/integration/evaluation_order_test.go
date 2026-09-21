@@ -132,7 +132,7 @@ func TestStringEqualityOperandsEvaluateLeftToRight(t *testing.T) {
 		"fun right(): String do\n    return \"b\"\nend\n"+
 		"let result: Bool = left() == right()\n")
 	body := rootC(t, result)
-	positions := order(t, body, "_left();", "_right();", "hex_equal_hex_string(hex_seq_1, hex_seq_2)")
+	positions := order(t, body, "_left();", "_right();", "hex_equal_text(hex_text_heap(hex_seq_1), hex_text_heap(hex_seq_2))")
 	requireAscending(t, positions, "left()", "right()", "equality(...)")
 }
 

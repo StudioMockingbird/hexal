@@ -471,13 +471,21 @@ func (parser *Parser) whileStatement() (WhileStatement, error) {
 // one iterable source expression, `do`, a body, and `end`.
 func (parser *Parser) forStatement() (ForStatement, error) {
 	keyword := parser.advance()
-	binders := make([]lexer.Token, 0, 3)
+	binders := make([]ForBinder, 0, 3)
 	for {
 		name, err := parser.consume(lexer.Identifier, "a loop binder name after 'for'")
 		if err != nil {
 			return ForStatement{}, err
 		}
-		binders = append(binders, name)
+		binder := ForBinder{Name: name}
+		if parser.check(lexer.Colon) {
+			parser.advance()
+			binder.Type, err = parser.typeExpression()
+			if err != nil {
+				return ForStatement{}, err
+			}
+		}
+		binders = append(binders, binder)
 		if !parser.check(lexer.Comma) {
 			break
 		}

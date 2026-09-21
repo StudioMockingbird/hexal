@@ -25,7 +25,7 @@ type equalityComponentModel struct {
 // equalityComponents returns the generated hexal/equality.h artifact when
 // program-owned equality types exist. Program-owned types are those whose
 // C definitions are not module-emitted and are not builtins owned by other
-// components (String, Strand, scalars, pointers).
+// components (text, scalars, pointers).
 func equalityComponents(merged *programEmission) ([]componentArtifact, error) {
 	if merged == nil || merged.equalityTypes == nil {
 		return nil, nil
@@ -59,7 +59,7 @@ func buildEqualityComponentModel(merged *programEmission) equalityComponentModel
 }
 
 // collectEqualityComponentDependencies records the component headers needed
-// by helper parameter and member types, including recursive String and Strand
+// by helper parameter and member types, including recursive text
 // representations. It follows only inline compared values; pointer identity
 // and unsupported dictionaries do not introduce a dependency.
 func collectEqualityComponentDependencies(typ compilerTypes.Type, model *equalityComponentModel, seen map[string]bool) {
@@ -75,11 +75,8 @@ func collectEqualityComponentDependencies(typ compilerTypes.Type, model *equalit
 	}
 	seen[key] = true
 	switch {
-	case compilerTypes.IsString(typ), compilerTypes.IsStrand(typ):
+	case compilerTypes.IsText(typ):
 		model.Includes = appendUnique(model.Includes, "hexal/string.h")
-		if compilerTypes.IsStrand(typ) {
-			model.NeedString = true
-		}
 	case compilerTypes.IsError(typ):
 		model.Includes = appendUnique(model.Includes, "hexal/error.h")
 		model.Includes = appendUnique(model.Includes, "hexal/string.h")
@@ -159,7 +156,7 @@ func isProgramOwnedEqualityType(typ compilerTypes.Type) bool {
 	if typeIsModuleEmitted(typ) {
 		return false
 	}
-	if compilerTypes.IsString(typ) || compilerTypes.IsStrand(typ) {
+	if compilerTypes.IsText(typ) {
 		return false
 	}
 	if typ.ScalarKind != compilerTypes.ScalarNone {

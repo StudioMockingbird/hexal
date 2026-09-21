@@ -124,7 +124,7 @@ func checkStructConstructorCall(call parser.CallExpression, typeName lexer.Token
 		}
 	}
 	if !ok {
-		return initializerValue{token: typeName, diagnostic: diagnosticAt(typeErrorAt(typeName, "unknown type "+typeName.Lexeme))}
+		return initializerValue{token: typeName, diagnostic: diagnosticAt(typeErrorAt(typeName, unknownTypeMessage(typeName.Lexeme)))}
 	}
 	return checkObjectConstructorFields(call, typeName, literalType, expectedType, ctx)
 }
@@ -346,8 +346,6 @@ func checkExpression(expression parser.Expression, context expressionContext, ct
 		return checkedExpression{token: expression.Start, diagnostic: &diagnostic}
 	case parser.ByteLiteral:
 		return checkByteLiteral(expression)
-	case parser.RuneLiteral:
-		return checkRuneLiteral(expression)
 	case parser.ArrayLiteralExpression:
 		return checkArrayLiteral(expression, context.expected.Type, ctx)
 	case parser.MatchExpression:

@@ -109,7 +109,6 @@ func TestBitwiseDiagnostics(t *testing.T) {
 		want   string
 	}{
 		{"fun demo() do\n    let value: Float64 = 1.5\n    let bad: Float64 = value & value\nend", "operator & requires integer operands"},
-		{"fun demo() do\n    let letter: Rune = (65).to<Rune>()\n    let bad: Rune = letter | letter\nend", "operator | requires integer operands"},
 		{"fun demo() do\n    let value: Int32 = 1\n    let pointer: Ptr<Int32> = @value\n    let bad: Ptr<Int32> = pointer << 1\nend", "operator << requires an integer left operand"},
 		{"fun demo() do\n    let value: Int32 = 1\n    let flag: Bool = true\n    let bad: Int32 = value << flag\nend", "shift count must be an integer"},
 		{"fun demo() do\n    let value: Float64 = 1.5\n    let bad: Float64 = ~value\nend", "operator ~ requires an integer operand"},

@@ -8,6 +8,9 @@ import (
 // pre-sorted record per reachable Pool specialization.
 type poolComponentModel struct {
 	Pools []poolComponentRecord
+	// NeedsString is true when some element is text, whose spelling
+	// hexal/string.h defines.
+	NeedsString bool
 }
 
 // poolComponentRecord is one reachable Pool specialization's spelling
@@ -19,6 +22,7 @@ type poolComponentRecord struct {
 	CName           string
 	Suffix          string
 	ElementSpelling string
+	NeedsString     bool
 }
 
 // poolComponentRecordFor builds the spelling record of one Pool
@@ -28,7 +32,18 @@ func poolComponentRecordFor(pool compilerTypes.Type) poolComponentRecord {
 		CName:           pool.CName,
 		Suffix:          poolSuffix(pool),
 		ElementSpelling: typeSpelling(pool.Pool.Element),
+		NeedsString:     compilerTypes.IsText(pool.Pool.Element),
 	}
+}
+
+// poolRecordsNeedString reports whether any pool record's element is text.
+func poolRecordsNeedString(records []poolComponentRecord) bool {
+	for _, record := range records {
+		if record.NeedsString {
+			return true
+		}
+	}
+	return false
 }
 
 // poolComponents returns the generated hexal/pool.h artifact when builtin-
@@ -51,7 +66,7 @@ func poolComponents(merged *programEmission) ([]componentArtifact, error) {
 	return []componentArtifact{{
 		key:      "hexal/pool.h",
 		template: "pool.h",
-		model:    poolComponentModel{Pools: records},
+		model:    poolComponentModel{Pools: records, NeedsString: poolRecordsNeedString(records)},
 	}}, nil
 }
 

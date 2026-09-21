@@ -1,9 +1,15 @@
 # RFC 0227: Vendored utf8proc Static Library
 
-- Kind: Architecture Decision Record (ADR)
-- Status: Open Discussion; not scheduled. The dependency boundary and
-  capability inventory are proposed; target-pack qualification and the first
-  runtime adoption are not complete
+- Kind: Feature Specification (Rust-Style RFC). This began as a dependency
+  ADR; it now also specifies the Unicode language surface the dependency
+  exists to serve, because vendoring a Unicode library to run a validator
+  Hexal already implements correctly would be cost without benefit
+- Status: Implementation ready. utf8proc is pinned at **v2.11.3** (Unicode
+  17.0.0), the dependency boundary and the full language surface are settled,
+  and the implementation plan is phased with per-phase verification. The one
+  input that cannot be fixed from a specification is the vendored archive
+  itself: Phase 0 builds and qualifies it, and its digest, size, and exact
+  source file list are recorded in `lib/BUILD.md` at that point
 - Created: 2026-09-21
 - Updated: 2026-09-21
 - Origin: replaces the integration proposal in archived RFC 0147 with a
@@ -17,14 +23,13 @@
   strings)
 - **Sequencing note.** RFC 0224 removes the code-point type, its cursor, its
   literal syntax, and code-point iteration from the language, deliberately,
-  pending this RFC. Everything Unicode-related this document describes is
-  therefore a surface it **restores or introduces**, not one it adapts. After
-  RFC 0224 the language's only live Unicode requirement is UTF-8
-  well-formedness validation on text construction; every other capability in
-  the inventory below is new surface needing its own specification
-- Terminology: this RFC says *Unicode scalar* or *code point* for a single
-  Unicode value, and reserves the concrete Hexal type name as an open question
-  — RFC 0224 retired `Rune` and did not choose its successor
+  pending this RFC. Everything Unicode-related here is therefore a surface it
+  **restores or introduces**, not one it adapts. RFC 0224 lands first; this
+  RFC reads its byte-oriented storage, typed `for` binders, bytewise
+  comparison, and reserved bare-quote literal syntax as the baseline
+- Terminology: *Unicode scalar* and *code point* both name a single Unicode
+  value; the Hexal type for one is `Rune`, restored by this RFC under the name
+  RFC 0224 reserved for it
 - Does not update: `docs/reference.md`, Hexal syntax, or text representation
 
 ## Decision summary
@@ -35,19 +40,20 @@ library in each shipped runtime pack. The core compiler records a logical
 header, archive, and license files from the selected pack and links the
 archive. The compiler never discovers, builds, or loads utf8proc.
 
-The initial candidate is utf8proc **2.11.3**, whose upstream release records
+The pinned release is utf8proc **2.11.3**, whose upstream release records
 Unicode **17.0.0** support. The release, archive digest, build flags, target
 identity, API version, Unicode-data version, and license material become part
-of the pack identity. The exact release remains an implementation input until
-the archive is independently built and qualified.
+of the pack identity.
 
-The first runtime use is a private adapter for UTF-8 well-formedness
-validation. It preserves Hexal's current storage, diagnostics, allocation, and
-evaluation contracts. Code-point stepping and encoding are written here as
-primitives but have no caller after RFC 0224. Normalization, case folding,
-grapheme segmentation, character properties, width, and every other Unicode
-behavior are backend capabilities only; each public operation requires its own
-focused language specification.
+This RFC restores `Rune`, introduces `Grapheme`, and specifies four tiers of
+Unicode surface over them — see Language surface. Storage is unchanged: text
+remains validated UTF-8 bytes with a stored byte length, exactly as RFC 0224
+leaves it, and `Rune` and `Grapheme` are *views* over those bytes rather than
+alternative representations.
+
+Nothing becomes implicit. Normalization, case folding, and segmentation happen
+only where a program asks for them, and text equality, ordering, and hashing
+stay bytewise.
 
 ## Why this dependency
 
@@ -75,9 +81,9 @@ not an arbitrary system package or a moving repository checkout:
 
 ```text
 upstream:       https://github.com/JuliaStrings/utf8proc
-candidate:      2.11.3
+pinned release: v2.11.3
 Unicode data:   17.0.0
-static archive: libutf8proc.a
+static archive: utf8proc.a
 API header:     utf8proc.h
 software:       MIT/Expat license
 data:           Unicode data license
@@ -102,22 +108,32 @@ lib/<hexal-target>/
     LICENSE.md
 ```
 
-The manifest records at least:
+The manifest schema is closed and already defined by `runtimeManifest` in
+`internal/driver/runpack.go`. utf8proc adds **one entry to the existing
+`dependencies` array**, in the same shape libuv and mimalloc use, and its file
+hashes join the existing top-level `files` map:
 
 ```json
 {
   "name": "utf8proc",
-  "version": "2.11.3",
-  "unicode_version": "17.0.0",
   "include_root": "utf8proc_v2.11.3/include",
   "archive": "utf8proc_v2.11.3/utf8proc.a",
-  "license_files": ["utf8proc_v2.11.3/LICENSE.md"],
-  "archive_sha256": "..."
+  "system_libraries": [],
+  "license_file": "utf8proc_v2.11.3/LICENSE.md"
 }
 ```
 
-The actual manifest schema, digest, compiler identity, target triple, libc or
-SDK baseline, and archive build flags are owned by the runtime-pack contract.
+`system_libraries` is empty: utf8proc is freestanding C with no link
+dependencies beyond libc.
+
+**No schema change.** `format_version` stays 1. The release version lives in
+the directory name (`utf8proc_v2.11.3`), exactly as `mimalloc_v3.5.1` and
+`libuv_v1.52.1` do, and the Unicode-data version is recorded in `lib/BUILD.md`
+beside the source commit, compile command, size, and digest — the same place
+every other build fact lives. Adding `version` or `unicode_version` fields to
+the manifest would change a closed schema for information that is already
+recorded and already covered by the file digests.
+
 No host path, environment value, system-installed utf8proc, pkg-config result,
 or network lookup participates in compilation.
 
@@ -176,9 +192,15 @@ utf8proc adapter or a separately specified Unicode component requests it.
 ```text
 program with no runtime text component       no utf8proc dependency
 literal-only program                         no new dependency solely for UTF-8 bytes
-runtime String validation component          utf8proc dependency
-future Unicode component                     utf8proc dependency
+byte iteration or ByteCursor only            no utf8proc dependency
+runtime text construction (validation)       utf8proc dependency
+any Rune or Grapheme operation               utf8proc dependency
+normalization or case folding                utf8proc dependency
 ```
+
+`ByteCursor` and `for b: Byte in text` are index arithmetic over bytes and
+select nothing, so a byte-oriented scanner over literal text stays
+dependency-free.
 
 Selection is program-wide and deterministic. A non-ASCII literal alone must
 not broaden runtime-component demand. A future component that uses utf8proc
@@ -209,10 +231,12 @@ assumed:
 | Encode a code point to UTF-8 | `hex_utf8_encode` | removed |
 | Decode a code point | `hex_utf8_decode` | removed |
 
-This matters for scoping: taking the dependency **now** buys one validator
-that already works correctly, while the capabilities that justify a Unicode
-backend — normalization, case folding, grapheme segmentation, properties,
-width — all belong to APIs that do not exist yet. See Open questions.
+That scoping observation is what shaped this RFC. Taking the dependency for
+the validator alone would buy one function Hexal already implements
+correctly — cost without benefit. So this RFC also specifies the Unicode
+surface in Language surface above, and the dependency is taken when that
+surface lands, not before. The validator substitution rides along as a
+no-behavior-change cleanup, not as the justification.
 
 ### Validation
 
@@ -328,6 +352,352 @@ There is no code-point type, cursor, or terminator to preserve — RFC 0224
 removed all three. This RFC does not change String ownership, `free`,
 literals, interpolation, byte slices, bytewise equality/order, hashing, or
 the reported-not-trapped malformed-input contract.
+
+## Language surface
+
+This RFC ships Unicode capability, not only a dependency. The surface is
+organized around three element types over one storage.
+
+### Three element types, one text
+
+Text is bytes (RFC 0224). Unicode adds two further ways to *view* those bytes,
+neither of which changes how they are stored:
+
+```text
+Byte       UInt8                     one storage unit             exists
+Rune       UInt32 Unicode scalar     one code point               restored here
+Grapheme   borrowed byte range       one user-perceived character new here
+```
+
+- **`Byte`** is unchanged by this RFC. It is the storage unit, and every
+  positional operation on text continues to use byte offsets.
+- **`Rune`** is a `UInt32` Unicode scalar value, excluding surrogates — the
+  name RFC 0224 retired and reserved. It is a value type, copied by value,
+  with literals restored (`'a'`, `'\u{1F600}'`).
+- **`Grapheme`** is a **byte range borrowed from the text it came from**, with
+  the invariant that the range spans exactly one extended grapheme cluster of
+  valid UTF-8. It is not a scalar: `"👨‍👩‍👧"` is one Grapheme, five Runes, and
+  eighteen Bytes. Its representation is a pointer and a length, the same shape
+  as `Slice<Byte>`, nominally distinct so the invariant is carried in the type.
+
+**`Grapheme` is a view, not storage.** It borrows the bytes it spans, so it has
+the provenance behavior every borrowed range in Hexal has: it dangles if the
+text it views is freed, reassigned, or leaves scope. That is
+programmer-managed, exactly as `bytes()` and `Slice<T>` are today, and this
+RFC adds no lifetime machinery for it.
+
+One consequence is a rule rather than a hazard: **`Grapheme` is not Dict-key
+eligible**, at any capacity, for the same reason heap `String` is not. A Dict
+stores its keys in the table, and a key that points at bytes the Dict does not
+own is a dangling key waiting to happen. Code that wants to key by a character
+copies the grapheme's bytes into owned text first:
+
+```hexal
+for g: Grapheme in text do
+    let key: String<16> = try String<16>.from_bytes(g.bytes())
+    counts.set(key, counts.get(key) + 1)
+end
+```
+
+The same caution applies to storing a `Grapheme` in any longer-lived position —
+a struct member, a collection element — where it follows `Slice`'s existing
+rules and carries `Slice`'s existing risk. Transient use inside the traversal
+that produced it is the intended shape.
+
+### Iteration: the payoff of RFC 0224's typed binder
+
+RFC 0224 required a `for` binder's type annotation wherever the collection does
+not determine the element type, and named text as the only instance. With three
+element types that rule stops being a special case and becomes the mechanism it
+was written as:
+
+```hexal
+for b: Byte     in text do ... end     # storage units, O(1) per step
+for r: Rune     in text do ... end     # code points, decodes as it walks
+for g: Grapheme in text do ... end     # characters, stateful break as it walks
+
+for x in text do ... end               # still rejected: which of the three?
+```
+
+One collection, three well-defined traversals, each naming its unit at the
+call site, and no default that silently picks the wrong one. A program that
+means characters says `Grapheme` and gets characters.
+
+The binder's optional index form covers offset capture, so that is not a
+reason to reach for a cursor:
+
+```hexal
+for i: Size, b: Byte in text do
+    if b == b'=' then
+        let key: Slice<Byte> = text.slice(0, i)
+    end
+end
+```
+
+### Cursors
+
+A `for` loop advances one position, forward, to completion. Four things a
+scanner needs cannot be written that way, and each is why cursors exist rather
+than being a convenience over `for`.
+
+```text
+String.byte_cursor()     -> ByteCursor
+String.rune_cursor()     -> RuneCursor
+String.grapheme_cursor() -> GraphemeCursor
+
+ByteCursor.has_next()     -> Bool      RuneCursor / GraphemeCursor alike
+ByteCursor.next()         -> Byte      RuneCursor -> Rune, GraphemeCursor -> Grapheme
+ByteCursor.peek()         -> Byte      same element type as next()
+ByteCursor.offset()       -> Size      byte offset, on all three
+```
+
+**`offset()` is always a byte offset**, on every cursor. It is the one unit all
+three share, it is what `slice()` takes, and it lets a Rune or Grapheme scan
+capture a byte range without converting units.
+
+**`next()` and `peek()` trap when exhausted**, with `has_next()` as the guard.
+This matches the cursor contract the language had before RFC 0224. Returning a
+union instead would force a match at every scanner step for a condition the
+guard already answers.
+
+**Cursors borrow and copy by value.** A cursor is a small descriptor over the
+text's bytes; copying one yields an independent position over the same
+storage, which is what makes save-and-restore work. Like `Grapheme`, a cursor
+is a view rather than storage: it dangles if the text is freed, reassigned, or
+leaves scope, and it is not Dict-key eligible.
+
+#### 1. Lookahead
+
+Deciding a two-character token requires seeing the next element without
+consuming it:
+
+```hexal
+let mut c: ByteCursor = source.byte_cursor()
+while c.has_next() do
+    let b: Byte = c.next()
+    if b == b'-' and c.has_next() and c.peek() == b'-' then
+        let _: Byte = c.next()
+        emit(TokenKind.Decrement())
+    else
+        emit(TokenKind.Minus())
+    end
+end
+```
+
+#### 2. Sub-scans that share a position
+
+```hexal
+let mut c: RuneCursor = source.rune_cursor()
+while c.has_next() do
+    let r: Rune = c.next()
+    if r.is_numeric() then
+        let start: Size = c.offset() - r.utf8_length()
+        while c.has_next() and c.peek().is_numeric() do
+            let _: Rune = c.next()
+        end
+        emit_number(source.slice(start, c.offset()))
+    end
+end
+```
+
+The inner loop advances the same position the outer loop reads. Two `for`
+loops cannot share a cursor.
+
+#### 3. Two texts at once
+
+```hexal
+let mut a: GraphemeCursor = left.grapheme_cursor()
+let mut b: GraphemeCursor = right.grapheme_cursor()
+let mut shared: Size = 0
+while a.has_next() and b.has_next() do
+    if a.next().bytes() != b.next().bytes() then break end
+    shared = shared + 1
+end
+```
+
+#### 4. Save and restore
+
+```hexal
+let saved: RuneCursor = c        # copy: independent position
+if not try_parse_date(c) then
+    c = saved                    # rewind
+end
+```
+
+#### Implementation notes
+
+- **`ByteCursor` needs no utf8proc.** Byte stepping is index arithmetic, so a
+  program using only byte cursors and byte iteration selects no Unicode
+  dependency. Only text *construction* (validation) and the Rune/Grapheme
+  surfaces do.
+- **`GraphemeCursor` carries break state.** `utf8proc_grapheme_break_stateful`
+  must see every adjacent scalar pair in order, so the cursor owns that state
+  and is a few bytes larger than the other two. Copying a cursor copies the
+  state, which is precisely what makes case 4 restore correct boundaries.
+- **`peek()` must not corrupt that state.** A grapheme peek cannot simply run
+  the break machine forward and discard, because the state has advanced. The
+  implementation computes the next cluster once and caches it, so `peek()` and
+  a following `next()` share the work and the state advances exactly once.
+- `Rune.utf8_length() -> Size` is required by case 2 and is added to Tier 1:
+  the encoded byte length of the scalar, 1 through 4.
+
+### Tier 1 — Runes
+
+```text
+Rune.value() -> UInt32
+Rune.from(value: UInt32) -> Rune | Error     # rejects surrogates, > U+10FFFF
+Rune.utf8_length() -> Size                   # encoded byte length, 1..4
+String.rune_length() -> Size                 # O(n), decodes
+String.rune_cursor() -> RuneCursor
+String.from_runes(heap: Heap, runes: Slice<Rune>) -> String | Error
+```
+
+Rune literals return under the bare-quote syntax RFC 0224 reserved: `'a'`,
+`'\n'`, `'\u{1F600}'`. Runes are equality-comparable and ordered by scalar
+value, and are valid as a match scrutinee, in `print`, and in interpolation —
+restoring what RFC 0224 removed, under the same spellings.
+
+### Tier 2 — Rune properties
+
+```text
+Rune.category() -> UnicodeCategory
+Rune.is_lower() -> Bool
+Rune.is_upper() -> Bool
+Rune.is_alphabetic() -> Bool
+Rune.is_numeric() -> Bool
+Rune.is_whitespace() -> Bool
+Rune.to_lower() -> Rune                      # simple mapping, not case folding
+Rune.to_upper() -> Rune
+Rune.to_title() -> Rune
+Rune.display_width() -> Int32                # terminal columns, not layout width
+Rune.combining_class() -> UInt8
+```
+
+**Simple case mappings are not case folding.** `to_lower()` maps one scalar to
+one scalar; it does not handle the multi-scalar cases (`ss` for a sharp s)
+that Tier 3's `casefold` does. The names must not suggest otherwise, and a
+test must name at least one scalar where the two disagree.
+
+#### `UnicodeCategory` is a closed enum
+
+All thirty Unicode general categories, exactly as the pinned utf8proc release
+defines them:
+
+```text
+Letter        Lu Ll Lt Lm Lo
+Mark          Mn Mc Me
+Number        Nd Nl No
+Punctuation   Pc Pd Ps Pe Pi Pf Po
+Symbol        Sm Sc Sk So
+Separator     Zs Zl Zp
+Other         Cc Cf Cs Co Cn
+```
+
+Unlike `ErrorKind`, this set does **not** grow: the general category set is
+fixed by the Unicode standard, and a new Unicode release assigns new code
+points to existing categories rather than adding categories. So a type-mode
+`match` over `UnicodeCategory` is exhaustive without a final `else`, and the
+compiler checks that exhaustiveness the way it does for any closed ADT.
+
+The set is pinned to the vendored release. If a future utf8proc or Unicode
+upgrade ever did change it, that is a runtime-pack identity change and must be
+caught at pack qualification, not discovered at runtime.
+
+### Tier 3 — text transforms
+
+```text
+String.normalize(heap: Heap, form: NormalizationForm) -> String | Error
+String.casefold(heap: Heap) -> String | Error
+
+NormalizationForm is NFC | NFD | NFKC | NFKD
+```
+
+Each allocates and each returns `| Error`, consistent with every other
+producing text operation after RFC 0224.
+
+These are the operations that justify the dependency: they require the full
+Unicode decomposition, composition, and case-folding tables, and are not
+reasonably hand-rolled or kept in sync with new Unicode releases.
+
+**Allocation contract.** utf8proc's `utf8proc_NFC`/`NFD`/`NFKC`/`NFKD`,
+`utf8proc_map`, and `utf8proc_NFKC_Casefold` return `malloc` memory. A
+transform must copy the result into one Hexal Heap allocation and release the
+utf8proc buffer with C `free` **on every success and failure path**. That
+buffer is never exposed as a Hexal `String` and never reaches `Heap.free`;
+mixing the two allocators is precisely the bug class RFC 0225 exists to
+reject.
+
+### Both text forms get the whole surface
+
+Every operation in all four tiers is available on `String` and on `String<N>`
+alike. The two differ in storage and cleanup, never in what can be asked of
+them, and `Rune` and `Grapheme` are views over bytes that both forms have:
+
+```hexal
+let heap_text: String     = try String.from_bytes(h, raw)
+let inline_text: String<64> = try String<64>.from_bytes(raw)
+
+for g: Grapheme in heap_text   do ... end     # identical
+for g: Grapheme in inline_text do ... end     # identical
+```
+
+A `Grapheme` borrowed from a `String<64>` views that value's inline bytes, so
+it dangles when the value is reassigned or leaves scope — the provenance
+caution above, applied to inline storage.
+
+Tier 3's transforms allocate and therefore take a `Heap` and produce a heap
+`String` on either receiver. An inline destination uses the capacity-explicit
+form RFC 0224 established:
+
+```hexal
+let folded: String        | Error = inline_text.casefold(h)
+let bounded: String<128>  | Error = String<128>.from_bytes(folded.bytes())
+```
+
+### Tier 4 — Graphemes
+
+```text
+Grapheme.bytes() -> Slice<Byte>
+Grapheme.rune_length() -> Size
+String.grapheme_length() -> Size             # O(n)
+String.grapheme_cursor() -> GraphemeCursor
+```
+
+Plus `for g: Grapheme in text`, which is the primary surface; the cursor
+covers the scanning cases `for` cannot express.
+
+Segmentation uses `utf8proc_grapheme_break_stateful`. Its state machine must
+be fed **every** adjacent scalar pair in order — skipping a pair silently
+corrupts later boundaries, which is why the cursor owns the state and no
+caller may resume mid-text without it.
+
+### Normalization is never implicit
+
+Settled, and it governs equality, ordering, hashing, and Dict keys alike:
+
+```hexal
+let a: String = "é"          # U+00E9
+let b: String = "e\u{301}"   # U+0065 U+0301
+
+a == b                        # false, and stays false
+```
+
+Text comparison is bytewise at every level, as RFC 0224 specifies. Two
+canonically equivalent strings with different bytes are different values, are
+ordered by their bytes, hash differently, and are **distinct Dict keys**.
+
+A caller wanting normalization-insensitive behavior normalizes explicitly
+first:
+
+```hexal
+let key: String = try text.normalize(heap, NFC)
+d.set(key, value)
+```
+
+Making this implicit would mean hashing allocates, equality depends on Unicode
+data version, and two byte-identical programs could disagree across a pack
+upgrade. A normalizing `Dict` variant is a defensible later addition; implicit
+normalization is permanently refused.
 
 ## Complete utf8proc capability inventory
 
@@ -450,26 +820,169 @@ deleting duplicate Unicode logic.
 
 ## Implementation plan
 
-1. Select utf8proc 2.11.3 or a newer fully qualified release and record the
-   Unicode-data version, upstream archive digest, and licenses.
-2. Build one `libutf8proc.a` for every target pack being shipped, with static
-   linkage and target-qualified build flags.
-3. Add `utf8proc` to the runtime manifest and dependency model without adding
-   host paths or filesystem behavior to `compiler.Compile`.
-4. Add driver manifest validation, payload hashing, materialization, link
-   ordering, and a native archive-consumption probe.
-5. Add the private header include to the runtime component and implement the
-   Hexal validation adapter around `utf8proc_iterate`.
-6. Route every generated-runtime UTF-8 validation call through that adapter —
-   after RFC 0224 that is text construction from bytes and program-input
-   validation.
-7. Delete superseded manual UTF-8 formulas only after the previous step is
-   complete.
-8. Run ordinary pure-Go tests, generated-C text assertions, target-pack probes,
-   and external C23 fixtures for every qualified target.
-9. Update `docs/reference.md` only if the implementation changes a language
-   contract. The initial backend substitution should require no semantic
-   reference change.
+Eight phases, ordered so that every phase is independently verifiable and the
+dependency is proven before any language surface depends on it. Phases 3-7 each
+add one element type or tier and can land as separate changes.
+
+Current baseline, verified against the tree on 2026-09-21: RFC 0224 is
+implemented. `String<N>` compiles, `Strand` is gone with a migration
+diagnostic, bare-quote literals are reserved, `RuneCursor` is gone,
+`for b: Byte in text` works and bare `for b in text` is rejected for
+ambiguity. The runtime carries `hex_string {data, byte_length, storage_kind}`,
+the shared `hex_text {data, length}` read view, and the hand-rolled
+`hex_utf8_valid(data, length) -> bool`.
+
+### Phase 0 — vendor and qualify the archive
+
+Mirrors exactly what `lib/BUILD.md` records for mimalloc and libuv.
+
+1. Add utf8proc as a git submodule at `modules/utf8proc`, checked out at the
+   **v2.11.3** release tag. Record the tag, the pinned commit, the release
+   archive URL, its byte size, and its SHA-256, as `modules/MIMALLOC.md` does.
+2. Confirm the release's source layout before writing the compile command.
+   utf8proc is expected to be one translation unit (`utf8proc.c`, which
+   includes the generated `utf8proc_data.c`) plus the public `utf8proc.h`, but
+   **this must be checked against the tarball rather than assumed** — the
+   command below is written from upstream documentation, not from a vendored
+   tree, and no part of this RFC has been compiled.
+3. Build one archive per shipped pack, matching the existing build identity
+   (Clang 23.1.1, `-O2 -DNDEBUG -fPIC -pthread`, target-portable x86-64, no
+   `-march=native`):
+
+   ```text
+   clang -std=c11 -O2 -DNDEBUG -fPIC -pthread -DUTF8PROC_STATIC \
+     -I modules/utf8proc -c modules/utf8proc/utf8proc.c -o utf8proc.o
+   ar rcs utf8proc_v2.11.3/utf8proc.a utf8proc.o
+   ```
+
+4. Lay the pack entry out as its siblings are:
+
+   ```text
+   lib/x86_64-linux-gnu/utf8proc_v2.11.3/
+     include/utf8proc.h
+     utf8proc.a
+     LICENSE.md
+   ```
+
+5. Record in `lib/BUILD.md`, in the section shape mimalloc and libuv use: the
+   source commit, the Unicode-data version (**17.0.0**), the compile command,
+   the archive size, and the archive SHA-256.
+6. Add the dependency entry and every new file hash to
+   `lib/<target>/manifest.json`. `format_version` stays 1.
+7. Extend the combined native probe in `lib/BUILD.md` to compile, link, and run
+   a program using all three archives together, proving no symbol or link-order
+   conflict.
+
+**Two packs exist on disk.** `x86_64-linux-gnu` is embedded into `bin/hexal`
+(`//go:embed x86_64-linux-gnu` in `lib/pack.go`); `x86_64-windows-gnu-ucrt`
+is checked in but not embedded. Qualify Linux first and ship it. The Windows
+pack must gain a matching entry before any program targeting it selects
+utf8proc, or that target regresses to a link failure; until then, Windows is
+qualified for the phases that select no Unicode dependency.
+
+*Verify:* the probe runs; `go test ./...` is unaffected because no compiler
+code has changed yet.
+
+### Phase 1 — dependency plumbing, with no caller
+
+1. Add `RuntimeUtf8proc RuntimeDependency = "utf8proc"` to
+   `compiler/runtime_dependency.go` and to the `switch` in
+   `runtimeDependencies`, which panics on unknown names.
+2. Add the selection predicate beside the existing two in
+   `compiler/generator/generator.go`, where `merged.heapState.selected()` emits
+   `mimalloc` and `libuvSelected(merged)` emits `libuv`.
+3. Add utf8proc to `internal/driver/doctor.go`'s verified dependency list so
+   `hexal doctor` checks the new payload.
+
+Nothing selects it yet. This phase is complete when a hand-forced selection
+materializes the include root and archive, orders them in the link, and
+contributes to the build identity.
+
+*Verify:* pure-Go driver tests over a fixture manifest; no generated artifact
+moves, so the snippet manifest is unchanged.
+
+### Phase 2 — substitute the validator
+
+The one existing caller. `hex_utf8_valid` keeps its exact signature and
+contract — reports, never traps — and its body becomes the
+`utf8proc_iterate` loop in Validation above. Selecting the String component
+now selects `utf8proc`.
+
+Delete the hand-rolled lead-byte, continuation-byte, shortest-form, surrogate,
+and maximum-scalar formulas **only after** the substitution is in place. Two
+validators would drift.
+
+*Verify:* a differential test over every byte sequence of length 1-3 plus a
+corpus of 4-byte forms, asserting old and new agree on accept/reject before
+the old one is deleted. This is the phase that proves the dependency works,
+and it changes no observable behavior.
+
+### Phase 3 — `Rune`, `RuneCursor`, and literals
+
+1. Reintroduce `Rune` as a protected type in `compiler/types`, `UInt32`
+   scalar excluding surrogates.
+2. Restore bare-quote literals in the lexer. RFC 0224 reserved the syntax and
+   emits `bare-quote literals are reserved`; that diagnostic is replaced, not
+   removed, so any program written against 0224 keeps compiling.
+3. Add `Rune.value`, `Rune.from`, `Rune.utf8_length`, ordering, equality,
+   `to<T>()`, match-scrutinee support, `print`, and interpolation.
+4. Add `String.rune_length`, `String.rune_cursor`, `String.from_runes`, and
+   the `for r: Rune in text` binder arm, on `String` and `String<N>` alike.
+5. Add `ByteCursor` in the same change. It selects no utf8proc dependency and
+   is the simplest instance of the cursor shape, so it proves `has_next`,
+   `next`, `peek`, `offset`, and copy-independence without any Unicode logic.
+
+*Verify:* the Validation section's Rune and cursor items; generated-C text
+assertions for the new component; snippet manifest moves only for snippets
+that use the new surface.
+
+### Phase 4 — `UnicodeCategory` and Rune properties
+
+Add the closed 30-variant enum and the Tier 2 predicates and mappings. Match
+exhaustiveness is checked without a final `else`, unlike `ErrorKind`.
+
+*Verify:* an exhaustive match over `UnicodeCategory` compiles with no `else`;
+a non-exhaustive one is rejected; `to_lower` and `casefold` disagree on at
+least one named scalar.
+
+### Phase 5 — `Grapheme` and `GraphemeCursor`
+
+1. Add `Grapheme` as a borrowed byte range, not Dict-key eligible.
+2. Implement the cursor over `utf8proc_grapheme_break_stateful`, with the
+   compute-once-and-cache behavior that keeps `peek()` from advancing the
+   break state.
+3. Add `String.grapheme_length`, `String.grapheme_cursor`, and the
+   `for g: Grapheme in text` binder arm.
+
+*Verify:* combining marks, an emoji ZWJ sequence, and a regional-indicator
+pair each yield one Grapheme; a saved-and-restored cursor reproduces the same
+later boundaries.
+
+### Phase 6 — normalization and case folding
+
+Tier 3. Each transform copies the utf8proc result into one Hexal Heap
+allocation and releases the utf8proc buffer with C `free` on **both** the
+success and every failure path.
+
+*Verify:* a leak check covering both paths; no utf8proc pointer is reachable
+as a Hexal `String` or passed to `Heap.free`; `"é" == "e\u{301}"` stays false
+after the API exists.
+
+### Phase 7 — reference synchronization
+
+Update `docs/reference.md` for the restored and new surface: `Rune`,
+`Grapheme`, the three cursors, `UnicodeCategory`, the Tier 3 transforms, the
+protected-type list, the scalar table, the `for`-binder element types, and the
+print and interpolation type lists.
+
+Phase 2 alone requires no reference change: it is a backend substitution with
+identical observable behavior.
+
+### Phase 8 — full gate
+
+`go test ./...`, `go vet ./...`, the tagged C23 suite, the snippet manifest
+rebuild with a reviewed artifact diff, and the native pack probes for every
+qualified target.
 
 ## Validation
 
@@ -497,11 +1010,65 @@ This section is exhaustive.
   text construction produces the `| Error` RFC 0224 specifies, with the same
   Hexal-owned message, and no utf8proc error code or English string reaches a
   diagnostic.
-- The initial adapter performs no utf8proc allocation.
+- The validation adapter performs no utf8proc allocation.
 - `String`, `String<N>`, byte slices, equality, ordering, hashing, printing,
   interpolation, and `free` behavior remain unchanged.
+
+Language surface:
+
+- `for b: Byte in text`, `for r: Rune in text`, and `for g: Grapheme in text`
+  each traverse the same text with the stated unit; `for x in text` without an
+  annotation remains rejected with RFC 0224's ambiguity diagnostic.
+- A Rune traversal of known text yields exactly the expected scalars for
+  one-, two-, three-, and four-byte sequences; a Grapheme traversal yields one
+  element for a combining-mark sequence, an emoji ZWJ sequence, and a regional
+  indicator pair.
+- `Rune.from` rejects surrogates and values above U+10FFFF and accepts every
+  other scalar.
+- Rune literals, ordering, equality, match, `print`, and interpolation behave
+  as they did before RFC 0224 removed them.
+- Simple case mappings map one scalar to one scalar and do **not** perform the
+  multi-scalar expansions `casefold` performs; a test names at least one case
+  where the two differ.
+- A type-mode `match` over `UnicodeCategory` without a final `else` is
+  rejected, as it is for `ErrorKind`.
+- `Grapheme` borrows: its bytes alias the source text, and no copy is made.
+- `Grapheme` is rejected as a Dict key, at every text capacity.
+- The grapheme cursor feeds `utf8proc_grapheme_break_stateful` every adjacent
+  scalar pair in order; a test proves that a boundary late in the text is
+  unaffected by where iteration paused.
+- Every tier operation is available on `String` and on `String<N>` alike, and
+  a test exercises at least one operation from each tier on both forms.
+
+Cursors:
+
+- `byte_cursor()`, `rune_cursor()`, and `grapheme_cursor()` each traverse the
+  same text as the corresponding `for` binder and yield identical elements in
+  identical order.
+- `offset()` returns a **byte** offset on all three cursors, and a range built
+  from two offsets round-trips through `slice()` to the expected bytes.
+- `next()` and `peek()` each trap when the cursor is exhausted; `has_next()`
+  reports false at exactly that point.
+- `peek()` does not advance: a `peek()` followed by `next()` yields the same
+  element, and repeated `peek()` calls yield the same element.
+- A copied cursor holds an independent position: advancing the copy does not
+  move the original, and restoring from a saved copy resumes at the saved
+  position with the same subsequent elements — including grapheme boundaries,
+  which proves the break state copied correctly.
+- A `ByteCursor`-only program selects no utf8proc dependency.
+- Each Tier 3 transform copies its result into one Hexal Heap allocation and
+  releases the utf8proc buffer with C `free` on **both** the success and every
+  failure path; a leak check covers both.
+- No utf8proc-allocated pointer is ever reachable as a Hexal `String` or
+  passed to `Heap.free`.
+
+Nothing implicit:
+
 - No normalization, case folding, grapheme segmentation, category mapping,
   width transformation, or other Unicode transformation becomes implicit.
+- `"é" == "e\u{301}"` is **false**; the two hash differently, order by their
+  bytes, and are distinct Dict keys. Bytewise comparison is unchanged by the
+  presence of a normalization API.
 - Generated artifacts and the snippet manifest change only for components that
   actually select utf8proc.
 - External C23 fixtures compile, link, and run against each qualified static
@@ -510,23 +1077,51 @@ This section is exhaustive.
 
 ## Open implementation inputs
 
-- Final release selection if 2.11.3 is not the accepted pinned input.
-- Per-target source build commands and flags.
-- Runtime-manifest schema entry and dependency ordering.
-- Archive hashes and ABI evidence.
-- Size and performance measurements.
-- The separate API specifications for normalization, case folding, grapheme
-  iteration, properties, width, and text transformations.
+Everything design-level is settled. What remains is produced by building the
+archive, and all of it lands in Phase 0:
+
+- the exact source file list, confirmed against the v2.11.3 tarball rather
+  than assumed from upstream documentation;
+- the archive SHA-256 and byte size, per target pack;
+- symbol and ABI evidence from the combined three-archive probe;
+- generated-C size, link time, and pack-size deltas.
+
+Every utf8proc API named in this RFC comes from upstream documentation and has
+**not** been checked against a vendored header, because none is vendored yet.
+Phase 0 verifies each one that later phases call —
+`utf8proc_iterate`, `utf8proc_codepoint_valid`, `utf8proc_encode_char`,
+`utf8proc_category`, `utf8proc_tolower`/`toupper`/`totitle`,
+`utf8proc_charwidth`, `utf8proc_grapheme_break_stateful`, and the
+`utf8proc_NFC`/`NFD`/`NFKC`/`NFKD`/`NFKC_Casefold` family — and any signature
+that differs is a spec correction before that phase starts, not an
+implementation improvisation.
 
 No open input permits implicit normalization, public utf8proc types, hidden
 allocation, or a change to current text ownership and representation.
 
 ## Implementation readiness
 
-The architecture is suitable for dependency qualification. Implementation is
-blocked until the exact release is selected, every shipped target pack is
-qualified, and the runtime-pack manifest/linking changes are specified in the
-owning build-driver contract. The initial scalar adapter is implementation
-ready once those inputs are fixed. Public Unicode features are not authorized
-by this RFC and require separate focused specifications.
+**Ready.** The release is pinned, the dependency boundary matches the shipped
+runtime-pack contract rather than inventing one, the language surface is
+settled across all four tiers and three cursors, the Validation section is
+exhaustive, and the plan is phased so each step is verifiable on its own.
+
+Baseline confirmed against the tree on 2026-09-21: RFC 0224 is implemented, so
+this RFC builds on byte-oriented storage, typed `for` binders, bytewise
+comparison, and the reserved bare-quote literal syntax as they actually exist.
+
+Start at Phase 0. It is the only phase that cannot be done from the
+specification alone, because it produces the archive every later phase links
+against, and it is where every unverified utf8proc signature in this document
+gets checked against a real header.
+
+Two things a implementer should hold onto:
+
+- **Phase 2 is the proof.** Substituting the validator changes no observable
+  behavior, so if anything moves — a diagnostic, an artifact hash, a test —
+  the dependency plumbing is wrong and it is cheap to find out there rather
+  than four phases later.
+- **Phases 3-6 are independently shippable.** Each adds one element type or
+  tier with its own Validation items. A phase that turns out harder than
+  expected can be deferred without stranding the ones before it.
 

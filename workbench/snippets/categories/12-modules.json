@@ -227,7 +227,7 @@
           "    Types from \"./types\"",
           "end",
           "fun lookup(h: Heap): Int32 do",
-          "    let scores: Dict\u003cStrand, Types.Score\u003e = Dict\u003cStrand, Types.Score\u003e(h)",
+          "    let scores: Dict\u003cString<128>, Types.Score\u003e = Dict\u003cString<128>, Types.Score\u003e(h)",
           "    defer scores.free(h)",
           "    scores.insert(\"ada\", Types.make())",
           "    let score: Types.Score = scores.get(\"ada\")",

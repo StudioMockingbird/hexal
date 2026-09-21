@@ -502,7 +502,7 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	// parameter defers to specialization.
 	if name == "to" &&
 		(compilerTypes.IsInteger(receiver.typ) || compilerTypes.IsFloat(receiver.typ) ||
-			compilerTypes.IsRune(receiver.typ) || compilerTypes.ContainsTypeParameter(receiver.typ)) {
+			compilerTypes.ContainsTypeParameter(receiver.typ)) {
 		return checkConversionCall(call, callee, receiver, ctx)
 	}
 	// The compiler-owned `bit_cast<T>()` reinterprets same-width
@@ -634,18 +634,10 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if compilerTypes.IsTime(receiver.typ) {
 		return checkTimeMethodCall(call, callee, receiver, ctx)
 	}
-	// String methods dispatch on the built-in String receiver type.
-	if compilerTypes.IsString(receiver.typ) {
-		return checkStringMethodCall(call, callee, receiver, ctx)
-	}
-	// Strand methods dispatch on the built-in Strand receiver type; the
-	// surface is deliberately smaller than String's.
-	if compilerTypes.IsStrand(receiver.typ) {
-		return checkStrandMethodCall(call, callee, receiver, ctx)
-	}
-	// RuneCursor methods dispatch on the cursor descriptor type.
-	if compilerTypes.IsRuneCursor(receiver.typ) {
-		return checkRuneCursorMethodCall(call, callee, receiver, ctx)
+	// Text methods dispatch on the built-in String and String<N> receiver
+	// types.
+	if compilerTypes.IsText(receiver.typ) {
+		return checkTextMethodCall(call, callee, receiver, ctx)
 	}
 	// A nullable receiver reaches no method until a null test narrowed it to
 	// its pointer member.

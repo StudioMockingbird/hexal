@@ -51,13 +51,13 @@ var trapLedger = map[string]trapDisposition{
 	"cannot free a String literal":                  {dispositionExecutable, "free-string-literal-traps"},
 	"cannot free a non-owning String":               {dispositionExecutable, "program-arguments-nonowning-free-traps"},
 	"dictionary key not found":                      {dispositionExecutable, "missing-dict-get-traps / dict-repeated-removal-traps"},
-	"invalid UTF-8 in string":                       {dispositionExecutable, "invalid-utf8-traps"},
 	"invalid allocation alignment":                  {dispositionExecutable, "aligned-allocation-zero-alignment-traps / aligned-allocation-non-power-of-two-traps"},
 	"list index out of bounds":                      {dispositionExecutable, "list-index-out-of-bounds-traps"},
 	"list slice bounds out of range":                {dispositionExecutable, "list-slice-bounds-traps"},
 	"numeric operation failed":                      {dispositionExecutable, "conversion-overflow-traps / division-by-zero-traps (shared path: every numeric-conversion, division, shift, and bit_cast domain check traps through this one message)"},
 	"string slice bounds out of range":              {dispositionExecutable, "string-slice-bounds-traps"},
-	"RuneCursor has no next value":                  {dispositionExecutable, "runecursor-exhaustion-traps"},
+	"Error message exceeds 256 bytes":               {dispositionExecutable, "error-message-overflow-traps"},
+	"ErrorKind.Other header exceeds 128 bytes":      {dispositionExecutable, "error-header-overflow-traps"},
 	"pool exhausted":                                {dispositionExecutable, "pool-exhausted-traps"},
 	"pool destroy with live slots":                  {dispositionExecutable, "pool-destroy-with-live-slots-traps"},
 	"pool slot is not live":                         {dispositionExecutable, "pool-double-free-traps"},
@@ -78,7 +78,6 @@ var trapLedger = map[string]trapDisposition{
 	"collection modified during iteration":          {dispositionExecutable, "collection-modified-during-iteration-traps"},
 	"task stack overflow":                           {dispositionExecutable, "task-stack-overflow-traps"},
 	"standard output write failed":                  {dispositionStructural, "print.c hex_print_commit_native/hex_io_stdout_write_all: no portable way to force a real stdout write failure inside the 10s process-timeout harness without redirecting the process's own standard handle out from under it, which the harness's own I/O capture already occupies"},
-	"invalid Unicode scalar value":                  {dispositionStructural, "conversions.go's Rune-domain check shares hex_runtime_trap(\"numeric operation failed\") at the emission site named above; this literal only appears in a code comment naming the condition, not as its own emitted message"},
 	"cannot join the current task":                  {dispositionStructural, "concurrency.c's hex_task_join compares the target hex_task* against hex_current_task; Hexal has no Task.current()/self-reference API, and a spawned function cannot observe the Task<T> handle spawn itself returns until after that call completes, so no checker-accepted program can pass a task its own handle"},
 
 	// --- Nondeterministic: OS/allocator resource exhaustion, or requires
