@@ -11,3 +11,4 @@ shard.lock
 *.exe
 /.tmp/*
 !/.tmp/.keep
+hexal
