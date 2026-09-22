@@ -1,6 +1,9 @@
 package compiler
 
-import "sort"
+import (
+	"cmp"
+	"slices"
+)
 
 // RuntimeDependency names a native runtime input required by generated C.
 // Values are logical identities; target-pack paths remain owned by the build
@@ -28,6 +31,6 @@ func runtimeDependencies(values []string) []RuntimeDependency {
 			panic("generator returned unknown runtime dependency " + value)
 		}
 	}
-	sort.Slice(dependencies, func(left, right int) bool { return dependencies[left] < dependencies[right] })
+	slices.SortFunc(dependencies, cmp.Compare)
 	return dependencies
 }
