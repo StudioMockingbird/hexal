@@ -832,6 +832,8 @@ func inferExpressionType(expression parser.Expression, expected compilerTypes.Ty
 		return expressionTypeHint{typ: typ, token: expression.Token}
 	case parser.ByteLiteral:
 		return expressionTypeHint{typ: compilerTypes.UInt8, token: expression.Token}
+	case parser.RuneLiteral:
+		return expressionTypeHint{typ: compilerTypes.Rune, token: expression.Token}
 	case parser.VariableExpression, parser.PropertyExpression, parser.IndexExpression:
 		place := checkPlace(expression, ctx)
 		return expressionTypeHint{typ: place.typ, token: place.token, diagnostic: place.diagnostic}

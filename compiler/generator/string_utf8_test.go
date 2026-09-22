@@ -93,22 +93,25 @@ func TestUTF8BoundaryTable(t *testing.T) {
 	}
 }
 
-// The generated hexal/string.c must carry the same scalar guards the boundary
-// table evaluates, so template drift fails the suite rather than passing as a
-// stale mirror.
+// The generated hexal/string.c must validate through utf8proc and no longer
+// carry the hand-rolled lead/continuation logic, so template drift fails the
+// suite rather than passing as a stale mirror.
 func TestGeneratedUTF8ValidationGuards(t *testing.T) {
-	program := checkedGeneratorSource(t, "let greeting: String = \"hi\"\n")
+	program := checkedGeneratorSource(t, "fun demo(h: Heap): String | Error do\n    return String.from_bytes(h, \"hi\".bytes())\nend\n")
 	files := generateOne(t, program)
 	source := files["hexal/string.c"]
-	for _, guard := range []string{
-		"lead < 0xC2 || lead >= 0xF5",
-		"(lead == 0xE0 && first < 0xA0)",
-		"(lead == 0xED && first >= 0xA0)",
-		"(lead == 0xF0 && first < 0x90)",
-		"(lead == 0xF4 && first >= 0x90)",
+	for _, want := range []string{
+		"#include <utf8proc.h>",
+		"utf8proc_iterate(data + index, available, &codepoint)",
+		"if (width <= 0)",
 	} {
-		if !strings.Contains(source, guard) {
-			t.Fatalf("hexal/string.c lacks scalar guard %q", guard)
+		if !strings.Contains(source, want) {
+			t.Fatalf("hexal/string.c lacks utf8proc adapter text %q", want)
+		}
+	}
+	for _, legacy := range []string{"lead < 0xC2", "lead == 0xE0", "continuation < width"} {
+		if strings.Contains(source, legacy) {
+			t.Fatalf("hexal/string.c retains hand-rolled validator text %q", legacy)
 		}
 	}
 }

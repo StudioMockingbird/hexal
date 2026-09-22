@@ -1064,7 +1064,7 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.ArrayLiteralExpression, checker.IndexExpression, checker.CollectionMethodCallExpression, checker.CollectionSliceExpression:
 		return validateCollectionExpression(node, expected, state)
-	case checker.StringLiteralExpression, checker.StringMethodCallExpression, checker.StringFromBytesExpression, checker.StringInterpolateExpression,
+	case checker.StringLiteralExpression, checker.StringMethodCallExpression, checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.StringInterpolateExpression,
 		checker.InlineStringConstructExpression, checker.TextCoerceExpression:
 		return validateTextExpression(node, expected, state)
 	case checker.ListNewExpression, checker.DictNewExpression:
@@ -1127,6 +1127,12 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 			return unknownExpressionDiagnostic("bit cast result does not match its expected type")
 		}
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
+	case checker.RuneMethodCallExpression:
+		return validateRuneMethod(node, expected, state)
+	case checker.CursorMethodCallExpression:
+		return validateCursorMethod(node, expected, state)
+	case checker.GraphemeMethodCallExpression:
+		return validateGraphemeMethod(node, expected, state)
 	case checker.ErrorHeaderExpression:
 		if node.Operand == nil || !compilerTypes.IsError(node.OperandType) || !compilerTypes.Equal(node.ResultType, compilerTypes.ErrorHeaderText) {
 			return unknownExpressionDiagnostic("Error.header has invalid checked metadata")

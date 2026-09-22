@@ -37,12 +37,15 @@ func hashOf(content string) string {
 // validPackFiles is the minimal payload a synthetic pack declares.
 func validPackFiles() map[string]string {
 	return map[string]string{
-		"libuv_v1.52.1/include/uv.h":         "uv",
-		"libuv_v1.52.1/libuv.a":              "libuv-archive",
-		"libuv_v1.52.1/LICENSE":              "libuv-license",
-		"mimalloc_v3.5.1/include/mimalloc.h": "mimalloc",
-		"mimalloc_v3.5.1/mimalloc.a":         "mimalloc-archive",
-		"mimalloc_v3.5.1/LICENSE":            "mimalloc-license",
+		"libuv_v1.52.1/include/uv.h":          "uv",
+		"libuv_v1.52.1/libuv.a":               "libuv-archive",
+		"libuv_v1.52.1/LICENSE":               "libuv-license",
+		"mimalloc_v3.5.1/include/mimalloc.h":  "mimalloc",
+		"mimalloc_v3.5.1/mimalloc.a":          "mimalloc-archive",
+		"mimalloc_v3.5.1/LICENSE":             "mimalloc-license",
+		"utf8proc_v2.11.3/include/utf8proc.h": "utf8proc",
+		"utf8proc_v2.11.3/utf8proc.a":         "utf8proc-archive",
+		"utf8proc_v2.11.3/LICENSE.md":         "utf8proc-license",
 	}
 }
 
@@ -71,6 +74,13 @@ func validPackManifest() string {
       "archive": "mimalloc_v3.5.1/mimalloc.a",
       "system_libraries": [],
       "license_file": "mimalloc_v3.5.1/LICENSE"
+    },
+    {
+      "name": "utf8proc",
+      "include_root": "utf8proc_v2.11.3/include",
+      "archive": "utf8proc_v2.11.3/utf8proc.a",
+      "system_libraries": [],
+      "license_file": "utf8proc_v2.11.3/LICENSE.md"
     }
   ],
   "files": { ` + strings.Join(entries, ", ") + ` }
@@ -148,7 +158,7 @@ func TestManifestRejections(t *testing.T) {
 		{"bad abi", strings.Replace(valid, `"runtime_abi_version": 1`, `"runtime_abi_version": 2`, 1), "runtime pack ABI 2 is incompatible; this Hexal compiler requires ABI 1"},
 		{"wrong target", strings.Replace(valid, `"target_profile": "x86_64-linux-gnu"`, `"target_profile": "x86_64-windows-gnu-ucrt"`, 1), "does not match"},
 		{"malformed hash", strings.Replace(valid, hashOf("uv"), "not-a-hash", 1), "malformed hash"},
-		{"wrong order", strings.Replace(valid, `"name": "libuv"`, `"name": "mimalloc_x"`, 1), "must declare libuv, mimalloc in order"},
+		{"wrong order", strings.Replace(valid, `"name": "libuv"`, `"name": "mimalloc_x"`, 1), "must declare libuv, mimalloc, utf8proc in order"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			fsys := testPackFS(testCase.manifest, validPackFiles())

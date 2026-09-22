@@ -65,8 +65,86 @@ static_assert(offsetof({{.CName}}, data) == sizeof(size_t), "inline text layout"
 {{range .Literals}}extern const uint8_t {{.Name}}_bytes[{{.ArraySize}}];
 extern const hex_string {{.Name}};
 {{end}}
-bool hex_utf8_valid(const uint8_t *data, size_t length);
-const hex_string *hex_string_make(hex_heap h, hex_text text);
+{{if .NeedValidator}}bool hex_utf8_valid(const uint8_t *data, size_t length);
+{{end}}{{if .NeedRuneLength}}size_t hex_text_rune_length(hex_text text);
+{{end}}{{if .NeedRuneIteration}}uint32_t hex_utf8_decode_step(const uint8_t *data, size_t length, size_t offset, size_t *width);
+{{end}}{{if .NeedRuneEncode}}static inline bool hex_rune_valid(uint32_t value) {
+    return value <= 0x10FFFF && !(value >= 0xD800 && value <= 0xDFFF);
+}
+static inline size_t hex_rune_width(uint32_t value) {
+    if (value < 0x80) {
+        return 1;
+    }
+    if (value < 0x800) {
+        return 2;
+    }
+    if (value < 0x10000) {
+        return 3;
+    }
+    return 4;
+}
+const hex_string *hex_string_from_runes(hex_heap h, const uint32_t *data, size_t length);
+{{end}}{{if .NeedRuneProperties}}bool hex_rune_is_lower(uint32_t value);
+bool hex_rune_is_upper(uint32_t value);
+bool hex_rune_is_alphabetic(uint32_t value);
+bool hex_rune_is_numeric(uint32_t value);
+bool hex_rune_is_whitespace(uint32_t value);
+uint32_t hex_rune_to_lower(uint32_t value);
+uint32_t hex_rune_to_upper(uint32_t value);
+uint32_t hex_rune_to_title(uint32_t value);
+int32_t hex_rune_display_width(uint32_t value);
+uint8_t hex_rune_combining_class(uint32_t value);
+{{end}}{{if .NeedRuneCategory}}int32_t hex_rune_category_index(uint32_t value);
+{{end}}{{if .NeedCasefold}}const hex_string *hex_text_casefold(hex_heap h, hex_text text);
+{{end}}{{if .NeedNormalize}}// hex_t_NormalizationForm is the protected builtin normalization selector:
+// every variant is a unit variant, so the representation is the shared tag
+// alone.
+typedef struct hex_t_NormalizationForm {
+    hex_tag tag;
+} hex_t_NormalizationForm;
+const hex_string *hex_text_normalize(hex_heap h, hex_text text, int32_t form);
+{{end}}{{if .NeedGraphemeLength}}size_t hex_text_grapheme_length(hex_text text);
+{{end}}{{if .NeedGrapheme}}
+// hex_grapheme is one extended grapheme cluster borrowed from the text it came
+// from. It is a view: it dangles if that text is freed, reassigned, or leaves
+// scope, and it is not Dict-key eligible.
+typedef struct hex_grapheme {
+    const uint8_t *data;
+    size_t length;
+} hex_grapheme;
+
+// hex_grapheme_cursor owns the utf8proc break state, so it must be fed every
+// adjacent scalar pair in order. cached_end is the lookahead cluster peek
+// computed; zero means none, which no real cluster end can be.
+typedef struct hex_grapheme_cursor {
+    const uint8_t *data;
+    size_t length;
+    size_t offset;
+    int32_t state;
+    size_t cached_end;
+} hex_grapheme_cursor;
+
+static inline hex_grapheme_cursor hex_text_grapheme_cursor(hex_text text) {
+    return (hex_grapheme_cursor){ text.data, text.length, 0, 0, 0 };
+}
+static inline bool hex_grapheme_cursor_has_next(hex_grapheme_cursor cursor) {
+    return cursor.offset < cursor.length;
+}
+static inline size_t hex_grapheme_cursor_offset(hex_grapheme_cursor cursor) {
+    return cursor.offset;
+}
+hex_grapheme hex_grapheme_cursor_next(hex_grapheme_cursor *cursor);
+hex_grapheme hex_grapheme_cursor_peek(hex_grapheme_cursor *cursor);
+static inline hex_slice_UInt8 hex_grapheme_bytes(hex_grapheme grapheme) {
+    return (hex_slice_UInt8){ grapheme.data, grapheme.length };
+}
+size_t hex_grapheme_rune_length(hex_grapheme grapheme);
+{{end}}{{if .NeedUnicodeCategory}}// hex_t_UnicodeCategory is the protected builtin general-category value: every
+// variant is a unit variant, so the representation is the shared tag alone.
+typedef struct hex_t_UnicodeCategory {
+    hex_tag tag;
+} hex_t_UnicodeCategory;
+{{end}}const hex_string *hex_string_make(hex_heap h, hex_text text);
 const hex_string *hex_string_join(hex_heap h, hex_text left, hex_text right);
 void hex_string_free(hex_heap h, const hex_string *text);
 
@@ -89,7 +167,45 @@ static inline hex_slice_UInt8 hex_text_slice(hex_text text, size_t start, size_t
 static inline hex_slice_UInt8 hex_text_bytes(hex_text text) {
     return (hex_slice_UInt8){ text.data, text.length };
 }
-{{if .NeedInterpolation}}
+{{if .NeedByteCursor}}
+// A ByteCursor is a copyable position over one text's bytes. It is a view: it
+// dangles if the text it points at is freed, reassigned, or leaves scope.
+typedef struct hex_byte_cursor {
+    const uint8_t *data;
+    size_t length;
+    size_t offset;
+} hex_byte_cursor;
+static inline hex_byte_cursor hex_text_byte_cursor(hex_text text) {
+    return (hex_byte_cursor){ text.data, text.length, 0 };
+}
+static inline bool hex_byte_cursor_has_next(hex_byte_cursor cursor) {
+    return cursor.offset < cursor.length;
+}
+static inline size_t hex_byte_cursor_offset(hex_byte_cursor cursor) {
+    return cursor.offset;
+}
+uint8_t hex_byte_cursor_next(hex_byte_cursor *cursor);
+uint8_t hex_byte_cursor_peek(hex_byte_cursor cursor);
+{{end}}{{if .NeedRuneCursor}}
+// A RuneCursor is a copyable position over one text's scalars. It is a view:
+// it dangles if the text it points at is freed, reassigned, or leaves scope.
+typedef struct hex_rune_cursor {
+    const uint8_t *data;
+    size_t length;
+    size_t offset;
+} hex_rune_cursor;
+static inline hex_rune_cursor hex_text_rune_cursor(hex_text text) {
+    return (hex_rune_cursor){ text.data, text.length, 0 };
+}
+static inline bool hex_rune_cursor_has_next(hex_rune_cursor cursor) {
+    return cursor.offset < cursor.length;
+}
+static inline size_t hex_rune_cursor_offset(hex_rune_cursor cursor) {
+    return cursor.offset;
+}
+uint32_t hex_rune_cursor_next(hex_rune_cursor *cursor);
+uint32_t hex_rune_cursor_peek(hex_rune_cursor cursor);
+{{end}}{{if .NeedInterpolation}}
 size_t hex_string_format_int8(char buffer[32], int8_t value);
 size_t hex_string_format_int16(char buffer[32], int16_t value);
 size_t hex_string_format_int32(char buffer[32], int32_t value);

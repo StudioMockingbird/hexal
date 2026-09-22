@@ -1,7 +1,11 @@
 # RFC 0221: Go Library Adoption and Compiler Infrastructure
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Open Discussion
+- Status: Open Discussion; no open questions remain. Tracks 1, 2, and 6 are
+  implementation ready and independent of the rest of the refactoring arc;
+  Track 3 is ready and touches only the module resolver; Track 4 (source
+  spans) is ready in design but RFC 0230 sequences it last. Track 5 is
+  withdrawn to deferred RFC 0232
 - Created: 2026-09-19
 - Scope: reduce compiler-owned utility code by adopting suitable Go standard
   library packages, isolate module traversal behind a small internal graph
@@ -62,14 +66,14 @@ invariant. Prefer the Go standard library. Use `golang.org/x/sync` only when
 parallel or incremental compilation is separately authorized and the required
 concurrency boundary is explicit.
 
-The work is divided into six independent tracks:
+The work is divided into five independent tracks, plus one that has been
+withdrawn to a deferred RFC:
 
 1. use `slices`, `maps`, and `cmp` for straightforward collection boilerplate;
 2. expand the existing `go/constant` use across constant evaluation;
 3. extract module traversal into a small internal graph utility;
 4. introduce a `go/token`-inspired, Hexal-owned source-span model;
-5. defer `golang.org/x/sync` until parallel or incremental compilation needs
-   it; and
+5. *(withdrawn — now deferred RFC 0232);* and
 6. replace small hand-rolled parsing and HTTP-method dispatch with standard
    library equivalents (`time.Parse`, `strings`, `strconv`, `filepath.WalkDir`,
    and `net/http` method patterns) where the contract matches.
@@ -283,35 +287,20 @@ diagnostic strings and generated files as strings.
 - Generated C must preserve the current source-mapping contract.
 - Span migration must not silently alter diagnostic ordering or ownership.
 
-## Track 5: deferred concurrency helpers
+## Track 5: withdrawn
 
-`golang.org/x/sync` may be added only when a separate implementation requires
-parallel module checking, specialization deduplication, or incremental cache
-coordination.
+Concurrency helpers were Track 5. They are now **deferred RFC 0232**
+(parallel and incremental compilation), together with the threshold and cache
+questions that came with them.
 
-Potential uses are:
+The reason is structural rather than a change of mind: Track 5 had no
+deliverable here — it said "not yet" — while its validation item made this
+RFC incomplete until a different RFC was written. A spec should not hold its
+own completion hostage to another spec's absence.
 
-- `errgroup` for bounded concurrent work with cancellation;
-- `singleflight` for deduplicating identical in-flight module or
-  specialization work; and
-- a semaphore or equivalent bounded worker mechanism if the chosen design
-  needs one.
-
-No `x/sync` package is justified for the current sequential compiler. Adding
-it before the ownership and determinism model exists would make races and
-diagnostic ordering harder to reason about.
-
-When this track becomes active, its specification must define:
-
-- which compiler state is immutable and shareable;
-- which state is per-module or per-specialization;
-- cancellation and failure propagation;
-- deterministic diagnostic and artifact ordering;
-- duplicate-work behavior; and
-- cache lifetime and invalidation for incremental compilation.
-
-The core compiler remains filesystem-free. Any persistent cache belongs to a
-future driver layer, not to `compiler.Compile`.
+Nothing about the position changed. `golang.org/x/sync` is still unjustified
+for a sequential compiler, and RFC 0232 records what would have to be measured
+and settled before that changes.
 
 ## Track 6: standard-library parsing and serving replacements
 
@@ -428,24 +417,103 @@ recorded so the same proposal does not return without new evidence.
 - changing language behavior, generated C ABI, diagnostics, or compiler
   boundary semantics.
 
-## Implementation order
+## Implementation plan
 
-1. Apply the standard-library parsing, serving, and walking replacements
-   (Track 6): self-contained and mechanically verifiable, with the one
-   month-name case decision stated up front.
-2. Inventory and adopt the `slices`, `maps`, and `cmp` cases, including the
-   quantified `sort` targets in Track 1.
-3. Consolidate constant folding around the existing `go/constant` values.
-4. Extract and test the internal graph mechanics without changing resolver
-   diagnostics.
-5. Design and land the source-span/file-table package, then migrate consumers
-   in stages.
-6. Write a separate concurrency/incremental-compilation specification before
-   adding `golang.org/x/sync`.
+Four tracks remain. Each is independently shippable, and each has a
+verification condition stronger than "tests pass".
 
-The order is deliberate: source spans and graph extraction affect broad
-contracts, while the parsing, collection, and constant-library changes are
-smaller and can provide evidence before those changes.
+### Track 6 — standard-library replacements *(first)*
+
+Self-contained, mechanically verifiable, touches no contract the rest of the
+arc redesigns.
+
+1. `internal/version`: replace `timestampPattern`, the `months` table,
+   `validTimestamp`, and `daysIn` with one `time.Parse("2006-Jan-02-15-04", …)`.
+   **The month-name case decision is made before the commit, not during it**:
+   `time.Parse` matches month names case-insensitively where the table does
+   not, so either accept `2026-jUl-01-00-00` or add the three-byte case check.
+2. `internal/backend`: replace `clangVersionPattern` and the digit loop with a
+   `strings` scan plus `strconv.Atoi`. Overflow becomes reported where it
+   silently wrapped.
+3. `internal/driver`: `filepath.Walk` → `filepath.WalkDir` at `driver.go:482`,
+   moving the symlink and case-fold checks from `os.FileInfo` to
+   `fs.DirEntry`.
+4. `workbench`: Go 1.22 method patterns on `ServeMux`.
+
+*Verify:* existing behavior probes for each — `2026-Jul-1-00-00`,
+`2026-Jul-01-24-00`, `2026-Feb-29-00-00`, `2026-Feb-30-00-00` still rejected;
+a non-Clang banner still fails closed; an escaping artifact key, a symlinked
+target, and a case-fold collision are still rejected after `WalkDir`.
+
+### Track 1 — collection utilities
+
+The fifteen quantified `sort` sites first, since they are exact. Then the
+reviewed map-copy, membership, and comparator sites, each justified
+individually — a migration is not warranted merely because a loop *can* be a
+helper call.
+
+**`maps.Clone` follows Settled decisions 2**: permitted where the value type
+holds no reference, explicit loop otherwise. Add the regression that
+`flowState.clone` produces independent `released` inner maps, because that is
+the invariant a careless `maps.Clone` would break.
+
+*Verify:* the `sort` import leaves nine files; stable sorts stay stable;
+deterministic output and diagnostic ordering unchanged; generated C
+byte-identical.
+
+### Track 2 — constant evaluation
+
+1. Produce the per-operation table Settled decisions 1 calls for: each
+   constant operation marked *direct*, *wrapped*, or *Hexal-owned*. A row that
+   will not classify under the invariant is a finding to report, not a
+   judgement to make.
+2. Consolidate the operations marked *direct* onto `go/constant`.
+3. Leave *wrapped* and *Hexal-owned* alone — `wrapIntegerConstant`, shift-range
+   validation, and every diagnostic stay exactly where they are.
+
+*Verify:* no expression changes whether it folds, which Hexal type it
+receives, or which diagnostic and position it reports.
+
+### Track 3 — module graph utility
+
+Extract reachable traversal, cycle detection, and dependency-first post-order
+into a small internal utility. Per Settled decisions 3 it **sorts nothing** and
+preserves caller-supplied neighbour order.
+
+The resolver keeps every Hexal meaning: logical-key validation, import syntax,
+C-binding preparation, duplicate imports, diagnostics, stdlib lookup, and
+`ModuleGraph` construction.
+
+*Verify:* focused tests for reachable-only traversal, post-order, duplicate
+imports, cycles, deterministic ordering, missing modules, stdlib modules, and
+prepared C bindings; the utility performs no filesystem, process, or parsing
+work; diagnostic ordering is unchanged, which is the property sorting would
+have broken.
+
+### Track 4 — source spans *(last)*
+
+RFC 0230 sequences this last: it restructures every diagnostic location, and
+doing that while diagnostics are being inventoried elsewhere would make both
+changes unreviewable.
+
+1. Add the span and file-table package **below `types`** (Settled
+   decisions 4), beside where the arc places `config` and `specdata`.
+2. Adapt lexer tokens.
+3. Adapt parser nodes and diagnostics.
+4. Only then let checker and generator structs stop carrying
+   `SourceLine`/`SourceColumn` — and per Settled decisions 5, **never both at
+   once**. A stage that appears to need both has the wrong boundary.
+
+*Verify:* focused tests at single-line, multiline, EOF, zero-width, UTF-8,
+embedded-stdlib, and prepared-binding locations; diagnostic text, category,
+module identity, line/column output, and generated `#line` mappings unchanged;
+generated C byte-identical.
+
+### Ordering and rollback
+
+Tracks 6, 1, and 2 may land in any order; 3 after them for evidence; 4 last.
+Every track's proof is byte-identical generated C and an unmoved snippet
+manifest, so each reverts to a known-good tree on its own.
 
 ## Validation
 
@@ -466,9 +534,8 @@ This ADR is implemented only when all of the following are true:
 6. Existing diagnostic text, category, module identity, line/column output,
    generated `#line` mappings, generated artifacts, and statistics remain
    unchanged unless a separate approved spec explicitly changes them.
-7. `golang.org/x/sync` is absent until a separate concurrency or incremental
-   compilation specification authorizes it; once authorized, its validation
-   covers cancellation, duplicate work, deterministic output, and race safety.
+7. `golang.org/x/sync` is absent from the module. Whether it is ever added is
+   deferred RFC 0232's question, and no longer a condition of this RFC.
 8. `go test ./...`, `go vet ./...`, and `go vet -tags c23 ./...` pass without
    an external C toolchain.
 9. The Track 6 replacements preserve behavior except for the one stated
@@ -477,19 +544,101 @@ This ADR is implemented only when all of the following are true:
    and `internal/driver` still rejects an escaping artifact key, a symlinked
    target, and a case-fold collision after the `WalkDir` migration.
 
-## Open questions
+## Settled decisions
 
-1. Should the source-span file table live in `compiler`, `lexer`, or a new
-   narrow internal package?
-2. Should public checker and generator structs expose spans, or should spans
-   remain internal until diagnostics are rendered?
-3. Should graph post-order accept caller-supplied sorted neighbors, or should
-   the utility sort node IDs itself?
-4. Which existing constant-folding operations intentionally differ from
-   `go/constant` and therefore require Hexal wrappers?
-5. Should `maps.Clone` be permitted for checker state, or must state copying
-   remain explicit to expose semantic ownership?
-6. What measurable build size or latency threshold justifies adding
-   `golang.org/x/sync`?
-7. Does incremental compilation require a separate cache specification before
-   any `singleflight` work begins?
+These were the open questions; each is now decided, with the evidence that
+decided it.
+
+### 1. `go/constant` owns the value; Hexal owns the type
+
+The divergence is structural, not scattered, so it is stated as an invariant
+rather than enumerated case by case:
+
+> **`go/constant` computes the exact value. Hexal decides what the result type
+> permits, and what to call the failure.**
+
+`go/constant` is arbitrary-precision and width-free; Hexal has fixed widths
+and a defined wrapping rule. Every existing divergence is an instance of that
+one difference:
+
+| Concern | Owner |
+| --- | --- |
+| Exact arithmetic, comparison, conversion, representability | `go/constant` |
+| Width reduction and wrapping | Hexal — `wrapIntegerConstant` |
+| Range validation before the operation | Hexal — e.g. shift-count range, which `go/constant` cannot express because it requires a `uint` count |
+| Diagnostics and their positions | Hexal — `division by zero`, `shift count %d is outside the valid range for %s` |
+
+Track 2 produces the per-operation table as its **completion checklist**, not
+as a design step: one row per constant operation marked *direct*, *wrapped*,
+or *Hexal-owned*. A row that cannot be classified by the invariant above is a
+finding, not a judgement call.
+
+### 2. `maps.Clone` is permitted where the value type holds no reference
+
+Not a blanket rule in either direction. `flowState.clone` shows why: six of
+its seven maps are flat and clone safely, while one is nested —
+
+```go
+released map[BindingID]map[uint64]bool
+```
+
+`maps.Clone` is a **shallow** copy, so cloning that map would produce a new
+outer map sharing the *same inner maps*. A branch marking a version freed
+would then corrupt its sibling branch: silent, and visible only as a wrong
+diagnostic on some control-flow shapes.
+
+The rule: **`maps.Clone` for `map[K]V` when `V` is a scalar, a struct of
+scalars, or an interned handle; an explicit loop when `V` is a map, slice, or
+pointer.** It is mechanically checkable and it explains itself, so the next
+nested map is handled correctly rather than by precedent.
+
+Track 1 adds a regression that `flowState.clone` produces independent
+`released` inner maps, since that is the invariant a careless `maps.Clone`
+would break.
+
+### 3. The graph utility preserves caller-supplied neighbour order
+
+It sorts nothing. Module neighbours are import declarations in **source
+order**, which is already deterministic; `compile.go` sorts only diagnostics,
+by post-order position.
+
+A utility that sorted node IDs would change traversal order, and because
+diagnostics are ordered by post-order position, that changes diagnostic
+ordering — which this RFC's own Validation forbids. So sorting is not a
+neutral convenience here; it is a behavior change.
+
+The utility documents that it preserves neighbour order and performs no
+sorting, making the property visible rather than incidental.
+
+### 4. The span file table lives in a narrow package below `types`
+
+A span is a primitive with no compiler dependencies: a logical file key and
+two byte offsets. Putting it in `lexer` would make the checker and generator
+import the lexer for a type; putting it in `compiler` puts it at the top of
+the graph, where the packages that need it cannot reach it.
+
+It therefore sits at the bottom, beside where RFC 0230 places `config` and
+`specdata` — the same argument that forced `specdata` below `types`.
+
+### 5. Spans stay internal until diagnostics render, with no dual-carry
+
+Public checker and generator structs do not expose spans. Nothing carries
+`SourceLine`/`SourceColumn` *and* a span at the same time.
+
+Dual-carrying would let the two representations disagree, which is the exact
+drift class this arc exists to remove. If a migration stage appears to need
+both, the stage boundary is wrong and should be redrawn rather than bridged.
+
+### 6 and 7. Concurrency questions move out with Track 5
+
+Track 5 defers `golang.org/x/sync` until a separate concurrency specification
+exists, so it has no deliverable here — but its validation item kept this RFC
+incomplete until a *different* RFC was written.
+
+Track 5, the `x/sync` threshold question, and the incremental-compilation
+cache question all move to deferred RFC 0232. This RFC can now reach a
+completion state on its own work.
+
+The cache question answers itself in the move: incremental compilation
+requires its cache specified before any `singleflight` work begins, and that
+belongs to the RFC that proposes it.

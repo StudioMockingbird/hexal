@@ -277,6 +277,18 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		// be complete.
 		emission.adtState.ensureRegistered(compilerTypes.ErrorKindType)
 	}
+	if emission.textState != nil && emission.textState.runeCategory {
+		// Selecting Rune.category registers every UnicodeCategory variant into
+		// the program-wide tag registry: the module's category-tag table must
+		// cover all thirty even when no source expression names one.
+		emission.adtState.ensureRegistered(compilerTypes.UnicodeCategoryType)
+	}
+	if emission.textState != nil && len(emission.textState.normalize) > 0 {
+		// Selecting String.normalize registers every NormalizationForm variant
+		// into the program-wide tag registry: the module's form map must cover
+		// all four even when no source expression names one.
+		emission.adtState.ensureRegistered(compilerTypes.NormalizationFormType)
+	}
 	emission.typeState = &generatedTypeValidation{declaredObjects: errorDeclaredObjects(program), arrays: arrayState}
 	return emission, nil
 }
@@ -336,6 +348,49 @@ type programEmission struct {
 	// String.interpolate call, selecting the String component's
 	// demand-driven formatter helpers.
 	interpolationNeed bool
+	// validatorNeed is true when any module constructs text from bytes or
+	// concatenates text, the only operations that call the UTF-8 validator.
+	// It selects the validator's declaration, definition, and the private
+	// utf8proc include.
+	validatorNeed bool
+	// runeLengthNeed is true when any module counts text scalars, selecting
+	// the utf8proc-stepping length helper. It also raises validatorNeed, since
+	// the helper and the validator share the private utf8proc include.
+	runeLengthNeed bool
+	// runeIterationNeed is true when any module steps through text by scalar:
+	// Rune iteration and RuneCursor both use the shared utf8proc decode step.
+	// It also raises validatorNeed, since both share the private utf8proc
+	// include.
+	runeIterationNeed bool
+	// byteCursorNeed is true when any module scans text with a ByteCursor,
+	// selecting the cursor descriptor and its index-arithmetic helpers. Byte
+	// stepping needs no utf8proc.
+	byteCursorNeed bool
+	// runeCursorNeed is true when any module scans text with a RuneCursor,
+	// selecting the cursor descriptor and its utf8proc-stepping helpers.
+	runeCursorNeed bool
+	// runeEncodeNeed is true when any module encodes a scalar sequence into
+	// text, selecting the utf8proc-encoding constructor.
+	runeEncodeNeed bool
+	// runePropertiesNeed is true when any module reads a Tier 2 Rune property,
+	// selecting the utf8proc property helpers.
+	runePropertiesNeed bool
+	// runeCategoryNeed is true when any module reads a scalar's general
+	// category, selecting the utf8proc category helper and the shared
+	// UnicodeCategory tag registration.
+	runeCategoryNeed bool
+	// graphemeLengthNeed is true when any module counts text grapheme
+	// clusters, selecting the utf8proc break-state helper.
+	graphemeLengthNeed bool
+	// graphemeNeed is true when any module uses the Grapheme type or its
+	// cursor, selecting the borrowed-range struct and the stateful segmenter.
+	graphemeNeed bool
+	// casefoldNeed is true when any module folds text, selecting the
+	// utf8proc-mapped transform.
+	casefoldNeed bool
+	// normalizeNeed is true when any module normalizes text, selecting the
+	// utf8proc-mapped transform and the shared NormalizationForm tags.
+	normalizeNeed bool
 	// equalityTypes collects the program-owned types needing equality
 	// helpers, merged from every module's equality state for the component
 	// builder.
@@ -448,6 +503,20 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 			merged.orderingNeed = merged.orderingNeed || module.equalityState.compareNeed
 		}
 		merged.interpolationNeed = merged.interpolationNeed || module.interpolationUsed
+		if module.textState != nil {
+			merged.validatorNeed = merged.validatorNeed || module.textState.used || module.textState.runeLength || module.textState.runeIteration || module.textState.runeCursor || len(module.textState.heapFromRunes) > 0 || module.textState.runeProperties || module.textState.runeCategory || module.textState.graphemeLength || module.textState.graphemeCursor || len(module.textState.casefold) > 0 || len(module.textState.normalize) > 0
+			merged.runeLengthNeed = merged.runeLengthNeed || module.textState.runeLength
+			merged.runeIterationNeed = merged.runeIterationNeed || module.textState.runeIteration || module.textState.runeCursor
+			merged.byteCursorNeed = merged.byteCursorNeed || module.textState.byteCursor
+			merged.runeCursorNeed = merged.runeCursorNeed || module.textState.runeCursor
+			merged.runeEncodeNeed = merged.runeEncodeNeed || len(module.textState.heapFromRunes) > 0
+			merged.runePropertiesNeed = merged.runePropertiesNeed || module.textState.runeProperties
+			merged.runeCategoryNeed = merged.runeCategoryNeed || module.textState.runeCategory
+			merged.graphemeLengthNeed = merged.graphemeLengthNeed || module.textState.graphemeLength
+			merged.graphemeNeed = merged.graphemeNeed || module.textState.graphemeCursor
+			merged.casefoldNeed = merged.casefoldNeed || len(module.textState.casefold) > 0
+			merged.normalizeNeed = merged.normalizeNeed || len(module.textState.normalize) > 0
+		}
 		if module.dictState != nil {
 			for _, dict := range module.dictState.order {
 				if compilerTypes.IsText(dict.Dict.Key) {

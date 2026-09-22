@@ -65,9 +65,7 @@ func textMismatchHint(destination, source compilerTypes.Type) string {
 // names are not reserved: a program may declare its own, and the hint appears
 // only when a name resolves to nothing.
 var removedTextTypeHints = map[string]string{
-	"Rune":       "Rune was removed: text is bytes, use Byte",
-	"RuneCursor": "RuneCursor was removed with Rune",
-	"Strand":     "use String<N> (String<31> keeps the former capacity)",
+	"Strand": "use String<N> (String<31> keeps the former capacity)",
 }
 
 // unknownTypeMessage is the diagnostic for a type name that resolves to

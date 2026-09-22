@@ -76,6 +76,9 @@ var trapLedger = map[string]trapDisposition{
 	"slice index out of bounds":                     {dispositionExecutable, "slice-index-out-of-bounds-traps"},
 	"slice slice bounds out of range":               {dispositionExecutable, "slice-slice-bounds-traps"},
 	"collection modified during iteration":          {dispositionExecutable, "collection-modified-during-iteration-traps"},
+	"ByteCursor has no next value":                  {dispositionExecutable, "byte-cursor-exhausted-traps"},
+	"RuneCursor has no next value":                  {dispositionExecutable, "rune-cursor-exhausted-traps"},
+	"GraphemeCursor has no next value":              {dispositionExecutable, "grapheme-cursor-exhausted-traps"},
 	"task stack overflow":                           {dispositionExecutable, "task-stack-overflow-traps"},
 	"standard output write failed":                  {dispositionStructural, "print.c hex_print_commit_native/hex_io_stdout_write_all: no portable way to force a real stdout write failure inside the 10s process-timeout harness without redirecting the process's own standard handle out from under it, which the harness's own I/O capture already occupies"},
 	"cannot join the current task":                  {dispositionStructural, "concurrency.c's hex_task_join compares the target hex_task* against hex_current_task; Hexal has no Task.current()/self-reference API, and a spawned function cannot observe the Task<T> handle spawn itself returns until after that call completes, so no checker-accepted program can pass a task its own handle"},
@@ -121,6 +124,7 @@ var trapLedger = map[string]trapDisposition{
 	"Task park phase changed during commit": {dispositionStructural, "the same commit-phase invariant as above: no code path re-enters commit for a phase a concurrent wake has already changed except through the one documented transition hex_task_wake performs"},
 	"invalid Task park phase during resume": {dispositionStructural, "hex_task_resume_commit's precondition mirrors hex_task_commit_park's; the else-branch requires a phase value no transition helper ever produces"},
 	"invalid ErrorKind tag":                 {dispositionStructural, "the ErrorKind switch in hex_error_kind_header/hex_equal_hex_t_ErrorKind is exhaustive over every tag the checker's own ErrorKind construction can produce; asserted in compiler/generator/error_component_test.go"},
+	"invalid Unicode scalar value":          {dispositionStructural, "string.c hex_string_from_runes's per-scalar guard: every call site routes through a module-local String.from_runes adapter that validates the whole slice first and returns | Error, so the core trap is a broken-invariant guard"},
 }
 
 // runtimeErrorPattern matches one complete "[Runtime Error] ..." literal up

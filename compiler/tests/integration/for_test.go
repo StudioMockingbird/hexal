@@ -294,7 +294,6 @@ func TestForInTextRequiresAnnotatedValueBinder(t *testing.T) {
 		{"inline", "fun demo() do\n    let text: String<8> = \"x\"\n    for b in text do\n    end\nend", "for binder b over String<8> has an ambiguous element type; annotate it, for example for b: Byte in ..."},
 		{"index only", "fun demo() do\n    let text: String<8> = \"x\"\n    for i: Size, b in text do\n    end\nend", "for binder b over String<8> has an ambiguous element type; annotate it, for example for b: Byte in ..."},
 		{"index unannotated", "fun demo() do\n    let text: String = \"x\"\n    for i, b in text do\n    end\nend", "for binder b over String has an ambiguous element type"},
-		{"rune", "fun demo() do\n    let text: String = \"x\"\n    for c: Rune in text do\n    end\nend", "unknown type Rune; Rune was removed: text is bytes, use Byte"},
 	} {
 		result := compileSource(tc.source)
 		if result.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(result.Stderr, "\n"), tc.want) {
@@ -303,8 +302,34 @@ func TestForInTextRequiresAnnotatedValueBinder(t *testing.T) {
 	}
 }
 
-// A List of a union keeps the plain binder and accepts the whole union as the
-// annotation; annotating one member is rejected because the element may be any.
+// Text iteration's element type belongs to the binder: Byte reads storage
+// units and Rune decodes scalars, on the heap and inline forms alike.
+func TestForInTextElementBinder(t *testing.T) {
+	for _, source := range []string{
+		"fun demo() do\n    let text: String = \"x\"\n    for b: Byte in text do\n    end\nend",
+		"fun demo() do\n    let text: String = \"x\"\n    for r: Rune in text do\n    end\nend",
+		"fun demo() do\n    let text: String<8> = \"x\"\n    for i: Size, r: Rune in text do\n    end\nend",
+	} {
+		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
+			t.Fatalf("Compile(%q) = %v", source, result.Stderr)
+		}
+	}
+}
+
+// Rune iteration decodes one scalar per step through the shared utf8proc step;
+// Byte iteration selects nothing.
+func TestForInTextRuneDecodes(t *testing.T) {
+	runes := assertCompiles(t, "fun demo() do\n    let text: String = \"h\\u{e9}\"\n    for r: Rune in text do\n    end\nend\n")
+	if !strings.Contains(rootC(t, runes), "hex_utf8_decode_step") {
+		t.Fatalf("Rune iteration did not decode through the utf8proc step:\n%s", rootC(t, runes))
+	}
+	bytes := assertCompiles(t, "fun demo() do\n    let text: String = \"x\"\n    for b: Byte in text do\n    end\nend\n")
+	if strings.Contains(rootC(t, bytes), "hex_utf8_decode_step") {
+		t.Fatalf("Byte iteration selected the Rune decode step:\n%s", rootC(t, bytes))
+	}
+}
+
+// A List of a union keeps the plain binder and accepts the whole union as the// annotation; annotating one member is rejected because the element may be any.
 func TestForInBinderOverUnionElements(t *testing.T) {
 	prefix := "fun demo(h: Heap) do\n    let l: List<Int32 | Bool> = List<Int32 | Bool>(h)\n    defer l.free(h)\n"
 	for _, body := range []string{"    for a in l do\n    end\n", "    for a: Int32 | Bool in l do\n    end\n"} {

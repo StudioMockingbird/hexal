@@ -89,24 +89,27 @@ func TestByteLiteralDiagnostics(t *testing.T) {
 	}
 }
 
-// Every removed text form reports its own diagnostic, and the syntax freed by
-// removing the Rune literal is reserved rather than reused.
+// The text forms still absent after this phase report their own diagnostic:
+// Strand and retired to_string.
 func TestRemovedTextFormsReportDiagnostics(t *testing.T) {
 	for _, tc := range []struct{ source, want string }{
-		{"let c: Rune = 1", "unknown type Rune; Rune was removed: text is bytes, use Byte"},
-		{"fun f(r: Slice<Rune>) do\nend", "unknown type Rune; Rune was removed: text is bytes, use Byte"},
-		{"fun f(c: RuneCursor) do\nend", "unknown type RuneCursor; RuneCursor was removed with Rune"},
 		{"let s: Strand = \"x\"", "unknown type Strand; use String<N> (String<31> keeps the former capacity)"},
-		{"let c: Int32 = 'a'", "bare-quote literals are reserved; use b'a' for a byte or \"a\" for text"},
-		{"let c: Int32 = '\\u{41}'", "bare-quote literals are reserved; use b'a' for a byte or \"a\" for text"},
-		{"let c: Int32 = 'unterminated", "bare-quote literals are reserved; use b'a' for a byte or \"a\" for text"},
-		{"fun f(text: String) do\n    let cursor = text.rune_cursor()\nend", "String has no method rune_cursor"},
-		{"fun f(h: Heap) do\n    let s = String.from_runes(h, 1)\nend", "String has no such operation; use String.from_bytes(heap, view) or String.interpolate(heap, template)"},
 		{"fun f(h: Heap) do\n    let s: String = \"x\".to_string(h)\nend", "String has no method to_string"},
 	} {
 		result := compileSource(tc.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(strings.Join(result.Stderr, "\n"), tc.want) {
 			t.Fatalf("Compile(%q) stderr = %v, want %q", tc.source, result.Stderr, tc.want)
+		}
+	}
+}
+
+// A Rune literal is a Rune value; in an Int32 position it is a type mismatch,
+// not the reserved-syntax diagnostic the byte-oriented removal emitted.
+func TestRuneLiteralTypeMismatch(t *testing.T) {
+	for _, source := range []string{"let c: Int32 = 'a'", "let c: Int32 = '\\u{41}'"} {
+		result := compileSource(source)
+		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(strings.Join(result.Stderr, "\n"), "got Rune") {
+			t.Fatalf("Compile(%q) stderr = %v, want a Rune type mismatch", source, result.Stderr)
 		}
 	}
 }

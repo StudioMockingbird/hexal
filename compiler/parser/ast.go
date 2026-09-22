@@ -522,6 +522,15 @@ type ByteLiteral struct {
 
 func (ByteLiteral) expressionNode() {}
 
+// RuneLiteral is a bare-quote '...' literal carrying exactly one Unicode
+// scalar value. The lexer validated the escape grammar, scalar validity, and
+// surrogate exclusion; the checker decodes the payload value.
+type RuneLiteral struct {
+	Token lexer.Token
+}
+
+func (RuneLiteral) expressionNode() {}
+
 // RawStringLiteral is an r"..." / r#"..."# literal before semantic
 // resolution. The token lexeme includes the 'r', its hash delimiters, and
 // the surrounding quotes; the checker strips them and validates UTF-8. Raw

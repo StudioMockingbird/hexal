@@ -82,7 +82,7 @@ func doctorRuntimePack(selected *backend.Backend, options DoctorOptions) error {
 	if err != nil {
 		return err
 	}
-	manifest, pack, err := loadRuntimeManifest(fsys, options.Target, []compiler.RuntimeDependency{compiler.RuntimeLibuv, compiler.RuntimeMimalloc})
+	manifest, pack, err := loadRuntimeManifest(fsys, options.Target, []compiler.RuntimeDependency{compiler.RuntimeLibuv, compiler.RuntimeMimalloc, compiler.RuntimeUtf8proc})
 	if err != nil {
 		return err
 	}
@@ -102,10 +102,10 @@ func doctorRuntimePack(selected *backend.Backend, options DoctorOptions) error {
 }
 
 // runPackConsumptionProbe compiles and links a program that includes the
-// packaged libuv and mimalloc headers, calls a representative symbol from each
-// archive, and uses every declared system library in manifest order.
+// packaged libuv, mimalloc, and utf8proc headers, calls a representative symbol
+// from each archive, and uses every declared system library in manifest order.
 func runPackConsumptionProbe(selected *backend.Backend, dir string, includeDirs, archives, systemLibraries []string) error {
-	const probe = "#include <uv.h>\n#include <mimalloc.h>\n\nint main(void) {\n    void *memory = mi_malloc(16);\n    mi_free(memory);\n    return uv_version() == 0 ? 1 : 0;\n}\n"
+	const probe = "#include <uv.h>\n#include <mimalloc.h>\n#include <utf8proc.h>\n\nint main(void) {\n    void *memory = mi_malloc(16);\n    mi_free(memory);\n    return uv_version() == 0 || utf8proc_version() == nullptr ? 1 : 0;\n}\n"
 	source := filepath.Join(dir, "pack.c")
 	if err := os.WriteFile(source, []byte(probe), 0o644); err != nil {
 		return fmt.Errorf("could not write the pack probe source: %v", err)

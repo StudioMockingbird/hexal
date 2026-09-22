@@ -36,7 +36,7 @@ func pureAccessorMethodName(kind checker.ExpressionKind, name string) bool {
 		}
 	case checker.StringMethodCallExpression:
 		switch name {
-		case "length", "bytes", "slice", "widen":
+		case "length", "rune_length", "grapheme_length", "bytes", "slice", "widen":
 			return true
 		}
 	case checker.ChannelMethodCallExpression:
@@ -44,6 +44,16 @@ func pureAccessorMethodName(kind checker.ExpressionKind, name string) bool {
 		case "length", "capacity", "is_closed":
 			return true
 		}
+	case checker.RuneMethodCallExpression:
+		// value and utf8_length are pure reads of a scalar receiver.
+		return true
+	case checker.CursorMethodCallExpression:
+		// has_next, peek, and offset are reads; next mutates only the cursor
+		// value it is given, never shared storage.
+		return true
+	case checker.GraphemeMethodCallExpression:
+		// bytes and rune_length read the borrowed range.
+		return true
 	}
 	return false
 }

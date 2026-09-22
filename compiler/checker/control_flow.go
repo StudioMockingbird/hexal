@@ -445,6 +445,13 @@ func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDept
 	if len(binderTypes) != len(statement.Binders) {
 		return checked, append(diagnostics, typeErrorAt(statement.Keyword, "for-in binder count does not match the source type"))
 	}
+	if compilerTypes.IsText(source.typ) {
+		// Text iteration's element type belongs to the binder annotation:
+		// Byte is the storage unit, Rune is a decoded scalar.
+		if element, ok := textBinderElement(statement.Binders, ctx); ok {
+			binderTypes[len(binderTypes)-1] = element
+		}
+	}
 	if annotationDiagnostics := checkForBinderAnnotations(statement.Binders, binderTypes, source.typ, ctx); len(annotationDiagnostics) > 0 {
 		return checked, append(diagnostics, annotationDiagnostics...)
 	}
@@ -798,6 +805,30 @@ func checkRootReturnStatement(statement parser.ReturnStatement, ctx checkContext
 	source := value.source
 	checked.Value = &source
 	return checked, nil
+}
+
+// textBinderElement resolves the element type a text for-binder annotation
+// names: Byte is the storage unit and Rune is a decoded scalar. An absent or
+// unrecognized annotation leaves the Byte default, and the annotation check
+// then reports the mismatch.
+func textBinderElement(binders []parser.ForBinder, ctx checkContext) (compilerTypes.Type, bool) {
+	value := binders[len(binders)-1]
+	if value.Type == nil {
+		return compilerTypes.Type{}, false
+	}
+	use, diagnostic := resolveTypeUse(value.Type, value.Name, ctx.typeEnvironment, ctx.names.generics)
+	if diagnostic != nil {
+		return compilerTypes.Type{}, false
+	}
+	switch {
+	case compilerTypes.IsRune(use.Type):
+		return compilerTypes.Rune, true
+	case compilerTypes.IsGrapheme(use.Type):
+		return compilerTypes.GraphemeType, true
+	case compilerTypes.Equal(use.Type, compilerTypes.UInt8):
+		return compilerTypes.UInt8, true
+	}
+	return compilerTypes.Type{}, false
 }
 
 // checkForBinderAnnotations checks the written types of a for-in header

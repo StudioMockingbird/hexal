@@ -60,13 +60,15 @@ func TestStringComponentEmitsHeaderAndSource(t *testing.T) {
 	if !strings.Contains(header, "static inline hex_slice_UInt8 hex_text_bytes(hex_text text) {") {
 		t.Fatalf("hexal/string.h lost the inline byte-view helper: %q", header)
 	}
-	if !strings.Contains(header, "bool hex_utf8_valid(const uint8_t *data, size_t length);") ||
-		!strings.Contains(header, "const hex_string *hex_string_make(hex_heap h, hex_text text);") ||
+	if !strings.Contains(header, "const hex_string *hex_string_make(hex_heap h, hex_text text);") ||
 		!strings.Contains(header, "void hex_string_free(hex_heap h, const hex_string *text);") {
 		t.Fatalf("hexal/string.h lost an operation declaration: %q", header)
 	}
-	if !strings.Contains(source, "bool hex_utf8_valid(const uint8_t *data, size_t length) {") {
-		t.Fatalf("hexal/string.c lost the validator body: %q", source)
+	// The UTF-8 validator is demand-driven: a literal-only program emits
+	// neither its declaration nor its definition, so it acquires no utf8proc
+	// dependency.
+	if strings.Contains(header, "hex_utf8_valid") || strings.Contains(source, "hex_utf8_valid") {
+		t.Fatalf("literal-only program emitted the UTF-8 validator: %q %q", header, source)
 	}
 	// The module header includes the component; the module C references the
 	// program-wide literal objects.

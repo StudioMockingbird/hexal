@@ -450,6 +450,10 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "String" {
 		return checkStringTypeCall(call, variable.Name, ctx)
 	}
+	// Rune.from() names the built-in scalar type, not a Rune value binding.
+	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Rune" {
+		return checkRuneTypeCall(call, variable.Name, ctx)
+	}
 	// Slice<T>.from_pointer() and Slice<T>.empty() name the built-in generic
 	// type, not a Slice value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Slice" {
@@ -514,6 +518,19 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	// integer receivers.
 	if (name == "to_le_bytes" || name == "to_be_bytes") && (compilerTypes.IsInteger(receiver.typ) || compilerTypes.ContainsTypeParameter(receiver.typ)) {
 		return checkEndianToBytesCall(call, callee, receiver, ctx)
+	}
+	// Rune value methods dispatch on the Rune scalar receiver. Rune lowers to
+	// the uint32_t scalar, so these are pure reads with no allocation.
+	if compilerTypes.IsRune(receiver.typ) {
+		return checkRuneMethodCall(call, callee, receiver, ctx)
+	}
+	// Text cursor methods dispatch on the cursor descriptor receiver.
+	if compilerTypes.IsCursor(receiver.typ) {
+		return checkCursorMethodCall(call, callee, receiver, ctx)
+	}
+	// Grapheme methods dispatch on the borrowed-range receiver.
+	if compilerTypes.IsGrapheme(receiver.typ) {
+		return checkGraphemeMethodCall(call, callee, receiver, ctx)
 	}
 	// Member or method lookup on a receiver whose type is an open type
 	// parameter is substitution-dependent: the concrete argument decides

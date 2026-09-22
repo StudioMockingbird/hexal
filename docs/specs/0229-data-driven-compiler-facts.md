@@ -1,7 +1,9 @@
 # RFC 0229: Data-Driven Compiler Facts
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Open Discussion; proposed; implementation not started
+- Status: Open Discussion; proposed. **Blocked on RFC 0230**, which settles
+  the import graph, the generic-specialization model, the validation contract,
+  the demand model, and the first migration slice
 - Created: 2026-09-21
 - Scope: make compiler-owned language and runtime facts declarative, typed,
   centrally registered, validated, and reusable across checking, generation,
@@ -9,8 +11,9 @@
 - Origin: follow-up to RFC 0228; configuration centralization removes tunable
   values from scattered packages, while this RFC removes duplicated compiler
   knowledge from handwritten registries and dispatch tables
-- Depends on: the forward-only compiler pipeline, fail-closed dispatch rules,
-  the in-memory compiler boundary, RFC 0228 (central compiler configuration),
+- Depends on: RFC 0230 (arc foundations), the forward-only compiler pipeline,
+  fail-closed dispatch rules, the in-memory compiler boundary, RFC 0228
+  (central compiler configuration),
   and the current type, core-library, runtime-component, target, diagnostic,
   and generated-C contracts
 - Coordinates with: RFC 0052 (C backend), RFC 0055 (build driver), RFC 0158
@@ -149,7 +152,40 @@ the compiler source, reviews the generated-C and diagnostic impact, and runs
 the owning validation. Programs cannot change compiler semantics by supplying
 data at runtime.
 
-## Blocking: ownership, and an import cycle
+## Blocking: resolved by RFC 0230
+
+RFC 0230 is a precondition for this RFC. It settles six things this RFC leaves
+open, and two of its decisions change this RFC's design materially:
+
+| This RFC's open question | RFC 0230's decision |
+|---|---|
+| Q1 package split | one `specdata`; a target/ABI split only if target facts grow validation |
+| Q3 diagnostic templates | **no templates** — wording stays in the owning phase; `specdata` holds identity and stability only |
+| Q5 demand predicates or functions | **Go functions** — component demand stays the 24 explicit builders; only metadata becomes data |
+| Q6 generic specialization | **constructor records, never specializations** — see below |
+| Q7 which changes bump the ABI | the shared impact table; the owning change declares its row |
+| first slice | runtime components, because the record needs no `Type` values |
+
+Two consequences for the domains below.
+
+**`specdata` stores primitive identifiers, never `Type` values.** This is
+forced by an import cycle, not chosen: `compiler/corelib` imports
+`compiler/types` and stores live `Type` values, so a `types` that consumed a
+`Type`-bearing `specdata` would cycle. A consumer needing a `Type` asks
+`types` to resolve an ID.
+
+**Generic types get constructor records, not specialization records.**
+`String<N>` makes a per-specialization registry impossible, since N is
+unbounded — but `String`'s invariant facts are the same at every capacity. A
+record carries what is invariant (representation, copy mode, free mode,
+component) and derives what is not (C name, layout, size). Domain 1 cannot be
+implemented without this model and domain 8's layout records depend on it.
+
+Domain 7 (diagnostics) is reduced to identity metadata. Domain 6's
+`TargetSpec.Qualified` field is withdrawn — qualification is driver state, not
+a language fact.
+
+## The ownership conflict and import cycle RFC 0230 resolves
 
 RFC 0228's *Blocking: the ownership map does not exist* applies here
 unchanged: both RFCs claim target facts, runtime dependencies, diagnostics,
@@ -634,22 +670,42 @@ runtime component needs a rendered value.
 - Adding a new analyzer pass.
 - Replacing explicit unsupported-syntax diagnostics with table misses.
 
-## Open questions
+## Settled questions
 
-1. Should the package be named `compiler/specdata`, or should the registry be
-   split into `compiler/specdata` and a separate target/ABI package?
-2. Which existing builtin type facts are stable enough to migrate first, and
-   which are still undergoing language design?
-3. Should diagnostics be fully templated in data, or should only IDs, owning
-   stages, and stability metadata be centralized initially?
-4. How much of generated-C layout can be rendered from records before the
-   representation becomes harder to review than direct C templates?
-5. Should component demand rules be declarative predicates or explicit Go
-   functions with data-defined metadata?
-6. How should generic specializations such as `List<T>`, `Dict<K,V>`, and
-   `String<N>` be represented without creating one hand-written record per
-   specialization?
-7. Which registry changes should automatically require a runtime ABI bump?
+1. Settled by RFC 0230 Decision 10: one `compiler/specdata` package, with its
+   files split by domain. Cross-domain reference checking is the registry's
+   purpose and wants one `Validate()`.
+2. Settled by RFC 0230's migration order: type and method facts are **slice
+   4**, last, precisely because they are the domain still moving. Components
+   go first.
+3. Settled by RFC 0230 Decision 7: **IDs, owning stage, and stability
+   metadata only.** No templates; wording stays with its phase.
+4. Settled as a **procedure rather than an answer**, because it is a
+   judgement about reviewability that prose cannot decide. In slice 4, render
+   one real layout from a record and place it beside the template it would
+   replace; adopt records for layouts only where that comparison is favourable.
+   It affects domain 8 alone and blocks no earlier slice.
+
+   The expectation, recorded so it can be proved wrong: **not much layout
+   should move.** `error.h` is 73 lines of which the struct declarations are
+   about 16; the remaining 57 are 18 comment lines carrying design rationale a
+   record cannot hold, three `static inline` helpers with real logic, plus
+   include guards and headers. And `size_of<T>()` lowers directly to C
+   `sizeof` (`generator/render.go:1210`), so the Go side never computes a
+   layout and cannot disagree with the C — which removes the usual reason to
+   model layout in data at all.
+
+   RFC 0231 makes the comparison cheap: once all C emission is template-based,
+   rendering a layout from a record means passing a field list to an existing
+   template rather than replacing a mechanism.
+5. Settled by RFC 0230 Decision 6: **explicit Go functions.** The 24 component
+   builders keep their demand logic; only their metadata becomes data.
+6. Settled by RFC 0230 Decision 4: **constructor records, never
+   specializations.** Invariant facts live in the record; C name, layout, and
+   size are derived from the arguments.
+7. Settled by RFC 0230 Decision 8's impact table: a registry change bumps the
+   ABI when it alters C layout, calling convention, ownership, or a helper
+   contract — and the owning change declares that row.
 
 ## Validation
 
@@ -684,6 +740,98 @@ This section is exhaustive. The implementation is complete only when:
 - `docs/reference.md` is reviewed and synchronized, or explicitly verified
   unchanged, before implementation is marked complete.
 - Ordinary `go test ./...` passes without an external C toolchain.
+
+## Implementation plan
+
+Four slices, ordered so that each is independently shippable and the slice
+touching the import cycle comes last. RFC 0230 fixes the order; this is its
+detail.
+
+### Slice 0 — the package and its validator
+
+Create `compiler/specdata` with `Validate() error` and a test that calls it.
+No records yet. Files are named by domain from the start
+(`components.go`, `targets.go`, `methods.go`, `constructors.go`) even while
+empty, so the structure is established before content arrives.
+
+*Verify:* all eight conformance guards in `architecture_policy_test.go` stop
+skipping and pass. That is the gate — the architecture is enforced before any
+fact moves into it.
+
+### Slice 1 — runtime components
+
+Chosen first because a `ComponentSpec` needs no `Type` values —
+`ComponentID`, `DependencyID`, and file names are all primitives — so it
+exercises the whole registry without touching Decision 2's cycle.
+
+1. Introduce `ComponentID`. There is **no component identity today**:
+   `renderComponentArtifacts` holds a slice of 24 builder functions and keys
+   artifacts by strings like `"hexal/runtime.c"`. The ID is new surface.
+2. Move each component's **metadata** into a record: owned files, runtime
+   dependencies, required C headers.
+3. Leave every builder's **demand logic** in Go, unchanged (Decision 6).
+4. Move `RuntimeDependency` identities from `compiler/runtime_dependency.go`
+   into the registry, keeping the exported Go names as thin aliases until
+   slice 3 removes the last consumer.
+
+*Verify:* generated artifacts byte-identical; manifest unmoved; a test asserts
+the 24 builders still own their demand; no component's dependency is named in
+two places.
+
+### Slice 2 — target facts
+
+Move `compiler/profile.go`'s private `targetProfile` fields — `os`,
+`architecture`, `littleEndian`, `pointerWidth`, `sizeWidth`, `windowsTarget`,
+`threading`, `tls`, `fibers`, `nativeIO` — into `specdata.TargetFacts`.
+
+`TargetProfileID` stays in `compiler/types` (language-visible identity), and
+qualification stays in `internal/driver`. `TestSpecdataDeclaresNoDriverFact`
+enforces that boundary mechanically.
+
+Carry forward `profile.go`'s own rule: a new fact enters only when checking or
+generation consumes it.
+
+*Verify:* generated C byte-identical for every target; the driver's
+qualification records are untouched; no triple or pack path appears in
+`specdata`.
+
+### Slice 3 — core-library contracts
+
+Replace `corelib.Modules` — today an exported mutable `map[string]Module` any
+importer can rewrite — with immutable registry records and a query.
+
+This is the slice that removes the arc's one genuinely rewritable global.
+
+*Verify:* the exported mutable map is gone; import resolution, signatures, and
+generated entry points are unchanged; artifacts byte-identical.
+
+### Slice 4 — types, methods, and layouts
+
+Last, because it is the only slice that touches the cycle and the only one
+whose domain is still moving.
+
+1. `TypeConstructorSpec` records per Decision 4 — one per constructor, never
+   per specialization.
+2. `specdata.TypeID` plus `types.ResolveSpecID`, the adapter that keeps
+   primitive identifiers on one side of the boundary and `Type` values on the
+   other.
+3. `MethodSpec` records with parameters referring to constructor parameters.
+4. **The layout experiment**: render one real layout from a record, place it
+   beside the template it would replace, and adopt records for layouts only
+   where that comparison is favourable. This is the procedure that settles
+   Settled questions 4, and it is the last thing in the arc rather than an
+   assumption underneath it.
+
+*Verify:* `TestSpecdataImportsNoCompilerPackage` and
+`TestSpecdataRecordsNameNoSpecialization` pass with real records present;
+generated C byte-identical; manifest unmoved.
+
+### Rollback boundary
+
+Slices 0-3 have byte-identical generated output as their proof, so any one
+reverts to a known-good tree. Slice 4 is the first that could legitimately
+move an artifact, and only through the layout experiment — which is why that
+experiment is scoped to one layout and reviewed before it spreads.
 
 ## Implementation readiness
 

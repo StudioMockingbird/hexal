@@ -116,7 +116,7 @@ func checkBoundedText(expression parser.Expression, destination compilerTypes.Ty
 
 // stringTypeCallUsage is the shared "no such operation" diagnostic text for
 // every unrecognized String.<name>(...) call.
-const stringTypeCallUsage = "String has no such operation; use String.from_bytes(heap, view) or String.interpolate(heap, template)"
+const stringTypeCallUsage = "String has no such operation; use String.from_bytes(heap, view), String.from_runes(heap, runes), or String.interpolate(heap, template)"
 
 // checkStringTypeCall resolves a call written as String.<name>(...) or
 // String<N>.<name>(...): the built-in constructors from_bytes, concat, and
@@ -139,6 +139,8 @@ func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, ctx che
 		return checkStringInterpolate(call, callee, ctx)
 	case "from_bytes":
 		return checkHeapFromBytes(call, callee, ctx)
+	case "from_runes":
+		return checkHeapFromRunes(call, callee, ctx)
 	}
 	return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, stringTypeCallUsage))}
 }
@@ -199,6 +201,46 @@ func checkHeapFromBytes(call parser.CallExpression, callee lexer.Token, ctx chec
 		SourceColumn: callee.Column,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: union, Name: "from_bytes", Node: node}
+	return checkedExpression{source: source, typ: union, token: callee}
+}
+
+// checkHeapFromRunes resolves String.from_runes(heap, runes): it encodes a
+// scalar sequence into one owned heap String, rejecting surrogates and values
+// above U+10FFFF as InvalidInput.
+func checkHeapFromRunes(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
+	if len(call.Arguments) != 2 {
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, stringTypeCallUsage))}
+	}
+	heap := checkValue(call.Arguments[0], ctx)
+	if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
+		return heap
+	}
+	if !compilerTypes.IsHeap(heap.typ) {
+		diagnostic := typeErrorAt(heap.token, "String.from_runes requires a Heap; got "+heap.typ.Name)
+		return checkedExpression{token: heap.token, diagnostic: &diagnostic}
+	}
+	runes := checkValue(call.Arguments[1], ctx)
+	if diagnostics := initializerDiagnostics(runes); len(diagnostics) > 0 {
+		return runes
+	}
+	if runes.typ.Slice == nil || !compilerTypes.Equal(runes.typ.Slice.Element, compilerTypes.Rune) {
+		diagnostic := typeErrorAt(runes.token, "String.from_runes requires Slice<Rune>; got "+runes.typ.Name)
+		return checkedExpression{token: runes.token, diagnostic: &diagnostic}
+	}
+	union, failure := textFailureUnion(compilerTypes.StringType, callee, ctx)
+	if failure != nil {
+		return *failure
+	}
+	node := Expression{
+		Kind:         StringFromRunesExpression,
+		Operand:      &heap.source.Node,
+		Arguments:    []Operand{runes.source},
+		OperandType:  compilerTypes.Heap,
+		ResultType:   union,
+		SourceLine:   callee.Line,
+		SourceColumn: callee.Column,
+	}
+	source := Operand{Kind: ExpressionOperand, Type: union, Name: "from_runes", Node: node}
 	return checkedExpression{source: source, typ: union, token: callee}
 }
 
@@ -399,6 +441,40 @@ func checkTextMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 			return fail("length expects no arguments")
 		}
 		return textMethodNode(name, receiver, nil, compilerTypes.SizeType, property)
+	case "rune_length":
+		if len(call.Arguments) != 0 {
+			return fail("rune_length expects no arguments")
+		}
+		return textMethodNode(name, receiver, nil, compilerTypes.SizeType, property)
+	case "grapheme_length":
+		if len(call.Arguments) != 0 {
+			return fail("grapheme_length expects no arguments")
+		}
+		return textMethodNode(name, receiver, nil, compilerTypes.SizeType, property)
+	case "byte_cursor":
+		if len(call.Arguments) != 0 {
+			return fail("byte_cursor expects no arguments")
+		}
+		if inline && !receiver.source.Addressable {
+			return fail("a cursor cannot be rooted in a temporary " + receiver.typ.Name)
+		}
+		return textMethodNode(name, receiver, nil, compilerTypes.ByteCursorType, property)
+	case "rune_cursor":
+		if len(call.Arguments) != 0 {
+			return fail("rune_cursor expects no arguments")
+		}
+		if inline && !receiver.source.Addressable {
+			return fail("a cursor cannot be rooted in a temporary " + receiver.typ.Name)
+		}
+		return textMethodNode(name, receiver, nil, compilerTypes.RuneCursorType, property)
+	case "grapheme_cursor":
+		if len(call.Arguments) != 0 {
+			return fail("grapheme_cursor expects no arguments")
+		}
+		if inline && !receiver.source.Addressable {
+			return fail("a cursor cannot be rooted in a temporary " + receiver.typ.Name)
+		}
+		return textMethodNode(name, receiver, nil, compilerTypes.GraphemeCursorType, property)
 	case "bytes":
 		if len(call.Arguments) != 0 {
 			return fail("bytes expects no arguments")
@@ -434,6 +510,45 @@ func checkTextMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 			return *failure
 		}
 		return textMethodNode(name, receiver, []Operand{heap.source}, compilerTypes.StringType, property)
+	case "casefold":
+		if len(call.Arguments) != 1 {
+			return fail(fmt.Sprintf("casefold expects 1 argument; got %d", len(call.Arguments)))
+		}
+		heap, failure := checkHeap(call.Arguments[0], "casefold")
+		if failure != nil {
+			return *failure
+		}
+		union, failure := textFailureUnion(compilerTypes.StringType, property, ctx)
+		if failure != nil {
+			return *failure
+		}
+		result := textMethodNode(name, receiver, []Operand{heap.source}, union, property)
+		result.source.Node.SourceLine = property.Line
+		result.source.Node.SourceColumn = property.Column
+		return result
+	case "normalize":
+		if len(call.Arguments) != 2 {
+			return fail(fmt.Sprintf("normalize expects 2 arguments; got %d", len(call.Arguments)))
+		}
+		heap, failure := checkHeap(call.Arguments[0], "normalize")
+		if failure != nil {
+			return *failure
+		}
+		form := checkValue(call.Arguments[1], ctx)
+		if diagnostics := initializerDiagnostics(form); len(diagnostics) > 0 {
+			return checkedExpression{token: form.token, diagnostics: diagnostics}
+		}
+		if !compilerTypes.IsNormalizationForm(form.typ) {
+			return fail("normalize requires a NormalizationForm; got " + form.typ.Name)
+		}
+		union, failure := textFailureUnion(compilerTypes.StringType, property, ctx)
+		if failure != nil {
+			return *failure
+		}
+		result := textMethodNode(name, receiver, []Operand{heap.source, form.source}, union, property)
+		result.source.Node.SourceLine = property.Line
+		result.source.Node.SourceColumn = property.Column
+		return result
 	case "concat":
 		if len(call.Arguments) != 2 {
 			return fail(fmt.Sprintf("concat expects 2 arguments; got %d", len(call.Arguments)))

@@ -57,6 +57,12 @@ func renderForStatement(body *strings.Builder, statement checker.ForStatement, s
 	case sourceType.List != nil:
 		return renderForSequence(body, statement, loopRender, state, indent)
 	case compilerTypes.IsText(sourceType):
+		switch {
+		case compilerTypes.IsRune(statement.Binders[len(statement.Binders)-1].Type):
+			return renderForRuneText(body, statement, loopRender, state, indent)
+		case compilerTypes.IsGrapheme(statement.Binders[len(statement.Binders)-1].Type):
+			return renderForGraphemeText(body, statement, loopRender, state, indent)
+		}
 		return renderForText(body, statement, loopRender, state, indent)
 	case sourceType.Dict != nil:
 		return renderForDict(body, statement, loopRender, state, indent)
@@ -169,6 +175,84 @@ func renderForText(body *strings.Builder, statement checker.ForStatement, render
 		fmt.Fprintf(body, "%s    const size_t %s = %s;\n", indent, binderNames[0], indexVariable)
 	}
 	fmt.Fprintf(body, "%s    %s = %s[%s];\n", indent, declaration(valueBinder.Type, binderNames[len(binderNames)-1], false), data, indexVariable)
+	body.WriteString(bodyText.String())
+	fmt.Fprintf(body, "%s}\n", indent)
+	return nil
+}
+
+// renderForRuneText lowers Rune iteration of String and String<N>: text is
+// validated UTF-8, so the loop decodes one scalar per step with the utf8proc
+// adapter the validator uses. The loop variable is the byte offset, and the
+// increment advances by the width decoded at the top of the body, so a body
+// `continue` still advances exactly one scalar. A heap String copies its
+// handle; an inline value is copied once into the loop's own storage, the rule
+// a temporary Array follows.
+func renderForRuneText(body *strings.Builder, statement checker.ForStatement, render forLoopRender, state *expressionValidation, indent string) error {
+	loop, binderNames, bodyText := render.loop, render.binderNames, render.bodyText
+	source, err := renderOperandWithState(statement.Source, state)
+	if err != nil {
+		return err
+	}
+	sourceType := statement.Source.Type
+	var byteLength, data string
+	if compilerTypes.IsInlineString(sourceType) {
+		fmt.Fprintf(body, "%sconst %s %s = %s;\n", indent, sourceType.CName, loop, source)
+		byteLength = fmt.Sprintf("%s.byte_length", loop)
+		data = fmt.Sprintf("%s.data", loop)
+	} else {
+		fmt.Fprintf(body, "%sconst hex_string *const %s = %s;\n", indent, loop, source)
+		byteLength = fmt.Sprintf("%s->byte_length", loop)
+		data = fmt.Sprintf("%s->data", loop)
+	}
+
+	offsetVariable := loop + "_offset"
+	widthVariable := loop + "_width"
+	hasIndex := len(statement.Binders) == 2
+	fmt.Fprintf(body, "%ssize_t %s = 0;\n", indent, widthVariable)
+	fmt.Fprintf(body, "%sfor (size_t %s = 0; %s < %s; %s += %s) {\n", indent, offsetVariable, offsetVariable, byteLength, offsetVariable, widthVariable)
+	writeLineDirective(body, statement.Binders[0].SourceLine, state.filename)
+	valueBinder := statement.Binders[len(statement.Binders)-1]
+	if hasIndex {
+		fmt.Fprintf(body, "%s    const size_t %s = %s;\n", indent, binderNames[0], offsetVariable)
+	}
+	fmt.Fprintf(body, "%s    %s = hex_utf8_decode_step(%s, %s, %s, &%s);\n",
+		indent, declaration(valueBinder.Type, binderNames[len(binderNames)-1], false), data, byteLength, offsetVariable, widthVariable)
+	body.WriteString(bodyText.String())
+	fmt.Fprintf(body, "%s}\n", indent)
+	return nil
+}
+
+// renderForGraphemeText lowers Grapheme iteration of String and String<N> to
+// the same stateful segmenter the GraphemeCursor uses: the loop advances by
+// one cluster per step, so the break state sees every adjacent scalar pair in
+// order. The loop variable is the byte offset for the index binder. A heap
+// String copies its handle; an inline value is copied once into the loop's own
+// storage.
+func renderForGraphemeText(body *strings.Builder, statement checker.ForStatement, render forLoopRender, state *expressionValidation, indent string) error {
+	loop, binderNames, bodyText := render.loop, render.binderNames, render.bodyText
+	source, err := renderOperandWithState(statement.Source, state)
+	if err != nil {
+		return err
+	}
+	sourceType := statement.Source.Type
+	var view string
+	if compilerTypes.IsInlineString(sourceType) {
+		fmt.Fprintf(body, "%sconst %s %s = %s;\n", indent, sourceType.CName, loop, source)
+		view = "hex_text_inline(&" + loop + ")"
+	} else {
+		fmt.Fprintf(body, "%sconst hex_string *const %s = %s;\n", indent, loop, source)
+		view = "hex_text_heap(" + loop + ")"
+	}
+
+	cursorVariable := loop + "_cursor"
+	fmt.Fprintf(body, "%shex_grapheme_cursor %s = hex_text_grapheme_cursor(%s);\n", indent, cursorVariable, view)
+	fmt.Fprintf(body, "%swhile (hex_grapheme_cursor_has_next(%s)) {\n", indent, cursorVariable)
+	writeLineDirective(body, statement.Binders[0].SourceLine, state.filename)
+	if len(statement.Binders) == 2 {
+		fmt.Fprintf(body, "%s    const size_t %s = %s.offset;\n", indent, binderNames[0], cursorVariable)
+	}
+	fmt.Fprintf(body, "%s    const hex_grapheme %s = hex_grapheme_cursor_next(&%s);\n",
+		indent, binderNames[len(binderNames)-1], cursorVariable)
 	body.WriteString(bodyText.String())
 	fmt.Fprintf(body, "%s}\n", indent)
 	return nil

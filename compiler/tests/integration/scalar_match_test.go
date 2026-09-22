@@ -108,7 +108,13 @@ func TestScalarMatchNoNarrowingFact(t *testing.T) {
 	}
 }
 
-// A bare-quote pattern is reserved syntax, not a scalar arm.
-func TestScalarMatchBareQuotePatternIsReserved(t *testing.T) {
-	assertRejects(t, "let op: Int32 = 1\nlet r: Int32 = match op\n| 'A' then 10\n| else then 0\nend\n", "bare-quote literals are reserved")
+// A Rune pattern is a scalar arm of type Rune; against an Int32 scrutinee it
+// is a type mismatch, not a syntax reservation.
+func TestScalarMatchRunePatternIsTypeChecked(t *testing.T) {
+	assertRejects(t, "let op: Int32 = 1\nlet r: Int32 = match op\n| 'A' then 10\n| else then 0\nend\n", "match pattern does not belong to the scrutinee type")
+}
+
+// A Rune scrutinee accepts Rune arms and orders them by scalar value.
+func TestScalarMatchRuneScrutinee(t *testing.T) {
+	assertCompiles(t, "let op: Rune = 'a'\nlet r: Int32 = match op\n| 'a' then 1\n| 'b' then 2\n| else then 0\nend\n")
 }

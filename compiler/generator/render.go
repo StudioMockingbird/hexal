@@ -381,6 +381,9 @@ func validateCallStatement(statement checker.CallStatement, state *expressionVal
 		checker.HeapFreeExpression, checker.HeapAllocateExpression,
 		checker.HeapAllocateAlignedExpression,
 		checker.BitCastExpression, checker.EndianConversionExpression, checker.ConversionExpression,
+		checker.RuneMethodCallExpression,
+		checker.CursorMethodCallExpression,
+		checker.GraphemeMethodCallExpression,
 		checker.LayoutExpression, checker.SliceBridgeExpression, checker.BytesOverExpression,
 		checker.StreamConstructorExpression, checker.StreamMethodCallExpression, checker.TimeExpression,
 		checker.NetworkExpression, checker.CorelibCallExpression:
@@ -418,6 +421,9 @@ func renderCallStatement(statement checker.CallStatement, state *expressionValid
 		checker.HeapFreeExpression, checker.HeapAllocateExpression,
 		checker.HeapAllocateAlignedExpression,
 		checker.BitCastExpression, checker.EndianConversionExpression, checker.ConversionExpression,
+		checker.RuneMethodCallExpression,
+		checker.CursorMethodCallExpression,
+		checker.GraphemeMethodCallExpression,
 		checker.LayoutExpression, checker.SliceBridgeExpression, checker.BytesOverExpression,
 		checker.StreamConstructorExpression, checker.StreamMethodCallExpression, checker.TimeExpression,
 		checker.NetworkExpression, checker.CorelibCallExpression:
@@ -1112,7 +1118,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return "*(" + operand + ")", nil
 	case checker.IndexExpression, checker.ArrayLiteralExpression, checker.CollectionMethodCallExpression, checker.CollectionSliceExpression:
 		return renderCollectionExpression(node, state)
-	case checker.StringLiteralExpression, checker.StringMethodCallExpression, checker.StringFromBytesExpression, checker.StringInterpolateExpression,
+	case checker.StringLiteralExpression, checker.StringMethodCallExpression, checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.StringInterpolateExpression,
 		checker.InlineStringConstructExpression, checker.TextCoerceExpression:
 		return renderTextExpression(node, state)
 	case checker.ListNewExpression, checker.DictNewExpression:
@@ -1157,6 +1163,12 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return renderTextComparison(node, state)
 	case checker.ConversionExpression:
 		return renderConversion(node, state)
+	case checker.RuneMethodCallExpression:
+		return renderRuneMethod(node, state)
+	case checker.CursorMethodCallExpression:
+		return renderCursorMethod(node, state)
+	case checker.GraphemeMethodCallExpression:
+		return renderGraphemeMethod(node, state)
 	case checker.BitCastExpression:
 		return renderBitCast(node, state)
 	case checker.EndianConversionExpression:
@@ -1609,7 +1621,7 @@ func unsignedCName(typ compilerTypes.Type) (string, bool) {
 		return "uint8_t", true
 	case compilerTypes.UInt16, compilerTypes.Int16:
 		return "uint16_t", true
-	case compilerTypes.UInt32, compilerTypes.Int32:
+	case compilerTypes.UInt32, compilerTypes.Int32, compilerTypes.Rune:
 		return "uint32_t", true
 	case compilerTypes.UInt64, compilerTypes.Int64:
 		return "uint64_t", true
@@ -1797,7 +1809,9 @@ func renderExpressionNodeWithExpectedState(node checker.Expression, expected *co
 		node.Kind == checker.CallExpression || node.Kind == checker.MethodCallExpression || node.Kind == checker.NilExpression ||
 		node.Kind == checker.IndexExpression || node.Kind == checker.CollectionMethodCallExpression || node.Kind == checker.CollectionSliceExpression ||
 		node.Kind == checker.StringLiteralExpression || node.Kind == checker.StringMethodCallExpression || node.Kind == checker.StringFromBytesExpression || node.Kind == checker.InlineStringConstructExpression || node.Kind == checker.TextCoerceExpression || node.Kind == checker.ListNewExpression || node.Kind == checker.DictNewExpression ||
-		node.Kind == checker.DeepEqualityExpression || node.Kind == checker.StringCompareExpression || node.Kind == checker.WideningExpression || node.Kind == checker.ConversionExpression, nil
+		node.Kind == checker.DeepEqualityExpression || node.Kind == checker.StringCompareExpression || node.Kind == checker.WideningExpression || node.Kind == checker.ConversionExpression ||
+		node.Kind == checker.RuneMethodCallExpression || node.Kind == checker.CursorMethodCallExpression ||
+		node.Kind == checker.GraphemeMethodCallExpression, nil
 }
 
 // renderReceiver renders one method receiver with its checked expected type
@@ -1837,6 +1851,9 @@ func expressionResultType(node checker.Expression) (compilerTypes.Type, bool) {
 		checker.StringFromBytesExpression, checker.StringInterpolateExpression, checker.InlineStringConstructExpression, checker.TextCoerceExpression,
 		checker.ListNewExpression, checker.DictNewExpression,
 		checker.DeepEqualityExpression, checker.StringCompareExpression, checker.WideningExpression, checker.ConversionExpression,
+		checker.RuneMethodCallExpression,
+		checker.CursorMethodCallExpression,
+		checker.GraphemeMethodCallExpression,
 		checker.SpawnExpression, checker.TaskYieldExpression, checker.TaskMethodCallExpression,
 		checker.ChannelConstructorExpression, checker.ChannelMethodCallExpression,
 		checker.MutexConstructorExpression, checker.MutexMethodCallExpression,

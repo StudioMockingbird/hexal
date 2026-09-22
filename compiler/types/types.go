@@ -832,6 +832,32 @@ func IsSignedInteger(typ Type) bool { return typ.ScalarKind == ScalarSignedInteg
 // IsUnsignedInteger reports whether typ is an unsigned integer scalar.
 func IsUnsignedInteger(typ Type) bool { return typ.ScalarKind == ScalarUnsignedInteger }
 
+// IsRune reports whether typ is the canonical Rune scalar.
+func IsRune(typ Type) bool { return typ.identity != nil && typ.identity == Rune.identity }
+
+// IsByteCursor reports whether typ is the canonical ByteCursor descriptor.
+func IsByteCursor(typ Type) bool {
+	return typ.identity != nil && typ.identity == ByteCursorType.identity
+}
+
+// IsRuneCursor reports whether typ is the canonical RuneCursor descriptor.
+func IsRuneCursor(typ Type) bool {
+	return typ.identity != nil && typ.identity == RuneCursorType.identity
+}
+
+// IsGrapheme reports whether typ is the canonical Grapheme borrowed range.
+func IsGrapheme(typ Type) bool { return typ.identity != nil && typ.identity == GraphemeType.identity }
+
+// IsGraphemeCursor reports whether typ is the canonical GraphemeCursor.
+func IsGraphemeCursor(typ Type) bool {
+	return typ.identity != nil && typ.identity == GraphemeCursorType.identity
+}
+
+// IsCursor reports whether typ is one of the text cursor descriptors.
+func IsCursor(typ Type) bool {
+	return IsByteCursor(typ) || IsRuneCursor(typ) || IsGraphemeCursor(typ)
+}
+
 // IsFloat reports whether typ is a float scalar.
 func IsFloat(typ Type) bool { return typ.ScalarKind == ScalarFloat }
 
@@ -1332,14 +1358,18 @@ func scalarType(name, cName string, kind ScalarKind, bits int) Type {
 // Package-level canonical builtins. Scalars share one package-level identity,
 // so they compare equal across compilation environments.
 var (
-	Int8    = scalarType("Int8", "int8_t", ScalarSignedInteger, 8)
-	Int16   = scalarType("Int16", "int16_t", ScalarSignedInteger, 16)
-	Int32   = scalarType("Int32", "int32_t", ScalarSignedInteger, 32)
-	Int64   = scalarType("Int64", "int64_t", ScalarSignedInteger, 64)
-	UInt8   = scalarType("UInt8", "uint8_t", ScalarUnsignedInteger, 8)
-	UInt16  = scalarType("UInt16", "uint16_t", ScalarUnsignedInteger, 16)
-	UInt32  = scalarType("UInt32", "uint32_t", ScalarUnsignedInteger, 32)
-	UInt64  = scalarType("UInt64", "uint64_t", ScalarUnsignedInteger, 64)
+	Int8   = scalarType("Int8", "int8_t", ScalarSignedInteger, 8)
+	Int16  = scalarType("Int16", "int16_t", ScalarSignedInteger, 16)
+	Int32  = scalarType("Int32", "int32_t", ScalarSignedInteger, 32)
+	Int64  = scalarType("Int64", "int64_t", ScalarSignedInteger, 64)
+	UInt8  = scalarType("UInt8", "uint8_t", ScalarUnsignedInteger, 8)
+	UInt16 = scalarType("UInt16", "uint16_t", ScalarUnsignedInteger, 16)
+	UInt32 = scalarType("UInt32", "uint32_t", ScalarUnsignedInteger, 32)
+	UInt64 = scalarType("UInt64", "uint64_t", ScalarUnsignedInteger, 64)
+	// Rune is a Unicode scalar value: a UInt32 excluding surrogates. It lowers
+	// to the ordinary uint32_t scalar so text iteration and conversions share
+	// the unsigned machinery; only its literal and validity rules differ.
+	Rune    = scalarType("Rune", "uint32_t", ScalarUnsignedInteger, 32)
 	Float32 = scalarType("Float32", "float", ScalarFloat, 32)
 	Float64 = scalarType("Float64", "double", ScalarFloat, 64)
 	Bool    = scalarType("Bool", "bool", ScalarBool, 1)
@@ -1409,6 +1439,40 @@ var (
 		CanonicalKey: "Mutex",
 		identity:     newTypeIdentity(),
 	}
+	// ByteCursorType and RuneCursorType are non-owning text cursors: one
+	// descriptor holding the source byte pointer, the byte length, and the
+	// current byte offset. Each is an inline value with one canonical
+	// identity, copies by value, and is not Dict-key eligible.
+	ByteCursorType = Type{
+		Name:         "ByteCursor",
+		CName:        "hex_byte_cursor",
+		CanonicalKey: "ByteCursor",
+		identity:     newTypeIdentity(),
+	}
+	RuneCursorType = Type{
+		Name:         "RuneCursor",
+		CName:        "hex_rune_cursor",
+		CanonicalKey: "RuneCursor",
+		identity:     newTypeIdentity(),
+	}
+	// GraphemeType is the borrowed byte range spanning exactly one extended
+	// grapheme cluster of valid UTF-8. It is a view, like Slice<Byte>, and is
+	// not Dict-key eligible.
+	GraphemeType = Type{
+		Name:         "Grapheme",
+		CName:        "hex_grapheme",
+		CanonicalKey: "Grapheme",
+		identity:     newTypeIdentity(),
+	}
+	// GraphemeCursorType is the stateful break cursor: it carries the source
+	// bytes, the current byte offset, the utf8proc break state, and the one
+	// lookahead cluster peek computes.
+	GraphemeCursorType = Type{
+		Name:         "GraphemeCursor",
+		CName:        "hex_grapheme_cursor",
+		CanonicalKey: "GraphemeCursor",
+		identity:     newTypeIdentity(),
+	}
 )
 
 // errorType constructs the canonical built-in Error object, linking its
@@ -1443,6 +1507,7 @@ var builtinTypes = map[string]Type{
 	"UInt16":  UInt16,
 	"UInt32":  UInt32,
 	"UInt64":  UInt64,
+	"Rune":    Rune,
 	"Float32": Float32,
 	"Float64": Float64,
 	"Nil":     Nil,
@@ -1456,6 +1521,13 @@ var builtinTypes = map[string]Type{
 	// Byte is the canonical transparent alias of UInt8; both spellings
 	// share one identity and one C representation.
 	"Byte": UInt8,
+	// The text cursors are compiler-owned inline descriptors.
+	"ByteCursor": ByteCursorType,
+	"RuneCursor": RuneCursorType,
+	// Grapheme is a borrowed byte range and GraphemeCursor its stateful
+	// segmenter.
+	"Grapheme":       GraphemeType,
+	"GraphemeCursor": GraphemeCursorType,
 }
 
 // Lookup resolves a builtin type by name.

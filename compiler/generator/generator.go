@@ -118,5 +118,8 @@ func GenerateCheckedWithMetadata(graph *checker.ModuleGraph, programs map[string
 	if libuvSelected(merged) {
 		dependencies = append(dependencies, "libuv")
 	}
+	if utf8procSelected(merged) {
+		dependencies = append(dependencies, "utf8proc")
+	}
 	return GenerationResult{Files: files, Dependencies: dependencies}, nil
 }

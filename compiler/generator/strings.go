@@ -246,6 +246,26 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.SizeType) {
 				return unknownExpressionDiagnostic("text length call has invalid checked metadata")
 			}
+		case "rune_length":
+			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.SizeType) {
+				return unknownExpressionDiagnostic("text rune length call has invalid checked metadata")
+			}
+		case "grapheme_length":
+			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.SizeType) {
+				return unknownExpressionDiagnostic("text grapheme length call has invalid checked metadata")
+			}
+		case "byte_cursor":
+			if len(node.Arguments) != 0 || !compilerTypes.IsByteCursor(node.ResultType) {
+				return unknownExpressionDiagnostic("text byte_cursor call has invalid checked metadata")
+			}
+		case "rune_cursor":
+			if len(node.Arguments) != 0 || !compilerTypes.IsRuneCursor(node.ResultType) {
+				return unknownExpressionDiagnostic("text rune_cursor call has invalid checked metadata")
+			}
+		case "grapheme_cursor":
+			if len(node.Arguments) != 0 || !compilerTypes.IsGraphemeCursor(node.ResultType) {
+				return unknownExpressionDiagnostic("text grapheme_cursor call has invalid checked metadata")
+			}
 		case "bytes":
 			if len(node.Arguments) != 0 || node.ResultType.Slice == nil || !compilerTypes.Equal(node.Element, compilerTypes.UInt8) {
 				return unknownExpressionDiagnostic("string bytes call has invalid checked metadata")
@@ -280,6 +300,24 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 					return err
 				}
 			}
+		case "casefold":
+			if len(node.Arguments) != 1 || node.SourceLine == 0 || !textFailureResult(node.ResultType, compilerTypes.StringType) {
+				return unknownExpressionDiagnostic("string casefold call has invalid checked metadata")
+			}
+			for _, argument := range node.Arguments {
+				if err := validateCheckedOperandWithState(argument, state); err != nil {
+					return err
+				}
+			}
+		case "normalize":
+			if len(node.Arguments) != 2 || node.SourceLine == 0 || !textFailureResult(node.ResultType, compilerTypes.StringType) {
+				return unknownExpressionDiagnostic("string normalize call has invalid checked metadata")
+			}
+			for _, argument := range node.Arguments {
+				if err := validateCheckedOperandWithState(argument, state); err != nil {
+					return err
+				}
+			}
 		case "free":
 			if inline || len(node.Arguments) != 1 || node.ResultType != (compilerTypes.Type{}) {
 				return unknownExpressionDiagnostic("string free call has invalid checked metadata")
@@ -304,6 +342,19 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
 			return unknownExpressionDiagnostic("String.from_bytes result does not match its expected type")
+		}
+		if err := validateExpressionChildWithState(node.Operand, compilerTypes.Heap, state); err != nil {
+			return err
+		}
+		return validateCheckedOperandWithState(node.Arguments[0], state)
+	case checker.StringFromRunesExpression:
+		if node.Operand == nil || len(node.Arguments) != 1 || node.SourceLine == 0 || !compilerTypes.IsHeap(node.OperandType) ||
+			!textFailureResult(node.ResultType, compilerTypes.StringType) || node.Arguments[0].Type.Slice == nil ||
+			!compilerTypes.Equal(node.Arguments[0].Type.Slice.Element, compilerTypes.Rune) {
+			return unknownExpressionDiagnostic("String.from_runes has invalid checked metadata")
+		}
+		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+			return unknownExpressionDiagnostic("String.from_runes result does not match its expected type")
 		}
 		if err := validateExpressionChildWithState(node.Operand, compilerTypes.Heap, state); err != nil {
 			return err
@@ -488,6 +539,19 @@ func renderTextExpression(node checker.Expression, state *expressionValidation) 
 			return "", viewErr
 		}
 		return fmt.Sprintf("hex_string_from_bytes_%s(%s, %s, %d, %d)", streamAdapterSuffix(node.ResultType), heap, bytes, node.SourceLine, node.SourceColumn), nil
+	case checker.StringFromRunesExpression:
+		if node.Operand == nil || len(node.Arguments) != 1 {
+			return "", unknownExpressionDiagnostic("String.from_runes without checked operands")
+		}
+		heap, _, heapErr := renderExpressionNodeWithExpectedState(*node.Operand, &compilerTypes.Heap, state)
+		if heapErr != nil {
+			return "", heapErr
+		}
+		runes, runesErr := renderOperandWithState(node.Arguments[0], state)
+		if runesErr != nil {
+			return "", runesErr
+		}
+		return fmt.Sprintf("hex_string_from_runes_%s(%s, %s, %d, %d)", streamAdapterSuffix(node.ResultType), heap, runes, node.SourceLine, node.SourceColumn), nil
 	case checker.InlineStringConstructExpression:
 		return renderInlineStringConstruct(node, state)
 	case checker.TextCoerceExpression:
@@ -535,8 +599,9 @@ func renderTextMethod(node checker.Expression, state *expressionValidation) (str
 		}
 		return "hex_string_free(" + heap + ", " + receiver + ")", nil
 	}
-	// bytes() and slice() must point into the receiver itself.
-	address := node.Name == "bytes" || node.Name == "slice"
+	// bytes(), slice(), and the cursor constructors must point into the
+	// receiver itself.
+	address := node.Name == "bytes" || node.Name == "slice" || node.Name == "byte_cursor" || node.Name == "rune_cursor"
 	view, viewErr := textView(node.Operand, node.OperandType, address, state)
 	if viewErr != nil {
 		return "", viewErr
@@ -544,6 +609,20 @@ func renderTextMethod(node checker.Expression, state *expressionValidation) (str
 	switch node.Name {
 	case "length":
 		return "(" + view + ").length", nil
+	case "rune_length":
+		// Counting scalars steps the utf8proc adapter the validator uses, so
+		// it is O(n) and never allocation-free text construction.
+		return "hex_text_rune_length(" + view + ")", nil
+	case "grapheme_length":
+		// Counting clusters steps the utf8proc break-state helper, which must
+		// see every adjacent scalar pair in order.
+		return "hex_text_grapheme_length(" + view + ")", nil
+	case "byte_cursor":
+		return "hex_text_byte_cursor(" + view + ")", nil
+	case "rune_cursor":
+		return "hex_text_rune_cursor(" + view + ")", nil
+	case "grapheme_cursor":
+		return "hex_text_grapheme_cursor(" + view + ")", nil
 	case "bytes":
 		return "hex_text_bytes(" + view + ")", nil
 	case "slice":
@@ -574,6 +653,22 @@ func renderTextMethod(node checker.Expression, state *expressionValidation) (str
 			return "", otherErr
 		}
 		return fmt.Sprintf("hex_string_concat_%s(%s, %s, %s, %d, %d)", streamAdapterSuffix(node.ResultType), heap, view, other, node.SourceLine, node.SourceColumn), nil
+	case "casefold":
+		heap, heapErr := renderOperandWithState(node.Arguments[0], state)
+		if heapErr != nil {
+			return "", heapErr
+		}
+		return fmt.Sprintf("hex_string_casefold_%s(%s, %s, %d, %d)", streamAdapterSuffix(node.ResultType), heap, view, node.SourceLine, node.SourceColumn), nil
+	case "normalize":
+		heap, heapErr := renderOperandWithState(node.Arguments[0], state)
+		if heapErr != nil {
+			return "", heapErr
+		}
+		form, formErr := renderOperandWithState(node.Arguments[1], state)
+		if formErr != nil {
+			return "", formErr
+		}
+		return fmt.Sprintf("hex_string_normalize_%s(%s, %s, (%s).tag, %d, %d)", streamAdapterSuffix(node.ResultType), heap, view, form, node.SourceLine, node.SourceColumn), nil
 	}
 	return "", unknownExpressionDiagnostic("unknown string method")
 }
@@ -603,7 +698,47 @@ func renderInlineStringConstruct(node checker.Expression, state *expressionValid
 // adapter, since only the module knows the union's tags and its own file
 // literal for the Errors it builds.
 type generatedTextState struct {
-	used            bool
+	used bool
+	// runeLength is true when the module counts text scalars, which steps the
+	// utf8proc adapter without performing a fallible text operation.
+	runeLength bool
+	// runeUtf8Length is true when the module asks one Rune for its encoded
+	// byte length, selecting the module-local width helper.
+	runeUtf8Length bool
+	// runeProperties is true when the module reads a Tier 2 Rune property,
+	// selecting the utf8proc property helpers.
+	runeProperties bool
+	// runeCategory is true when the module asks one Rune for its general
+	// category, selecting the utf8proc category helper and the module-local
+	// variant-tag table.
+	runeCategory bool
+	// graphemeLength is true when the module counts text grapheme clusters,
+	// selecting the utf8proc break-state helper.
+	graphemeLength bool
+	// graphemeCursor is true when the module scans text with a GraphemeCursor,
+	// selecting the borrowed-range struct and the stateful segmenter.
+	graphemeCursor bool
+	// runeIteration is true when the module iterates text by Rune, which steps
+	// the utf8proc decode helper without performing a fallible text operation.
+	runeIteration bool
+	// byteCursor is true when the module scans text with a ByteCursor, which
+	// needs only index arithmetic.
+	byteCursor bool
+	// runeCursor is true when the module scans text with a RuneCursor, which
+	// steps the shared utf8proc decode helper.
+	runeCursor bool
+	// runeFrom collects the result unions of Rune.from calls, each needing a
+	// module-local adapter that builds the Error arm.
+	runeFrom []compilerTypes.Type
+	// heapFromRunes collects the result unions of String.from_runes calls, each
+	// needing a module-local adapter that builds the Error arm.
+	heapFromRunes []compilerTypes.Type
+	// casefold collects the result unions of String.casefold calls, each needing
+	// a module-local adapter that builds the Error arm.
+	casefold []compilerTypes.Type
+	// normalize collects the result unions of String.normalize calls, each
+	// needing a module-local adapter and tag-to-form map.
+	normalize       []compilerTypes.Type
 	heapFromBytes   []compilerTypes.Type
 	heapConcat      []compilerTypes.Type
 	inlineFromBytes []compilerTypes.Type
@@ -612,8 +747,10 @@ type generatedTextState struct {
 }
 
 const (
-	textMessageInvalidUTF8  = "invalid UTF-8 in string"
-	textMessageOverCapacity = "string exceeds capacity"
+	textMessageInvalidUTF8     = "invalid UTF-8 in string"
+	textMessageOverCapacity    = "string exceeds capacity"
+	textMessageInvalidScalar   = "invalid Unicode scalar value"
+	textMessageTransformFailed = "Unicode transform failed"
 )
 
 // discoverGeneratedText walks one module for the fallible text operations.
@@ -630,18 +767,95 @@ func discoverGeneratedText(program checker.Program, logicalKey string, literals 
 				state.inlineFromBytes = appendUnionOnce(state.inlineFromBytes, node.ResultType)
 			case node.Kind == checker.InlineStringConstructExpression && node.Name == "concat":
 				state.inlineConcat = appendUnionOnce(state.inlineConcat, node.ResultType)
+			case node.Kind == checker.StringMethodCallExpression && node.Name == "byte_cursor":
+				state.byteCursor = true
+				return nil
+			case node.Kind == checker.StringMethodCallExpression && node.Name == "rune_cursor":
+				state.runeCursor = true
+				return nil
+			case node.Kind == checker.StringMethodCallExpression && node.Name == "rune_length":
+				// Counting scalars steps the same utf8proc adapter the
+				// validator uses, so it selects the validator without adding a
+				// fallible text operation.
+				state.runeLength = true
+				return nil
+			case node.Kind == checker.StringMethodCallExpression && node.Name == "grapheme_length":
+				// Counting clusters steps the utf8proc break-state helper.
+				state.graphemeLength = true
+				return nil
+			case node.Kind == checker.StringMethodCallExpression && node.Name == "grapheme_cursor":
+				// The stateful segmenter and its borrowed range.
+				state.graphemeCursor = true
+				return nil
+			case node.Kind == checker.RuneMethodCallExpression && node.Name == "utf8_length":
+				// One Rune's encoded width needs no utf8proc step, only the
+				// module-local range helper.
+				state.runeUtf8Length = true
+				return nil
+			case node.Kind == checker.RuneMethodCallExpression && runePropertyMethod(node.Name):
+				// The Tier 2 property surface reads utf8proc's tables.
+				state.runeProperties = true
+				return nil
+			case node.Kind == checker.RuneMethodCallExpression && node.Name == "category":
+				// The category tag comes from utf8proc's table plus the
+				// module-local variant-tag table.
+				state.runeCategory = true
+				return nil
+			case node.Kind == checker.RuneMethodCallExpression && node.Name == "from":
+				// The scalar adapter builds the Rune | Error union, so it is
+				// module-owned like every other fallible text operation.
+				state.runeFrom = appendUnionOnce(state.runeFrom, node.ResultType)
+				return nil
+			case node.Kind == checker.StringFromRunesExpression:
+				// Encoding a scalar sequence is fallible on an invalid scalar,
+				// so it is module-owned like every other fallible text
+				// operation.
+				state.heapFromRunes = appendUnionOnce(state.heapFromRunes, node.ResultType)
+				return nil
+			case node.Kind == checker.StringMethodCallExpression && node.Name == "casefold":
+				// The transform is fallible and allocates, so it is
+				// module-owned like every other fallible text operation.
+				state.casefold = appendUnionOnce(state.casefold, node.ResultType)
+				return nil
+			case node.Kind == checker.StringMethodCallExpression && node.Name == "normalize":
+				// The transform is fallible and allocates, so it is
+				// module-owned like every other fallible text operation.
+				state.normalize = appendUnionOnce(state.normalize, node.ResultType)
+				return nil
 			default:
 				return nil
 			}
 			state.used = true
 			return nil
 		},
+		Statement: func(statement checker.Statement) error {
+			loop, ok := statement.(checker.ForStatement)
+			if !ok || !compilerTypes.IsText(loop.Source.Type) {
+				return nil
+			}
+			if compilerTypes.IsRune(loop.Binders[len(loop.Binders)-1].Type) {
+				// Iterating text by Rune steps the utf8proc decode helper, so
+				// it selects the validator without a fallible operation.
+				state.runeIteration = true
+			}
+			if compilerTypes.IsGrapheme(loop.Binders[len(loop.Binders)-1].Type) {
+				// Iterating text by Grapheme steps the stateful segmenter.
+				state.graphemeCursor = true
+			}
+			return nil
+		},
 	}
 	walkProgram(program, visitor)
-	if state.used || discoverInlineInterpolation(program) {
+	if state.used || discoverInlineInterpolation(program) || len(state.runeFrom) > 0 || len(state.heapFromRunes) > 0 || len(state.casefold) > 0 {
 		state.fileLiteral = literals.Intern(logicalKey)
 		literals.Intern(textMessageInvalidUTF8)
 		literals.Intern(textMessageOverCapacity)
+	}
+	if len(state.runeFrom) > 0 || len(state.heapFromRunes) > 0 {
+		literals.Intern(textMessageInvalidScalar)
+	}
+	if len(state.casefold) > 0 || len(state.normalize) > 0 {
+		literals.Intern(textMessageTransformFailed)
 	}
 	return state
 }
@@ -676,12 +890,138 @@ func textErrorArm(union compilerTypes.Type, kind, message, file, line, column st
 }
 
 // writeTextInlineHelpers emits the module-owned adapters that wrap the text
-// core in each result union. Failure kinds and messages are fixed: malformed
-// UTF-8 is InvalidInput and an inline overflow is ResourceExhausted, never
-// embedding a length or offset. The capacity is checked before the content, so
-// an input that is both too long and malformed reports the capacity.
+// core in each result union, plus the module-local Rune helpers. Failure kinds
+// and messages are fixed: malformed UTF-8 is InvalidInput and an inline
+// overflow is ResourceExhausted, never embedding a length or offset. The
+// capacity is checked before the content, so an input that is both too long
+// and malformed reports the capacity.
 func writeTextInlineHelpers(result *strings.Builder, state *generatedTextState, literals *literalRegistry, tags *tagRegistry) error {
-	if state == nil || !state.used {
+	if state == nil {
+		return nil
+	}
+	if state.runeUtf8Length {
+		// One module-local helper serves every Rune.utf8_length call: a Rune is
+		// already a valid scalar, so only the encoding range decides the width
+		// and no utf8proc step is needed.
+		result.WriteString("\n// hex_rune_utf8_length returns the encoded UTF-8 byte length of one\n" +
+			"// Unicode scalar: 1 through 4. The value is already a valid scalar, so\n" +
+			"// only the encoding range decides the width.\n" +
+			"static inline size_t hex_rune_utf8_length(uint32_t value) {\n" +
+			"    if (value < 0x80) {\n" +
+			"        return 1;\n" +
+			"    }\n" +
+			"    if (value < 0x800) {\n" +
+			"        return 2;\n" +
+			"    }\n" +
+			"    if (value < 0x10000) {\n" +
+			"        return 3;\n" +
+			"    }\n" +
+			"    return 4;\n" +
+			"}\n")
+	}
+	if len(state.runeFrom) > 0 {
+		fileName := literals.CName(state.fileLiteral)
+		for _, union := range state.runeFrom {
+			success, field := streamMemberRef(tags, union, compilerTypes.Rune)
+			invalid, err := textErrorArm(union, "InvalidInput", textMessageInvalidScalar, fileName, "line", "column", literals, tags)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(result,
+				"\n// hex_rune_from_%s turns a UInt32 into a checked Unicode scalar. It\n"+
+					"// rejects surrogates and values above U+10FFFF and reports, never traps.\n"+
+					"static inline %s hex_rune_from_%s(uint32_t value, size_t line, size_t column) {\n"+
+					"    if (value <= 0x10FFFF && !(value >= 0xD800 && value <= 0xDFFF)) {\n"+
+					"        return (%s){ .tag = %s, .payload.%s = value };\n"+
+					"    }\n"+
+					"    return %s;\n"+
+					"}\n",
+				streamAdapterSuffix(union), union.CName, streamAdapterSuffix(union), union.CName, success, field, invalid)
+		}
+	}
+	if len(state.heapFromRunes) > 0 {
+		fileName := literals.CName(state.fileLiteral)
+		for _, union := range state.heapFromRunes {
+			success, field := streamMemberRef(tags, union, compilerTypes.StringType)
+			invalid, err := textErrorArm(union, "InvalidInput", textMessageInvalidScalar, fileName, "line", "column", literals, tags)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(result,
+				"\n// hex_string_from_runes_%s encodes a scalar sequence into text. It\n"+
+					"// rejects surrogates and values above U+10FFFF and reports, never traps.\n"+
+					"static inline %s hex_string_from_runes_%s(hex_heap h, hex_slice_Rune runes, size_t line, size_t column) {\n"+
+					"    for (size_t index = 0; index < runes.length; index++) {\n"+
+					"        if (!hex_rune_valid(runes.data[index])) {\n"+
+					"            return %s;\n"+
+					"        }\n"+
+					"    }\n"+
+					"    return (%s){ .tag = %s, .payload.%s = hex_string_from_runes(h, runes.data, runes.length) };\n"+
+					"}\n",
+				streamAdapterSuffix(union), union.CName, streamAdapterSuffix(union), invalid, union.CName, success, field)
+		}
+	}
+	if state.runeCategory {
+		// hex_rune_categories maps a utf8proc general-category ordinal to the
+		// program-wide UnicodeCategory tag, in declaration order.
+		result.WriteString("\n// hex_rune_categories maps a utf8proc general-category ordinal to the\n" +
+			"// program-wide UnicodeCategory tag, in declaration order.\n" +
+			fmt.Sprintf("static const hex_tag hex_rune_categories[%d] = {\n", len(compilerTypes.UnicodeCategoryVariantNames)))
+		for index := range compilerTypes.UnicodeCategoryVariantNames {
+			fmt.Fprintf(result, "    %s,\n", unicodeCategoryTag(tags, index))
+		}
+		result.WriteString("};\n")
+	}
+	if len(state.casefold) > 0 {
+		fileName := literals.CName(state.fileLiteral)
+		for _, union := range state.casefold {
+			success, field := streamMemberRef(tags, union, compilerTypes.StringType)
+			failed, err := textErrorArm(union, "InvalidInput", textMessageTransformFailed, fileName, "line", "column", literals, tags)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(result,
+				"\n// hex_string_casefold_%s folds text and reports a failed transform as\n"+
+					"// an Error. The utf8proc buffer never escapes the runtime core.\n"+
+					"static inline %s hex_string_casefold_%s(hex_heap h, hex_text text, size_t line, size_t column) {\n"+
+					"    const hex_string *folded = hex_text_casefold(h, text);\n"+
+					"    if (folded == nullptr) {\n"+
+					"        return %s;\n"+
+					"    }\n"+
+					"    return (%s){ .tag = %s, .payload.%s = folded };\n"+
+					"}\n",
+				streamAdapterSuffix(union), union.CName, streamAdapterSuffix(union), failed, union.CName, success, field)
+		}
+	}
+	if len(state.normalize) > 0 {
+		result.WriteString("\n// hex_normalize_form maps a NormalizationForm tag to the runtime's fixed\n" +
+			"// form index (0 NFC, 1 NFD, 2 NFKC, 3 NFKD); an unknown tag reports -1.\n" +
+			"static inline int32_t hex_normalize_form(hex_tag tag) {\n")
+		for index := range compilerTypes.NormalizationFormVariantNames {
+			fmt.Fprintf(result, "    if (tag == %s) {\n        return %d;\n    }\n", normalizationFormTag(tags, index), index)
+		}
+		result.WriteString("    return -1;\n}\n")
+		fileName := literals.CName(state.fileLiteral)
+		for _, union := range state.normalize {
+			success, field := streamMemberRef(tags, union, compilerTypes.StringType)
+			failed, err := textErrorArm(union, "InvalidInput", textMessageTransformFailed, fileName, "line", "column", literals, tags)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(result,
+				"\n// hex_string_normalize_%s normalizes text and reports a failed transform\n"+
+					"// as an Error. The utf8proc buffer never escapes the runtime core.\n"+
+					"static inline %s hex_string_normalize_%s(hex_heap h, hex_text text, hex_tag form, size_t line, size_t column) {\n"+
+					"    const hex_string *normalized = hex_text_normalize(h, text, hex_normalize_form(form));\n"+
+					"    if (normalized == nullptr) {\n"+
+					"        return %s;\n"+
+					"    }\n"+
+					"    return (%s){ .tag = %s, .payload.%s = normalized };\n"+
+					"}\n",
+				streamAdapterSuffix(union), union.CName, streamAdapterSuffix(union), failed, union.CName, success, field)
+		}
+	}
+	if !state.used {
 		return nil
 	}
 	fileName := literals.CName(state.fileLiteral)

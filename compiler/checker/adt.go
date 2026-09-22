@@ -933,6 +933,8 @@ func scalarPatternToken(pattern parser.ScalarPattern) lexer.Token {
 		return literal.Token
 	case parser.ByteLiteral:
 		return literal.Token
+	case parser.RuneLiteral:
+		return literal.Token
 	}
 	return lexer.Token{}
 }

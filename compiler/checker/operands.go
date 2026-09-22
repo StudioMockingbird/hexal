@@ -199,6 +199,24 @@ const (
 	// conversion method; OperandType is the source type, ResultType the
 	// destination, and MemberIndex the conversion mode.
 	ConversionExpression
+	// RuneMethodCallExpression is one method on the Rune scalar: value (the
+	// underlying UInt32) or utf8_length (the encoded byte count). Operand is
+	// the receiver and OperandType its Rune type; ResultType is the checked
+	// result. Both are pure reads with no allocation.
+	RuneMethodCallExpression
+	// StringFromRunesExpression is String.from_runes(heap, runes): it encodes a
+	// scalar sequence into one owned heap String and yields String | Error.
+	// Operand is the Heap and Arguments holds the Slice<Rune>.
+	StringFromRunesExpression
+	// CursorMethodCallExpression is one text cursor method: has_next (Bool),
+	// next (the element), peek (the element), or offset (Size, always a byte
+	// offset). Operand is the cursor value and OperandType its cursor type;
+	// ResultType is the checked result.
+	CursorMethodCallExpression
+	// GraphemeMethodCallExpression is one method on a borrowed grapheme range:
+	// bytes (a Slice<Byte>) or rune_length (Size). Operand is the range and
+	// OperandType its Grapheme type.
+	GraphemeMethodCallExpression
 	// SpawnExpression starts one new Task<R> running a named function.
 	// Operand is the checked call node; OperandType is the Task
 	// handle type; ResultType is Task<R> | Error; Element is R.

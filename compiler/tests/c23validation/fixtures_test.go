@@ -66,6 +66,12 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
+		name:        "text-construction-validates-runs",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun check(h: Heap, bytes: Slice<Byte>): Bool do\n    let result: String | Error = String.from_bytes(h, bytes)\n    if result is String then\n        result.free(h)\n        return true\n    end\n    return false\nend\nfun run(h: Heap): Bool do\n    let two: Array<Byte, 2> = [b'\\xC2', b'\\xA2']\n    let overlong: Array<Byte, 2> = [b'\\xC0', b'\\x80']\n    let surrogate: Array<Byte, 3> = [b'\\xED', b'\\xA0', b'\\x80']\n    let truncated: Array<Byte, 1> = [b'\\xE2']\n    let astral: Array<Byte, 4> = [b'\\xF0', b'\\x9F', b'\\x98', b'\\x80']\n    return check(h, two.slice(0, 2)) and !check(h, overlong.slice(0, 2)) and !check(h, surrogate.slice(0, 3)) and !check(h, truncated.slice(0, 1)) and check(h, astral.slice(0, 4))\nend\nprint(run(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
 		name:        "nullable-unknown-widen-runs",
 		entrypoint:  "app.hex",
 		sources:     map[string]string{"app.hex": "let mut b: Byte = 7\nlet p: Ptr<Byte> | Nil = @b\nlet q: Ptr<Unknown> | Nil = p\nif q != nil then\n    print(\"ok\")\nend\n"},
@@ -291,6 +297,298 @@ var fixtureCatalog = []fixture{
 			"    let equal_ok: Bool = (small == wide) and (wide == heap) and (heap == small) and (small != joined)\n" +
 			"    let order_ok: Bool = (small < joined) and (joined > heap) and (heap <= wide) and (wide >= small)\n" +
 			"    return length_ok and slice_ok and equal_ok and order_ok\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "byte-cursor-exhausted-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo() do\n" +
+			"    let text: String = \"\"\n" +
+			"    let mut c: ByteCursor = text.byte_cursor()\n" +
+			"    let b: Byte = c.next()\n" +
+			"end\n" +
+			"demo()\n"},
+		expectation: &processExpectation{zeroExit: false, requiredStderrSubstring: "[Runtime Error] ByteCursor has no next value"},
+	},
+	{
+		name:       "rune-cursor-exhausted-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo() do\n" +
+			"    let text: String = \"\"\n" +
+			"    let mut c: RuneCursor = text.rune_cursor()\n" +
+			"    let r: Rune = c.next()\n" +
+			"end\n" +
+			"demo()\n"},
+		expectation: &processExpectation{zeroExit: false, requiredStderrSubstring: "[Runtime Error] RuneCursor has no next value"},
+	},
+	{
+		name:       "normalize-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
+			"    let composed: String = \"\\u{e9}\".copy(h)\n" +
+			"    defer composed.free(h)\n" +
+			"    let decomposed: String = \"e\\u{301}\".copy(h)\n" +
+			"    defer decomposed.free(h)\n" +
+			"    if composed == decomposed then\n" +
+			"        return false\n" +
+			"    end\n" +
+			"    let nfc_c: String | Error = composed.normalize(h, NormalizationForm.NFC())\n" +
+			"    if nfc_c is Error then\n" +
+			"        return false\n" +
+			"    end\n" +
+			"    let a: String = nfc_c\n" +
+			"    defer a.free(h)\n" +
+			"    let nfc_d: String | Error = decomposed.normalize(h, NormalizationForm.NFC())\n" +
+			"    if nfc_d is Error then\n" +
+			"        return false\n" +
+			"    end\n" +
+			"    let b: String = nfc_d\n" +
+			"    defer b.free(h)\n" +
+			"    let nfd_c: String | Error = composed.normalize(h, NormalizationForm.NFD())\n" +
+			"    if nfd_c is Error then\n" +
+			"        return false\n" +
+			"    end\n" +
+			"    let c: String = nfd_c\n" +
+			"    defer c.free(h)\n" +
+			"    return (a == b) and (c == decomposed)\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "casefold-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
+			"    let sharp: String = \"\\u{df}\".copy(h)\n" +
+			"    defer sharp.free(h)\n" +
+			"    let folded: String | Error = sharp.casefold(h)\n" +
+			"    if folded is Error then\n" +
+			"        return false\n" +
+			"    end\n" +
+			"    let out: String = folded\n" +
+			"    defer out.free(h)\n" +
+			"    let simple: Rune = '\\u{df}'.to_lower()\n" +
+			"    return (out.length() == 2) and (out == \"ss\") and (simple.value() == 0xDF)\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "grapheme-iteration-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
+			"    let text: String = \"e\\u{301}x\\u{1F468}\\u{200D}\\u{1F469}\".copy(h)\n" +
+			"    defer text.free(h)\n" +
+			"    let mut clusters: Size = 0\n" +
+			"    let mut scalars: Size = 0\n" +
+			"    for g: Grapheme in text do\n" +
+			"        clusters = clusters + 1\n" +
+			"        scalars = scalars + g.rune_length()\n" +
+			"    end\n" +
+			"    return (clusters == 3) and (scalars == 6) and (text.grapheme_length() == 3)\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "grapheme-cursor-exhausted-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo() do\n" +
+			"    let text: String = \"\"\n" +
+			"    let mut c: GraphemeCursor = text.grapheme_cursor()\n" +
+			"    let g: Grapheme = c.next()\n" +
+			"end\n" +
+			"demo()\n"},
+		expectation: &processExpectation{zeroExit: false, requiredStderrSubstring: "[Runtime Error] GraphemeCursor has no next value"},
+	},
+	{
+		name:       "grapheme-cursor-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
+			"    let text: String = \"e\\u{301}x\\u{1F1FA}\\u{1F1F8}\".copy(h)\n" +
+			"    defer text.free(h)\n" +
+			"    let mut clusters: Size = 0\n" +
+			"    let mut peek_ok: Bool = true\n" +
+			"    let mut c: GraphemeCursor = text.grapheme_cursor()\n" +
+			"    while c.has_next() do\n" +
+			"        let p: Grapheme = c.peek()\n" +
+			"        let g: Grapheme = c.next()\n" +
+			"        let pb: Slice<Byte> = p.bytes()\n" +
+			"        let gb: Slice<Byte> = g.bytes()\n" +
+			"        peek_ok = peek_ok and (pb.length() == gb.length()) and (pb[0] == gb[0])\n" +
+			"        clusters = clusters + 1\n" +
+			"    end\n" +
+			"    let mut a: GraphemeCursor = text.grapheme_cursor()\n" +
+			"    let first: Grapheme = a.next()\n" +
+			"    let mut b: GraphemeCursor = a\n" +
+			"    let from_a: Grapheme = a.next()\n" +
+			"    let from_b: Grapheme = b.next()\n" +
+			"    let ab: Slice<Byte> = from_a.bytes()\n" +
+			"    let bb: Slice<Byte> = from_b.bytes()\n" +
+			"    return (clusters == 3) and (text.grapheme_length() == 3) and peek_ok and (first.rune_length() == 2) and (a.offset() == b.offset()) and (ab.length() == bb.length())\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "grapheme-length-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
+			"    let combining: String = \"e\\u{301}\".copy(h)\n" +
+			"    defer combining.free(h)\n" +
+			"    let zwj: String = \"\\u{1F468}\\u{200D}\\u{1F469}\\u{200D}\\u{1F467}\".copy(h)\n" +
+			"    defer zwj.free(h)\n" +
+			"    let flags: String = \"\\u{1F1FA}\\u{1F1F8}\".copy(h)\n" +
+			"    defer flags.free(h)\n" +
+			"    let plain: String = \"abc\".copy(h)\n" +
+			"    defer plain.free(h)\n" +
+			"    return (combining.grapheme_length() == 1) and (zwj.grapheme_length() == 1) and (flags.grapheme_length() == 1) and (plain.grapheme_length() == 3) and (combining.rune_length() == 2)\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "rune-category-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun classify(r: Rune): Int32 do\n" +
+			"    return match r.category() is\n" +
+			"    | UnicodeCategory.Lu then 1\n" +
+			"    | UnicodeCategory.Ll then 2\n" +
+			"    | UnicodeCategory.Nd then 3\n" +
+			"    | else then 0\n" +
+			"    end\n" +
+			"end\n" +
+			"fun demo(): Bool do\n" +
+			"    return (classify('A') == 1) and (classify('a') == 2) and (classify('7') == 3) and (classify(' ') == 0)\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "rune-properties-run",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(): Bool do\n" +
+			"    let lower: Rune = 'a'\n" +
+			"    let upper: Rune = 'A'\n" +
+			"    let digit: Rune = '7'\n" +
+			"    let space: Rune = ' '\n" +
+			"    return lower.is_lower() and upper.is_upper() and lower.is_alphabetic() and digit.is_numeric() and space.is_whitespace() and (lower.to_upper() == upper) and (upper.to_lower() == lower) and (lower.display_width() == 1) and (lower.combining_class() == 0)\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "string-from-runes-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
+			"    let values: Array<Rune, 3> = ['a', '\\u{20AC}', '\\u{1F600}']\n" +
+			"    let view: Slice<Rune> = values.slice(0, 3)\n" +
+			"    let built: String | Error = String.from_runes(h, view)\n" +
+			"    if built is Error then\n" +
+			"        return false\n" +
+			"    end\n" +
+			"    let text: String = built\n" +
+			"    defer text.free(h)\n" +
+			"    let bad: Array<Rune, 1> = [0xD800]\n" +
+			"    let bad_view: Slice<Rune> = bad.slice(0, 1)\n" +
+			"    let rejected: String | Error = String.from_runes(h, bad_view)\n" +
+			"    return (text.rune_length() == 3) and (text.length() == 8) and (rejected is Error)\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "text-cursors-run",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(): Bool do\n" +
+			"    let text: String = \"h\\u{e9}\\u{1F600}\"\n" +
+			"    let mut bytes: Size = 0\n" +
+			"    let mut b: ByteCursor = text.byte_cursor()\n" +
+			"    while b.has_next() do\n" +
+			"        let value: Byte = b.next()\n" +
+			"        bytes = bytes + 1\n" +
+			"    end\n" +
+			"    let mut runes: Size = 0\n" +
+			"    let mut peek_ok: Bool = true\n" +
+			"    let mut r: RuneCursor = text.rune_cursor()\n" +
+			"    while r.has_next() do\n" +
+			"        let p: Rune = r.peek()\n" +
+			"        let n: Rune = r.next()\n" +
+			"        peek_ok = peek_ok and (p == n)\n" +
+			"        runes = runes + 1\n" +
+			"    end\n" +
+			"    let mut restored: RuneCursor = text.rune_cursor()\n" +
+			"    let first: Rune = restored.next()\n" +
+			"    let mut saved: RuneCursor = restored\n" +
+			"    let skipped: Rune = restored.next()\n" +
+			"    let second: Rune = saved.next()\n" +
+			"    return (bytes == text.length()) and (runes == 3) and peek_ok and (r.offset() == text.length()) and (second.value() == 0xE9)\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "rune-iteration-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(): Bool do\n" +
+			"    let text: String = \"a\\u{e9}\\u{20AC}\\u{1F600}\"\n" +
+			"    let mut count: Size = 0\n" +
+			"    let mut last: UInt32 = 0\n" +
+			"    for r: Rune in text do\n" +
+			"        count = count + 1\n" +
+			"        last = r.value()\n" +
+			"    end\n" +
+			"    return (count == 4) and (last == 0x1F600) and (text.rune_length() == 4)\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "rune-from-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(): Bool do\n" +
+			"    let ok: Rune | Error = Rune.from(0x1F600)\n" +
+			"    let edge: Rune | Error = Rune.from(0x10FFFF)\n" +
+			"    let surrogate: Rune | Error = Rune.from(0xD800)\n" +
+			"    let high: Rune | Error = Rune.from(0x110000)\n" +
+			"    if ok is Error then\n" +
+			"        return false\n" +
+			"    end\n" +
+			"    if edge is Error then\n" +
+			"        return false\n" +
+			"    end\n" +
+			"    return (ok.value() == 0x1F600) and (surrogate is Error) and (high is Error)\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "rune-utf8-length-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(): Bool do\n" +
+			"    let one: Rune = 'a'\n" +
+			"    let two: Rune = '\\u{7FF}'\n" +
+			"    let three: Rune = '\\u{20AC}'\n" +
+			"    let four: Rune = '\\u{1F600}'\n" +
+			"    return (one.utf8_length() == 1) and (two.utf8_length() == 2) and (three.utf8_length() == 3) and (four.utf8_length() == 4) and (one.value() == 97)\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "rune-length-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
+			"    let ascii: String = \"hello\".copy(h)\n" +
+			"    defer ascii.free(h)\n" +
+			"    let multibyte: String = \"h\\u{e9}llo\".copy(h)\n" +
+			"    defer multibyte.free(h)\n" +
+			"    let astral: String = \"\\u{1F600}\\u{1F600}\".copy(h)\n" +
+			"    defer astral.free(h)\n" +
+			"    let inline: String<16> = \"h\\u{e9}llo\"\n" +
+			"    return (ascii.rune_length() == 5) and (multibyte.rune_length() == 5) and (astral.rune_length() == 2) and (inline.rune_length() == 5)\n" +
 			"end\n" +
 			"print(demo(Heap()))\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},

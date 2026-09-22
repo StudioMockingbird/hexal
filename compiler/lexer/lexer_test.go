@@ -396,17 +396,33 @@ func TestLexByteAndNumericLiterals(t *testing.T) {
 	}
 }
 
-func TestLexBareQuoteLiteralIsReserved(t *testing.T) {
-	want := "bare-quote literals are reserved; use b'a' for a byte or \"a\" for text"
-	for _, source := range []string{"'a'", "'\\u{41}'", "'ab'", "'é'", "'unterminated"} {
-		_, err := Lex(source)
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Fatalf("Lex(%q) error = %v, want %q", source, err, want)
+func TestLexRuneLiteral(t *testing.T) {
+	tokens, err := Lex("'a' '\\u{41}' '\\u{1F600}'")
+	if err != nil || len(tokens) != 4 {
+		t.Fatalf("Lex returned tokens=%#v err=%v, want three Rune literals and EOF", tokens, err)
+	}
+	if tokens[0].Kind != RuneLiteral || tokens[0].Lexeme != "'a'" {
+		t.Fatalf("first token = %#v, want a RuneLiteral 'a'", tokens[0])
+	}
+	if tokens[1].Kind != RuneLiteral || tokens[2].Kind != RuneLiteral {
+		t.Fatalf("token kinds = %v %v, want RuneLiteral RuneLiteral", tokens[1].Kind, tokens[2].Kind)
+	}
+	if tokens[3].Kind != EOF {
+		t.Fatalf("last token = %#v, want EOF", tokens[3])
+	}
+}
+
+// A Rune literal admits exactly one non-surrogate Unicode scalar, so a
+// multi-scalar body, a surrogate escape, and an unterminated body all fail.
+func TestLexRejectsInvalidRuneForms(t *testing.T) {
+	for _, source := range []string{"'ab'", "'\\u{D800}'", "'unterminated"} {
+		if _, err := Lex(source); err == nil {
+			t.Fatalf("Lex(%q) accepted an invalid Rune literal", source)
 		}
 	}
 }
 
-func TestLexByteLiteralsAndStringEscapesSurviveBareQuoteRemoval(t *testing.T) {
+func TestLexByteLiteralsAndStringEscapes(t *testing.T) {
 	tokens, err := Lex("b'a' b'\\x41' \"h\u00e9llo \\u{1F600}\"")
 	if err != nil || len(tokens) != 4 {
 		t.Fatalf("Lex returned tokens=%#v err=%v, want two byte literals, a string literal, and EOF", tokens, err)

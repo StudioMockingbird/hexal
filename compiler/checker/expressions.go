@@ -346,6 +346,8 @@ func checkExpression(expression parser.Expression, context expressionContext, ct
 		return checkedExpression{token: expression.Start, diagnostic: &diagnostic}
 	case parser.ByteLiteral:
 		return checkByteLiteral(expression)
+	case parser.RuneLiteral:
+		return checkRuneLiteral(expression)
 	case parser.ArrayLiteralExpression:
 		return checkArrayLiteral(expression, context.expected.Type, ctx)
 	case parser.MatchExpression:

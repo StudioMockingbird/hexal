@@ -444,6 +444,7 @@ HeapAllocation
 | `Float32`, `Float64` | IEC 60559 binary32/64 | `float`, `double` |
 | `Size` | target-sized unsigned length/index | `size_t` |
 | `Byte` | transparent alias of `UInt8` | `uint8_t` |
+| `Rune` | Unicode scalar value: `UInt32` excluding surrogates | `uint32_t` |
 | `Nil` | zero-state `nil`; valid only as a union member | no stable foreign ABI |
 | `EoS` | zero-state completion `eos`; valid standalone | no stable foreign ABI |
 
@@ -456,10 +457,9 @@ HeapAllocation
   range, alignment, and representation. Hexal has no Size width, no width assertion, and never
   rejects a conforming target for its `sizeof(size_t)`. Size remains canonically distinct from
   fixed-width integers.
-- `Int`, `UInt`, `Float`, `Double`, `Char`, `Long`, `ISize`, `Void`, `Rune`, `RuneCursor`, and
-  `Strand` are not built-ins. `Rune`, `RuneCursor`, and `Strand` were removed with rune-based
-  text; naming one reports a migration hint (`Rune` and `RuneCursor` point at `Byte`, `Strand` at
-  `String<N>`), and the names are not reserved.
+- `Int`, `UInt`, `Float`, `Double`, `Char`, `Long`, `ISize`, `Void`, and `Strand` are not
+  built-ins. `Strand` was removed with rune-based text; naming it reports a migration hint
+  (`Strand` at `String<N>`), and the name is not reserved.
 - Nil is valid only in a union containing at least one non-Nil member. Standalone Nil is invalid in
   aliases, bindings, parameters, results, members, payloads, collection positions, and generic
   arguments. The `nil` literal requires a contextual union containing Nil, except as a `print`
@@ -894,13 +894,15 @@ destinations only. `none` means no fixed-width destination.
 
 Every other source/arity combination is invalid.
 
-- Text iterates its bytes as `Byte`; Dict order is unspecified.
+- Text iterates as `Byte` (storage units), `Rune` (decoded scalars), or `Grapheme` (extended
+  grapheme clusters); Dict order is unspecified.
 - A binder may carry a written type, `for name: Type in source`, on any binder. The written type
   must equal the type the binder would take (`Byte` and `UInt8` are the same type), and a
   disagreement is rejected naming both types. The value binder over text is the one binder that
-  must be annotated, because text has no default element type: `for b: Byte in text`. The index
-  binder is `Size`. A `List<X | Y>` element binder is the whole union, so annotating it with one
-  member is rejected.
+  must be annotated, because text has no default element type: `for b: Byte in text`,
+  `for r: Rune in text`, or `for g: Grapheme in text`. The index binder is `Size`. A
+  `List<X | Y>` element binder is the whole
+  union, so annotating it with one member is rejected.
 - Finite-source traversal boundaries are captured once. Array places iterate in place; temporary
   Arrays materialize once and an inline text source is read from a copy taken before the loop, so
   reassigning the text inside the body changes neither the bytes read nor their count; handles
@@ -1258,17 +1260,32 @@ No name, expression, or generic parameter can stand for a capacity.
 
 ```text
 String.length() -> Size                                       O(1)
+String.rune_length() -> Size                                  O(n), decodes scalars
+String.grapheme_length() -> Size                              O(n), segments clusters
+String.grapheme_cursor() -> GraphemeCursor
+String.casefold(heap: Heap) -> String | Error
+String.normalize(heap: Heap, form: NormalizationForm) -> String | Error
 String.bytes() -> Slice<Byte>                                 O(1)
+String.byte_cursor() -> ByteCursor
+String.rune_cursor() -> RuneCursor
 String.slice(start: Integer, end: Integer) -> Slice<Byte>     O(1), byte bounds
 String.copy(heap: Heap) -> String
 String.concat(heap: Heap, other: Slice<Byte>) -> String | Error
 String.free(heap: Heap) -> no value
 String.from_bytes(heap: Heap, bytes: Slice<Byte>) -> String | Error
+String.from_runes(heap: Heap, runes: Slice<Rune>) -> String | Error
 String.interpolate(heap: Heap, template: InterpolationTemplate) -> String
 String.c_pointer() -> Ptr<Byte>                               unsafe
 
 String<N>.length() -> Size
+String<N>.rune_length() -> Size                               O(n), decodes scalars
+String<N>.grapheme_length() -> Size                           O(n), segments clusters
+String<N>.grapheme_cursor() -> GraphemeCursor
+String<N>.casefold(heap: Heap) -> String | Error
+String<N>.normalize(heap: Heap, form: NormalizationForm) -> String | Error
 String<N>.bytes() -> Slice<Byte>
+String<N>.byte_cursor() -> ByteCursor
+String<N>.rune_cursor() -> RuneCursor
 String<N>.slice(start: Integer, end: Integer) -> Slice<Byte>
 String<N>.copy(heap: Heap) -> String
 String<N>.widen<M>() -> String<M>                             M >= N; infallible
@@ -1277,16 +1294,67 @@ String<N>.concat(left: Slice<Byte>, right: Slice<Byte>) -> String<N> | Error
 String<N>.interpolate(template: InterpolationTemplate) -> String<N> | Error
 ```
 
-`String<N>` has no `free` and no `c_pointer`. `to_string`, `rune_cursor`, and `from_runes` do not
-exist.
+`String<N>` has no `free` and no `c_pointer`. `to_string` does not exist, and `from_runes` is
+heap-only: an inline destination converts through `String<N>.from_bytes`.
+
+- `ByteCursor`, `RuneCursor`, and `GraphemeCursor` are copyable positions over one text:
+  `has_next() -> Bool`, `next()` and `peek()` yielding the cursor's element (`Byte`, `Rune`, or
+  `Grapheme`), and `offset() -> Size`. `offset()` is always a **byte** offset, on every cursor, and
+  is the one unit `slice` takes. `next` and `peek` trap when exhausted, with `has_next` as the guard.
+  `next` advances its binding, so the receiver must be a mutable binding; a `GraphemeCursor`'s
+  `peek` caches its lookahead so a following `next` shares the single break-state advance, so it
+  takes a mutable binding too. A copied cursor holds an independent position over the same bytes; a
+  cursor is a view and dangles if the text it points at is freed, reassigned, or leaves scope. Only
+  the Rune and Grapheme cursors select the private utf8proc adapter; byte stepping is index
+  arithmetic.
+- `Grapheme` is a byte range borrowed from the text it came from, spanning exactly one extended
+  grapheme cluster. `Grapheme.bytes() -> Slice<Byte>` views its bytes and `Grapheme.rune_length() ->
+  Size` counts its scalars. Like every borrowed range it dangles if the text it views is freed,
+  reassigned, or leaves scope, so transient use inside the traversal that produced it is the
+  intended shape. `Grapheme` and `GraphemeCursor` are not Dict-key eligible: a Dict stores its keys
+  in the table, and a key that points at bytes the Dict does not own is a dangling key.
+- `String.casefold(heap) -> String | Error` applies full Unicode case folding, so a multi-scalar
+  expansion such as `ß` to `ss` is performed; it is not the same operation as `Rune.to_lower()`,
+  which maps one scalar to one scalar. The transform copies the utf8proc result into one Hexal Heap
+  allocation and releases the utf8proc `malloc` buffer on both the success and every failure path;
+  that buffer is never reachable as a Hexal `String` and never reaches `Heap.free`. A failed
+  transform is `InvalidInput` with message `Unicode transform failed`.
+- `NormalizationForm` is the closed four-variant built-in enum `NFC | NFD | NFKC | NFKD`.
+  `String.normalize(heap, form) -> String | Error` applies it under the same allocation contract as
+  `casefold`. Unit variants are constructed call-shaped (`NormalizationForm.NFC()`) and matched
+  without parens. Normalization is never implicit: `"é" == "e\u{301}"` is false, and the two remain
+  bytewise unequal, hash differently, and are distinct Dict keys until a caller normalizes
+  explicitly.
 
 - Byte is UInt8. A byte literal contains exactly one printable ASCII byte or one of
-  `\\ \' \n \r \t \0 \xHH`. A single quote that does not follow `b` begins no literal and is
-  reported (`bare-quote literals are reserved; use b'a' for a byte or "a" for text`).
-- Text is validated UTF-8 bytes and nothing else: `length()` and `slice` count and bound by bytes
-  on every form, so `"héllo".length()` is 6, `slice` is O(1) and legal on a byte that splits a
-  sequence, and nothing in the language decodes text into characters. Text is not indexable; `bytes`
-  gives indexed byte access, and `for b: Byte in text` iterates bytes. A slice is bytes, not text:
+  `\\ \' \n \r \t \0 \xHH`.
+- A bare-quote literal is exactly one Unicode scalar value: the `Rune` type. Its escape set is the
+  string set (`\\ \' \" \n \r \t \0 \u{HEX}`) and excludes `\xHH`; an empty body, more than one
+  scalar, a surrogate, or a value above U+10FFFF is rejected. `Rune.value() -> UInt32` yields the
+  underlying scalar and `Rune.utf8_length() -> Size` its encoded byte length (1..4); `Rune` is
+  equality-comparable, ordered by scalar value, and valid as a match scrutinee, in `print`, and in
+  interpolation. `Rune.from(value: UInt32) -> Rune | Error` is the type-level constructor that
+  rejects surrogates and values above U+10FFFF at runtime with `InvalidInput`.
+- The Tier 2 Rune surface reads utf8proc's tables: `is_lower()`, `is_upper()`, `is_alphabetic()`,
+  `is_numeric()`, and `is_whitespace() -> Bool`; `to_lower()`, `to_upper()`, and `to_title() ->
+  Rune` (simple one-scalar case mappings, not case folding); `display_width() -> Int32`; and
+  `combining_class() -> UInt8`. The alphabetic, numeric, and whitespace predicates read the
+  general category (Letter, Number, Separator).
+- `UnicodeCategory` is the closed 30-variant built-in enum of Unicode general categories, named by
+  the standard abbreviations (`Cn Lu Ll Lt Lm Lo Mn Mc Me Nd Nl No Pc Pd Ps Pe Pi Pf Po Sm Sc Sk So
+  Zs Zl Zp Cc Cf Cs Co`), in `utf8proc_category_t` order. `Rune.category() -> UnicodeCategory`
+  yields it. Unlike `ErrorKind`, the set never grows, so a type-mode `match` over `UnicodeCategory`
+  is exhaustive without a final `else`. Unit variants are constructed call-shaped
+  (`UnicodeCategory.Lu()`) and matched without parens (`| UnicodeCategory.Lu then`).
+- Text is validated UTF-8 bytes: `length()` and `slice` count and bound by bytes on every form, so
+  `"héllo".length()` is 6, `slice` is O(1) and legal on a byte that splits a sequence, and text
+  storage never carries a character count. `rune_length()` and `grapheme_length()` decode: each is
+  O(n) and counts Unicode scalars or extended grapheme clusters, so `"héllo".rune_length()` is 5 and
+  a base letter plus a combining mark is one grapheme. Segmentation uses
+  `utf8proc_grapheme_break_stateful`, which must see every adjacent scalar pair in order. Text is not
+  indexable; `bytes`
+  gives indexed byte access, `for b: Byte in text` iterates bytes, and `for r: Rune in text` decodes
+  scalars. A slice is bytes, not text:
   feeding one back through `from_bytes` or `concat` validates it again.
 - `String` is immutable UTF-8 behind a non-null pointer-sized handle holding the data pointer, the
   byte length, and the storage kind. Runtime values use one allocation with one trailing NUL that

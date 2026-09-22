@@ -1,7 +1,9 @@
 # RFC 0228: Central Compiler Configuration
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Open Discussion; proposed; implementation not started
+- Status: Open Discussion; proposed. **Blocked on RFC 0230**, which settles
+  the ownership map, target split, diagnostic ownership, impact table, and
+  inventory format this RFC depends on
 - Created: 2026-09-21
 - Scope: move every compiler-owned tunable policy, ABI fact, generated-runtime
   contract, limit, default, and target/build identity into one authoritative
@@ -12,7 +14,7 @@
   **Corrected 2026-09-21 against the implemented tree:** the Go-side
   capacities are *not* scattered — see Problem — but their generated-C
   spellings are, in fourteen places
-- Depends on: the in-memory compiler boundary, target-profile contract,
+- Depends on: RFC 0230 (arc foundations), the in-memory compiler boundary, target-profile contract,
   runtime-pack contract, Project defaults, and the current `Error`, String,
   generated-C, and diagnostic contracts
 - Coordinates with: RFC 0224 (byte-oriented strings, implemented and
@@ -168,7 +170,32 @@ compiler and driver. It must either move the declaration, document its local
 classification, or delete it as duplicated/stale. “Move every const” is not a
 license to turn implementation mechanics into public policy.
 
-## Blocking: the ownership map does not exist
+## Blocking: resolved by RFC 0230
+
+RFC 0230 settles the arc-wide contracts this RFC cannot settle alone: the
+ownership map, the import graph, the target-semantics split, the impact
+classification, the migration order, and the inventory ledger format. It is a
+precondition for this RFC, not a companion to it.
+
+What RFC 0230 decides that changes this RFC:
+
+- **Scope narrows to tunable scalars.** Target facts move to `specdata`, not
+  config. Diagnostic wording moves nowhere. Type identity stays in
+  `compiler/types`.
+- **Diagnostics are settled** — Open questions 3 is closed: wording stays in
+  the owning phase.
+- **Target facts are settled** — Open questions 2 is closed: identity in
+  `types`, semantic facts in `specdata`, qualification in the driver.
+- **The inventory is a checked-in ledger**, `docs/specs/0230-inventory.md`,
+  with a fixed column set and eight classifications. Only `tunable`
+  automatically belongs to config.
+- **The impact table is shared**, so this RFC's own table is superseded by
+  RFC 0230's.
+
+The record below is retained because it names the concrete conflicts RFC 0230
+resolves.
+
+## The ownership conflict RFC 0230 resolves
 
 This RFC and RFC 0229 both claim the same domains, and the tree already has
 multiple owners for several of them. Verified on 2026-09-21:
@@ -480,21 +507,31 @@ manual confidence claim.
 - A new analyzer pass or compiler pipeline stage.
 - Automatically versioning every config change as a runtime ABI change.
 
-## Open questions
+## Settled questions
 
-1. Should the package be `compiler/config` as proposed, or should its API be
-   hidden under an `internal` path while still being shared by the driver?
-2. Which target facts should be canonicalized in config versus retained in
-   `compiler/types` as language type identity?
-3. Should stable diagnostic strings live in config, or in the earliest phase
-   that owns the diagnostic with config holding only size and budget values?
-4. Which runtime layout values are truly configurable, and which must be
-   represented by concrete types so changing them requires a dedicated spec?
-5. How should configuration changes be represented in build identity when they
-   alter generated text but not runtime ABI?
-6. Should the migration land as one cross-package change or as dependency,
-   target, parser, runtime, and driver slices with an invariant after each
-   slice?
+1. Settled by RFC 0230 Decision 9: the package is `compiler/config`, at that
+   exact path, with no `internal/` segment. A `compiler/internal/config` would
+   be unimportable by `internal/driver`, which reads these values.
+2. Settled by RFC 0230 Decisions 1 and 3: **no** target fact goes to config.
+   Identity stays in `compiler/types`, semantic facts move to
+   `compiler/specdata`, and qualification stays in `internal/driver`.
+3. Settled by RFC 0230 Decision 7: diagnostic wording stays in the phase that
+   emits it. Config holds no strings.
+4. Settled by RFC 0230 Decision 1 and the ledger: the only layout-affecting
+   values that move are the two `Error` capacities. C layouts themselves are
+   `generated-C fact`s and stay in `compiler/generator`; the ledger classifies
+   all three such declarations.
+5. Settled by RFC 0230 Decision 8: the owning change declares its impact row,
+   and review checks that declaration against the diff. A generated-text-only
+   change rebuilds the snippet manifest and is reviewed by artifact family; it
+   does not touch the ABI version.
+6. Settled by RFC 0230's migration order: slices, with an invariant after
+   each. The ledger is produced first; a slice is complete when every row it
+   claims is struck through.
+
+**No open questions remain.** Scope is now the eleven declarations the ledger
+identifies, plus the six mutable exports and the fourteen hard-coded
+`hex_string_128`/`hex_string_256` C spellings.
 
 ## Validation
 
@@ -536,6 +573,88 @@ This section is exhaustive. The implementation is complete only when:
 - The compiler remains string-in/string-out and performs no host inspection.
 - `docs/reference.md` is reviewed and either synchronized or explicitly
   verified unchanged before the spec is marked implemented.
+
+## Implementation plan
+
+Four phases. Scope is fixed by `docs/specs/0230-inventory.md`: eleven
+declarations move, six mutable exports are resolved, and fourteen hard-coded C
+spellings lose their second owner. Nothing else is in scope.
+
+### Phase 1 — create the package, move nothing
+
+Create `compiler/config` with no declarations, and a doc comment stating the
+one rule: it imports only the Go standard library, and holds tunable policy —
+not type identity, not diagnostics, not target facts.
+
+*Verify:* `TestArcPackagesAreAtDecidedPaths` stops skipping and passes;
+`go build ./...` unchanged; no artifact moves.
+
+### Phase 2 — move the eleven
+
+One declaration per commit, in dependency order so no intermediate state has
+two owners:
+
+| Order | Symbol | From | Impact row |
+| --- | --- | --- | --- |
+| 1 | `RuntimeABIVersion` | `compiler/runtimeabi.go` | implementation only |
+| 2 | `configPageSize` | `compiler/project.go` | resource limit |
+| 3 | `maxSyntaxDepth` | `compiler/parser/parser.go` | resource limit |
+| 4 | `maxInterpolationDepth` | `compiler/lexer/lexer.go` | resource limit |
+| 5 | `inspectionByteLimit`, `inspectionTimeout` | `internal/driver/frontend.go` | resource limit |
+| 6 | `DefaultTaskStackReserve`, `DefaultTaskStackCommit` | `compiler/generator/concurrency_component.go` | resource default |
+| 7 | `MaxInlineStringCapacity` | `compiler/types/collections.go` | resource limit |
+| 8 | `ErrorHeaderCapacity`, `ErrorMessageCapacity` | `compiler/types/collections.go` | **C layout** |
+
+Entries 7 and 8 move the *value* only. `ErrorHeaderText`, `ErrorMessageText`,
+and the inline-string constructor stay in `compiler/types`, because they are
+type identity and Decision 1 keeps identity there.
+
+Names gain their unit per the naming rule: `PageSizeBytes`,
+`ForeignInspectionByteLimit`, `DefaultTaskStackReserveBytes`.
+
+*Verify per commit:* the old declaration is deleted, not aliased — a grep for
+the old name returns only the config definition. Generated C is byte-identical
+and the snippet manifest does not move, for every entry except 8, which
+declares the C-layout row and is reviewed against its artifact diff.
+
+### Phase 3 — remove the fourteen duplicate C spellings
+
+`hex_string_128` and `hex_string_256` appear as literal text in
+`compiler/generator/print.go` and six runtime templates. Replace each with a
+value derived from the capacity:
+
+```go
+func inlineStringCName(capacity uint64) string {
+	return fmt.Sprintf("hex_string_%d", capacity)
+}
+```
+
+*Verify:* no `hex_string_128` or `hex_string_256` literal remains in Go
+source; generated C byte-identical; manifest unmoved. This phase is where the
+RFC's original drift evidence is actually fixed.
+
+If RFC 0231 has already landed, this phase is smaller: the spellings move into
+template models rather than into Go string building.
+
+### Phase 4 — resolve the six mutable exports
+
+Not a move. Each is decided individually:
+
+| Symbol | Resolution |
+| --- | --- |
+| `corelib.Modules` | unexport behind an accessor; RFC 0229 slice 3 replaces it entirely |
+| `types.ErrorKindVariantNames` | fixed-size array, or unexported with an accessor |
+| `backend.RequiredHeaders`, `RequiredFacilities` | return a copy, or unexport |
+| `snippets.RequiredReservedWords`, `RequiredFeatures` | workbench tooling; lowest priority, may stay |
+
+*Verify:* no caller can rewrite compiler policy through an exported map or
+slice; `go test ./...` passes.
+
+### Rollback boundary
+
+Every phase is independently revertible. Phases 1-3 have byte-identical output
+as their proof, so a revert restores a known-good tree. Phase 4 changes Go API
+shape within the module and is the only phase whose revert touches callers.
 
 ## Implementation readiness
 

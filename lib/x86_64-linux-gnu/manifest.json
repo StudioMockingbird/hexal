@@ -20,6 +20,13 @@
       "archive": "mimalloc_v3.5.1/mimalloc.a",
       "system_libraries": [],
       "license_file": "mimalloc_v3.5.1/LICENSE"
+    },
+    {
+      "name": "utf8proc",
+      "include_root": "utf8proc_v2.11.3/include",
+      "archive": "utf8proc_v2.11.3/utf8proc.a",
+      "system_libraries": [],
+      "license_file": "utf8proc_v2.11.3/LICENSE.md"
     }
   ],
   "files": {
@@ -53,6 +60,9 @@
     "mimalloc_v3.5.1/include/mimalloc/prim.h": "1987e8e2eedc07bb181bf2a11a27bec80a5309c32cfa66a56900fb4cbb64b172",
     "mimalloc_v3.5.1/include/mimalloc/track.h": "e7d94cae6b36f92b934b76aa3d24854845710e798654bdd29cef90e13e0f161e",
     "mimalloc_v3.5.1/include/mimalloc/types.h": "9d6832d33cb9cf6971bd4c3218cb60af696abe775b64a7d8003d7ff56dd4d763",
-    "mimalloc_v3.5.1/mimalloc.a": "18ae1e534ebfd4f83141526ca9bbb392aed919f0cc0d359448ee98441d336fb6"
+    "mimalloc_v3.5.1/mimalloc.a": "18ae1e534ebfd4f83141526ca9bbb392aed919f0cc0d359448ee98441d336fb6",
+    "utf8proc_v2.11.3/LICENSE.md": "3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256",
+    "utf8proc_v2.11.3/include/utf8proc.h": "a4e498b7392c383cf3b22e662da21e0b48f1264806235d87b5d8bd166232f658",
+    "utf8proc_v2.11.3/utf8proc.a": "a3ced9efe7b33d143abd353c85dbd1fc7a2fd94f1e0ab0273fe19742db70a4f6"
   }
 }

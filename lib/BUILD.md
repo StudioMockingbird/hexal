@@ -23,6 +23,10 @@ lib/
       mimalloc.a
       include/
       LICENSE
+    utf8proc_v2.11.3/
+      utf8proc.a
+      include/utf8proc.h
+      LICENSE.md
 ```
 
 Pack production is an explicit maintainer operation, never compiler setup, a
@@ -44,7 +48,7 @@ the embedded copy.
 `-fPIC` is required because generated executables link position-independent by
 default; an archive of non-PIC objects fails the link.
 
-The two archives must be rebuilt together if the target, libc baseline,
+The three archives must be rebuilt together if the target, libc baseline,
 toolchain, or optimization policy changes.
 
 ## mimalloc_v3.5.1
@@ -88,6 +92,25 @@ ar rcs libuv_v1.52.1/libuv.a <objects>
 - Size: `335006` bytes
 - SHA-256: `4c72c7508907d1bb72c8247f645fdf9ebe04cda81790080a390bf3117be676a1`
 
+## utf8proc_v2.11.3
+
+- Source: `modules/utf8proc` at commit
+  `e5e799221b45bbb90f5fdc5c69b6b8dfbf017e78` (`v2.11.3`)
+- Unicode data version: 17.0.0
+- Source file: `utf8proc.c` (one translation unit; it includes the generated
+  `utf8proc_data.c`)
+- Public header: `utf8proc_v2.11.3/include/utf8proc.h` (copied unchanged)
+- Compile command:
+
+```text
+clang -std=c11 -O2 -DNDEBUG -fPIC -pthread -DUTF8PROC_STATIC \
+  -I modules/utf8proc -c modules/utf8proc/utf8proc.c -o utf8proc.o
+ar rcs utf8proc_v2.11.3/utf8proc.a utf8proc.o
+```
+
+- Size: `352378` bytes
+- SHA-256: `a3ced9efe7b33d143abd353c85dbd1fc7a2fd94f1e0ab0273fe19742db70a4f6`
+
 ## System libraries
 
 `manifest.json` declares `pthread`, `dl`, and `rt` on the libuv dependency, in
@@ -98,20 +121,24 @@ measured necessity on this host.
 
 ## Verification
 
-The combined probe compiles, links, and runs one program using both archives:
+The combined probe compiles, links, and runs one program using all three
+archives:
 
 ```text
 clang -std=c23 -D_POSIX_C_SOURCE=200809L combine.c \
   -I lib/x86_64-linux-gnu/libuv_v1.52.1/include \
   -I lib/x86_64-linux-gnu/mimalloc_v3.5.1/include \
+  -I lib/x86_64-linux-gnu/utf8proc_v2.11.3/include \
   lib/x86_64-linux-gnu/libuv_v1.52.1/libuv.a \
   lib/x86_64-linux-gnu/mimalloc_v3.5.1/mimalloc.a \
+  lib/x86_64-linux-gnu/utf8proc_v2.11.3/utf8proc.a \
   -lpthread -ldl -lrt -o combine
 ./combine
 ```
 
-It calls `mi_malloc`/`mi_free` and `uv_version`, and exits 0. `hexal doctor`
-performs the same combined-archive probe plus full manifest verification.
+It calls `mi_malloc`/`mi_free`, `uv_version`, and `utf8proc_version`, and exits
+0. `hexal doctor` performs the same combined-archive probe plus full manifest
+verification.
 
 ## Retired Windows pack
 

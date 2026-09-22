@@ -5,16 +5,34 @@ package generator
 // inline capacity structs, UTF-8 validation, and text operations live here;
 // literal storage and non-specialized bodies own the C file.
 func stringComponents(merged *programEmission) ([]componentArtifact, error) {
-	if merged == nil || merged.stringState == nil || !merged.stringState.used {
+	if merged == nil || merged.stringState == nil {
+		return nil, nil
+	}
+	// A Rune-only program reads the property helpers without touching a text
+	// type, so it selects the component too.
+	if !merged.stringState.used && !merged.runePropertiesNeed && !merged.runeCategoryNeed {
 		return nil, nil
 	}
 	model := stringRenderModel{
-		Inline:            buildInlineStringModels(merged.stringState),
-		NeedEquality:      merged.equalityNeed,
-		NeedOrdering:      merged.orderingNeed,
-		NeedHash:          merged.hashNeed,
-		NeedInterpolation: merged.interpolationNeed,
-		Literals:          buildStringLiteralModels(merged.stringState.All()),
+		Inline:              buildInlineStringModels(merged.stringState),
+		NeedValidator:       utf8procSelected(merged),
+		NeedRuneLength:      merged.runeLengthNeed,
+		NeedRuneIteration:   merged.runeIterationNeed,
+		NeedByteCursor:      merged.byteCursorNeed,
+		NeedRuneCursor:      merged.runeCursorNeed,
+		NeedRuneEncode:      merged.runeEncodeNeed,
+		NeedRuneProperties:  merged.runePropertiesNeed,
+		NeedRuneCategory:    merged.runeCategoryNeed,
+		NeedGraphemeLength:  merged.graphemeLengthNeed,
+		NeedGrapheme:        merged.graphemeNeed,
+		NeedCasefold:        merged.casefoldNeed,
+		NeedNormalize:       merged.normalizeNeed,
+		NeedUnicodeCategory: merged.runeCategoryNeed,
+		NeedEquality:        merged.equalityNeed,
+		NeedOrdering:        merged.orderingNeed,
+		NeedHash:            merged.hashNeed,
+		NeedInterpolation:   merged.interpolationNeed,
+		Literals:            buildStringLiteralModels(merged.stringState.All()),
 	}
 	return []componentArtifact{
 		{key: "hexal/string.h", template: "string.h", model: model},
@@ -23,9 +41,13 @@ func stringComponents(merged *programEmission) ([]componentArtifact, error) {
 }
 
 // moduleStringComponent selects hexal/string.h for a module using any text
-// type.
+// type or the Rune property helpers.
 func moduleStringComponent(emission *moduleEmission) []string {
-	if emission == nil || !emission.stringUsed {
+	if emission == nil {
+		return nil
+	}
+	runes := emission.textState != nil && (emission.textState.runeProperties || emission.textState.runeCategory)
+	if !emission.stringUsed && !runes {
 		return nil
 	}
 	return []string{"hexal/string.h"}
@@ -52,12 +74,25 @@ type inlineStringModel struct {
 // templates: the inline capacity structs, the demand-selected helpers, and the
 // canonical program-wide literal records in first-use order.
 type stringRenderModel struct {
-	Inline            []inlineStringModel
-	NeedEquality      bool
-	NeedOrdering      bool
-	NeedHash          bool
-	NeedInterpolation bool
-	Literals          []stringLiteralModel
+	Inline              []inlineStringModel
+	NeedValidator       bool
+	NeedRuneLength      bool
+	NeedRuneIteration   bool
+	NeedByteCursor      bool
+	NeedRuneCursor      bool
+	NeedRuneEncode      bool
+	NeedRuneProperties  bool
+	NeedRuneCategory    bool
+	NeedGraphemeLength  bool
+	NeedGrapheme        bool
+	NeedCasefold        bool
+	NeedNormalize       bool
+	NeedUnicodeCategory bool
+	NeedEquality        bool
+	NeedOrdering        bool
+	NeedHash            bool
+	NeedInterpolation   bool
+	Literals            []stringLiteralModel
 }
 
 // buildInlineStringModels lists the demanded capacities in ascending order, so

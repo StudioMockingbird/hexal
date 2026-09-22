@@ -10,6 +10,7 @@ type RuntimeDependency string
 const (
 	RuntimeMimalloc RuntimeDependency = "mimalloc"
 	RuntimeLibuv    RuntimeDependency = "libuv"
+	RuntimeUtf8proc RuntimeDependency = "utf8proc"
 )
 
 func runtimeDependencies(values []string) []RuntimeDependency {
@@ -17,7 +18,7 @@ func runtimeDependencies(values []string) []RuntimeDependency {
 	seen := make(map[RuntimeDependency]bool, len(values))
 	for _, value := range values {
 		switch RuntimeDependency(value) {
-		case RuntimeMimalloc, RuntimeLibuv:
+		case RuntimeMimalloc, RuntimeLibuv, RuntimeUtf8proc:
 			dependency := RuntimeDependency(value)
 			if !seen[dependency] {
 				seen[dependency] = true

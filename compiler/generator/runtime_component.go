@@ -6,6 +6,21 @@ type runtimeSourceModel struct {
 	Native bool
 }
 
+// utf8procSelected reports whether a generated runtime component uses the
+// utf8proc adapter. The callers are the UTF-8 validator's two owners: a module
+// that constructs text from bytes or concatenates text, and the program
+// component, which validates argv and the executable path as text. A
+// literal-only or byte-iteration program selects nothing.
+func utf8procSelected(merged *programEmission) bool {
+	if merged == nil {
+		return false
+	}
+	if merged.validatorNeed {
+		return true
+	}
+	return merged.corelibState != nil && (merged.corelibState.paths || merged.corelibState.arguments || merged.corelibState.executable)
+}
+
 // libuvSelected reports whether any reachable operation links libuv. The
 // scheduler substrate, the monotonic clock, File, Terminal, and the
 // core-library path and entropy queries link it. std/program.arguments alone

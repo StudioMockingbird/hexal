@@ -35,6 +35,19 @@ A bug is real whether or not its owning spec is scheduled.
 
 Not bugs — deliberate limits worth remembering when reading a green test run.
 
+- **The Unicode surface ([0227](specs/0227-utf8proc-vendor-static-library.md))
+  is implemented and exercised end to end only on the qualified
+  `x86_64-linux-gnu` pack.** `Rune` and its literals, Tier 1 methods, all three
+  cursors, the grapheme segmenter, `UnicodeCategory`, and the Tier 3
+  `normalize`/`casefold` transforms compile, run, and pass UBSan under the
+  Clang gate, but the pinned utf8proc archive is recorded only in
+  `lib/x86_64-linux-gnu/manifest.json`. `lib/x86_64-windows-gnu-ucrt/` ships
+  libuv and mimalloc with no utf8proc entry, and no cross toolchain or MinGW
+  sysroot is installed here to produce one, so 0227's requirement that every
+  shipped target pack carry a verified archive is unmet and the spec stays
+  open. No dedicated LeakSanitizer run covers the `malloc`-to-Heap copy in
+  `normalize`/`casefold`; the `free`-on-every-path release is verified by
+  inspection and by the UBSan run, not by a leak checker.
 - **Program paths and secure entropy ([0178](specs/0178-libuv-os-services.md))**
   have executable argument-independent fixtures that compile, run, and pass
   UBSan under the qualified Linux/Clang gate, and

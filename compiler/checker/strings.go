@@ -358,6 +358,35 @@ func decodeByteLiteral(token lexer.Token) (byte, *compilerTypes.Diagnostic) {
 	return payload[0], nil
 }
 
+// decodeRuneLiteral decodes a '...' literal into its single Unicode scalar.
+// The lexer already validated the escape grammar, scalar cardinality, and
+// surrogate exclusion, so the payload is exactly one well-formed scalar.
+func decodeRuneLiteral(token lexer.Token) (rune, *compilerTypes.Diagnostic) {
+	raw := token.Lexeme
+	if len(raw) < 3 || raw[0] != '\'' || raw[len(raw)-1] != '\'' {
+		return 0, diagnosticAt(typeErrorAt(token, "malformed Rune literal"))
+	}
+	payload, message := lexer.DecodeLiteralBody(raw[1:len(raw)-1], lexer.RuneEscapes)
+	if message != "" {
+		return 0, diagnosticAt(typeErrorAt(token, message))
+	}
+	value, _ := utf8.DecodeRune(payload)
+	return value, nil
+}
+
+// checkRuneLiteral resolves a '...' literal into a Rune constant.
+func checkRuneLiteral(expression parser.RuneLiteral) checkedExpression {
+	value, diagnostic := decodeRuneLiteral(expression.Token)
+	if diagnostic != nil {
+		return checkedExpression{token: expression.Token, diagnostic: diagnostic}
+	}
+	spelling := strconv.FormatUint(uint64(value), 10)
+	source := constantOperand(compilerTypes.Rune, constant.MakeUint64(uint64(value)), spelling)
+	source.Radix = DecimalRadix
+	source.Node = constantNode(source)
+	return checkedExpression{source: source, typ: compilerTypes.Rune, token: expression.Token, known: &source}
+}
+
 // checkByteLiteral resolves a b'...' literal into a UInt8 constant.
 func checkByteLiteral(expression parser.ByteLiteral) checkedExpression {
 	value, diagnostic := decodeByteLiteral(expression.Token)

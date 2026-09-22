@@ -63,8 +63,8 @@ func TestProgramPathQueriesSelectOneComponent(t *testing.T) {
 	if strings.Contains(programH, "uv_") {
 		t.Errorf("hexal/program.h exposes a libuv name:\n%s", programH)
 	}
-	if !slices.Equal(dependencyNames(result), []string{"libuv", "mimalloc"}) {
-		t.Fatalf("dependencies = %v, want libuv and mimalloc", dependencyNames(result))
+	if !slices.Equal(dependencyNames(result), []string{"libuv", "mimalloc", "utf8proc"}) {
+		t.Fatalf("dependencies = %v, want libuv, mimalloc, and utf8proc", dependencyNames(result))
 	}
 	root := rootC(t, result)
 	if !strings.Contains(root, "hex_program_current_directory_Error_String(hex_v_h") {

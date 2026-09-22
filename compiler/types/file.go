@@ -48,8 +48,8 @@ func IsFileMode(typ Type) bool { return typ.Adt != nil && typ.Adt == FileModeTyp
 // IsBuiltinAdt reports whether typ is a compiler-owned ADT whose struct lives
 // in a shared component header rather than in any module header.
 func IsBuiltinAdt(typ Type) bool {
-	return IsSeek(typ) || IsFileMode(typ) || IsErrorKind(typ) || IsAddress(typ) ||
-		IsEnvironment(typ) || IsProcessStream(typ) || IsExitStatus(typ) || IsSignal(typ)
+	return IsSeek(typ) || IsFileMode(typ) || IsErrorKind(typ) || IsUnicodeCategory(typ) || IsNormalizationForm(typ) ||
+		IsAddress(typ) || IsEnvironment(typ) || IsProcessStream(typ) || IsExitStatus(typ) || IsSignal(typ)
 }
 
 // IsBuiltinObject reports whether object is a compiler-owned struct whose
