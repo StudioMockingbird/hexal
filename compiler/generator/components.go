@@ -15,6 +15,7 @@ import (
 	"text/template"
 
 	"hexal/compiler/corelib"
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -126,6 +127,58 @@ func componentTemplateNames() []string {
 	return names
 }
 
+// componentDemand pairs the registry identities a builder owns with the
+// builder itself. The builder's Go body is the demand predicate; the
+// identities connect whatever it emits to the registry's file, dependency, and
+// C-header metadata. corelibComponents is the one builder that can emit two
+// components, because program and entropy share a single demand site.
+type componentDemand struct {
+	ids   []specdata.ComponentID
+	build func(*programEmission) ([]componentArtifact, error)
+}
+
+// componentDemands lists every demand-driven component with the explicit Go
+// builder that decides whether it is emitted. Order does not affect output:
+// rendered artifacts land in a keyed map.
+func componentDemands(config Config) []componentDemand {
+	return []componentDemand{
+		{ids: []specdata.ComponentID{specdata.ComponentRuntime}, build: runtimeComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentWrap}, build: wrapComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentHeap}, build: heapComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentSlice}, build: sliceComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentString}, build: stringComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentError}, build: errorComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentSeek}, build: seekComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentStash}, build: stashComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentPool}, build: poolComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentList}, build: listComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentDict}, build: dictComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentArray}, build: arrayComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentNumeric}, build: numericComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentPrint}, build: printComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentEquality}, build: equalityComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentIO}, build: func(merged *programEmission) ([]componentArtifact, error) {
+			return ioComponents(merged, config)
+		}},
+		{ids: []specdata.ComponentID{specdata.ComponentConcurrency}, build: func(merged *programEmission) ([]componentArtifact, error) {
+			return concurrencyComponents(merged, config)
+		}},
+		{ids: []specdata.ComponentID{specdata.ComponentEvent}, build: eventComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentTime}, build: timeComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentHandle}, build: handleComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentFile}, build: fileComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentNetwork}, build: networkComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentProcess}, build: processComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentSignal}, build: signalComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentTerminal}, build: func(merged *programEmission) ([]componentArtifact, error) {
+			return terminalComponents(merged, config)
+		}},
+		{ids: []specdata.ComponentID{specdata.ComponentProgram, specdata.ComponentEntropy}, build: func(merged *programEmission) ([]componentArtifact, error) {
+			return corelibComponents(merged, config)
+		}},
+	}
+}
+
 // renderComponentArtifacts renders the selected support components of one
 // compilation. An optional artifact is omitted when its rendered content is
 // empty, so no empty placeholder file is ever emitted. config reaches the
@@ -133,54 +186,15 @@ func componentTemplateNames() []string {
 func renderComponentArtifacts(merged *programEmission, config Config) (map[string]string, error) {
 	artifacts := make(map[string]string)
 	var components []componentArtifact
-	if merged.requirements != nil && merged.requirements.trap {
-		components = append(components, componentArtifact{
-			key:      "hexal/runtime.c",
-			template: "runtime.c",
-			model:    runtimeSourceModel{Native: merged.requirements.native},
-		})
-	}
-	// Each migrated family contributes its artifacts through its own
-	// component builder; families still owned by hexal.h contribute none.
-	families := []func(*programEmission) ([]componentArtifact, error){
-		wrapComponents,
-		heapComponents,
-		sliceComponents,
-		stringComponents,
-		errorComponents,
-		seekComponents,
-		stashComponents,
-		poolComponents,
-		listComponents,
-		dictComponents,
-		arrayComponents,
-		numericComponents,
-		printComponents,
-		equalityComponents,
-		func(merged *programEmission) ([]componentArtifact, error) {
-			return ioComponents(merged, config)
-		},
-		func(merged *programEmission) ([]componentArtifact, error) {
-			return concurrencyComponents(merged, config)
-		},
-		eventComponents,
-		timeComponents,
-		handleComponents,
-		fileComponents,
-		networkComponents,
-		processComponents,
-		signalComponents,
-		func(merged *programEmission) ([]componentArtifact, error) {
-			return terminalComponents(merged, config)
-		},
-		func(merged *programEmission) ([]componentArtifact, error) {
-			return corelibComponents(merged, config)
-		},
-	}
-	for _, family := range families {
-		familyArtifacts, err := family(merged)
+	for _, demand := range componentDemands(config) {
+		familyArtifacts, err := demand.build(merged)
 		if err != nil {
 			return nil, err
+		}
+		for _, artifact := range familyArtifacts {
+			if err := validateArtifactOwnership(demand.ids, artifact.key); err != nil {
+				return nil, err
+			}
 		}
 		components = append(components, familyArtifacts...)
 	}
@@ -195,4 +209,21 @@ func renderComponentArtifacts(merged *programEmission, config Config) (map[strin
 		artifacts[component.key] = content
 	}
 	return artifacts, nil
+}
+
+// validateArtifactOwnership refuses an artifact whose file the registry does
+// not attribute to the builder that emitted it. It is fail-closed: a mismatch
+// means the registry and the builder disagree about what the component owns, a
+// compiler-development defect, never a silent extra artifact.
+func validateArtifactOwnership(ids []specdata.ComponentID, key string) error {
+	owner, ok := specdata.FileOwner(key)
+	if !ok {
+		return compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("generated artifact %s is owned by no registered component", key)}
+	}
+	for _, id := range ids {
+		if id == owner {
+			return nil
+		}
+	}
+	return compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("component %s emitted artifact %s owned by another component", owner, key)}
 }

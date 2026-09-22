@@ -6,6 +6,20 @@ type runtimeSourceModel struct {
 	Native bool
 }
 
+// runtimeComponents returns the generated hexal/runtime.c artifact when any
+// selected path can trap. The trap body is the one program-wide definition;
+// Native additionally bootstraps libuv onto the shared allocator.
+func runtimeComponents(merged *programEmission) ([]componentArtifact, error) {
+	if merged == nil || merged.requirements == nil || !merged.requirements.trap {
+		return nil, nil
+	}
+	return []componentArtifact{{
+		key:      "hexal/runtime.c",
+		template: "runtime.c",
+		model:    runtimeSourceModel{Native: merged.requirements.native},
+	}}, nil
+}
+
 // utf8procSelected reports whether a generated runtime component uses the
 // utf8proc adapter. The callers are the UTF-8 validator's two owners: a module
 // that constructs text from bytes or concatenates text, and the program
