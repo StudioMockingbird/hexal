@@ -4,8 +4,8 @@ package checker
 // to a "std/..." module (Prog.arguments(), Ent.fill(into), Fs.open(...), ...).
 // A core library publishes no ModuleRegistry entry -- it has no Hexal source
 // and no defining scope -- so its calls resolve directly against the
-// compiler-owned corelib.Modules table instead of the ordinary
-// exported-interface path. A moved capability's module function reuses the
+// compiler-owned core-library registry in compiler/specdata instead of the
+// ordinary exported-interface path. A moved capability's module function reuses the
 // same checker operation as its former protected namespace, so the checked
 // tree and generated C are unchanged.
 
