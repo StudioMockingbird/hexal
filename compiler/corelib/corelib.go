@@ -55,7 +55,7 @@ type Module struct {
 // artifact; a moved capability's types keep their canonical compiler/types
 // identity and existing component, and a runtime function is a fixed entry
 // point selected on demand.
-var Modules = map[string]Module{
+var modules = map[string]Module{
 	"std/io": {
 		Types: map[string]compilerTypes.Type{
 			"IO":    compilerTypes.IOType,
@@ -159,14 +159,14 @@ var Modules = map[string]Module{
 
 // IsModule reports whether path names a known core-library module.
 func IsModule(path string) bool {
-	_, ok := Modules[path]
+	_, ok := modules[path]
 	return ok
 }
 
 // LookupType resolves one exported type of a known core-library module to its
 // canonical compiler/types identity.
 func LookupType(path, name string) (compilerTypes.Type, bool) {
-	module, ok := Modules[path]
+	module, ok := modules[path]
 	if !ok {
 		return compilerTypes.Type{}, false
 	}
@@ -176,7 +176,7 @@ func LookupType(path, name string) (compilerTypes.Type, bool) {
 
 // Lookup resolves one exported function of a known core-library module.
 func Lookup(path, name string) (Function, bool) {
-	module, ok := Modules[path]
+	module, ok := modules[path]
 	if !ok {
 		return Function{}, false
 	}
@@ -189,7 +189,7 @@ func Lookup(path, name string) (Function, bool) {
 // core-library function, so a checked call carrying only the runtime name
 // still resolves its result shape and parameter list.
 func FunctionByRuntime(runtime string) (string, Function, bool) {
-	for path, module := range Modules {
+	for path, module := range modules {
 		for _, function := range module.Functions {
 			if function.Runtime == runtime {
 				return path, function, true

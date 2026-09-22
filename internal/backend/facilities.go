@@ -5,21 +5,21 @@ import (
 	"strings"
 )
 
-// RequiredHeaders is the exact C header inventory generated C selects for the
+// requiredHeaders is the exact C header inventory generated C selects for the
 // Linux target, derived from compiler/generator/packages. A guard test fails
 // when production templates begin using a header absent here, which routes the
 // new header through qualification instead of silently assuming it.
-var RequiredHeaders = []string{
+var requiredHeaders = []string{
 	"errno.h", "inttypes.h", "limits.h", "math.h", "stdatomic.h",
 	"stdckdint.h", "stddef.h", "stdint.h", "stdio.h", "stdlib.h",
 	"string.h", "pthread.h", "ucontext.h", "signal.h", "sys/mman.h",
 	"unistd.h", "fcntl.h",
 }
 
-// RequiredFacilities names the non-header C23 facilities generated code relies
+// requiredFacilities names the non-header C23 facilities generated code relies
 // on: checked arithmetic, atomics, typeof, nullptr, attributes, and static
 // assertions, plus the POSIX threading and IO paths.
-var RequiredFacilities = []string{
+var requiredFacilities = []string{
 	"checked-arithmetic", "atomics", "typeof", "nullptr",
 	"attributes", "static-assert", "posix-threads", "posix-io",
 }
@@ -29,8 +29,8 @@ var RequiredFacilities = []string{
 // selected backend; the trivial `int main` probe proves nothing about the
 // facility set. The driver runs this as its full probe.
 func QualificationProbe() string {
-	includes := make([]string, 0, len(RequiredHeaders))
-	for _, header := range RequiredHeaders {
+	includes := make([]string, 0, len(requiredHeaders))
+	for _, header := range requiredHeaders {
 		includes = append(includes, "#include <"+header+">")
 	}
 	return strings.Join(includes, "\n") + `

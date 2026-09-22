@@ -6,8 +6,10 @@ package types
 
 // ErrorKindVariantNames is the fixed, declaration-ordered variant list. Order
 // here is the order ErrorKind.header() derivation, match declaration order,
-// and generated tag registration all agree on.
-var ErrorKindVariantNames = []string{
+// and generated tag registration all agree on. It is an array rather than a
+// slice, so a caller that takes a copy gets an independent value instead of a
+// second reference to the compiler's own storage.
+var ErrorKindVariantNames = [26]string{
 	"NotFound",
 	"PermissionDenied",
 	"AlreadyExists",
