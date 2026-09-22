@@ -9,5 +9,6 @@
             "binaryPath": "c:\\Users\\risharan\\Documents\\GitHub\\hexal\\bin\\test.exe",
             "binaryArgs": []
         }
-    ]
+    ],
+    "cmake.sourceDirectory": "/wsl.localhost/openSUSE-Tumbleweed/home/rishav/hexal/modules/utf8proc"
 }

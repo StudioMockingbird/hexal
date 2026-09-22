@@ -29,7 +29,7 @@ A bug is real whether or not its owning spec is scheduled.
 
 | Bug | Owning spec | Effort | ROI |
 | --- | --- | --- | --- |
-| No open bugs. | | | |
+| `try String<N>.interpolate(...)` fails at generation with `[Unknown Error] String<N>.interpolate expression reached generation without hoisting`; the same call as a plain `let x: String<N> \| Error = ...` assignment hoists and compiles. Fail-closed, no miscompile. | [0143](specs/archived/0143-raw-strings-and-explicit-heap-interpolation.md) | Medium | High |
 
 ## Known coverage gaps
 
