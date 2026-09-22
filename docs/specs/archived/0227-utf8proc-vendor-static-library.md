@@ -5,16 +5,15 @@
   exists to serve, because vendoring a Unicode library to run a validator
   Hexal already implements correctly would be cost without benefit
 - Status: Implemented. Every Validation item passes. Phases 0-7 landed: the
-  archive is vendored and qualified in the one shipped pack, the validator is
+  archive is vendored and qualified for both runtime packs (`x86_64-linux-gnu`,
+  the one the driver embeds, and `x86_64-windows-gnu-ucrt`), the validator is
   the utf8proc adapter, `Rune`, all three cursors, `Grapheme`, `UnicodeCategory`,
   `NormalizationForm`, and the Tier 3 `normalize`/`casefold` transforms are
   implemented and exercised end to end under the Clang gate, and
-  `docs/reference.md` carries the whole surface. Two items are recorded as
-  reachable-only dispositions in `docs/status.md`: the Tier 3 failure path
-  cannot be driven from a checked program and, by `utf8proc_map`'s own
-  contract, has nothing to release there; and the retired Windows pack is no
-  longer a shipped pack, so the one shipped pack is the one that carries the
-  archive
+  `docs/reference.md` carries the whole surface. One item is recorded as a
+  reachable-only disposition in `docs/status.md`: the Tier 3 failure path cannot
+  be driven from a checked program and, by `utf8proc_map`'s own contract, has
+  nothing to release there
 - Created: 2026-09-21
 - Updated: 2026-09-22
 - Origin: replaces the integration proposal in archived RFC 0147 with a

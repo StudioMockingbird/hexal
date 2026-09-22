@@ -6,4 +6,4 @@
 	url = https://github.com/libuv/libuv.git
 [submodule "modules/utf8proc"]
 	path = modules/utf8proc
-	url = https://github.com/JuliaStrings/utf8proc
+	url = https://github.com/JuliaStrings/utf8proc.git
