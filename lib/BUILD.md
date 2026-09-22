@@ -113,10 +113,55 @@ clang -std=c23 -D_POSIX_C_SOURCE=200809L combine.c \
 It calls `mi_malloc`/`mi_free` and `uv_version`, and exits 0. `hexal doctor`
 performs the same combined-archive probe plus full manifest verification.
 
-## Retired Windows pack
+## Windows GNU/UCRT utf8proc pack
 
-`lib/x86_64-windows-gnu-ucrt/` is the previous Zig/MinGW runtime pack. It is no
-longer embedded, selected, validated, or linked by the driver: this release
-qualifies no native Windows build path, and `x86_64-windows-gnu-ucrt` remains
-only a core C-generation target. A later Windows-focused specification owns
-either requalification with Clang/MinGW-w64/UCRT or removal of these bytes.
+`lib/x86_64-windows-gnu-ucrt/utf8proc_v2.11.3/` contains the target-qualified
+utf8proc archive, public header, and upstream license. The Windows pack is
+checked in but is not embedded or selected by the current driver; this record
+qualifies the dependency payload independently of the driver-selection work.
+
+### Build identity
+
+- Hexal target profile: `x86_64-windows-gnu-ucrt`
+- Clang toolchain target triple: `x86_64-w64-windows-gnu`
+- Host and probe environment: x86-64 Windows, MinGW-w64/UCRT
+- Producer compiler: Clang 22.1.8
+- Archiver: LLVM `llvm-ar` 22.1.8
+- Optimization: `-O2 -DNDEBUG -fPIC -DUTF8PROC_STATIC`
+- CPU policy: target-portable x86-64; no `-march=native`
+
+### utf8proc_v2.11.3
+
+- Source: `modules/utf8proc` at commit
+  `e5e799221b45bbb90f5fdc5c69b6b8dfbf017e78` (`v2.11.3`)
+- Release archive: `https://github.com/JuliaStrings/utf8proc/archive/refs/tags/v2.11.3.tar.gz`
+- Release archive size: `202535` bytes
+- Release archive SHA-256:
+  `abfed50b6d4da51345713661370290f4f4747263ee73dc90356299dfc7990c78`
+- Unicode data: 17.0.0
+- Source files: `utf8proc.c`; it includes the generated `utf8proc_data.c`
+- Public header: `utf8proc_v2.11.3/include/utf8proc.h` (copied unchanged)
+- License: `utf8proc_v2.11.3/LICENSE.md` (MIT/Expat and Unicode data terms)
+- Compile command:
+
+```text
+clang --target=x86_64-w64-windows-gnu -std=c11 -O2 -DNDEBUG -fPIC -pthread \
+  -DUTF8PROC_STATIC -I modules/utf8proc \
+  -c modules/utf8proc/utf8proc.c -o utf8proc.o
+llvm-ar rcs utf8proc_v2.11.3/utf8proc.a utf8proc.o
+```
+
+- Archive size: `349998` bytes
+- Archive SHA-256:
+  `cccf77623c664d67aedb9113ce410c93c3effeeeb19b32d56a3e2a127822311c`
+- Header SHA-256:
+  `a4e498b7392c383cf3b22e662da21e0b48f1264806235d87b5d8bd166232f658`
+- License SHA-256:
+  `3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256`
+
+The Windows qualification probe includes `utf8proc.h`, links the archive, and
+decodes U+1F600 with `utf8proc_iterate`; it exits 0 and prints `utf8proc-ok`.
+
+The existing libuv and mimalloc Windows artifacts remain the prior pack inputs;
+their requalification and driver embedding are separate from this utf8proc
+payload record.

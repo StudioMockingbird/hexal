@@ -14,6 +14,7 @@ gets deleted.
 | Work | Spec | Effort | ROI |
 | --- | --- | --- | --- |
 | Prove end-to-end automatic import and static linking of an unmodified Raylib package | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) | High | Medium |
+| Complete utf8proc integration and qualify the payload in every shipped runtime pack | [0227](specs/0227-utf8proc-vendor-static-library.md) | High | Medium |
 
 ## Deferred ideas
 
