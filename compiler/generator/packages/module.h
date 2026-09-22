@@ -137,7 +137,7 @@
     bool first = true;
     for (size_t index = 0; index < v->capacity; index++) {
         if (!v->buckets[index].active) { continue; }
-        if (index > 0) { hex_print_text(out, (const uint8_t *)", ", 2); }
+        if (!first) { hex_print_text(out, (const uint8_t *)", ", 2); }
         first = false;
         hex_print_nested_{{.KeyCName}}(out, {{.KeyArg}});
         hex_print_text(out, (const uint8_t *)": ", 2);
@@ -292,7 +292,7 @@ static inline {{.CName}} hex_string_from_runes_{{.Suffix}}(hex_heap h, hex_slice
 // program-wide UnicodeCategory tag, in declaration order.
 static const hex_tag hex_rune_categories[{{.Count}}] = {
 {{end}}{{define "category_entry"}}    {{.Tag}},
-{{end}}{{define "category_close"}};
+{{end}}{{define "category_close"}}};
 {{end}}{{define "casefold_adapter"}}
 // hex_string_casefold_{{.Suffix}} folds text and reports a failed transform as
 // an Error. The transform buffer never escapes the runtime core.
