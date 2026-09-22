@@ -31,5 +31,5 @@ package specdata
 // suite instead of crashing every consumer. An empty registry is valid, which
 // is what lets each domain arrive in its own slice without a placeholder.
 func Validate() error {
-	return nil
+	return validateCorelib()
 }
