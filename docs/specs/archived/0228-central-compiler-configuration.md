@@ -1,9 +1,16 @@
 # RFC 0228: Central Compiler Configuration
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Open Discussion; proposed. **Blocked on RFC 0230**, which settles
-  the ownership map, target split, diagnostic ownership, impact table, and
-  inventory format this RFC depends on
+- Status: Implemented. All four phases landed, and every Validation bullet was
+  verified on the tree: `compiler/config` exists and imports only the standard
+  library; the eleven declarations the RFC 0230 inventory classified are moved
+  into it, each with its old declaration deleted rather than aliased, so no
+  name has two owners; the fourteen generated-C spellings were already removed
+  by RFC 0231, which this RFC's own Phase 3 anticipated; the six mutable
+  exports are resolved, with the two `snippets` lists left exported exactly as
+  the plan permits; every migrated generated value has a generated-C text
+  assertion; and `docs/reference.md` was reviewed and is unchanged, which is
+  what this RFC's own "Does not update" line requires
 - Created: 2026-09-21
 - Scope: move every compiler-owned tunable policy, ABI fact, generated-runtime
   contract, limit, default, and target/build identity into one authoritative
