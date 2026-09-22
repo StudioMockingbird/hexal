@@ -5,13 +5,15 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
 	"hexal/compiler"
+	compilerConfig "hexal/compiler/config"
 	compilerTypes "hexal/compiler/types"
 	"hexal/internal/backend"
 	"hexal/internal/version"
@@ -169,14 +171,10 @@ func buildIdentity(mode BuildMode, backendIdentity string, files map[string]stri
 	write(backendIdentity)
 	write(qualifiedTriple)
 	write(string(target))
-	write(strconv.FormatUint(uint64(compiler.RuntimeABIVersion), 10))
+	write(strconv.FormatUint(uint64(compilerConfig.RuntimeABIVersion), 10))
 	write(string(mode))
 
-	names := make([]string, 0, len(files))
-	for name := range files {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(files))
 	count(len(names))
 	for _, name := range names {
 		write(name)

@@ -16,10 +16,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"hexal/compiler"
+	compilerConfig "hexal/compiler/config"
 	compilerTypes "hexal/compiler/types"
 	"hexal/internal/backend"
 	"hexal/lib"
@@ -184,7 +185,7 @@ func selectedHashes(manifest runtimeManifest, dependency runtimeDependency) []st
 			keys = append(keys, key)
 		}
 	}
-	sort.Strings(keys)
+	slices.Sort(keys)
 	return keys
 }
 
@@ -273,8 +274,8 @@ func validateRuntimeManifest(manifest runtimeManifest, target compilerTypes.Targ
 	if manifest.FormatVersion != 1 {
 		return fmt.Errorf("runtime pack format %d is unsupported", manifest.FormatVersion)
 	}
-	if manifest.RuntimeABIVersion != compiler.RuntimeABIVersion {
-		return fmt.Errorf("runtime pack ABI %d is incompatible; this Hexal compiler requires ABI %d", manifest.RuntimeABIVersion, compiler.RuntimeABIVersion)
+	if manifest.RuntimeABIVersion != compilerConfig.RuntimeABIVersion {
+		return fmt.Errorf("runtime pack ABI %d is incompatible; this Hexal compiler requires ABI %d", manifest.RuntimeABIVersion, compilerConfig.RuntimeABIVersion)
 	}
 	if manifest.TargetProfile != string(target) {
 		return fmt.Errorf("runtime pack target %s does not match %s", manifest.TargetProfile, target)
