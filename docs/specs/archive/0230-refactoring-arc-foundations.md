@@ -1,10 +1,13 @@
 # RFC 0230: Refactoring Arc Foundations
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Implementation ready; awaiting acceptance. Eleven decisions, the
-  ledger, and the conformance tests that keep them true. This ADR must be
-  accepted *before* RFC 0228 or RFC 0229 begins, because both depend on
-  decisions neither can make alone
+- Status: Closed. Accepted 2026-09-22 against the tree: all eleven decisions
+  carry evidence; `docs/specs/0230-inventory.md` classifies all 476
+  package-level declarations (282+102+60+12+10+6+3+1); RFC 0228 and RFC 0229
+  carry no open question this ADR settles; RFC 0221 sequences Track 4 last;
+  the migration order names runtime components as the first slice; and the
+  eight conformance guards exist in `architecture_policy_test.go`, six
+  skipping until `compiler/specdata` lands
 - Created: 2026-09-22
 - Scope: fix the ownership map, import graph, generic-specialization model,
   registry validation contract, impact classification, and migration order
