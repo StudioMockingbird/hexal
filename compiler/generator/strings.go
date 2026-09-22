@@ -964,7 +964,7 @@ func writeTextInlineHelpers(result *strings.Builder, state *generatedTextState, 
 	if state.runeCategory {
 		// hex_rune_categories maps a utf8proc general-category ordinal to the
 		// program-wide UnicodeCategory tag, in declaration order.
-		result.WriteString("\n// hex_rune_categories maps a utf8proc general-category ordinal to the\n" +
+		result.WriteString("\n// hex_rune_categories maps the runtime's general-category ordinal to the\n" +
 			"// program-wide UnicodeCategory tag, in declaration order.\n" +
 			fmt.Sprintf("static const hex_tag hex_rune_categories[%d] = {\n", len(compilerTypes.UnicodeCategoryVariantNames)))
 		for index := range compilerTypes.UnicodeCategoryVariantNames {
@@ -982,7 +982,7 @@ func writeTextInlineHelpers(result *strings.Builder, state *generatedTextState, 
 			}
 			fmt.Fprintf(result,
 				"\n// hex_string_casefold_%s folds text and reports a failed transform as\n"+
-					"// an Error. The utf8proc buffer never escapes the runtime core.\n"+
+					"// an Error. The transform buffer never escapes the runtime core.\n"+
 					"static inline %s hex_string_casefold_%s(hex_heap h, hex_text text, size_t line, size_t column) {\n"+
 					"    const hex_string *folded = hex_text_casefold(h, text);\n"+
 					"    if (folded == nullptr) {\n"+
@@ -1010,7 +1010,7 @@ func writeTextInlineHelpers(result *strings.Builder, state *generatedTextState, 
 			}
 			fmt.Fprintf(result,
 				"\n// hex_string_normalize_%s normalizes text and reports a failed transform\n"+
-					"// as an Error. The utf8proc buffer never escapes the runtime core.\n"+
+					"// as an Error. The transform buffer never escapes the runtime core.\n"+
 					"static inline %s hex_string_normalize_%s(hex_heap h, hex_text text, hex_tag form, size_t line, size_t column) {\n"+
 					"    const hex_string *normalized = hex_text_normalize(h, text, hex_normalize_form(form));\n"+
 					"    if (normalized == nullptr) {\n"+

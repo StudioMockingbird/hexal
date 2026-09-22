@@ -31,6 +31,52 @@ func TestGraphemeCursor(t *testing.T) {
 	assertRejects(t, "fun demo(h: Heap) do\n    let d: Dict<Grapheme, Int32> = Dict<Grapheme, Int32>(h)\nend\n", "dictionary key type must be Int32 or String<N>")
 }
 
+// Every tier operation is available on both text forms: Tier 1 lengths, Tier 2
+// Rune properties, and Tier 3 transforms.
+func TestEveryTierOnBothTextForms(t *testing.T) {
+	assertCompiles(t, "fun demo(h: Heap): Bool do\n"+
+		"    let heap: String = \"e\\u{301}\"\n"+
+		"    let inline: String<16> = \"e\\u{301}\"\n"+
+		"    let lengths: Size = heap.rune_length() + inline.rune_length() + heap.grapheme_length() + inline.grapheme_length()\n"+
+		"    let property: Bool = 'a'.is_alphabetic() and ('a'.to_upper() == 'A')\n"+
+		"    let folded_heap: String | Error = heap.casefold(h)\n"+
+		"    let folded_inline: String | Error = inline.casefold(h)\n"+
+		"    let normalized_heap: String | Error = heap.normalize(h, NormalizationForm.NFC())\n"+
+		"    let normalized_inline: String | Error = inline.normalize(h, NormalizationForm.NFC())\n"+
+		"    let bytes_heap: ByteCursor = heap.byte_cursor()\n"+
+		"    let bytes_inline: ByteCursor = inline.byte_cursor()\n"+
+		"    return true\n"+
+		"end\n")
+}
+
+// No generated header names the private Unicode library, for a program that
+// selects the entire Unicode surface -- not only the validator.
+func TestNoGeneratedHeaderNamesTheLibrary(t *testing.T) {
+	result := assertCompiles(t, "fun demo(h: Heap): Bool do\n"+
+		"    let raw: Slice<Byte> = \"abc\".bytes()\n"+
+		"    let built: String | Error = String.from_bytes(h, raw)\n"+
+		"    let text: String = \"e\\u{301}x\".copy(h)\n"+
+		"    defer text.free(h)\n"+
+		"    let runes: Size = text.rune_length()\n"+
+		"    let clusters: Size = text.grapheme_length()\n"+
+		"    let mut bytes_cursor: ByteCursor = text.byte_cursor()\n"+
+		"    let mut rune_cursor: RuneCursor = text.rune_cursor()\n"+
+		"    let mut grapheme_cursor: GraphemeCursor = text.grapheme_cursor()\n"+
+		"    let category: UnicodeCategory = 'a'.category()\n"+
+		"    let property: Bool = 'a'.is_alphabetic()\n"+
+		"    let folded: String | Error = text.casefold(h)\n"+
+		"    let normalized: String | Error = text.normalize(h, NormalizationForm.NFC())\n"+
+		"    let values: Array<Rune, 2> = ['a', 'b']\n"+
+		"    let encoded: String | Error = String.from_runes(h, values.slice(0, 2))\n"+
+		"    return true\n"+
+		"end\n")
+	for key, body := range result.Files {
+		if strings.HasSuffix(key, ".h") && strings.Contains(body, "utf8proc") {
+			t.Fatalf("generated header %s names the private Unicode library:\n%s", key, body)
+		}
+	}
+}
+
 // for g: Grapheme in text enumerates clusters through the stateful segmenter.
 func TestForInTextGrapheme(t *testing.T) {
 	result := assertCompiles(t, "fun demo() do\n    let text: String = \"e\\u{301}\"\n    for g: Grapheme in text do\n        let n: Size = g.rune_length()\n    end\nend\n")

@@ -113,7 +113,7 @@ typedef struct hex_grapheme {
     size_t length;
 } hex_grapheme;
 
-// hex_grapheme_cursor owns the utf8proc break state, so it must be fed every
+// hex_grapheme_cursor owns the segmenter's break state, so it must be fed every
 // adjacent scalar pair in order. cached_end is the lookahead cluster peek
 // computed; zero means none, which no real cluster end can be.
 typedef struct hex_grapheme_cursor {

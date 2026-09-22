@@ -324,6 +324,58 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{zeroExit: false, requiredStderrSubstring: "[Runtime Error] RuneCursor has no next value"},
 	},
 	{
+		name:       "cursor-alignment-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
+			"    let text: String = \"e\\u{301}x\\u{1F1FA}\\u{1F1F8}\".copy(h)\n" +
+			"    defer text.free(h)\n" +
+			"    let mut bytes_cursor: Size = 0\n" +
+			"    let mut b: ByteCursor = text.byte_cursor()\n" +
+			"    while b.has_next() do\n" +
+			"        let v: Byte = b.next()\n" +
+			"        bytes_cursor = bytes_cursor + 1\n" +
+			"    end\n" +
+			"    let mut bytes_for: Size = 0\n" +
+			"    for x: Byte in text do\n" +
+			"        bytes_for = bytes_for + 1\n" +
+			"    end\n" +
+			"    let mut runes_cursor: Size = 0\n" +
+			"    let mut r: RuneCursor = text.rune_cursor()\n" +
+			"    while r.has_next() do\n" +
+			"        let v: Rune = r.next()\n" +
+			"        runes_cursor = runes_cursor + 1\n" +
+			"    end\n" +
+			"    let mut runes_for: Size = 0\n" +
+			"    for x: Rune in text do\n" +
+			"        runes_for = runes_for + 1\n" +
+			"    end\n" +
+			"    let mut clusters_cursor: Size = 0\n" +
+			"    let mut peek_ok: Bool = true\n" +
+			"    let mut g: GraphemeCursor = text.grapheme_cursor()\n" +
+			"    while g.has_next() do\n" +
+			"        let p1: Grapheme = g.peek()\n" +
+			"        let p2: Grapheme = g.peek()\n" +
+			"        let s1: Slice<Byte> = p1.bytes()\n" +
+			"        let s2: Slice<Byte> = p2.bytes()\n" +
+			"        peek_ok = peek_ok and (s1.length() == s2.length())\n" +
+			"        let n: Grapheme = g.next()\n" +
+			"        clusters_cursor = clusters_cursor + 1\n" +
+			"    end\n" +
+			"    let mut clusters_for: Size = 0\n" +
+			"    for x: Grapheme in text do\n" +
+			"        clusters_for = clusters_for + 1\n" +
+			"    end\n" +
+			"    let mut offset_cursor: RuneCursor = text.rune_cursor()\n" +
+			"    let first: Rune = offset_cursor.next()\n" +
+			"    let start: Size = offset_cursor.offset() - first.utf8_length()\n" +
+			"    let second: Rune = offset_cursor.next()\n" +
+			"    let range: Slice<Byte> = text.slice(start, offset_cursor.offset())\n" +
+			"    return (bytes_cursor == bytes_for) and (runes_cursor == runes_for) and (clusters_cursor == clusters_for) and peek_ok and (start == 0) and (range.length() == 3) and (second.value() == 0x301)\n" +
+			"end\n" +
+			"print(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
 		name:       "normalize-runs",
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +

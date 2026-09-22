@@ -35,19 +35,19 @@ A bug is real whether or not its owning spec is scheduled.
 
 Not bugs — deliberate limits worth remembering when reading a green test run.
 
-- **The Unicode surface ([0227](specs/0227-utf8proc-vendor-static-library.md))
-  is implemented and exercised end to end only on the qualified
-  `x86_64-linux-gnu` pack.** `Rune` and its literals, Tier 1 methods, all three
-  cursors, the grapheme segmenter, `UnicodeCategory`, and the Tier 3
-  `normalize`/`casefold` transforms compile, run, and pass UBSan under the
-  Clang gate, but the pinned utf8proc archive is recorded only in
-  `lib/x86_64-linux-gnu/manifest.json`. `lib/x86_64-windows-gnu-ucrt/` ships
-  libuv and mimalloc with no utf8proc entry, and no cross toolchain or MinGW
-  sysroot is installed here to produce one, so 0227's requirement that every
-  shipped target pack carry a verified archive is unmet and the spec stays
-  open. No dedicated LeakSanitizer run covers the `malloc`-to-Heap copy in
-  `normalize`/`casefold`; the `free`-on-every-path release is verified by
-  inspection and by the UBSan run, not by a leak checker.
+- **The Tier 3 transforms' failure path is not executed by any fixture
+  ([0227](specs/archived/0227-utf8proc-vendor-static-library.md)).** `String.normalize`
+  and `String.casefold` release the `malloc` buffer `utf8proc_map` returns and
+  report a failed transform as `InvalidInput`. That failure cannot be reached
+  from a checked program -- text is always validated UTF-8, so `utf8proc_map`
+  cannot report malformed input, and allocator exhaustion is not injectable
+  here -- and it cannot leak either: `utf8proc_map_custom` sets `*dstptr` to
+  NULL on entry and assigns it only on success, releasing its own buffer on
+  every error path, so the caller's defensive release never has anything to
+  free. The success path, the only one that can hand back a `malloc` buffer,
+  is covered by a dedicated LeakSanitizer run (`TestC23SuiteLeak`). No other
+  component gets one: every other fixture deliberately leaves bindings
+  unfreed, so a program-wide leak check would report their intentional leaks.
 - **Program paths and secure entropy ([0178](specs/0178-libuv-os-services.md))**
   have executable argument-independent fixtures that compile, run, and pass
   UBSan under the qualified Linux/Clang gate, and
