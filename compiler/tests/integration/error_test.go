@@ -2,6 +2,7 @@ package integration
 
 import (
 	"hexal/compiler"
+	compilerTypes "hexal/compiler/types"
 	"strings"
 	"testing"
 )
@@ -21,7 +22,7 @@ func TestErrorNewConstruction(t *testing.T) {
 		"size_t hex_m_line;",
 		"size_t hex_m_column;",
 		"hex_t_ErrorKind hex_m_kind;",
-		"hex_string_256 hex_m_message;",
+		compilerTypes.ErrorMessageText.CName + " hex_m_message;",
 	} {
 		if !strings.Contains(errorH, want) {
 			t.Fatalf("hexal/error.h = %q, want %q", errorH, want)

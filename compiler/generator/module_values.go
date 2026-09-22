@@ -51,18 +51,23 @@ func writeModuleValueDefinitions(result *strings.Builder, values []checker.Modul
 		if err != nil {
 			return err
 		}
-		result.WriteString(definition)
+		if err := renderInto(result, "module.c", "raw_text", rawTextModel{Text: definition}); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 // writeExportedModuleValueDeclarations emits every exported constant's extern
 // declaration, in checked declaration order, into the owning module's header.
-func writeExportedModuleValueDeclarations(result *strings.Builder, values []checker.ModuleValueDeclaration, owner string) {
+func writeExportedModuleValueDeclarations(result *strings.Builder, values []checker.ModuleValueDeclaration, owner string) error {
 	for _, value := range values {
 		if !value.Exported {
 			continue
 		}
-		result.WriteString(moduleValueExternDeclaration(value, owner))
+		if err := renderInto(result, "module.h", "raw_text", rawTextModel{Text: moduleValueExternDeclaration(value, owner)}); err != nil {
+			return err
+		}
 	}
+	return nil
 }

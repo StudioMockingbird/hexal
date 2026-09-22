@@ -161,7 +161,9 @@ func hoistSequenceSlots(slots []sequenceSlot, body *strings.Builder, state *expr
 		// for String, List, Dict, and Fun<...>, each of which needs its own
 		// pointer or function-pointer form, exactly as hoistTry's own
 		// result temporary already relies on the same helper.
-		fmt.Fprintf(body, "%s%s = %s;\n", indent, declaration(typ, temp, false), rendered)
+		if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: declaration(typ, temp, false), Value: rendered}); err != nil {
+			return err
+		}
 		state.hoistedSequencing[slot.key] = temp
 	}
 	return nil
@@ -546,7 +548,9 @@ func forceHoistAssignmentTargetIndex(target, source *checker.Expression, body *s
 	}
 	state.sequenceCounter++
 	temp := fmt.Sprintf("hex_seq_%d", state.sequenceCounter)
-	fmt.Fprintf(body, "%s%s = %s;\n", indent, declaration(operand.Type, temp, false), rendered)
+	if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: declaration(operand.Type, temp, false), Value: rendered}); err != nil {
+		return err
+	}
 	state.hoistedSequencing[key] = temp
 	return nil
 }

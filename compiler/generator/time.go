@@ -214,6 +214,21 @@ func validateTimeExpression(node checker.Expression, expected *compilerTypes.Typ
 	return nil
 }
 
+// wallTimeAdapterModel carries one WallTime.now adapter's decided union type,
+// name suffix, wall-time and error arm tags and payload fields, the file
+// literal, the unsupported error-kind tag, and the failure message literal.
+type wallTimeAdapterModel struct {
+	CName      string
+	Suffix     string
+	WallTag    string
+	WallField  string
+	ErrorTag   string
+	ErrorField string
+	File       string
+	ErrorKind  string
+	Message    string
+}
+
 // writeTimeInlineHelpers emits the module-owned WallTime.now adapters, one per
 // distinct result union, constructing failures with this module's file
 // literal and the static header and message.
@@ -228,17 +243,19 @@ func writeTimeInlineHelpers(result *strings.Builder, state *generatedTimeState, 
 	for _, union := range state.wallUnions {
 		wallTag, wallField := streamMemberRef(tags, union, compilerTypes.WallTimeType)
 		errorTag, errorField := streamMemberRef(tags, union, compilerTypes.ErrorType)
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_wall_time_now_%s(size_t line, size_t column) {\n"+
-				"    hex_wall_time now;\n"+
-				"    if (hex_wall_time_now(&now)) {\n"+
-				"        return (%s){ .tag = %s, .payload.%s = now };\n"+
-				"    }\n"+
-				"    return (%s){ .tag = %s, .payload.%s = (hex_t_Error){ .hex_m_file = &%s, .hex_m_line = line, .hex_m_column = column, .hex_m_kind = (hex_t_ErrorKind){ .tag = %s }, .hex_m_message = hex_error_message(hex_text_heap(&%s)) } };\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union),
-			union.CName, wallTag, wallField,
-			union.CName, errorTag, errorField, literals.CName(state.fileLiteral), errorKindTag(tags, "Unsupported"), literals.CName(message))
+		if err := renderInto(result, "module.h", "wall_time_adapter", wallTimeAdapterModel{
+			CName:      union.CName,
+			Suffix:     streamAdapterSuffix(union),
+			WallTag:    wallTag,
+			WallField:  wallField,
+			ErrorTag:   errorTag,
+			ErrorField: errorField,
+			File:       literals.CName(state.fileLiteral),
+			ErrorKind:  errorKindTag(tags, "Unsupported"),
+			Message:    literals.CName(message),
+		}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

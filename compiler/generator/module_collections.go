@@ -232,7 +232,9 @@ func writeModuleCollectionSpecializations(result *strings.Builder, input *module
 	if len(ordered) == 0 {
 		return nil
 	}
-	result.WriteString("\n/* Module-owned collection specializations. */\n")
+	if err := renderInto(result, "module.h", "collection_banner", struct{}{}); err != nil {
+		return err
+	}
 	hashEmitted := make(map[string]bool)
 	for _, typ := range ordered {
 		var artifact componentArtifact
@@ -252,7 +254,9 @@ func writeModuleCollectionSpecializations(result *strings.Builder, input *module
 		if renderErr != nil {
 			return renderErr
 		}
-		result.WriteString(fragment)
+		if err := renderInto(result, "module.h", "raw_text", rawTextModel{Text: fragment}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

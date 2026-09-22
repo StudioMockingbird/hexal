@@ -176,6 +176,33 @@ func networkErrorArm(tags *tagRegistry, literals *literalRegistry, name string, 
 		union.CName, tag, field, status, literals.CName(handle)), nil
 }
 
+// tcpReadAdapterModel carries one TCP read adapter's decided suffix, union
+// type, count and end-of-stream arm tags, count payload field, and failure
+// arm text.
+type tcpReadAdapterModel struct {
+	Suffix  string
+	CName   string
+	Success string
+	Field   string
+	EosTag  string
+	Error   string
+}
+
+// tcpStatusAdapterModel carries one status adapter's decided owner prefix,
+// operation, suffix, parameter list, call expression, union type, success
+// arm tag, and failure arm text; the owner prefix is unused when the
+// template spells it.
+type tcpStatusAdapterModel struct {
+	CName     string
+	Owner     string
+	Operation string
+	Suffix    string
+	Params    string
+	Call      string
+	Success   string
+	Error     string
+}
+
 // writeNetworkInlineHelpers emits the module-owned networking adapters: each
 // wraps the network.c core in one structural result union, built with this
 // module's static operation message.
@@ -190,16 +217,15 @@ func writeNetworkInlineHelpers(result *strings.Builder, state *generatedNetworkS
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_address_parse_%s(const hex_string *text, uint16_t port, size_t line, size_t column) {\n"+
-				"    hex_address_parsed parsed = hex_address_parse(text, port);\n"+
-				"    if (parsed.status == 0) {\n"+
-				"        return (%s){ .tag = %s, .payload.%s = parsed.address };\n"+
-				"    }\n"+
-				"    return %s;\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union),
-			union.CName, addrTag, addrField, failure)
+		if err := renderInto(result, "module.h", "address_parse_adapter", streamAdapterModel{
+			Suffix:  streamAdapterSuffix(union),
+			CName:   union.CName,
+			Success: addrTag,
+			Field:   addrField,
+			Error:   failure,
+		}); err != nil {
+			return err
+		}
 	}
 
 	for _, union := range state.resolveUnions {
@@ -212,16 +238,15 @@ func writeNetworkInlineHelpers(result *strings.Builder, state *generatedNetworkS
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_dns_resolve_%s(const hex_string *host, const hex_string *service, hex_heap heap, size_t line, size_t column) {\n"+
-				"    hex_dns_result resolved = hex_dns_resolve(host, service, heap);\n"+
-				"    if (resolved.status == 0) {\n"+
-				"        return (%s){ .tag = %s, .payload.%s = resolved.list };\n"+
-				"    }\n"+
-				"    return %s;\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union),
-			union.CName, listTag, listField, failure)
+		if err := renderInto(result, "module.h", "dns_resolve_adapter", streamAdapterModel{
+			Suffix:  streamAdapterSuffix(union),
+			CName:   union.CName,
+			Success: listTag,
+			Field:   listField,
+			Error:   failure,
+		}); err != nil {
+			return err
+		}
 	}
 
 	for _, union := range state.connectUnions {
@@ -230,16 +255,15 @@ func writeNetworkInlineHelpers(result *strings.Builder, state *generatedNetworkS
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_tcp_connect_%s(hex_t_Address address, size_t line, size_t column) {\n"+
-				"    hex_tcp_connect_result connected = hex_tcp_connect(address);\n"+
-				"    if (connected.status == 0) {\n"+
-				"        return (%s){ .tag = %s, .payload.%s = connected.connection };\n"+
-				"    }\n"+
-				"    return %s;\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union),
-			union.CName, connTag, connField, failure)
+		if err := renderInto(result, "module.h", "tcp_connect_adapter", streamAdapterModel{
+			Suffix:  streamAdapterSuffix(union),
+			CName:   union.CName,
+			Success: connTag,
+			Field:   connField,
+			Error:   failure,
+		}); err != nil {
+			return err
+		}
 	}
 
 	for _, union := range state.listenUnions {
@@ -248,16 +272,15 @@ func writeNetworkInlineHelpers(result *strings.Builder, state *generatedNetworkS
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_tcp_listen_%s(hex_t_Address address, size_t backlog, size_t line, size_t column) {\n"+
-				"    hex_tcp_listen_result listened = hex_tcp_listen(address, backlog);\n"+
-				"    if (listened.status == 0) {\n"+
-				"        return (%s){ .tag = %s, .payload.%s = listened.listener };\n"+
-				"    }\n"+
-				"    return %s;\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union),
-			union.CName, listenerTag, listenerField, failure)
+		if err := renderInto(result, "module.h", "tcp_listen_adapter", streamAdapterModel{
+			Suffix:  streamAdapterSuffix(union),
+			CName:   union.CName,
+			Success: listenerTag,
+			Field:   listenerField,
+			Error:   failure,
+		}); err != nil {
+			return err
+		}
 	}
 
 	for _, union := range state.acceptUnions {
@@ -266,16 +289,15 @@ func writeNetworkInlineHelpers(result *strings.Builder, state *generatedNetworkS
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_tcp_accept_%s(hex_tcp_listener listener, size_t line, size_t column) {\n"+
-				"    hex_tcp_accept_result accepted = hex_tcp_accept(listener);\n"+
-				"    if (accepted.status == 0) {\n"+
-				"        return (%s){ .tag = %s, .payload.%s = accepted.connection };\n"+
-				"    }\n"+
-				"    return %s;\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union),
-			union.CName, connTag, connField, failure)
+		if err := renderInto(result, "module.h", "tcp_accept_adapter", streamAdapterModel{
+			Suffix:  streamAdapterSuffix(union),
+			CName:   union.CName,
+			Success: connTag,
+			Field:   connField,
+			Error:   failure,
+		}); err != nil {
+			return err
+		}
 	}
 
 	for _, union := range state.readUnions {
@@ -285,21 +307,16 @@ func writeNetworkInlineHelpers(result *strings.Builder, state *generatedNetworkS
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_tcp_read_%s(hex_tcp_connection connection, hex_list_UInt8 *into, size_t max, size_t line, size_t column) {\n"+
-				"    hex_tcp_transfer transfer = hex_tcp_read(connection, into, max);\n"+
-				"    switch (transfer.status) {\n"+
-				"    case 0:\n"+
-				"        return (%s){ .tag = %s, .payload.%s = transfer.count };\n"+
-				"    case HEX_NETWORK_EOS:\n"+
-				"        return (%s){ .tag = %s };\n"+
-				"    default:\n"+
-				"        return %s;\n"+
-				"    }\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union),
-			union.CName, sizeTag, sizeField,
-			union.CName, eosTag, failure)
+		if err := renderInto(result, "module.h", "tcp_read_adapter", tcpReadAdapterModel{
+			Suffix:  streamAdapterSuffix(union),
+			CName:   union.CName,
+			Success: sizeTag,
+			Field:   sizeField,
+			EosTag:  eosTag,
+			Error:   failure,
+		}); err != nil {
+			return err
+		}
 	}
 
 	statusAdapter := func(unions []compilerTypes.Type, operation, call, payload string) error {
@@ -309,17 +326,17 @@ func writeNetworkInlineHelpers(result *strings.Builder, state *generatedNetworkS
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(result,
-				"\nstatic inline %s hex_tcp_%s_%s(%s, size_t line, size_t column) {\n"+
-					"    int status = %s;\n"+
-					"    if (status == 0) {\n"+
-					"        return (%s){ .tag = %s };\n"+
-					"    }\n"+
-					"    return %s;\n"+
-					"}\n",
-				union.CName, operation, streamAdapterSuffix(union), networkStatusAdapterParams(operation),
-				call,
-				union.CName, nilTag, failure)
+			if err := renderInto(result, "module.h", "tcp_status_adapter", tcpStatusAdapterModel{
+				CName:     union.CName,
+				Operation: operation,
+				Suffix:    streamAdapterSuffix(union),
+				Params:    networkStatusAdapterParams(operation),
+				Call:      call,
+				Success:   nilTag,
+				Error:     failure,
+			}); err != nil {
+				return err
+			}
 		}
 		return nil
 	}

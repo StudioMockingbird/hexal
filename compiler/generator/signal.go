@@ -157,6 +157,34 @@ func signalErrorArm(tags *tagRegistry, literals *literalRegistry, union compiler
 // writeSignalInlineHelpers emits the module-owned Signals adapters: each
 // wraps the signal.c core in one structural result union, built with this
 // module's static operation message.
+// signalsNewAdapterModel carries one signals-new adapter's decided union
+// type, name suffix, interrupt and hangup arm tags, signals arm tag and
+// payload field, and failure arm text.
+type signalsNewAdapterModel struct {
+	CName     string
+	Suffix    string
+	Interrupt string
+	Hangup    string
+	Tag       string
+	Field     string
+	Failure   string
+}
+
+// signalsNextAdapterModel carries one signals-next adapter's decided union
+// type, name suffix, three signal arm tags, signal arm tag and payload
+// field, end-of-stream arm tag, and failure arm text.
+type signalsNextAdapterModel struct {
+	CName     string
+	Suffix    string
+	Interrupt string
+	Hangup    string
+	Terminate string
+	Tag       string
+	Field     string
+	EosTag    string
+	Failure   string
+}
+
 func writeSignalInlineHelpers(result *strings.Builder, state *generatedSignalState, literals *literalRegistry, tags *tagRegistry) error {
 	if state == nil || !state.operations {
 		return nil
@@ -180,24 +208,17 @@ func writeSignalInlineHelpers(result *strings.Builder, state *generatedSignalSta
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_signals_new_%s(hex_slice_Signal subscriptions, size_t line, size_t column) {\n"+
-				"    uint8_t raw[3];\n"+
-				"    size_t count = subscriptions.length;\n"+
-				"    for (size_t index = 0; index < count && index < 3; index++) {\n"+
-				"        hex_t_Signal item = subscriptions.data[index];\n"+
-				"        raw[index] = item.tag == %s ? HEX_SIGNAL_INTERRUPT : item.tag == %s ? HEX_SIGNAL_HANGUP : HEX_SIGNAL_TERMINATE;\n"+
-				"    }\n"+
-				"    hex_signals_new_result created = hex_signals_new(raw, count);\n"+
-				"    if (created.status == 0) {\n"+
-				"        return (%s){ .tag = %s, .payload.%s = created.signals };\n"+
-				"    }\n"+
-				"    return %s;\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union),
-			interruptTag, hangupTag,
-			union.CName, signalsTag, signalsField,
-			failure)
+		if err := renderInto(result, "module.h", "signals_new_adapter", signalsNewAdapterModel{
+			CName:     union.CName,
+			Suffix:    streamAdapterSuffix(union),
+			Interrupt: interruptTag,
+			Hangup:    hangupTag,
+			Tag:       signalsTag,
+			Field:     signalsField,
+			Failure:   failure,
+		}); err != nil {
+			return err
+		}
 	}
 
 	for _, union := range state.nextUnions {
@@ -210,25 +231,19 @@ func writeSignalInlineHelpers(result *strings.Builder, state *generatedSignalSta
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_signals_next_%s(hex_signals receiver, size_t line, size_t column) {\n"+
-				"    hex_signals_next_result next = hex_signals_next(receiver);\n"+
-				"    switch (next.status) {\n"+
-				"    case 0: {\n"+
-				"        hex_tag tag = next.signal == HEX_SIGNAL_INTERRUPT ? %s : next.signal == HEX_SIGNAL_HANGUP ? %s : %s;\n"+
-				"        return (%s){ .tag = %s, .payload.%s = (hex_t_Signal){ .tag = tag } };\n"+
-				"    }\n"+
-				"    case HEX_SIGNAL_EOS:\n"+
-				"        return (%s){ .tag = %s };\n"+
-				"    default:\n"+
-				"        return %s;\n"+
-				"    }\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union),
-			interruptTag, hangupTag, terminateTag,
-			union.CName, signalTag, signalField,
-			union.CName, eosTag,
-			failure)
+		if err := renderInto(result, "module.h", "signals_next_adapter", signalsNextAdapterModel{
+			CName:     union.CName,
+			Suffix:    streamAdapterSuffix(union),
+			Interrupt: interruptTag,
+			Hangup:    hangupTag,
+			Terminate: terminateTag,
+			Tag:       signalTag,
+			Field:     signalField,
+			EosTag:    eosTag,
+			Failure:   failure,
+		}); err != nil {
+			return err
+		}
 	}
 
 	for _, union := range state.closeUnions {
@@ -237,17 +252,18 @@ func writeSignalInlineHelpers(result *strings.Builder, state *generatedSignalSta
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_signals_close_%s(hex_signals receiver, size_t line, size_t column) {\n"+
-				"    int status = hex_signals_close(receiver);\n"+
-				"    if (status == 0) {\n"+
-				"        return (%s){ .tag = %s };\n"+
-				"    }\n"+
-				"    return %s;\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union),
-			union.CName, nilTag,
-			failure)
+		if err := renderInto(result, "module.h", "owned_status_adapter", tcpStatusAdapterModel{
+			CName:     union.CName,
+			Owner:     "signals",
+			Operation: "close",
+			Suffix:    streamAdapterSuffix(union),
+			Params:    "hex_signals receiver",
+			Call:      "hex_signals_close(receiver)",
+			Success:   nilTag,
+			Error:     failure,
+		}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

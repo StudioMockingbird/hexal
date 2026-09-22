@@ -4,7 +4,6 @@
 package generator
 
 import (
-	"fmt"
 	"strings"
 
 	"hexal/compiler/checker"
@@ -243,17 +242,25 @@ func (ctx definitionContext) writeFunctionDefinition(declared checker.FunctionDe
 		parameters = append(parameters, declaration(parameter.Type, name, false))
 	}
 
-	writeLineDirective(ctx.body, declared.SourceLine, ctx.filename)
+	if err := writeLineDirective(ctx.body, declared.SourceLine, ctx.filename); err != nil {
+		return err
+	}
 	linkage := ""
 	if !external && !declared.Exported {
 		linkage = "static "
 	}
-	fmt.Fprintf(ctx.body, "%s%s %s(%s) {\n", linkage, resultSpelling, privateCName(functionNameKind, declared.Name, ctx.owner), parameterList(parameters))
+	if err := renderInto(ctx.body, "module.h", "definition_open", cDeclModel{
+		Linkage: linkage,
+		Result:  resultSpelling,
+		Name:    privateCName(functionNameKind, declared.Name, ctx.owner),
+		Params:  parameterList(parameters),
+	}); err != nil {
+		return err
+	}
 	if err := writeStatements(ctx.body, declared.Body, state, declared.Result, true, declared.Defers); err != nil {
 		return err
 	}
-	ctx.body.WriteString("}\n\n")
-	return nil
+	return renderInto(ctx.body, "module.h", "definition_close", struct{}{})
 }
 
 // writeMethodDefinition emits a checked method declaration as a file-scope C
@@ -322,17 +329,25 @@ func (ctx definitionContext) writeMethodDefinition(declared checker.MethodDeclar
 		parameters = append(parameters, declaration(parameter.Type, name, false))
 	}
 
-	writeLineDirective(ctx.body, declared.SourceLine, ctx.filename)
+	if err := writeLineDirective(ctx.body, declared.SourceLine, ctx.filename); err != nil {
+		return err
+	}
 	linkage := "static "
 	if declared.Exported {
 		linkage = ""
 	}
-	fmt.Fprintf(ctx.body, "%s%s %s(%s) {\n", linkage, resultSpelling, methodCName(declared.Object, declared.Name, ctx.owner), parameterList(parameters))
+	if err := renderInto(ctx.body, "module.h", "definition_open", cDeclModel{
+		Linkage: linkage,
+		Result:  resultSpelling,
+		Name:    methodCName(declared.Object, declared.Name, ctx.owner),
+		Params:  parameterList(parameters),
+	}); err != nil {
+		return err
+	}
 	if err := writeStatements(ctx.body, declared.Body, state, declared.Result, true, declared.Defers); err != nil {
 		return err
 	}
-	ctx.body.WriteString("}\n\n")
-	return nil
+	return renderInto(ctx.body, "module.h", "definition_close", struct{}{})
 }
 
 func parameterList(parameters []string) string {
@@ -342,11 +357,27 @@ func parameterList(parameters []string) string {
 	return strings.Join(parameters, ", ")
 }
 
+// cDeclModel carries the decided fields of one C declaration line: linkage,
+// result spelling, name, and parameter list arrive decided from the Go
+// switch, so the template only lays them out.
+type cDeclModel struct {
+	Linkage string
+	Result  string
+	Name    string
+	Params  string
+}
+
+// externValueModel carries an exported constant's declarator for its
+// extern-qualified header declaration.
+type externValueModel struct {
+	Declarator string
+}
+
 // writeExportedPrototypes emits one external prototype per exported function
 // and method of the module. Importers render calls against these encoded
 // symbols, so every exporting module's own header declares them (the module
 // .c file includes only its own header, which includes hexal.h).
-func writeExportedPrototypes(result *strings.Builder, program checker.Program, owner string) {
+func writeExportedPrototypes(result *strings.Builder, program checker.Program, owner string) error {
 	for _, statement := range program.Statements {
 		switch declared := statement.(type) {
 		case checker.FunctionDeclaration:
@@ -361,7 +392,13 @@ func writeExportedPrototypes(result *strings.Builder, program checker.Program, o
 			for index, parameter := range declared.Parameters {
 				parameters[index] = typeSpelling(parameter.Type)
 			}
-			fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, privateCName(functionNameKind, declared.Name, owner), parameterList(parameters))
+			if err := renderInto(result, "module.h", "c_prototype", cDeclModel{
+				Result: resultSpelling,
+				Name:   privateCName(functionNameKind, declared.Name, owner),
+				Params: parameterList(parameters),
+			}); err != nil {
+				return err
+			}
 		case checker.MethodDeclaration:
 			if !declared.Exported {
 				continue
@@ -374,9 +411,16 @@ func writeExportedPrototypes(result *strings.Builder, program checker.Program, o
 			for _, parameter := range declared.Parameters {
 				parameters = append(parameters, typeSpelling(parameter.Type))
 			}
-			fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, methodCName(declared.Object, declared.Name, owner), parameterList(parameters))
+			if err := renderInto(result, "module.h", "c_prototype", cDeclModel{
+				Result: resultSpelling,
+				Name:   methodCName(declared.Object, declared.Name, owner),
+				Params: parameterList(parameters),
+			}); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 // writeForeignPrototypes emits one prototype per imported (cross-module)
@@ -384,7 +428,7 @@ func writeExportedPrototypes(result *strings.Builder, program checker.Program, o
 // function without a prior declaration, and an importer never includes the
 // dependency's header, so its own header must declare every foreign symbol
 // it calls. Deduplicated by symbol; deterministic by visit order.
-func writeForeignPrototypes(result *strings.Builder, program checker.Program, state *expressionValidation) {
+func writeForeignPrototypes(result *strings.Builder, program checker.Program, state *expressionValidation) error {
 	emitted := make(map[string]bool)
 	visitor := &programVisitor{
 		Expression: func(node checker.Expression) error {
@@ -407,7 +451,13 @@ func writeForeignPrototypes(result *strings.Builder, program checker.Program, st
 				if callee.ResultType.Signature.Result != nil {
 					resultSpelling = standaloneResultSpelling(*callee.ResultType.Signature.Result)
 				}
-				fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, symbol, parameterList(parameters))
+				if err := renderInto(result, "module.h", "c_prototype", cDeclModel{
+					Result: resultSpelling,
+					Name:   symbol,
+					Params: parameterList(parameters),
+				}); err != nil {
+					return err
+				}
 			case checker.ModuleValueExpression:
 				if node.Module == "" || node.Module == state.moduleID {
 					return nil
@@ -418,10 +468,11 @@ func writeForeignPrototypes(result *strings.Builder, program checker.Program, st
 					return nil
 				}
 				emitted[symbol] = true
-				result.WriteString(moduleValueExternDeclaration(checker.ModuleValueDeclaration{
-					Name: node.Name,
-					Type: node.ResultType,
-				}, owner))
+				if err := renderInto(result, "module.h", "extern_value_decl", externValueModel{
+					Declarator: declaration(node.ResultType, symbol, false),
+				}); err != nil {
+					return err
+				}
 			case checker.MethodCallExpression:
 				if node.Owner == nil || node.Owner.ModuleID == "" || node.Owner.ModuleID == state.moduleID {
 					return nil
@@ -439,12 +490,19 @@ func writeForeignPrototypes(result *strings.Builder, program checker.Program, st
 				if node.ResultType != (compilerTypes.Type{}) {
 					resultSpelling = standaloneResultSpelling(node.ResultType)
 				}
-				fmt.Fprintf(result, "%s %s(%s);\n", resultSpelling, symbol, parameterList(parameters))
+				if err := renderInto(result, "module.h", "c_prototype", cDeclModel{
+					Result: resultSpelling,
+					Name:   symbol,
+					Params: parameterList(parameters),
+				}); err != nil {
+					return err
+				}
 			}
 			return nil
 		},
 	}
 	walkProgram(program, visitor)
+	return nil
 }
 
 // writeModulePrototypes emits one static prototype per private module-level
@@ -454,7 +512,7 @@ func writeForeignPrototypes(result *strings.Builder, program checker.Program, st
 // earlier definition for that to compile. An exported declaration is
 // skipped here; its prototype is already supplied by the module header
 // (writeExportedPrototypes) and is not duplicated in the C file.
-func writeModulePrototypes(body *strings.Builder, program checker.Program, owner string) {
+func writeModulePrototypes(body *strings.Builder, program checker.Program, owner string) error {
 	emitted := 0
 	for _, statement := range program.Statements {
 		switch declared := statement.(type) {
@@ -473,7 +531,14 @@ func writeModulePrototypes(body *strings.Builder, program checker.Program, owner
 			for _, parameter := range declared.Parameters {
 				parameters = append(parameters, typeSpelling(parameter.Type))
 			}
-			fmt.Fprintf(body, "static %s %s(%s);\n", resultSpelling, privateCName(functionNameKind, declared.Name, owner), parameterList(parameters))
+			if err := renderInto(body, "module.h", "c_prototype", cDeclModel{
+				Linkage: "static ",
+				Result:  resultSpelling,
+				Name:    privateCName(functionNameKind, declared.Name, owner),
+				Params:  parameterList(parameters),
+			}); err != nil {
+				return err
+			}
 			emitted++
 		case checker.MethodDeclaration:
 			if declared.Exported {
@@ -491,13 +556,23 @@ func writeModulePrototypes(body *strings.Builder, program checker.Program, owner
 			for _, parameter := range declared.Parameters {
 				parameters = append(parameters, typeSpelling(parameter.Type))
 			}
-			fmt.Fprintf(body, "static %s %s(%s);\n", resultSpelling, methodCName(declared.Object, declared.Name, owner), parameterList(parameters))
+			if err := renderInto(body, "module.h", "c_prototype", cDeclModel{
+				Linkage: "static ",
+				Result:  resultSpelling,
+				Name:    methodCName(declared.Object, declared.Name, owner),
+				Params:  parameterList(parameters),
+			}); err != nil {
+				return err
+			}
 			emitted++
 		}
 	}
 	if emitted > 0 {
-		body.WriteString("\n")
+		if err := renderInto(body, "module.h", "section_blank", struct{}{}); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // writeSpecializedPrototypes emits one prototype per concrete specialization
@@ -534,7 +609,14 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 		if declared.Exported {
 			linkage = ""
 		}
-		fmt.Fprintf(body, "%s%s %s(%s);\n", linkage, resultSpelling, privateCName(functionNameKind, declared.Name, owner), parameterList(parameters))
+		if err := renderInto(body, "module.h", "c_prototype", cDeclModel{
+			Linkage: linkage,
+			Result:  resultSpelling,
+			Name:    privateCName(functionNameKind, declared.Name, owner),
+			Params:  parameterList(parameters),
+		}); err != nil {
+			return err
+		}
 		emitted++
 	}
 	for _, declared := range methods {
@@ -563,11 +645,20 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 		if declared.Exported {
 			linkage = ""
 		}
-		fmt.Fprintf(body, "%s%s %s(%s);\n", linkage, resultSpelling, methodCName(declared.Object, declared.Name, owner), parameterList(parameters))
+		if err := renderInto(body, "module.h", "c_prototype", cDeclModel{
+			Linkage: linkage,
+			Result:  resultSpelling,
+			Name:    methodCName(declared.Object, declared.Name, owner),
+			Params:  parameterList(parameters),
+		}); err != nil {
+			return err
+		}
 		emitted++
 	}
 	if emitted > 0 {
-		body.WriteString("\n")
+		if err := renderInto(body, "module.h", "section_blank", struct{}{}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

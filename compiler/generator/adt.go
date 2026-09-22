@@ -44,21 +44,37 @@ func discoverGeneratedADTs(program checker.Program) *generatedAdtState {
 	return state
 }
 
+// adtBodyModel carries one ADT's struct body. Variants holds only the
+// payload-carrying variants, and HasPayload gates the payload union.
+type adtBodyModel struct {
+	Name       string
+	HasPayload bool
+	Variants   []adtVariantModel
+}
+
+// adtVariantModel is one payload-carrying variant's sanitized name and
+// decided member declarators.
+type adtVariantModel struct {
+	Name    string
+	Members []string
+}
+
 // writeAdtForwardDeclarations emits `typedef struct CName CName;` for every
 // discovered ADT, ahead of every full body: a pointer-typed member naming an
 // ADT needs only this forward name, regardless of full-body emission order.
-func writeAdtForwardDeclarations(result *strings.Builder, state *generatedAdtState) {
+func writeAdtForwardDeclarations(result *strings.Builder, state *generatedAdtState) error {
 	if state == nil {
-		return
+		return nil
 	}
 	for _, adtType := range state.order {
 		if compilerTypes.IsBuiltinAdt(adtType) {
 			continue
 		}
-		name := adtType.Adt.CName
-		result.WriteString("\n")
-		fmt.Fprintf(result, "typedef struct %s %s;\n", name, name)
+		if err := renderInto(result, "module.h", "nominal_forward", nominalForwardModel{Name: adtType.Adt.CName}); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // writeOneAdtBody emits one ADT's full struct body (the tag discriminant and,
@@ -67,34 +83,38 @@ func writeAdtForwardDeclarations(result *strings.Builder, state *generatedAdtSta
 // naming another nominal type by value additionally needs that type's own
 // full body already written, which the dependency-ordered driver in
 // emission.go guarantees before calling this.
-func writeOneAdtBody(result *strings.Builder, adtType compilerTypes.Type) {
+func writeOneAdtBody(result *strings.Builder, adtType compilerTypes.Type) error {
 	adt := adtType.Adt
-	name := adt.CName
-	result.WriteString("\n")
-	fmt.Fprintf(result, "struct %s {\n", name)
-	fmt.Fprintf(result, "    hex_tag tag;\n")
-	hasPayload := false
+	model := adtBodyModel{Name: adt.CName}
 	for _, variant := range adt.Variants {
 		if len(variant.Payload) > 0 {
-			hasPayload = true
+			model.HasPayload = true
 		}
 	}
-	if hasPayload {
-		fmt.Fprintf(result, "    union {\n")
+	if model.HasPayload {
 		for _, variant := range adt.Variants {
 			if len(variant.Payload) == 0 {
 				continue
 			}
-			variantName := compilerTypes.SanitizeIdentifier(variant.Name)
-			fmt.Fprintf(result, "        struct {\n")
+			variantModel := adtVariantModel{Name: compilerTypes.SanitizeIdentifier(variant.Name)}
 			for _, member := range variant.Payload {
-				fmt.Fprintf(result, "            %s %s;\n", typeSpelling(member.Type), privateCName(memberName, member.Name, ""))
+				variantModel.Members = append(variantModel.Members, typeSpelling(member.Type)+" "+privateCName(memberName, member.Name, ""))
 			}
-			fmt.Fprintf(result, "        } %s;\n", variantName)
+			model.Variants = append(model.Variants, variantModel)
 		}
-		fmt.Fprintf(result, "    } payload;\n")
 	}
-	fmt.Fprintf(result, "};\n")
+	return renderInto(result, "module.h", "adt_body", model)
+}
+
+// adtConstructModel carries one compound-literal construction's decided
+// parts. A non-empty OtherHeader or PayloadOpen selects that section; the
+// field assignments arrive as complete decided fragments.
+type adtConstructModel struct {
+	CName       string
+	Tag         string
+	OtherHeader string
+	PayloadOpen string
+	Fields      []string
 }
 
 // renderAdtConstruct lowers an ADT construction to a compound literal whose
@@ -105,8 +125,10 @@ func renderAdtConstruct(node checker.Expression, state *expressionValidation) (s
 		return "", unknownExpressionDiagnostic("ADT construction has invalid checked metadata")
 	}
 	variant := &adt.Variants[node.VariantIndex]
-	var builder strings.Builder
-	fmt.Fprintf(&builder, "(%s){ .tag = %s", adt.CName, state.tags.adtVariantTag(adt, node.VariantIndex))
+	model := adtConstructModel{
+		CName: adt.CName,
+		Tag:   state.tags.adtVariantTag(adt, node.VariantIndex),
+	}
 	if compilerTypes.IsErrorKind(node.ResultType) {
 		// ErrorKind's Other is the only payload-carrying variant among 26, so
 		// its header lives in one flat other_header field rather than a
@@ -119,16 +141,13 @@ func renderAdtConstruct(node checker.Expression, state *expressionValidation) (s
 			if err != nil {
 				return "", err
 			}
-			fmt.Fprintf(&builder, ", .other_header = %s", value)
+			model.OtherHeader = value
 		}
-		builder.WriteString(" }")
-		return builder.String(), nil
-	}
-	if len(variant.Payload) > 0 {
+	} else if len(variant.Payload) > 0 {
 		if len(node.Arguments) != len(variant.Payload) {
 			return "", unknownExpressionDiagnostic("ADT construction payload count does not match its variant")
 		}
-		fmt.Fprintf(&builder, ", .payload.%s = {", compilerTypes.SanitizeIdentifier(variant.Name))
+		model.PayloadOpen = ", .payload." + compilerTypes.SanitizeIdentifier(variant.Name) + " = {"
 		for index, member := range variant.Payload {
 			// A field written out of declaration order was hoisted into its
 			// own written-order temporary by hoistAdtSequence; the compound
@@ -137,11 +156,13 @@ func renderAdtConstruct(node checker.Expression, state *expressionValidation) (s
 			if err != nil {
 				return "", err
 			}
-			fmt.Fprintf(&builder, " .%s = %s,", privateCName(memberName, member.Name, ""), value)
+			model.Fields = append(model.Fields, fmt.Sprintf(" .%s = %s,", privateCName(memberName, member.Name, ""), value))
 		}
-		builder.WriteString(" }")
 	}
-	builder.WriteString(" }")
+	var builder strings.Builder
+	if err := renderInto(&builder, "module.c", "adt_construct", model); err != nil {
+		return "", err
+	}
 	return builder.String(), nil
 }
 
@@ -163,6 +184,28 @@ func renderAdtPayload(node checker.Expression, state *expressionValidation) (str
 	return receiver + ".payload." + compilerTypes.SanitizeIdentifier(variant.Name) + "." + privateCName(memberName, variant.Payload[node.MemberIndex].Name, ""), nil
 }
 
+// matchAssignModel carries one match assignment or declaration line: the
+// target and an optional value, both decided in Go.
+type matchAssignModel struct {
+	Indent string
+	Target string
+	Value  string
+}
+
+// matchOpenModel carries one conditionally-opened match block: Prefix is the
+// decided `if` or `else if` spelling, Condition the decided C test.
+type matchOpenModel struct {
+	Indent    string
+	Prefix    string
+	Condition string
+}
+
+// indentModel carries a fixed statement line's decided indent; block closes,
+// else-openers, and return lines share it across emitters.
+type indentModel struct {
+	Indent string
+}
+
 // renderMatchStatement lowers a match expression to statement-level if/else
 // control flow and returns the name of the result variable.
 func renderMatchStatement(body *strings.Builder, node checker.Expression, state *expressionValidation, indent string) (string, error) {
@@ -176,8 +219,19 @@ func renderMatchStatement(body *strings.Builder, node checker.Expression, state 
 	if err != nil {
 		return "", err
 	}
-	fmt.Fprintf(body, "%s%s = %s;\n", indent, declaration(node.OperandType, temp, false), scrutinee)
-	fmt.Fprintf(body, "%s%s;\n", indent, declaration(node.ResultType, result, true))
+	if err := renderInto(body, "module.c", "match_assign", matchAssignModel{
+		Indent: indent,
+		Target: declaration(node.OperandType, temp, false),
+		Value:  scrutinee,
+	}); err != nil {
+		return "", err
+	}
+	if err := renderInto(body, "module.c", "match_assign", matchAssignModel{
+		Indent: indent,
+		Target: declaration(node.ResultType, result, true),
+	}); err != nil {
+		return "", err
+	}
 	// An arm body that names the scrutinee (shape.radius, say) renders its
 	// own separate reference to the original binding, not to temp above. GCC
 	// cannot always prove the two copies' payloads agree, and warns
@@ -227,23 +281,45 @@ func renderMatchStatement(body *strings.Builder, node checker.Expression, state 
 			// A scalar match always ends in the required else, so its arms
 			// chain with else-if: first matching arm wins. A plain second if
 			// would let the trailing else overwrite an earlier match.
+			prefix := "if "
 			if emittedIf {
-				fmt.Fprintf(body, "%selse if (%s == %s) {\n", indent, temp, rendered)
-			} else {
-				fmt.Fprintf(body, "%sif (%s == %s) {\n", indent, temp, rendered)
+				prefix = "else if "
+			}
+			if err := renderInto(body, "module.c", "match_open", matchOpenModel{
+				Indent:    indent,
+				Prefix:    prefix,
+				Condition: temp + " == " + rendered,
+			}); err != nil {
+				return "", err
 			}
 			emittedIf = true
-			fmt.Fprintf(body, "%s    %s = %s;\n", indent, result, armValue)
-			fmt.Fprintf(body, "%s}\n", indent)
+			if err := renderInto(body, "module.c", "match_assign", matchAssignModel{
+				Indent: indent + "    ",
+				Target: result,
+				Value:  armValue,
+			}); err != nil {
+				return "", err
+			}
+			if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+				return "", err
+			}
 			continue
 		}
 		isElse := tag == -1 || tag == -2
 		if isElse && !emittedIf {
-			fmt.Fprintf(body, "%s%s = %s;\n", indent, result, armValue)
+			if err := renderInto(body, "module.c", "match_assign", matchAssignModel{
+				Indent: indent,
+				Target: result,
+				Value:  armValue,
+			}); err != nil {
+				return "", err
+			}
 			continue
 		}
 		if isElse {
-			fmt.Fprintf(body, "%selse {\n", indent)
+			if err := renderInto(body, "module.c", "match_else", indentModel{Indent: indent}); err != nil {
+				return "", err
+			}
 		} else {
 			keyword := "if"
 			if emittedIf && hasElse {
@@ -262,10 +338,24 @@ func renderMatchStatement(body *strings.Builder, node checker.Expression, state 
 			default:
 				condition = "!" + temp
 			}
-			fmt.Fprintf(body, "%s%s (%s) {\n", indent, keyword, condition)
+			if err := renderInto(body, "module.c", "match_open", matchOpenModel{
+				Indent:    indent,
+				Prefix:    keyword + " ",
+				Condition: condition,
+			}); err != nil {
+				return "", err
+			}
 		}
-		fmt.Fprintf(body, "%s    %s = %s;\n", indent, result, armValue)
-		fmt.Fprintf(body, "%s}\n", indent)
+		if err := renderInto(body, "module.c", "match_assign", matchAssignModel{
+			Indent: indent + "    ",
+			Target: result,
+			Value:  armValue,
+		}); err != nil {
+			return "", err
+		}
+		if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+			return "", err
+		}
 	}
 	return result, nil
 }

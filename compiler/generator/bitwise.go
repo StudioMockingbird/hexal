@@ -47,11 +47,21 @@ func shiftHelperName(spec shiftSpec) string {
 	return prefix + spec.typ.CName
 }
 
-func writeShiftHelper(result *strings.Builder, spec shiftSpec) {
+// shiftHelperModel carries the decided shift-helper fields: operator, width,
+// and signedness arithmetic are chosen in Go, and the template lays out the
+// helper around the pre-decided return expression.
+type shiftHelperModel struct {
+	CType   string
+	Name    string
+	Width   uint
+	Shifted string
+}
+
+func writeShiftHelper(result *strings.Builder, spec shiftSpec) error {
 	typ := spec.typ
 	unsigned, ok := unsignedCName(typ)
 	if !ok {
-		return
+		return nil
 	}
 	width := uint(typ.Bits)
 	var shifted string
@@ -77,9 +87,12 @@ func writeShiftHelper(result *strings.Builder, spec shiftSpec) {
 		// signed result is a plain cast.
 		shifted = fmt.Sprintf("(%s)(%s)", typ.CName, shifted)
 	}
-	fmt.Fprintf(result, "\nstatic inline %s %s(%s left, uint64_t count) {\n", typ.CName, shiftHelperName(spec), typ.CName)
-	fmt.Fprintf(result, "    if (!(count < %dULL)) {\n        hex_runtime_trap(\"[Runtime Error] numeric operation failed\\n\");\n    }\n", width)
-	fmt.Fprintf(result, "    return %s;\n}\n", shifted)
+	return renderInto(result, "module.h", "shift_helper", shiftHelperModel{
+		CType:   typ.CName,
+		Name:    shiftHelperName(spec),
+		Width:   width,
+		Shifted: shifted,
+	})
 }
 
 // renderBitwiseOperation lowers &, ^, and | at the selected exact width:
@@ -153,18 +166,31 @@ func discoverGeneratedBitCasts(program checker.Program) []bitCastSpec {
 	return specs
 }
 
+// bitCastHelperModel carries one bit-cast pair's decided names.
+type bitCastHelperModel struct {
+	Target string
+	Name   string
+	Source string
+}
+
 // writeBitCastDefinitions emits one memcpy-based helper per pair. The bits
 // copy directly from the checked source object into the exact destination
 // object with no signed-source cast, unsigned intermediate, or post-copy
 // conversion. memcpy is available because hexal.h includes <string.h>.
-func writeBitCastDefinitions(result *strings.Builder, specs []bitCastSpec) {
+func writeBitCastDefinitions(result *strings.Builder, specs []bitCastSpec) error {
 	if len(specs) == 0 {
-		return
+		return nil
 	}
 	for _, spec := range specs {
-		targetC := spec.target.CName
-		fmt.Fprintf(result, "\nstatic inline %s %s(%s value) {\n    %s result;\n    memcpy(&result, &value, sizeof(result));\n    return result;\n}\n", targetC, bitCastHelperName(spec), spec.source.CName, targetC)
+		if err := renderInto(result, "module.h", "bitcast_helper", bitCastHelperModel{
+			Target: spec.target.CName,
+			Name:   bitCastHelperName(spec),
+			Source: spec.source.CName,
+		}); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // endianSpec is one to/from byte conversion for a fixed-width integer type.
@@ -206,35 +232,51 @@ func discoverGeneratedEndian(program checker.Program) []endianSpec {
 	return specs
 }
 
-func writeEndianHelper(result *strings.Builder, spec endianSpec) {
+// endianByteRecord is one byte position's decided shift within an endian
+// helper's conversion loop.
+type endianByteRecord struct {
+	Index uint
+	Shift uint
+}
+
+// endianToBytesModel carries one to-bytes helper's decided names and byte
+// shifts. DesignatedInit holds the C designated initializer: it contains the
+// template action delimiters, so it arrives as data and never as template
+// source, which text/template would parse as an action.
+type endianToBytesModel struct {
+	ArrayType      string
+	Name           string
+	CType          string
+	Unsigned       string
+	Bytes          []endianByteRecord
+	DesignatedInit string
+}
+
+// endianFromBytesModel carries one from-bytes helper's decided names and byte
+// shifts. ReturnLine carries the already-chosen signed or unsigned return
+// statement so the template holds no type logic.
+type endianFromBytesModel struct {
+	ArrayType  string
+	Name       string
+	CType      string
+	Unsigned   string
+	Bytes      []endianByteRecord
+	ReturnLine string
+}
+
+func writeEndianHelper(result *strings.Builder, spec endianSpec) error {
 	typ := spec.typ
 	width := uint(typ.Bits)
 	bytes := width / 8
 	arrayType := compilerTypes.NewEnvironment().ArrayType(compilerTypes.UInt8, uint64(bytes))
 	if arrayType == (compilerTypes.Type{}) {
-		return
+		return nil
 	}
 	unsigned, ok := unsignedCName(typ)
 	if !ok {
-		return
+		return nil
 	}
-	if !spec.from {
-		// to_le_bytes / to_be_bytes: value is the unsigned bit pattern.
-		fmt.Fprintf(result, "\nstatic inline %s %s(%s value) {\n    %s result = ( %s ){{0}};\n", arrayType.CName, endianHelperName(spec), typ.CName, arrayType.CName, arrayType.CName)
-		for index := uint(0); index < bytes; index++ {
-			shift := uint(0)
-			if spec.bigEnd {
-				shift = (bytes - 1 - index) * 8
-			} else {
-				shift = index * 8
-			}
-			fmt.Fprintf(result, "    result.data[%d] = (uint8_t)((%s)value >> %d);\n", index, unsigned, shift)
-		}
-		fmt.Fprintf(result, "    return result;\n}\n")
-		return
-	}
-	// from_le_bytes / from_be_bytes: assemble the unsigned pattern.
-	fmt.Fprintf(result, "\nstatic inline %s %s(const %s *bytes) {\n    %s value = 0;\n", typ.CName, endianHelperName(spec), arrayType.CName, unsigned)
+	byteRecords := make([]endianByteRecord, 0, bytes)
 	for index := uint(0); index < bytes; index++ {
 		shift := uint(0)
 		if spec.bigEnd {
@@ -242,15 +284,34 @@ func writeEndianHelper(result *strings.Builder, spec endianSpec) {
 		} else {
 			shift = index * 8
 		}
-		fmt.Fprintf(result, "    value |= (%s)(bytes->data[%d]) << %d;\n", unsigned, index, shift)
+		byteRecords = append(byteRecords, endianByteRecord{Index: index, Shift: shift})
 	}
+	if !spec.from {
+		// to_le_bytes / to_be_bytes: value is the unsigned bit pattern.
+		return renderInto(result, "module.h", "endian_to_bytes", endianToBytesModel{
+			ArrayType:      arrayType.CName,
+			Name:           endianHelperName(spec),
+			CType:          typ.CName,
+			Unsigned:       unsigned,
+			Bytes:          byteRecords,
+			DesignatedInit: "{{0}}",
+		})
+	}
+	// from_le_bytes / from_be_bytes: assemble the unsigned pattern.
+	returnLine := "return value;"
 	if compilerTypes.IsSignedInteger(typ) {
 		// Direct modular cast: same-width unsigned-to-signed conversion is
 		// modular on the pinned GCC/Clang targets.
-		fmt.Fprintf(result, "    return (%s)value;\n}\n", typ.CName)
-	} else {
-		fmt.Fprintf(result, "    return value;\n}\n")
+		returnLine = fmt.Sprintf("return (%s)value;", typ.CName)
 	}
+	return renderInto(result, "module.h", "endian_from_bytes", endianFromBytesModel{
+		ArrayType:  arrayType.CName,
+		Name:       endianHelperName(spec),
+		CType:      typ.CName,
+		Unsigned:   unsigned,
+		Bytes:      byteRecords,
+		ReturnLine: returnLine,
+	})
 }
 
 // renderBitCast renders a bit_cast<T>() call through its helper.

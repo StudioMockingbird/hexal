@@ -3,6 +3,8 @@ package generator
 import (
 	"strings"
 	"testing"
+
+	compilerTypes "hexal/compiler/types"
 )
 
 // An Error-using program emits hexal/error.h with the canonical Error
@@ -29,7 +31,7 @@ func TestErrorComponentSelectedByUse(t *testing.T) {
 	for _, want := range []string{
 		"typedef struct hex_t_ErrorKind {",
 		"hex_tag tag;",
-		"hex_string_128 other_header;",
+		compilerTypes.ErrorHeaderText.CName + " other_header;",
 		"} hex_t_ErrorKind;",
 		"typedef struct hex_t_Error hex_t_Error;",
 		"struct hex_t_Error {",
@@ -37,9 +39,9 @@ func TestErrorComponentSelectedByUse(t *testing.T) {
 		"size_t hex_m_line;",
 		"size_t hex_m_column;",
 		"hex_t_ErrorKind hex_m_kind;",
-		"hex_string_256 hex_m_message;",
+		compilerTypes.ErrorMessageText.CName + " hex_m_message;",
 		"};",
-		"static inline hex_string_128 hex_error_kind_header(hex_t_ErrorKind kind) {",
+		"static inline " + compilerTypes.ErrorHeaderText.CName + " hex_error_kind_header(hex_t_ErrorKind kind) {",
 	} {
 		if !strings.Contains(errorH, want) {
 			t.Fatalf("hexal/error.h = %q, want %q", errorH, want)

@@ -140,7 +140,9 @@ func (state *expressionValidation) captureOperand(body *strings.Builder, operand
 	}
 	state.captureCounter++
 	name := fmt.Sprintf("hex_defer_capture_%d", state.captureCounter)
-	fmt.Fprintf(body, "%s%s = %s;\n", indent, declaration(operand.Type, name, false), rendered)
+	if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: declaration(operand.Type, name, false), Value: rendered}); err != nil {
+		return "", err
+	}
 	return name, nil
 }
 
@@ -161,14 +163,18 @@ func writeDeferredActions(body *strings.Builder, actions []checker.DeferredActio
 			continue
 		}
 		if wrapErr {
-			fmt.Fprintf(body, "%sif (%s) {\n", indent, errorExit)
+			if err := renderInto(body, "module.c", "errdef_guard_open", forStmtLineModel{Indent: indent, Value: errorExit}); err != nil {
+				return err
+			}
 		}
 		err := writeDeferredAction(body, action, state, indent)
 		if err != nil {
 			return err
 		}
 		if wrapErr {
-			fmt.Fprintf(body, "%s}\n", indent)
+			if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -209,7 +215,9 @@ func writeDeferredAction(body *strings.Builder, action checker.DeferredAction, s
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(body, "%s%s;\n", indent, call)
+		if err := renderInto(body, "module.c", "call_stmt", callStmtModel{Indent: indent, Call: call}); err != nil {
+			return err
+		}
 		return nil
 	}
 	if action.Value == nil {
@@ -219,8 +227,7 @@ func writeDeferredAction(body *strings.Builder, action checker.DeferredAction, s
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(body, "%s(void)(%s);\n", indent, rendered)
-	return nil
+	return renderInto(body, "module.c", "defer_discard", forStmtLineModel{Indent: indent, Value: rendered})
 }
 
 // renderDeferredCall renders a captured deferred call. Method calls use the

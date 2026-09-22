@@ -19,7 +19,9 @@ import (
 // `continue` never skips the increment.
 func renderForStatement(body *strings.Builder, statement checker.ForStatement, state *expressionValidation, result *compilerTypes.Type, inFunction bool, indent string) error {
 	sourceType := statement.Source.Type
-	writeLineDirective(body, statement.SourceLine, state.filename)
+	if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+		return err
+	}
 
 	state.loopCounter++
 	loop := fmt.Sprintf("hex_for_%d", state.loopCounter)
@@ -80,6 +82,60 @@ type forLoopRender struct {
 	bodyText    *strings.Builder
 }
 
+// forStmtLineModel carries one for-loop statement line: the decided indent,
+// declaration type, name, and value; each template reads the fields it spells.
+type forStmtLineModel struct {
+	Indent string
+	Type   string
+	Name   string
+	Value  string
+}
+
+// forOpenModel carries one loop opener's decided pieces: Var is the counter,
+// Limit the bound expression, Width the step, Dict the scanned map; each
+// opener reads the fields it spells.
+type forOpenModel struct {
+	Indent string
+	Var    string
+	Limit  string
+	Width  string
+	Dict   string
+}
+
+// bucketBindModel carries one dict bucket read: the decided target
+// declaration, the map and bucket counter, and the field name (key or value).
+type bucketBindModel struct {
+	Indent string
+	Target string
+	Dict   string
+	Var    string
+	Field  string
+}
+
+// textIndexModel carries one byte-indexed assignment's decided pieces.
+type textIndexModel struct {
+	Indent string
+	Target string
+	Data   string
+	Index  string
+}
+
+// utf8DecodeModel carries one UTF-8 step assignment's decided pieces; Width is
+// the in/out decoded-width variable.
+type utf8DecodeModel struct {
+	Indent string
+	Target string
+	Data   string
+	Length string
+	Offset string
+	Width  string
+}
+
+// rawTextModel carries pre-rendered statement text embedded verbatim.
+type rawTextModel struct {
+	Text string
+}
+
 // renderForSequence lowers Array, Slice, and List iteration to a plain index
 // loop over the captured source.
 func renderForSequence(body *strings.Builder, statement checker.ForStatement, render forLoopRender, state *expressionValidation, indent string) error {
@@ -97,9 +153,13 @@ func renderForSequence(body *strings.Builder, statement checker.ForStatement, re
 		// address; a temporary Array is materialized into one inline copy.
 		// The traversal boundary is the compile-time Array length.
 		if statement.Source.Addressable {
-			fmt.Fprintf(body, "%sconst %s *const %s = &(%s);\n", indent, sourceType.CName, loop, source)
+			if err := renderInto(body, "module.c", "const_addr_decl", forStmtLineModel{Indent: indent, Type: sourceType.CName, Name: loop, Value: source}); err != nil {
+				return err
+			}
 		} else {
-			fmt.Fprintf(body, "%sconst %s %s = %s;\n", indent, sourceType.CName, loop, source)
+			if err := renderInto(body, "module.c", "const_decl", forStmtLineModel{Indent: indent, Type: sourceType.CName, Name: loop, Value: source}); err != nil {
+				return err
+			}
 		}
 		length = fmt.Sprintf("(size_t)(%d)", sourceType.Array.Length)
 		// The counter runs over [0, N) for the same literal N the
@@ -112,12 +172,18 @@ func renderForSequence(body *strings.Builder, statement checker.ForStatement, re
 			elementAccess = fmt.Sprintf("%s.data[%s_index]", loop, loop)
 		}
 	case sourceType.Slice != nil:
-		fmt.Fprintf(body, "%sconst %s %s = %s;\n", indent, sourceType.CName, loop, source)
+		if err := renderInto(body, "module.c", "const_decl", forStmtLineModel{Indent: indent, Type: sourceType.CName, Name: loop, Value: source}); err != nil {
+			return err
+		}
 		length = fmt.Sprintf("%s.length", loop)
 		elementAccess = fmt.Sprintf("*%s(%s, (size_t)(%s_index))", sliceAtHelper(sourceType), loop, loop)
 	case sourceType.List != nil:
-		fmt.Fprintf(body, "%sconst %s *const %s = %s;\n", indent, sourceType.CName, loop, source)
-		fmt.Fprintf(body, "%sconst size_t %s_version = %s->version;\n", indent, loop, loop)
+		if err := renderInto(body, "module.c", "const_ptr_decl", forStmtLineModel{Indent: indent, Type: sourceType.CName, Name: loop, Value: source}); err != nil {
+			return err
+		}
+		if err := renderInto(body, "module.c", "version_shadow", forStmtLineModel{Indent: indent, Name: loop}); err != nil {
+			return err
+		}
 		length = fmt.Sprintf("%s->length", loop)
 		elementAccess = fmt.Sprintf("*hex_list_at_%s(%s, (size_t)(%s_index))", listSuffix(sourceType), loop, loop)
 	default:
@@ -125,20 +191,38 @@ func renderForSequence(body *strings.Builder, statement checker.ForStatement, re
 	}
 
 	indexVariable := loop + "_index"
-	fmt.Fprintf(body, "%sfor (size_t %s = 0; %s < %s; %s++) {\n", indent, indexVariable, indexVariable, length, indexVariable)
-	if sourceType.List != nil {
-		fmt.Fprintf(body, "%s    if (%s->version != %s_version) {\n", indent, loop, loop)
-		fmt.Fprintf(body, "%s        hex_runtime_trap(\"[Runtime Error] collection modified during iteration\\n\");\n", indent)
-		fmt.Fprintf(body, "%s    }\n", indent)
+	if err := renderInto(body, "module.c", "for_index_open", forOpenModel{Indent: indent, Var: indexVariable, Limit: length}); err != nil {
+		return err
 	}
-	writeLineDirective(body, statement.Binders[0].SourceLine, state.filename)
+	if sourceType.List != nil {
+		if err := renderInto(body, "module.c", "version_guard_open", forStmtLineModel{Indent: indent, Name: loop}); err != nil {
+			return err
+		}
+		if err := renderInto(body, "module.c", "runtime_trap", indentModel{Indent: indent}); err != nil {
+			return err
+		}
+		if err := renderInto(body, "module.c", "inner_close", indentModel{Indent: indent}); err != nil {
+			return err
+		}
+	}
+	if err := writeLineDirective(body, statement.Binders[0].SourceLine, state.filename); err != nil {
+		return err
+	}
 	valueBinder := statement.Binders[len(statement.Binders)-1]
 	if len(statement.Binders) == 2 {
-		fmt.Fprintf(body, "%s    const size_t %s = %s;\n", indent, binderNames[0], indexVariable)
+		if err := renderInto(body, "module.c", "const_decl", forStmtLineModel{Indent: indent + "    ", Type: "size_t", Name: binderNames[0], Value: indexVariable}); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintf(body, "%s    %s = %s;\n", indent, declaration(valueBinder.Type, binderNames[len(binderNames)-1], false), elementAccess)
-	body.WriteString(bodyText.String())
-	fmt.Fprintf(body, "%s}\n", indent)
+	if err := renderInto(body, "module.c", "for_assign", forStmtLineModel{Indent: indent, Name: declaration(valueBinder.Type, binderNames[len(binderNames)-1], false), Value: elementAccess}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "raw_text", rawTextModel{Text: bodyText.String()}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -157,26 +241,47 @@ func renderForText(body *strings.Builder, statement checker.ForStatement, render
 	sourceType := statement.Source.Type
 	var byteLength, data string
 	if compilerTypes.IsInlineString(sourceType) {
-		fmt.Fprintf(body, "%sconst %s %s = %s;\n", indent, sourceType.CName, loop, source)
+		if err := renderInto(body, "module.c", "const_decl", forStmtLineModel{Indent: indent, Type: sourceType.CName, Name: loop, Value: source}); err != nil {
+			return err
+		}
 		byteLength = fmt.Sprintf("%s.byte_length", loop)
 		data = fmt.Sprintf("%s.data", loop)
 	} else {
-		fmt.Fprintf(body, "%sconst hex_string *const %s = %s;\n", indent, loop, source)
+		if err := renderInto(body, "module.c", "const_ptr_decl", forStmtLineModel{Indent: indent, Type: "hex_string", Name: loop, Value: source}); err != nil {
+			return err
+		}
 		byteLength = fmt.Sprintf("%s->byte_length", loop)
 		data = fmt.Sprintf("%s->data", loop)
 	}
 
 	indexVariable := loop + "_index"
 	hasIndex := len(statement.Binders) == 2
-	fmt.Fprintf(body, "%sfor (size_t %s = 0; %s < %s; %s++) {\n", indent, indexVariable, indexVariable, byteLength, indexVariable)
-	writeLineDirective(body, statement.Binders[0].SourceLine, state.filename)
+	if err := renderInto(body, "module.c", "for_index_open", forOpenModel{Indent: indent, Var: indexVariable, Limit: byteLength}); err != nil {
+		return err
+	}
+	if err := writeLineDirective(body, statement.Binders[0].SourceLine, state.filename); err != nil {
+		return err
+	}
 	valueBinder := statement.Binders[len(statement.Binders)-1]
 	if hasIndex {
-		fmt.Fprintf(body, "%s    const size_t %s = %s;\n", indent, binderNames[0], indexVariable)
+		if err := renderInto(body, "module.c", "const_decl", forStmtLineModel{Indent: indent + "    ", Type: "size_t", Name: binderNames[0], Value: indexVariable}); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintf(body, "%s    %s = %s[%s];\n", indent, declaration(valueBinder.Type, binderNames[len(binderNames)-1], false), data, indexVariable)
-	body.WriteString(bodyText.String())
-	fmt.Fprintf(body, "%s}\n", indent)
+	if err := renderInto(body, "module.c", "text_index_assign", textIndexModel{
+		Indent: indent,
+		Target: declaration(valueBinder.Type, binderNames[len(binderNames)-1], false),
+		Data:   data,
+		Index:  indexVariable,
+	}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "raw_text", rawTextModel{Text: bodyText.String()}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -196,11 +301,15 @@ func renderForRuneText(body *strings.Builder, statement checker.ForStatement, re
 	sourceType := statement.Source.Type
 	var byteLength, data string
 	if compilerTypes.IsInlineString(sourceType) {
-		fmt.Fprintf(body, "%sconst %s %s = %s;\n", indent, sourceType.CName, loop, source)
+		if err := renderInto(body, "module.c", "const_decl", forStmtLineModel{Indent: indent, Type: sourceType.CName, Name: loop, Value: source}); err != nil {
+			return err
+		}
 		byteLength = fmt.Sprintf("%s.byte_length", loop)
 		data = fmt.Sprintf("%s.data", loop)
 	} else {
-		fmt.Fprintf(body, "%sconst hex_string *const %s = %s;\n", indent, loop, source)
+		if err := renderInto(body, "module.c", "const_ptr_decl", forStmtLineModel{Indent: indent, Type: "hex_string", Name: loop, Value: source}); err != nil {
+			return err
+		}
 		byteLength = fmt.Sprintf("%s->byte_length", loop)
 		data = fmt.Sprintf("%s->data", loop)
 	}
@@ -208,17 +317,37 @@ func renderForRuneText(body *strings.Builder, statement checker.ForStatement, re
 	offsetVariable := loop + "_offset"
 	widthVariable := loop + "_width"
 	hasIndex := len(statement.Binders) == 2
-	fmt.Fprintf(body, "%ssize_t %s = 0;\n", indent, widthVariable)
-	fmt.Fprintf(body, "%sfor (size_t %s = 0; %s < %s; %s += %s) {\n", indent, offsetVariable, offsetVariable, byteLength, offsetVariable, widthVariable)
-	writeLineDirective(body, statement.Binders[0].SourceLine, state.filename)
+	if err := renderInto(body, "module.c", "ordinal_decl", forStmtLineModel{Indent: indent, Name: widthVariable, Value: "0"}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "for_width_open", forOpenModel{Indent: indent, Var: offsetVariable, Limit: byteLength, Width: widthVariable}); err != nil {
+		return err
+	}
+	if err := writeLineDirective(body, statement.Binders[0].SourceLine, state.filename); err != nil {
+		return err
+	}
 	valueBinder := statement.Binders[len(statement.Binders)-1]
 	if hasIndex {
-		fmt.Fprintf(body, "%s    const size_t %s = %s;\n", indent, binderNames[0], offsetVariable)
+		if err := renderInto(body, "module.c", "const_decl", forStmtLineModel{Indent: indent + "    ", Type: "size_t", Name: binderNames[0], Value: offsetVariable}); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintf(body, "%s    %s = hex_utf8_decode_step(%s, %s, %s, &%s);\n",
-		indent, declaration(valueBinder.Type, binderNames[len(binderNames)-1], false), data, byteLength, offsetVariable, widthVariable)
-	body.WriteString(bodyText.String())
-	fmt.Fprintf(body, "%s}\n", indent)
+	if err := renderInto(body, "module.c", "utf8_decode_assign", utf8DecodeModel{
+		Indent: indent,
+		Target: declaration(valueBinder.Type, binderNames[len(binderNames)-1], false),
+		Data:   data,
+		Length: byteLength,
+		Offset: offsetVariable,
+		Width:  widthVariable,
+	}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "raw_text", rawTextModel{Text: bodyText.String()}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -237,24 +366,45 @@ func renderForGraphemeText(body *strings.Builder, statement checker.ForStatement
 	sourceType := statement.Source.Type
 	var view string
 	if compilerTypes.IsInlineString(sourceType) {
-		fmt.Fprintf(body, "%sconst %s %s = %s;\n", indent, sourceType.CName, loop, source)
+		if err := renderInto(body, "module.c", "const_decl", forStmtLineModel{Indent: indent, Type: sourceType.CName, Name: loop, Value: source}); err != nil {
+			return err
+		}
 		view = "hex_text_inline(&" + loop + ")"
 	} else {
-		fmt.Fprintf(body, "%sconst hex_string *const %s = %s;\n", indent, loop, source)
+		if err := renderInto(body, "module.c", "const_ptr_decl", forStmtLineModel{Indent: indent, Type: "hex_string", Name: loop, Value: source}); err != nil {
+			return err
+		}
 		view = "hex_text_heap(" + loop + ")"
 	}
 
 	cursorVariable := loop + "_cursor"
-	fmt.Fprintf(body, "%shex_grapheme_cursor %s = hex_text_grapheme_cursor(%s);\n", indent, cursorVariable, view)
-	fmt.Fprintf(body, "%swhile (hex_grapheme_cursor_has_next(%s)) {\n", indent, cursorVariable)
-	writeLineDirective(body, statement.Binders[0].SourceLine, state.filename)
-	if len(statement.Binders) == 2 {
-		fmt.Fprintf(body, "%s    const size_t %s = %s.offset;\n", indent, binderNames[0], cursorVariable)
+	if err := renderInto(body, "module.c", "grapheme_cursor_init", forStmtLineModel{Indent: indent, Name: cursorVariable, Value: view}); err != nil {
+		return err
 	}
-	fmt.Fprintf(body, "%s    const hex_grapheme %s = hex_grapheme_cursor_next(&%s);\n",
-		indent, binderNames[len(binderNames)-1], cursorVariable)
-	body.WriteString(bodyText.String())
-	fmt.Fprintf(body, "%s}\n", indent)
+	if err := renderInto(body, "module.c", "grapheme_while_open", forStmtLineModel{Indent: indent, Name: cursorVariable}); err != nil {
+		return err
+	}
+	if err := writeLineDirective(body, statement.Binders[0].SourceLine, state.filename); err != nil {
+		return err
+	}
+	if len(statement.Binders) == 2 {
+		if err := renderInto(body, "module.c", "const_decl", forStmtLineModel{Indent: indent + "    ", Type: "size_t", Name: binderNames[0], Value: cursorVariable + ".offset"}); err != nil {
+			return err
+		}
+	}
+	if err := renderInto(body, "module.c", "grapheme_next_decl", forStmtLineModel{
+		Indent: indent,
+		Name:   binderNames[len(binderNames)-1],
+		Value:  cursorVariable,
+	}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "raw_text", rawTextModel{Text: bodyText.String()}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -269,34 +419,80 @@ func renderForDict(body *strings.Builder, statement checker.ForStatement, render
 	}
 	sourceType := statement.Source.Type
 
+	if err := renderInto(body, "module.c", "const_ptr_decl", forStmtLineModel{Indent: indent, Type: sourceType.CName, Name: loop, Value: source}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "version_shadow", forStmtLineModel{Indent: indent, Name: loop}); err != nil {
+		return err
+	}
 	bucketVariable := loop + "_bucket"
 	ordinalVariable := loop + "_ordinal"
 	hasIndex := len(statement.Binders) == 3
 	keyType := statement.Binders[len(statement.Binders)-2].Type
 	valueType := statement.Binders[len(statement.Binders)-1].Type
 
-	fmt.Fprintf(body, "%sconst %s *const %s = %s;\n", indent, sourceType.CName, loop, source)
-	fmt.Fprintf(body, "%sconst size_t %s_version = %s->version;\n", indent, loop, loop)
 	if hasIndex {
-		fmt.Fprintf(body, "%ssize_t %s = (size_t)-1;\n", indent, ordinalVariable)
+		if err := renderInto(body, "module.c", "ordinal_decl", forStmtLineModel{Indent: indent, Name: ordinalVariable, Value: "(size_t)-1"}); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintf(body, "%sfor (size_t %s = 0; %s < %s->capacity; %s++) {\n", indent, bucketVariable, bucketVariable, loop, bucketVariable)
-	fmt.Fprintf(body, "%s    if (%s->version != %s_version) {\n", indent, loop, loop)
-	fmt.Fprintf(body, "%s        hex_runtime_trap(\"[Runtime Error] collection modified during iteration\\n\");\n", indent)
-	fmt.Fprintf(body, "%s    }\n", indent)
-	fmt.Fprintf(body, "%s    if (!%s->buckets[%s].active) {\n", indent, loop, bucketVariable)
-	fmt.Fprintf(body, "%s        continue;\n", indent)
-	fmt.Fprintf(body, "%s    }\n", indent)
+	if err := renderInto(body, "module.c", "for_index_open", forOpenModel{Indent: indent, Var: bucketVariable, Limit: loop + "->capacity"}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "version_guard_open", forStmtLineModel{Indent: indent, Name: loop}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "runtime_trap", indentModel{Indent: indent}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "inner_close", indentModel{Indent: indent}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "bucket_active_open", forOpenModel{Indent: indent, Var: bucketVariable, Dict: loop}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "continue_stmt", indentModel{Indent: indent + "        "}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "inner_close", indentModel{Indent: indent}); err != nil {
+		return err
+	}
 	if hasIndex {
-		fmt.Fprintf(body, "%s    %s++;\n", indent, ordinalVariable)
+		if err := renderInto(body, "module.c", "ordinal_preinc", forStmtLineModel{Indent: indent, Name: ordinalVariable}); err != nil {
+			return err
+		}
 	}
-	writeLineDirective(body, statement.Binders[0].SourceLine, state.filename)
+	if err := writeLineDirective(body, statement.Binders[0].SourceLine, state.filename); err != nil {
+		return err
+	}
 	if hasIndex {
-		fmt.Fprintf(body, "%s    const size_t %s = %s;\n", indent, binderNames[0], ordinalVariable)
+		if err := renderInto(body, "module.c", "const_decl", forStmtLineModel{Indent: indent + "    ", Type: "size_t", Name: binderNames[0], Value: ordinalVariable}); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintf(body, "%s    %s = %s->buckets[%s].key;\n", indent, declaration(keyType, binderNames[len(binderNames)-2], false), loop, bucketVariable)
-	fmt.Fprintf(body, "%s    %s = %s->buckets[%s].value;\n", indent, declaration(valueType, binderNames[len(binderNames)-1], false), loop, bucketVariable)
-	body.WriteString(bodyText.String())
-	fmt.Fprintf(body, "%s}\n", indent)
+	if err := renderInto(body, "module.c", "bucket_bind", bucketBindModel{
+		Indent: indent,
+		Target: declaration(keyType, binderNames[len(binderNames)-2], false),
+		Dict:   loop,
+		Var:    bucketVariable,
+		Field:  "key",
+	}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "bucket_bind", bucketBindModel{
+		Indent: indent,
+		Target: declaration(valueType, binderNames[len(binderNames)-1], false),
+		Dict:   loop,
+		Var:    bucketVariable,
+		Field:  "value",
+	}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "raw_text", rawTextModel{Text: bodyText.String()}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+		return err
+	}
 	return nil
 }

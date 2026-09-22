@@ -207,9 +207,9 @@ func equalityHelperName(typ compilerTypes.Type) string {
 // writeEqualityDefinitions emits one equality helper per collected type. It
 // must run after every struct definition because the helper bodies reference
 // the concrete C types.
-func writeEqualityDefinitions(result *strings.Builder, state *generatedEqualityState, tags *tagRegistry) {
+func writeEqualityDefinitions(result *strings.Builder, state *generatedEqualityState, tags *tagRegistry) error {
 	if state == nil {
-		return
+		return nil
 	}
 	for _, typ := range state.order {
 		if isProgramOwnedEqualityType(typ) {
@@ -217,30 +217,68 @@ func writeEqualityDefinitions(result *strings.Builder, state *generatedEqualityS
 		}
 		if typ.Union != nil {
 			if unionSupportsEquality(typ) {
-				writeUnionEquality(result, typ, tags)
+				if err := writeUnionEquality(result, typ, tags); err != nil {
+					return err
+				}
 			}
 			continue
 		}
-		writeEqualityHelper(result, typ, tags)
+		if err := writeEqualityHelper(result, typ, tags); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+// equalityStaticModel carries one static equality helper's decided name, const
+// parameter spelling, and pre-rendered comparison body.
+type equalityStaticModel struct {
+	Name      string
+	Parameter string
+	Body      string
+}
+
+// compareLineModel carries one operand comparison line's decided indent and
+// operand spellings; single-operand lines leave the unused side empty.
+type compareLineModel struct {
+	Indent string
+	Left   string
+	Right  string
+}
+
+// equalityCaseModel carries one switch case line's indent and decided tag.
+type equalityCaseModel struct {
+	Indent string
+	Tag    string
+}
+
+// equalityOtherModel carries ErrorKind's flat other_header comparison;
+// OtherTag is the decided Other tag spelling.
+type equalityOtherModel struct {
+	Indent   string
+	Left     string
+	Right    string
+	OtherTag string
 }
 
 // writeEqualityHelper emits the equality helper body for one compared type.
 // The body compares declared structure in order and returns false at the
 // first unequal component; nothing reads padding, capacity, or backing
 // addresses.
-func writeEqualityHelper(result *strings.Builder, typ compilerTypes.Type, tags *tagRegistry) {
+func writeEqualityHelper(result *strings.Builder, typ compilerTypes.Type, tags *tagRegistry) error {
 	var body strings.Builder
-	writeEqualityComparisons(&body, "(*left)", "(*right)", typ, "    ", tags)
+	if err := writeEqualityComparisons(&body, "(*left)", "(*right)", typ, "    ", tags); err != nil {
+		return err
+	}
 	// The helper never mutates its operands, so the parameters carry const;
 	// call sites pass const-qualified bindings and a non-const parameter
 	// would discard the qualifier under -Werror.
 	parameter := "const " + typ.CName + " *left, const " + typ.CName + " *right"
-	fmt.Fprintf(result, "\nstatic bool %s(%s) {\n", equalityHelperName(typ), parameter)
-	if body.Len() > 0 {
-		result.WriteString(body.String())
-	}
-	result.WriteString("    return true;\n}\n")
+	return renderInto(result, "module.h", "equality_helper", equalityStaticModel{
+		Name:      equalityHelperName(typ),
+		Parameter: parameter,
+		Body:      body.String(),
+	})
 }
 
 // equalityOperand adapts a raw field-access expression -- as spelled by a
@@ -263,97 +301,169 @@ func equalityOperand(expr string, typ compilerTypes.Type) string {
 
 // writeEqualityComparisons emits statements comparing the value spelled left
 // against right of the given type, returning false at the first inequality.
-func writeEqualityComparisons(body *strings.Builder, left, right string, typ compilerTypes.Type, indent string, tags *tagRegistry) {
+func writeEqualityComparisons(body *strings.Builder, left, right string, typ compilerTypes.Type, indent string, tags *tagRegistry) error {
+	emit := func(block string, model any) error {
+		return renderInto(body, "module.c", block, model)
+	}
 	switch {
 	case typ.Union != nil:
-		fmt.Fprintf(body, "%sif (%s.tag != %s.tag) return false;\n", indent, left, right)
-		fmt.Fprintf(body, "%sswitch (%s.tag) {\n", indent, left)
+		if err := emit("eq_tag_mismatch", compareLineModel{Indent: indent, Left: left, Right: right}); err != nil {
+			return err
+		}
+		if err := emit("eq_switch_open", compareLineModel{Indent: indent, Left: left}); err != nil {
+			return err
+		}
 		for _, member := range typ.Union.Members {
 			field := tags.unionPayloadField(member)
-			fmt.Fprintf(body, "%scase %s:\n", indent, tags.unionMemberTag(member))
+			if err := emit("eq_case", equalityCaseModel{Indent: indent, Tag: tags.unionMemberTag(member)}); err != nil {
+				return err
+			}
 			if compilerTypes.IsNil(member) {
-				fmt.Fprintf(body, "%s    return true;\n", indent)
+				if err := emit("eq_return_true", indentModel{Indent: indent}); err != nil {
+					return err
+				}
 				continue
 			}
 			memberLeft := equalityOperand(left+".payload."+field, member)
 			memberRight := equalityOperand(right+".payload."+field, member)
-			writeEqualityComparisons(body, memberLeft, memberRight, member, indent+"    ", tags)
-			fmt.Fprintf(body, "%s    return true;\n", indent)
+			if err := writeEqualityComparisons(body, memberLeft, memberRight, member, indent+"    ", tags); err != nil {
+				return err
+			}
+			if err := emit("eq_return_true", indentModel{Indent: indent}); err != nil {
+				return err
+			}
 		}
 		// hex_tag is one enum shared by every ADT and union tag in the whole
 		// program, so a switch exhaustive over this union's own members is
 		// still missing every other type's tag as far as -Wswitch can tell;
 		// default is unreachable in valid checked code.
-		fmt.Fprintf(body, "%sdefault:\n%s    abort();\n", indent, indent)
-		fmt.Fprintf(body, "%s}\n", indent)
+		if err := emit("eq_default_abort", indentModel{Indent: indent}); err != nil {
+			return err
+		}
+		if err := emit("block_close", indentModel{Indent: indent}); err != nil {
+			return err
+		}
 	case typ.Object != nil:
 		for _, member := range typ.Object.Members {
 			field := privateCName(memberName, member.Name, "")
 			memberLeft := equalityOperand(left+"."+field, member.Type)
 			memberRight := equalityOperand(right+"."+field, member.Type)
-			writeEqualityComparisons(body, memberLeft, memberRight, member.Type, indent, tags)
+			if err := writeEqualityComparisons(body, memberLeft, memberRight, member.Type, indent, tags); err != nil {
+				return err
+			}
 		}
 	case compilerTypes.IsErrorKind(typ):
 		// ErrorKind's Other is the only payload-carrying variant among 26 and
 		// lives in one flat other_header field, not a per-variant payload
 		// union (see hexal/error.h); Other's tag is the only case whose
 		// bytes can differ, so equality does not need a full tag switch.
-		fmt.Fprintf(body, "%sif (%s.tag != %s.tag) return false;\n", indent, left, right)
-		fmt.Fprintf(body, "%sif (%s.tag == %s && !hex_equal_text(hex_text_inline(&%s.other_header), hex_text_inline(&%s.other_header))) return false;\n",
-			indent, left, errorKindTag(tags, "Other"), left, right)
+		if err := emit("eq_tag_mismatch", compareLineModel{Indent: indent, Left: left, Right: right}); err != nil {
+			return err
+		}
+		if err := emit("eq_other_header", equalityOtherModel{
+			Indent:   indent,
+			Left:     left,
+			Right:    right,
+			OtherTag: errorKindTag(tags, "Other"),
+		}); err != nil {
+			return err
+		}
 	case typ.Adt != nil:
-		fmt.Fprintf(body, "%sif (%s.tag != %s.tag) return false;\n", indent, left, right)
-		fmt.Fprintf(body, "%sswitch (%s.tag) {\n", indent, left)
+		if err := emit("eq_tag_mismatch", compareLineModel{Indent: indent, Left: left, Right: right}); err != nil {
+			return err
+		}
+		if err := emit("eq_switch_open", compareLineModel{Indent: indent, Left: left}); err != nil {
+			return err
+		}
 		for index, variant := range typ.Adt.Variants {
-			fmt.Fprintf(body, "%scase %s:\n", indent, tags.adtVariantTag(typ.Adt, index))
+			if err := emit("eq_case", equalityCaseModel{Indent: indent, Tag: tags.adtVariantTag(typ.Adt, index)}); err != nil {
+				return err
+			}
 			if len(variant.Payload) == 0 {
-				fmt.Fprintf(body, "%s    return true;\n", indent)
+				if err := emit("eq_return_true", indentModel{Indent: indent}); err != nil {
+					return err
+				}
 				continue
 			}
 			for _, member := range variant.Payload {
 				field := ".payload." + compilerTypes.SanitizeIdentifier(variant.Name) + "." + privateCName(memberName, member.Name, "")
 				memberLeft := equalityOperand(left+field, member.Type)
 				memberRight := equalityOperand(right+field, member.Type)
-				writeEqualityComparisons(body, memberLeft, memberRight, member.Type, indent+"    ", tags)
+				if err := writeEqualityComparisons(body, memberLeft, memberRight, member.Type, indent+"    ", tags); err != nil {
+					return err
+				}
 			}
-			fmt.Fprintf(body, "%s    return true;\n", indent)
+			if err := emit("eq_return_true", indentModel{Indent: indent}); err != nil {
+				return err
+			}
 		}
 		// hex_tag is one enum shared by every ADT and union tag in the whole
 		// program, so a switch exhaustive over this ADT's own variants is
 		// still missing every other type's tag as far as -Wswitch can tell;
 		// default is unreachable in valid checked code.
-		fmt.Fprintf(body, "%sdefault:\n%s    abort();\n", indent, indent)
-		fmt.Fprintf(body, "%s}\n", indent)
+		if err := emit("eq_default_abort", indentModel{Indent: indent}); err != nil {
+			return err
+		}
+		if err := emit("block_close", indentModel{Indent: indent}); err != nil {
+			return err
+		}
 	case typ.Array != nil:
 		for index := uint64(0); index < typ.Array.Length; index++ {
 			field := ".data[" + fmt.Sprint(index) + "]"
 			elementLeft := equalityOperand(left+field, typ.Array.Element)
 			elementRight := equalityOperand(right+field, typ.Array.Element)
-			writeEqualityComparisons(body, elementLeft, elementRight, typ.Array.Element, indent, tags)
+			if err := writeEqualityComparisons(body, elementLeft, elementRight, typ.Array.Element, indent, tags); err != nil {
+				return err
+			}
 		}
 	case typ.Slice != nil:
-		fmt.Fprintf(body, "%sif (%s.length != %s.length) return false;\n", indent, left, right)
-		fmt.Fprintf(body, "%sfor (size_t index = 0; index < %s.length; index++) {\n", indent, left)
+		if err := emit("eq_length_mismatch", compareLineModel{Indent: indent, Left: left, Right: right}); err != nil {
+			return err
+		}
+		if err := emit("eq_for_open", compareLineModel{Indent: indent, Left: left}); err != nil {
+			return err
+		}
 		elementLeft := equalityOperand(left+".data[index]", typ.Slice.Element)
 		elementRight := equalityOperand(right+".data[index]", typ.Slice.Element)
-		writeEqualityComparisons(body, elementLeft, elementRight, typ.Slice.Element, indent+"    ", tags)
-		fmt.Fprintf(body, "%s}\n", indent)
+		if err := writeEqualityComparisons(body, elementLeft, elementRight, typ.Slice.Element, indent+"    ", tags); err != nil {
+			return err
+		}
+		if err := emit("block_close", indentModel{Indent: indent}); err != nil {
+			return err
+		}
 	case typ.List != nil:
-		fmt.Fprintf(body, "%sif (%s.length != %s.length) return false;\n", indent, left, right)
-		fmt.Fprintf(body, "%sfor (size_t index = 0; index < %s.length; index++) {\n", indent, left)
+		if err := emit("eq_length_mismatch", compareLineModel{Indent: indent, Left: left, Right: right}); err != nil {
+			return err
+		}
+		if err := emit("eq_for_open", compareLineModel{Indent: indent, Left: left}); err != nil {
+			return err
+		}
 		elementLeft := equalityOperand(left+".data[index]", typ.List.Element)
 		elementRight := equalityOperand(right+".data[index]", typ.List.Element)
-		writeEqualityComparisons(body, elementLeft, elementRight, typ.List.Element, indent+"    ", tags)
-		fmt.Fprintf(body, "%s}\n", indent)
+		if err := writeEqualityComparisons(body, elementLeft, elementRight, typ.List.Element, indent+"    ", tags); err != nil {
+			return err
+		}
+		if err := emit("block_close", indentModel{Indent: indent}); err != nil {
+			return err
+		}
 	case compilerTypes.IsString(typ):
-		fmt.Fprintf(body, "%sif (!hex_equal_text(hex_text_heap(%s), hex_text_heap(%s))) return false;\n", indent, left, right)
+		if err := emit("eq_text_heap", compareLineModel{Indent: indent, Left: left, Right: right}); err != nil {
+			return err
+		}
 	case compilerTypes.IsInlineString(typ):
 		// Inline text compares over its logical bytes only: the length, then
 		// that many bytes. Whatever follows the length is never read.
-		fmt.Fprintf(body, "%sif (!hex_equal_text(hex_text_inline(&(%s)), hex_text_inline(&(%s)))) return false;\n", indent, left, right)
+		if err := emit("eq_text_inline", compareLineModel{Indent: indent, Left: left, Right: right}); err != nil {
+			return err
+		}
 	case typ.Element != nil:
-		fmt.Fprintf(body, "%sif (!(%s == %s)) return false;\n", indent, left, right)
+		if err := emit("eq_scalar", compareLineModel{Indent: indent, Left: left, Right: right}); err != nil {
+			return err
+		}
 	default:
-		fmt.Fprintf(body, "%sif (!(%s == %s)) return false;\n", indent, left, right)
+		if err := emit("eq_scalar", compareLineModel{Indent: indent, Left: left, Right: right}); err != nil {
+			return err
+		}
 	}
+	return nil
 }

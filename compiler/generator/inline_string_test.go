@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	compilerTypes "hexal/compiler/types"
 )
 
 // Each demanded capacity is one struct defined exactly once in hexal/string.h,
@@ -24,7 +26,7 @@ func TestInlineStringCapacitiesAreDefinedOncePerDemand(t *testing.T) {
 		}
 	}
 	for name, content := range files {
-		for _, undemanded := range []string{"hex_string_8", "hex_string_31", "hex_string_128", "hex_string_256"} {
+		for _, undemanded := range []string{"hex_string_8", "hex_string_31", compilerTypes.ErrorHeaderText.CName, compilerTypes.ErrorMessageText.CName} {
 			if strings.Contains(content, undemanded+" ") || strings.Contains(content, undemanded+"(") || strings.Contains(content, undemanded+"*") {
 				t.Fatalf("%s names the undemanded capacity %s", name, undemanded)
 			}

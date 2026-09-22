@@ -507,11 +507,13 @@ func renderTextExpression(node checker.Expression, state *expressionValidation) 
 				return "(" + node.ResultType.CName + "){ .byte_length = 0 }", nil
 			}
 			var builder strings.Builder
-			fmt.Fprintf(&builder, "(%s){ .byte_length = %d, .data = {", node.ResultType.CName, len(node.Name))
-			for _, character := range []byte(node.Name) {
-				fmt.Fprintf(&builder, " %d,", character)
+			if err := renderInto(&builder, "module.c", "inline_literal", inlineLiteralModel{
+				Type:   node.ResultType.CName,
+				Length: len(node.Name),
+				Bytes:  []byte(node.Name),
+			}); err != nil {
+				return "", err
 			}
-			builder.WriteString(" } }")
 			return builder.String(), nil
 		}
 		if state.strings == nil {
@@ -889,6 +891,55 @@ func textErrorArm(union compilerTypes.Type, kind, message, file, line, column st
 		union.CName, tag, field, errorKindTag(tags, kind), line, column, file, literals.CName(handle)), nil
 }
 
+// streamAdapterModel carries one stream result adapter's decided suffix,
+// union type, success arm tag and payload field, and failure arm text.
+type streamAdapterModel struct {
+	Suffix  string
+	CName   string
+	Success string
+	Field   string
+	Error   string
+}
+
+// inlineTextAdapterModel carries one inline text adapter's decided suffix,
+// union and destination types, capacity, and its arm and fill texts.
+type inlineTextAdapterModel struct {
+	Suffix      string
+	CName       string
+	Destination string
+	Capacity    string
+	Overflow    string
+	Invalid     string
+	Tag         string
+	Field       string
+	Fill        string
+}
+
+// runeCategoriesModel carries the category table's decided entry count.
+type runeCategoriesModel struct {
+	Count string
+}
+
+// categoryEntryModel carries one category table entry's decided tag.
+type categoryEntryModel struct {
+	Tag string
+}
+
+// formCaseModel carries one normalization form tag test's decided tag and
+// form index.
+type formCaseModel struct {
+	Tag   string
+	Index string
+}
+
+// inlineLiteralModel carries one String<N> literal's decided type, byte
+// length, and initializer bytes.
+type inlineLiteralModel struct {
+	Type   string
+	Length int
+	Bytes  []byte
+}
+
 // writeTextInlineHelpers emits the module-owned adapters that wrap the text
 // core in each result union, plus the module-local Rune helpers. Failure kinds
 // and messages are fixed: malformed UTF-8 is InvalidInput and an inline
@@ -903,21 +954,9 @@ func writeTextInlineHelpers(result *strings.Builder, state *generatedTextState, 
 		// One module-local helper serves every Rune.utf8_length call: a Rune is
 		// already a valid scalar, so only the encoding range decides the width
 		// and no utf8proc step is needed.
-		result.WriteString("\n// hex_rune_utf8_length returns the encoded UTF-8 byte length of one\n" +
-			"// Unicode scalar: 1 through 4. The value is already a valid scalar, so\n" +
-			"// only the encoding range decides the width.\n" +
-			"static inline size_t hex_rune_utf8_length(uint32_t value) {\n" +
-			"    if (value < 0x80) {\n" +
-			"        return 1;\n" +
-			"    }\n" +
-			"    if (value < 0x800) {\n" +
-			"        return 2;\n" +
-			"    }\n" +
-			"    if (value < 0x10000) {\n" +
-			"        return 3;\n" +
-			"    }\n" +
-			"    return 4;\n" +
-			"}\n")
+		if err := renderInto(result, "module.h", "rune_utf8_length_helper", struct{}{}); err != nil {
+			return err
+		}
 	}
 	if len(state.runeFrom) > 0 {
 		fileName := literals.CName(state.fileLiteral)
@@ -927,16 +966,15 @@ func writeTextInlineHelpers(result *strings.Builder, state *generatedTextState, 
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(result,
-				"\n// hex_rune_from_%s turns a UInt32 into a checked Unicode scalar. It\n"+
-					"// rejects surrogates and values above U+10FFFF and reports, never traps.\n"+
-					"static inline %s hex_rune_from_%s(uint32_t value, size_t line, size_t column) {\n"+
-					"    if (value <= 0x10FFFF && !(value >= 0xD800 && value <= 0xDFFF)) {\n"+
-					"        return (%s){ .tag = %s, .payload.%s = value };\n"+
-					"    }\n"+
-					"    return %s;\n"+
-					"}\n",
-				streamAdapterSuffix(union), union.CName, streamAdapterSuffix(union), union.CName, success, field, invalid)
+			if err := renderInto(result, "module.h", "rune_from_adapter", streamAdapterModel{
+				Suffix:  streamAdapterSuffix(union),
+				CName:   union.CName,
+				Success: success,
+				Field:   field,
+				Error:   invalid,
+			}); err != nil {
+				return err
+			}
 		}
 	}
 	if len(state.heapFromRunes) > 0 {
@@ -947,30 +985,31 @@ func writeTextInlineHelpers(result *strings.Builder, state *generatedTextState, 
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(result,
-				"\n// hex_string_from_runes_%s encodes a scalar sequence into text. It\n"+
-					"// rejects surrogates and values above U+10FFFF and reports, never traps.\n"+
-					"static inline %s hex_string_from_runes_%s(hex_heap h, hex_slice_Rune runes, size_t line, size_t column) {\n"+
-					"    for (size_t index = 0; index < runes.length; index++) {\n"+
-					"        if (!hex_rune_valid(runes.data[index])) {\n"+
-					"            return %s;\n"+
-					"        }\n"+
-					"    }\n"+
-					"    return (%s){ .tag = %s, .payload.%s = hex_string_from_runes(h, runes.data, runes.length) };\n"+
-					"}\n",
-				streamAdapterSuffix(union), union.CName, streamAdapterSuffix(union), invalid, union.CName, success, field)
+			if err := renderInto(result, "module.h", "string_from_runes_adapter", streamAdapterModel{
+				Suffix:  streamAdapterSuffix(union),
+				CName:   union.CName,
+				Success: success,
+				Field:   field,
+				Error:   invalid,
+			}); err != nil {
+				return err
+			}
 		}
 	}
 	if state.runeCategory {
 		// hex_rune_categories maps a utf8proc general-category ordinal to the
 		// program-wide UnicodeCategory tag, in declaration order.
-		result.WriteString("\n// hex_rune_categories maps the runtime's general-category ordinal to the\n" +
-			"// program-wide UnicodeCategory tag, in declaration order.\n" +
-			fmt.Sprintf("static const hex_tag hex_rune_categories[%d] = {\n", len(compilerTypes.UnicodeCategoryVariantNames)))
-		for index := range compilerTypes.UnicodeCategoryVariantNames {
-			fmt.Fprintf(result, "    %s,\n", unicodeCategoryTag(tags, index))
+		if err := renderInto(result, "module.h", "rune_categories_open", runeCategoriesModel{Count: fmt.Sprintf("%d", len(compilerTypes.UnicodeCategoryVariantNames))}); err != nil {
+			return err
 		}
-		result.WriteString("};\n")
+		for index := range compilerTypes.UnicodeCategoryVariantNames {
+			if err := renderInto(result, "module.h", "category_entry", categoryEntryModel{Tag: unicodeCategoryTag(tags, index)}); err != nil {
+				return err
+			}
+		}
+		if err := renderInto(result, "module.h", "category_close", struct{}{}); err != nil {
+			return err
+		}
 	}
 	if len(state.casefold) > 0 {
 		fileName := literals.CName(state.fileLiteral)
@@ -980,27 +1019,29 @@ func writeTextInlineHelpers(result *strings.Builder, state *generatedTextState, 
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(result,
-				"\n// hex_string_casefold_%s folds text and reports a failed transform as\n"+
-					"// an Error. The transform buffer never escapes the runtime core.\n"+
-					"static inline %s hex_string_casefold_%s(hex_heap h, hex_text text, size_t line, size_t column) {\n"+
-					"    const hex_string *folded = hex_text_casefold(h, text);\n"+
-					"    if (folded == nullptr) {\n"+
-					"        return %s;\n"+
-					"    }\n"+
-					"    return (%s){ .tag = %s, .payload.%s = folded };\n"+
-					"}\n",
-				streamAdapterSuffix(union), union.CName, streamAdapterSuffix(union), failed, union.CName, success, field)
+			if err := renderInto(result, "module.h", "casefold_adapter", streamAdapterModel{
+				Suffix:  streamAdapterSuffix(union),
+				CName:   union.CName,
+				Success: success,
+				Field:   field,
+				Error:   failed,
+			}); err != nil {
+				return err
+			}
 		}
 	}
 	if len(state.normalize) > 0 {
-		result.WriteString("\n// hex_normalize_form maps a NormalizationForm tag to the runtime's fixed\n" +
-			"// form index (0 NFC, 1 NFD, 2 NFKC, 3 NFKD); an unknown tag reports -1.\n" +
-			"static inline int32_t hex_normalize_form(hex_tag tag) {\n")
-		for index := range compilerTypes.NormalizationFormVariantNames {
-			fmt.Fprintf(result, "    if (tag == %s) {\n        return %d;\n    }\n", normalizationFormTag(tags, index), index)
+		if err := renderInto(result, "module.h", "normalize_form_open", struct{}{}); err != nil {
+			return err
 		}
-		result.WriteString("    return -1;\n}\n")
+		for index := range compilerTypes.NormalizationFormVariantNames {
+			if err := renderInto(result, "module.h", "form_case", formCaseModel{Tag: normalizationFormTag(tags, index), Index: fmt.Sprintf("%d", index)}); err != nil {
+				return err
+			}
+		}
+		if err := renderInto(result, "module.h", "normalize_form_close", struct{}{}); err != nil {
+			return err
+		}
 		fileName := literals.CName(state.fileLiteral)
 		for _, union := range state.normalize {
 			success, field := streamMemberRef(tags, union, compilerTypes.StringType)
@@ -1008,17 +1049,15 @@ func writeTextInlineHelpers(result *strings.Builder, state *generatedTextState, 
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(result,
-				"\n// hex_string_normalize_%s normalizes text and reports a failed transform\n"+
-					"// as an Error. The transform buffer never escapes the runtime core.\n"+
-					"static inline %s hex_string_normalize_%s(hex_heap h, hex_text text, hex_tag form, size_t line, size_t column) {\n"+
-					"    const hex_string *normalized = hex_text_normalize(h, text, hex_normalize_form(form));\n"+
-					"    if (normalized == nullptr) {\n"+
-					"        return %s;\n"+
-					"    }\n"+
-					"    return (%s){ .tag = %s, .payload.%s = normalized };\n"+
-					"}\n",
-				streamAdapterSuffix(union), union.CName, streamAdapterSuffix(union), failed, union.CName, success, field)
+			if err := renderInto(result, "module.h", "normalize_adapter", streamAdapterModel{
+				Suffix:  streamAdapterSuffix(union),
+				CName:   union.CName,
+				Success: success,
+				Field:   field,
+				Error:   failed,
+			}); err != nil {
+				return err
+			}
 		}
 	}
 	if !state.used {
@@ -1031,14 +1070,15 @@ func writeTextInlineHelpers(result *strings.Builder, state *generatedTextState, 
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_string_from_bytes_%s(hex_heap h, hex_slice_UInt8 bytes, size_t line, size_t column) {\n"+
-				"    if (hex_utf8_valid(bytes.data, bytes.length)) {\n"+
-				"        return (%s){ .tag = %s, .payload.%s = hex_string_make(h, hex_text_view(bytes)) };\n"+
-				"    }\n"+
-				"    return %s;\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union), union.CName, success, field, invalid)
+		if err := renderInto(result, "module.h", "from_bytes_adapter", streamAdapterModel{
+			Suffix:  streamAdapterSuffix(union),
+			CName:   union.CName,
+			Success: success,
+			Field:   field,
+			Error:   invalid,
+		}); err != nil {
+			return err
+		}
 	}
 	for _, union := range state.heapConcat {
 		success, field := streamMemberRef(tags, union, compilerTypes.StringType)
@@ -1048,14 +1088,15 @@ func writeTextInlineHelpers(result *strings.Builder, state *generatedTextState, 
 		}
 		// The receiver is already well-formed text, so only what is appended
 		// needs validating.
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_string_concat_%s(hex_heap h, hex_text left, hex_slice_UInt8 right, size_t line, size_t column) {\n"+
-				"    if (hex_utf8_valid(right.data, right.length)) {\n"+
-				"        return (%s){ .tag = %s, .payload.%s = hex_string_join(h, left, hex_text_view(right)) };\n"+
-				"    }\n"+
-				"    return %s;\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union), union.CName, success, field, invalid)
+		if err := renderInto(result, "module.h", "string_concat_adapter", streamAdapterModel{
+			Suffix:  streamAdapterSuffix(union),
+			CName:   union.CName,
+			Success: success,
+			Field:   field,
+			Error:   invalid,
+		}); err != nil {
+			return err
+		}
 	}
 	inlineArms := func(union compilerTypes.Type) (destination compilerTypes.Type, tag, field, invalid, overflow string, err error) {
 		members := compilerTypes.UnionMembers(union)
@@ -1079,18 +1120,18 @@ func writeTextInlineHelpers(result *strings.Builder, state *generatedTextState, 
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_text_from_bytes_%s(hex_slice_UInt8 bytes, size_t line, size_t column) {\n"+
-				"    if (bytes.length > %d) {\n"+
-				"        return %s;\n"+
-				"    }\n"+
-				"    if (!hex_utf8_valid(bytes.data, bytes.length)) {\n"+
-				"        return %s;\n"+
-				"    }\n"+
-				"    return (%s){ .tag = %s, .payload.%s = %s };\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union), destination.InlineString.Capacity, overflow, invalid,
-			union.CName, tag, field, textFill(destination, "hex_text_view(bytes)", ""))
+		if err := renderInto(result, "module.h", "inline_from_bytes_adapter", inlineTextAdapterModel{
+			Suffix:   streamAdapterSuffix(union),
+			CName:    union.CName,
+			Capacity: fmt.Sprintf("%d", destination.InlineString.Capacity),
+			Overflow: overflow,
+			Invalid:  invalid,
+			Tag:      tag,
+			Field:    field,
+			Fill:     textFill(destination, "hex_text_view(bytes)", ""),
+		}); err != nil {
+			return err
+		}
 	}
 	for _, union := range state.inlineConcat {
 		destination, tag, field, invalid, overflow, err := inlineArms(union)
@@ -1099,26 +1140,18 @@ func writeTextInlineHelpers(result *strings.Builder, state *generatedTextState, 
 		}
 		// Validation covers the joined result, not each operand: a multi-byte
 		// sequence split across the two is well-formed once joined.
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_text_concat_%s(hex_slice_UInt8 left, hex_slice_UInt8 right, size_t line, size_t column) {\n"+
-				"    size_t total;\n"+
-				"    if (ckd_add(&total, left.length, right.length) || total > %d) {\n"+
-				"        return %s;\n"+
-				"    }\n"+
-				"    %s value = { .byte_length = total };\n"+
-				"    if (left.length != 0) {\n"+
-				"        memcpy(value.data, left.data, left.length);\n"+
-				"    }\n"+
-				"    if (right.length != 0) {\n"+
-				"        memcpy(value.data + left.length, right.data, right.length);\n"+
-				"    }\n"+
-				"    if (!hex_utf8_valid(value.data, total)) {\n"+
-				"        return %s;\n"+
-				"    }\n"+
-				"    return (%s){ .tag = %s, .payload.%s = value };\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union), destination.InlineString.Capacity, overflow, destination.CName, invalid,
-			union.CName, tag, field)
+		if err := renderInto(result, "module.h", "inline_concat_adapter", inlineTextAdapterModel{
+			Suffix:      streamAdapterSuffix(union),
+			CName:       union.CName,
+			Destination: destination.CName,
+			Capacity:    fmt.Sprintf("%d", destination.InlineString.Capacity),
+			Overflow:    overflow,
+			Invalid:     invalid,
+			Tag:         tag,
+			Field:       field,
+		}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

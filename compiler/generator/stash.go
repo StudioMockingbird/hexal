@@ -1,7 +1,6 @@
 package generator
 
 import (
-	"fmt"
 	"strings"
 
 	"hexal/compiler/checker"
@@ -52,19 +51,33 @@ func discoverStashHelpers(program checker.Program) (*stashHelpers, error) {
 // helper; the shared type-erased bump-allocation core lives in
 // hexal/stash.h -- reset and destroy call it directly with no per-T
 // specialization, since neither touches T's representation.
-func writeStashHelpers(result *strings.Builder, state *stashHelpers) {
+// stashHelperModel carries one stash helper's decided name and element
+// spelling.
+type stashHelperModel struct {
+	Name     string
+	Spelling string
+}
+
+func writeStashHelpers(result *strings.Builder, state *stashHelpers) error {
 	if state == nil {
-		return
+		return nil
 	}
 	for _, element := range state.elements {
 		spelling := typeSpelling(element)
-		fmt.Fprintf(result, "\nstatic inline hex_stash *%s(void) {\n", stashNewHelper(element))
-		fmt.Fprintf(result, "    return hex_stash_new(sizeof(%s), _Alignof(%s));\n}\n", spelling, spelling)
-		fmt.Fprintf(result, "\nstatic inline %s *%s(hex_stash *stash, %s initial) {\n", spelling, stashAllocateHelper(element), spelling)
-		fmt.Fprintf(result, "    %s *slot = (%s *)hex_stash_allocate(stash);\n", spelling, spelling)
-		fmt.Fprintf(result, "    *slot = initial;\n")
-		fmt.Fprintf(result, "    return slot;\n}\n")
+		if err := renderInto(result, "module.h", "stash_new_helper", stashHelperModel{
+			Name:     stashNewHelper(element),
+			Spelling: spelling,
+		}); err != nil {
+			return err
+		}
+		if err := renderInto(result, "module.h", "stash_allocate_helper", stashHelperModel{
+			Name:     stashAllocateHelper(element),
+			Spelling: spelling,
+		}); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func stashNewHelper(element compilerTypes.Type) string {

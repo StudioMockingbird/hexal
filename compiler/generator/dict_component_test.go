@@ -3,6 +3,8 @@ package generator
 import (
 	"strings"
 	"testing"
+
+	compilerTypes "hexal/compiler/types"
 )
 
 // A dict-using program emits hexal/dict.h with every reachable
@@ -218,7 +220,7 @@ static inline void hex_dict_free_Int32_Int32(hex_heap h, hex_dict_Int32_Int32 *d
 
 typedef struct hex_dict_entry_String_128__Int32 {
     bool active;
-    hex_string_128 key;
+    ` + compilerTypes.ErrorHeaderText.CName + ` key;
     int32_t value;
 } hex_dict_entry_String_128__Int32;
 typedef struct hex_dict_String_128__Int32 {
@@ -227,7 +229,7 @@ typedef struct hex_dict_String_128__Int32 {
     size_t capacity;
     size_t version;
 } hex_dict_String_128__Int32;
-static inline uint64_t hex_dict_probe_String_128__Int32_region(hex_dict_entry_String_128__Int32 *region, uint64_t capacity, hex_string_128 key) {
+static inline uint64_t hex_dict_probe_String_128__Int32_region(hex_dict_entry_String_128__Int32 *region, uint64_t capacity, ` + compilerTypes.ErrorHeaderText.CName + ` key) {
     uint64_t hash = hex_hash_text(hex_text_inline(&key));
     size_t index = hash & (capacity - 1);
     while (region[index].active && !hex_equal_text(hex_text_inline(&region[index].key), hex_text_inline(&key))) {
@@ -235,7 +237,7 @@ static inline uint64_t hex_dict_probe_String_128__Int32_region(hex_dict_entry_St
     }
     return index;
 }
-static inline uint64_t hex_dict_probe_String_128__Int32(const hex_dict_String_128__Int32 *dict, hex_string_128 key) {
+static inline uint64_t hex_dict_probe_String_128__Int32(const hex_dict_String_128__Int32 *dict, ` + compilerTypes.ErrorHeaderText.CName + ` key) {
     uint64_t hash = hex_hash_text(hex_text_inline(&key));
     size_t index = hash & (dict->capacity - 1);
     while (dict->buckets[index].active && !hex_equal_text(hex_text_inline(&dict->buckets[index].key), hex_text_inline(&key))) {
@@ -280,7 +282,7 @@ static inline void hex_dict_grow_String_128__Int32(hex_dict_String_128__Int32 *d
     dict->buckets = region;
     dict->capacity = next;
 }
-static inline void hex_dict_insert_String_128__Int32(hex_dict_String_128__Int32 *dict, hex_string_128 key, int32_t value) {
+static inline void hex_dict_insert_String_128__Int32(hex_dict_String_128__Int32 *dict, ` + compilerTypes.ErrorHeaderText.CName + ` key, int32_t value) {
     if (dict->capacity == 0) {
         hex_dict_grow_String_128__Int32(dict);
     } else {
@@ -306,7 +308,7 @@ static inline void hex_dict_insert_String_128__Int32(hex_dict_String_128__Int32 
     dict->length++;
     dict->version++;
 }
-static inline int32_t hex_dict_get_String_128__Int32(const hex_dict_String_128__Int32 *dict, hex_string_128 key) {
+static inline int32_t hex_dict_get_String_128__Int32(const hex_dict_String_128__Int32 *dict, ` + compilerTypes.ErrorHeaderText.CName + ` key) {
     if (dict->capacity == 0) {
         hex_runtime_trap("[Runtime Error] dictionary key not found\n");
     }
@@ -316,7 +318,7 @@ static inline int32_t hex_dict_get_String_128__Int32(const hex_dict_String_128__
     }
     return dict->buckets[index].value;
 }
-static inline const int32_t *hex_dict_find_String_128__Int32(const hex_dict_String_128__Int32 *dict, hex_string_128 key) {
+static inline const int32_t *hex_dict_find_String_128__Int32(const hex_dict_String_128__Int32 *dict, ` + compilerTypes.ErrorHeaderText.CName + ` key) {
     if (dict->capacity == 0) {
         return nullptr;
     }
@@ -326,7 +328,7 @@ static inline const int32_t *hex_dict_find_String_128__Int32(const hex_dict_Stri
     }
     return &dict->buckets[index].value;
 }
-static inline bool hex_dict_contains_String_128__Int32(const hex_dict_String_128__Int32 *dict, hex_string_128 key) {
+static inline bool hex_dict_contains_String_128__Int32(const hex_dict_String_128__Int32 *dict, ` + compilerTypes.ErrorHeaderText.CName + ` key) {
     if (dict->capacity == 0) {
         return false;
     }
@@ -340,7 +342,7 @@ static inline bool hex_dict_contains_String_128__Int32(const hex_dict_String_128
 // forward from the freed slot while buckets stay active, relocating each one
 // to its own first valid slot exactly as insertion would place it, until the
 // scan reaches a bucket that is already inactive.
-static inline int32_t hex_dict_remove_String_128__Int32(hex_dict_String_128__Int32 *dict, hex_string_128 key) {
+static inline int32_t hex_dict_remove_String_128__Int32(hex_dict_String_128__Int32 *dict, ` + compilerTypes.ErrorHeaderText.CName + ` key) {
     if (dict->capacity == 0) {
         hex_runtime_trap("[Runtime Error] dictionary key not found\n");
     }

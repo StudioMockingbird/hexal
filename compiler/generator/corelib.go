@@ -243,6 +243,23 @@ func corelibAdapterArguments(params []corelib.Param) (string, error) {
 // writeCorelibInlineHelpers emits the module-owned core-library adapters: each
 // wraps a raw component result struct in this module's own union, building
 // failures from the module file literal and the runtime's stable ErrorKind.
+// corelibAdapterModel carries one core-library adapter's decided union
+// type, runtime name, name suffix, parameter list, call and argument
+// expressions, success arm tag, payload field and member type, and
+// failure arm text; each result-shape template reads the fields it spells.
+type corelibAdapterModel struct {
+	CName      string
+	Runtime    string
+	Suffix     string
+	Parameters string
+	Call       string
+	Arguments  string
+	Tag        string
+	Field      string
+	Member     string
+	Failure    string
+}
+
 func writeCorelibInlineHelpers(result *strings.Builder, state *generatedCorelibState, literals *literalRegistry, tags *tagRegistry, event bool) error {
 	if state == nil || !state.used {
 		return nil
@@ -275,42 +292,48 @@ func writeCorelibInlineHelpers(result *strings.Builder, state *generatedCorelibS
 		call := corelibAdapterCall(adapter.runtime, event)
 		switch adapter.result {
 		case corelib.ResultString:
-			fmt.Fprintf(result,
-				"\nstatic inline %s %s_%s(%ssize_t line, size_t column) {\n"+
-					"    hex_program_string_result query = %s(%s);\n"+
-					"    if (query.ok) {\n"+
-					"        return (%s){ .tag = %s, .payload.%s = query.value };\n"+
-					"    }\n"+
-					"    return %s;\n"+
-					"}\n",
-				adapter.union.CName, adapter.runtime, streamAdapterSuffix(adapter.union),
-				parameters, call, callArguments,
-				adapter.union.CName, tag, field, failure)
+			if err := renderInto(result, "module.h", "corelib_string_adapter", corelibAdapterModel{
+				CName:      adapter.union.CName,
+				Runtime:    adapter.runtime,
+				Suffix:     streamAdapterSuffix(adapter.union),
+				Parameters: parameters,
+				Call:       call,
+				Arguments:  callArguments,
+				Tag:        tag,
+				Field:      field,
+				Failure:    failure,
+			}); err != nil {
+				return err
+			}
 		case corelib.ResultStringSlice:
-			fmt.Fprintf(result,
-				"\nstatic inline %s %s_%s(%ssize_t line, size_t column) {\n"+
-					"    hex_program_arguments_result query = %s(%s);\n"+
-					"    if (query.ok) {\n"+
-					"        return (%s){ .tag = %s, .payload.%s = (%s){ .data = query.items, .length = query.count } };\n"+
-					"    }\n"+
-					"    return %s;\n"+
-					"}\n",
-				adapter.union.CName, adapter.runtime, streamAdapterSuffix(adapter.union),
-				parameters, call, callArguments,
-				adapter.union.CName, tag, field, member.CName, failure)
+			if err := renderInto(result, "module.h", "corelib_slice_adapter", corelibAdapterModel{
+				CName:      adapter.union.CName,
+				Runtime:    adapter.runtime,
+				Suffix:     streamAdapterSuffix(adapter.union),
+				Parameters: parameters,
+				Call:       call,
+				Arguments:  callArguments,
+				Tag:        tag,
+				Field:      field,
+				Member:     member.CName,
+				Failure:    failure,
+			}); err != nil {
+				return err
+			}
 		case corelib.ResultNil:
 			nilTag, _ := streamMemberRef(tags, adapter.union, compilerTypes.Nil)
-			fmt.Fprintf(result,
-				"\nstatic inline %s %s_%s(%ssize_t line, size_t column) {\n"+
-					"    hex_entropy_fill_result query = %s(%s);\n"+
-					"    if (query.ok) {\n"+
-					"        return (%s){ .tag = %s };\n"+
-					"    }\n"+
-					"    return %s;\n"+
-					"}\n",
-				adapter.union.CName, adapter.runtime, streamAdapterSuffix(adapter.union),
-				parameters, call, callArguments,
-				adapter.union.CName, nilTag, failure)
+			if err := renderInto(result, "module.h", "corelib_nil_adapter", corelibAdapterModel{
+				CName:      adapter.union.CName,
+				Runtime:    adapter.runtime,
+				Suffix:     streamAdapterSuffix(adapter.union),
+				Parameters: parameters,
+				Call:       call,
+				Arguments:  callArguments,
+				Tag:        nilTag,
+				Failure:    failure,
+			}); err != nil {
+				return err
+			}
 		default:
 			return unknownExpressionDiagnostic("core-library adapter has an unsupported result shape")
 		}

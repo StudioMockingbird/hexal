@@ -8,6 +8,18 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
+// dictFindDeclModel carries one hoisted Dict.find temporary's declaration:
+// the indent, spelled value type, temporary name, dictionary suffix, and the
+// receiver and key expressions, all decided in Go.
+type dictFindDeclModel struct {
+	Indent   string
+	Type     string
+	Temp     string
+	Suffix   string
+	Receiver string
+	Key      string
+}
+
 // hoistDictFindInStatement evaluates each dictionary find once before its
 // enclosing statement. The component helper returns a pointer so the module
 // can construct the checked union without making a second probe.
@@ -36,7 +48,16 @@ func hoistDictFindInStatement(statement checker.Statement, body *strings.Builder
 		if valueType == (compilerTypes.Type{}) {
 			return unknownExpressionDiagnostic("dictionary find has no checked value type")
 		}
-		fmt.Fprintf(body, "%sconst %s *%s = hex_dict_find_%s(%s, %s);\n", indent, typeSpelling(valueType), temp, dictSuffix(node.OperandType), receiver, key)
+		if err := renderInto(body, "module.c", "dict_find_decl", dictFindDeclModel{
+			Indent:   indent,
+			Type:     typeSpelling(valueType),
+			Temp:     temp,
+			Suffix:   dictSuffix(node.OperandType),
+			Receiver: receiver,
+			Key:      key,
+		}); err != nil {
+			return err
+		}
 		state.hoistedDictFinds[node.Operand] = temp
 		return nil
 	})

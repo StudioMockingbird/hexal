@@ -192,6 +192,46 @@ func validateFileMethodCall(node checker.Expression, expected *compilerTypes.Typ
 // component core in one structural result union and builds failures with this
 // module's file literal, the portable header the core selects, and a static
 // operation message.
+// fileOpenAdapterModel carries one file opener's decided union type, name
+// suffix, file-mode case text, open arm tag and payload field, and failure
+// arm text.
+type fileOpenAdapterModel struct {
+	CName   string
+	Suffix  string
+	Cases   string
+	Success string
+	Field   string
+	Failure string
+}
+
+// fileSizeAdapterModel carries one file size-operation adapter's decided
+// union type, operation, name suffix, parameter list, transfer call,
+// count arm tag and payload field, optional guard text, and failure arm
+// text.
+type fileSizeAdapterModel struct {
+	CName      string
+	Operation  string
+	Suffix     string
+	Parameters string
+	Call       string
+	Success    string
+	Field      string
+	Gate       string
+	Failure    string
+}
+
+// fileStatusAdapterModel carries one file status-operation adapter's
+// decided union type, operation, name suffix, success arm tag, optional
+// guard text, and failure arm text.
+type fileStatusAdapterModel struct {
+	CName     string
+	Operation string
+	Suffix    string
+	Success   string
+	Gate      string
+	Error     string
+}
+
 func writeFileInlineHelpers(result *strings.Builder, state *generatedFileState, literals *literalRegistry, tags *tagRegistry) error {
 	if state == nil || !state.used {
 		return nil
@@ -221,23 +261,20 @@ func writeFileInlineHelpers(result *strings.Builder, state *generatedFileState, 
 		}
 		var cases strings.Builder
 		for index := range compilerTypes.FileModeType.Adt.Variants {
-			fmt.Fprintf(&cases, "    case %s:\n        variant = %d;\n        break;\n", tags.adtVariantTag(compilerTypes.FileModeType.Adt, index), index)
+			if err := renderInto(&cases, "module.h", "file_mode_case", formCaseModel{Tag: tags.adtVariantTag(compilerTypes.FileModeType.Adt, index), Index: fmt.Sprintf("%d", index)}); err != nil {
+				return err
+			}
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_file_open_%s(const hex_string *path, hex_t_FileMode mode, size_t line, size_t column) {\n"+
-				"    uint8_t variant;\n"+
-				"    switch (mode.tag) {\n%s"+
-				"    default:\n"+
-				"        abort();\n"+
-				"    }\n"+
-				"    hex_file_opened opened = hex_file_open(path, variant);\n"+
-				"    if (opened.status == 0) {\n"+
-				"        return (%s){ .tag = %s, .payload.%s = opened.file };\n"+
-				"    }\n"+
-				"    return %s;\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union), cases.String(),
-			union.CName, fileTag, fileField, failure)
+		if err := renderInto(result, "module.h", "file_open_adapter", fileOpenAdapterModel{
+			CName:   union.CName,
+			Suffix:  streamAdapterSuffix(union),
+			Cases:   cases.String(),
+			Success: fileTag,
+			Field:   fileField,
+			Failure: failure,
+		}); err != nil {
+			return err
+		}
 	}
 
 	for _, union := range state.readUnions {
@@ -251,24 +288,17 @@ func writeFileInlineHelpers(result *strings.Builder, state *generatedFileState, 
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_file_read_%s(hex_file file, hex_list_UInt8 *into, size_t max, size_t line, size_t column) {\n"+
-				"    hex_file_transfer transfer = hex_file_read(file, into, max);\n"+
-				"    switch (transfer.status) {\n"+
-				"    case 0:\n"+
-				"        return (%s){ .tag = %s, .payload.%s = transfer.count };\n"+
-				"    case HEX_FILE_EOS:\n"+
-				"        return (%s){ .tag = %s };\n"+
-				"    case HEX_FILE_NOT_READABLE:\n"+
-				"        return %s;\n"+
-				"    default:\n"+
-				"        return %s;\n"+
-				"    }\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union),
-			union.CName, sizeTag, sizeField,
-			union.CName, eosTag,
-			notReadable, failed)
+		if err := renderInto(result, "module.h", "file_read_adapter", streamReadAdapterModel{
+			Suffix:  streamAdapterSuffix(union),
+			CName:   union.CName,
+			Success: sizeTag,
+			Field:   sizeField,
+			EosTag:  eosTag,
+			Guard:   notReadable,
+			Error:   failed,
+		}); err != nil {
+			return err
+		}
 	}
 
 	sizeAdapter := func(unions []compilerTypes.Type, operation, parameters, call, payload string, gate bool) error {
@@ -286,16 +316,19 @@ func writeFileInlineHelpers(result *strings.Builder, state *generatedFileState, 
 				}
 				notWritable = "    if (transfer.status == HEX_FILE_NOT_WRITABLE) {\n        return " + arm + ";\n    }\n"
 			}
-			fmt.Fprintf(result,
-				"\nstatic inline %s hex_file_%s_%s(hex_file file, %s, size_t line, size_t column) {\n"+
-					"    hex_file_transfer transfer = %s;\n"+
-					"    if (transfer.status == 0) {\n"+
-					"        return (%s){ .tag = %s, .payload.%s = transfer.count };\n"+
-					"    }\n%s"+
-					"    return %s;\n"+
-					"}\n",
-				union.CName, operation, streamAdapterSuffix(union), parameters, call,
-				union.CName, sizeTag, sizeField, notWritable, failed)
+			if err := renderInto(result, "module.h", "file_size_adapter", fileSizeAdapterModel{
+				CName:      union.CName,
+				Operation:  operation,
+				Suffix:     streamAdapterSuffix(union),
+				Parameters: parameters,
+				Call:       call,
+				Success:    sizeTag,
+				Field:      sizeField,
+				Gate:       notWritable,
+				Failure:    failed,
+			}); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -326,16 +359,16 @@ func writeFileInlineHelpers(result *strings.Builder, state *generatedFileState, 
 				}
 				notWritable = "    if (status == HEX_FILE_NOT_WRITABLE) {\n        return " + arm + ";\n    }\n"
 			}
-			fmt.Fprintf(result,
-				"\nstatic inline %s hex_file_%s_%s(hex_file file, size_t line, size_t column) {\n"+
-					"    int status = hex_file_%s(file);\n"+
-					"    if (status == 0) {\n"+
-					"        return (%s){ .tag = %s };\n"+
-					"    }\n%s"+
-					"    return %s;\n"+
-					"}\n",
-				union.CName, operation, streamAdapterSuffix(union), operation,
-				union.CName, nilTag, notWritable, failed)
+			if err := renderInto(result, "module.h", "file_status_adapter", fileStatusAdapterModel{
+				CName:     union.CName,
+				Operation: operation,
+				Suffix:    streamAdapterSuffix(union),
+				Success:   nilTag,
+				Gate:      notWritable,
+				Error:     failed,
+			}); err != nil {
+				return err
+			}
 		}
 		return nil
 	}

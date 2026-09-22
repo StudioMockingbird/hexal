@@ -112,6 +112,14 @@ func conversionHelperName(spec conversionSpec) string {
 	return "hex_convert_" + spec.source.CName + "_" + spec.target.CName
 }
 
+// conversionOpenModel carries one conversion helper's decided result type,
+// helper name, and value parameter type.
+type conversionOpenModel struct {
+	Target string
+	Name   string
+	Source string
+}
+
 func writeConversionHelper(result *strings.Builder, spec conversionSpec) error {
 	source := spec.source
 	target := spec.target
@@ -146,10 +154,13 @@ func writeConversionHelper(result *strings.Builder, spec conversionSpec) error {
 			body += "    return result;\n"
 		}
 	}
-	fmt.Fprintf(result, "\nstatic inline %s %s(%s value) {\n", targetC, conversionHelperName(spec), sourceC)
-	result.WriteString(body)
-	result.WriteString("}\n")
-	return nil
+	if err := renderInto(result, "module.h", "conversion_open", conversionOpenModel{Target: targetC, Name: conversionHelperName(spec), Source: sourceC}); err != nil {
+		return err
+	}
+	if err := renderInto(result, "module.h", "raw_text", rawTextModel{Text: body}); err != nil {
+		return err
+	}
+	return renderInto(result, "module.c", "block_close", indentModel{})
 }
 
 // integerRangeFits reports whether every source value fits the destination

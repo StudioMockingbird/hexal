@@ -1,7 +1,6 @@
 package generator
 
 import (
-	"fmt"
 	"strings"
 
 	"hexal/compiler/checker"
@@ -60,36 +59,47 @@ func discoverHeapHelpers(program checker.Program) (*heapHelpers, error) {
 	return state, nil
 }
 
+// heapAllocateModel carries one typed allocation helper's decided spellings:
+// the return pointer type, the helper name, and the element spelling.
+type heapAllocateModel struct {
+	Return  string
+	Helper  string
+	Element string
+}
+
 // writeHeapAllocateHelpers emits the typed allocation helpers into the module
 // header. They are per-module because the element types are module-owned
 // (objects, ADTs, unions) and must be defined before the helper; the shared
 // raw machinery lives in hexal/heap.h.
-func writeHeapAllocateHelpers(result *strings.Builder, state *heapHelpers) {
+func writeHeapAllocateHelpers(result *strings.Builder, state *heapHelpers) error {
 	if state == nil {
-		return
+		return nil
 	}
 	for _, element := range state.elements {
-		helper := "hex_heap_allocate_" + compilerTypes.SanitizeIdentifier(element.Name)
-		fmt.Fprintf(result, "\nstatic %s %s(hex_heap h, %s initial) {\n", typeSpelling(compilerTypes.MutPtrType(element)), helper, typeSpelling(element))
 		// The token is unused: one default allocator has nothing to select.
 		// The parameter stays so the source Heap expression still evaluates
 		// once, in its written position.
-		fmt.Fprintf(result, "    (void)h;\n")
-		fmt.Fprintf(result, "    %s *pointer = hex_heap_allocate(sizeof(%s));\n", typeSpelling(element), typeSpelling(element))
-		fmt.Fprintf(result, "    *pointer = initial;\n")
-		fmt.Fprintf(result, "    return pointer;\n}\n")
+		if err := renderInto(result, "module.h", "heap_allocate_helper", heapAllocateModel{
+			Return:  typeSpelling(compilerTypes.MutPtrType(element)),
+			Helper:  heapAllocateHelper(element),
+			Element: typeSpelling(element),
+		}); err != nil {
+			return err
+		}
 	}
 	for _, element := range state.alignedElements {
-		helper := heapAllocateAlignedHelper(element)
-		fmt.Fprintf(result, "\nstatic %s %s(hex_heap h, %s initial, size_t alignment) {\n", typeSpelling(compilerTypes.MutPtrType(element)), helper, typeSpelling(element))
-		fmt.Fprintf(result, "    (void)h;\n")
 		// alignof is spelled in generated C because the target C compiler and
 		// ABI, not the host-neutral checker, own the element's natural
 		// alignment.
-		fmt.Fprintf(result, "    %s *pointer = hex_heap_allocate_aligned(sizeof(%s), alignment, alignof(%s));\n", typeSpelling(element), typeSpelling(element), typeSpelling(element))
-		fmt.Fprintf(result, "    *pointer = initial;\n")
-		fmt.Fprintf(result, "    return pointer;\n}\n")
+		if err := renderInto(result, "module.h", "heap_allocate_aligned_helper", heapAllocateModel{
+			Return:  typeSpelling(compilerTypes.MutPtrType(element)),
+			Helper:  heapAllocateAlignedHelper(element),
+			Element: typeSpelling(element),
+		}); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func heapAllocateHelper(element compilerTypes.Type) string {

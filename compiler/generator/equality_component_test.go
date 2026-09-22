@@ -125,7 +125,9 @@ func TestModuleEqualityWriterSkipsProgramOwnedHelpers(t *testing.T) {
 		Array:        &compilerTypes.ArrayInfo{Element: compilerTypes.Int32, Length: 2},
 	}
 	var output strings.Builder
-	writeEqualityDefinitions(&output, &generatedEqualityState{order: []compilerTypes.Type{typ}}, nil)
+	if err := writeEqualityDefinitions(&output, &generatedEqualityState{order: []compilerTypes.Type{typ}}, nil); err != nil {
+		t.Fatalf("writeEqualityDefinitions() error = %v", err)
+	}
 	if output.Len() != 0 {
 		t.Fatalf("module equality output = %q, program-owned helper must be component-owned", output.String())
 	}

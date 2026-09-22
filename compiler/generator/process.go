@@ -192,6 +192,40 @@ func processErrorArm(tags *tagRegistry, literals *literalRegistry, union compile
 // writeProcessInlineHelpers emits the module-owned process/IPC adapters:
 // each wraps the process.c core in one structural result union, built with
 // this module's static operation message.
+// processStartAdapterModel carries one process start adapter's decided
+// union type and name suffix, environment and working-directory tags and
+// field, stream translations, pipe and nil tags, started arm tag and
+// payload field, and failure arm text.
+type processStartAdapterModel struct {
+	CName        string
+	Suffix       string
+	ReplaceTag   string
+	WorkingTag   string
+	WorkingField string
+	Input        string
+	Output       string
+	Error        string
+	PipeTag      string
+	PipeField    string
+	NilTag       string
+	Success      string
+	Field        string
+	Failure      string
+}
+
+// processWaitAdapterModel carries one process wait adapter's decided union
+// type and name suffix, terminated and exited arm tags, exit-status arm
+// tag and payload field, and failure arm text.
+type processWaitAdapterModel struct {
+	CName      string
+	Suffix     string
+	Terminated string
+	Exited     string
+	Success    string
+	Field      string
+	Failure    string
+}
+
 func writeProcessInlineHelpers(result *strings.Builder, state *generatedProcessState, literals *literalRegistry, tags *tagRegistry) error {
 	if state == nil || !state.operations {
 		return nil
@@ -222,40 +256,24 @@ func writeProcessInlineHelpers(result *strings.Builder, state *generatedProcessS
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_process_start_%s(hex_t_ProcessOptions options, size_t line, size_t column) {\n"+
-				"    hex_process_options raw;\n"+
-				"    raw.program = options.hex_m_program;\n"+
-				"    raw.arguments = options.hex_m_arguments;\n"+
-				"    raw.environment_replace = options.hex_m_environment.tag == %s;\n"+
-				"    raw.environment_values = raw.environment_replace ? options.hex_m_environment.payload.Replace.hex_m_values : nullptr;\n"+
-				"    raw.working_directory = options.hex_m_working_directory.tag == %s ? options.hex_m_working_directory.payload.%s : nullptr;\n"+
-				"    raw.input = %s;\n"+
-				"    raw.output = %s;\n"+
-				"    raw.error = %s;\n"+
-				"    hex_process_start_result started = hex_process_start(raw);\n"+
-				"    if (started.status == 0) {\n"+
-				"        hex_t_StartedProcess value = {\n"+
-				"            .hex_m_process = started.process,\n"+
-				"            .hex_m_input = started.input.present ? (hex_t_Pipe_Nil){ .tag = %s, .payload.%s = started.input.pipe } : (hex_t_Pipe_Nil){ .tag = %s },\n"+
-				"            .hex_m_output = started.output.present ? (hex_t_Pipe_Nil){ .tag = %s, .payload.%s = started.output.pipe } : (hex_t_Pipe_Nil){ .tag = %s },\n"+
-				"            .hex_m_error = started.error.present ? (hex_t_Pipe_Nil){ .tag = %s, .payload.%s = started.error.pipe } : (hex_t_Pipe_Nil){ .tag = %s },\n"+
-				"        };\n"+
-				"        return (%s){ .tag = %s, .payload.%s = value };\n"+
-				"    }\n"+
-				"    return %s;\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union),
-			replaceTag,
-			stringNilTag, stringNilField,
-			processStreamTranslation(tags, "options.hex_m_input"),
-			processStreamTranslation(tags, "options.hex_m_output"),
-			processStreamTranslation(tags, "options.hex_m_error"),
-			pipeNilTag, pipeNilField, nilPayloadTag,
-			pipeNilTag, pipeNilField, nilPayloadTag,
-			pipeNilTag, pipeNilField, nilPayloadTag,
-			union.CName, startedTag, startedField,
-			failure)
+		if err := renderInto(result, "module.h", "process_start_adapter", processStartAdapterModel{
+			CName:        union.CName,
+			Suffix:       streamAdapterSuffix(union),
+			ReplaceTag:   replaceTag,
+			WorkingTag:   stringNilTag,
+			WorkingField: stringNilField,
+			Input:        processStreamTranslation(tags, "options.hex_m_input"),
+			Output:       processStreamTranslation(tags, "options.hex_m_output"),
+			Error:        processStreamTranslation(tags, "options.hex_m_error"),
+			PipeTag:      pipeNilTag,
+			PipeField:    pipeNilField,
+			NilTag:       nilPayloadTag,
+			Success:      startedTag,
+			Field:        startedField,
+			Failure:      failure,
+		}); err != nil {
+			return err
+		}
 	}
 
 	// exitedTag and terminatedTag, similarly, are resolved only inside the
@@ -269,19 +287,17 @@ func writeProcessInlineHelpers(result *strings.Builder, state *generatedProcessS
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_process_wait_%s(hex_process receiver, size_t line, size_t column) {\n"+
-				"    hex_process_wait_result waited = hex_process_wait(receiver);\n"+
-				"    if (waited.status == 0) {\n"+
-				"        hex_t_ExitStatus value = waited.terminated ? (hex_t_ExitStatus){ .tag = %s } : (hex_t_ExitStatus){ .tag = %s, .payload.Exited.hex_m_code = waited.exit_code };\n"+
-				"        return (%s){ .tag = %s, .payload.%s = value };\n"+
-				"    }\n"+
-				"    return %s;\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union),
-			terminatedTag, exitedTag,
-			union.CName, exitStatusTag, exitStatusField,
-			failure)
+		if err := renderInto(result, "module.h", "process_wait_adapter", processWaitAdapterModel{
+			CName:      union.CName,
+			Suffix:     streamAdapterSuffix(union),
+			Terminated: terminatedTag,
+			Exited:     exitedTag,
+			Success:    exitStatusTag,
+			Field:      exitStatusField,
+			Failure:    failure,
+		}); err != nil {
+			return err
+		}
 	}
 
 	for _, union := range state.terminateUnions {
@@ -290,16 +306,18 @@ func writeProcessInlineHelpers(result *strings.Builder, state *generatedProcessS
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_process_terminate_%s(hex_process receiver, size_t line, size_t column) {\n"+
-				"    int status = hex_process_terminate(receiver);\n"+
-				"    if (status == 0) {\n"+
-				"        return (%s){ .tag = %s };\n"+
-				"    }\n"+
-				"    return %s;\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union),
-			union.CName, nilTag, failure)
+		if err := renderInto(result, "module.h", "owned_status_adapter", tcpStatusAdapterModel{
+			CName:     union.CName,
+			Owner:     "process",
+			Operation: "terminate",
+			Suffix:    streamAdapterSuffix(union),
+			Params:    "hex_process receiver",
+			Call:      "hex_process_terminate(receiver)",
+			Success:   nilTag,
+			Error:     failure,
+		}); err != nil {
+			return err
+		}
 	}
 
 	closeAdapter := func(operation, call, payload string, pipe bool) error {
@@ -318,17 +336,18 @@ func writeProcessInlineHelpers(result *strings.Builder, state *generatedProcessS
 				receiverType += ", hex_slice_UInt8 from"
 				args += ", from"
 			}
-			fmt.Fprintf(result,
-				"\nstatic inline %s hex_%s_%s_%s(%s, size_t line, size_t column) {\n"+
-					"    int status = %s(%s);\n"+
-					"    if (status == 0) {\n"+
-					"        return (%s){ .tag = %s };\n"+
-					"    }\n"+
-					"    return %s;\n"+
-					"}\n",
-				union.CName, map[bool]string{true: "pipe", false: "process"}[pipe], operation, streamAdapterSuffix(union), receiverType,
-				call, args,
-				union.CName, nilTag, failure)
+			if err := renderInto(result, "module.h", "owned_status_adapter", tcpStatusAdapterModel{
+				CName:     union.CName,
+				Owner:     map[bool]string{true: "pipe", false: "process"}[pipe],
+				Operation: operation,
+				Suffix:    streamAdapterSuffix(union),
+				Params:    receiverType,
+				Call:      call + "(" + args + ")",
+				Success:   nilTag,
+				Error:     failure,
+			}); err != nil {
+				return err
+			}
 		}
 		return nil
 	}
@@ -352,21 +371,16 @@ func writeProcessInlineHelpers(result *strings.Builder, state *generatedProcessS
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_pipe_read_%s(hex_pipe receiver, hex_list_UInt8 *into, size_t max, size_t line, size_t column) {\n"+
-				"    hex_pipe_transfer transfer = hex_pipe_read(receiver, into, max);\n"+
-				"    switch (transfer.status) {\n"+
-				"    case 0:\n"+
-				"        return (%s){ .tag = %s, .payload.%s = transfer.count };\n"+
-				"    case HEX_PROCESS_EOS:\n"+
-				"        return (%s){ .tag = %s };\n"+
-				"    default:\n"+
-				"        return %s;\n"+
-				"    }\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union),
-			union.CName, sizeTag, sizeField,
-			union.CName, eosTag, failure)
+		if err := renderInto(result, "module.h", "pipe_read_adapter", streamReadAdapterModel{
+			Suffix:  streamAdapterSuffix(union),
+			CName:   union.CName,
+			Success: sizeTag,
+			Field:   sizeField,
+			EosTag:  eosTag,
+			Error:   failure,
+		}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

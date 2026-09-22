@@ -70,6 +70,15 @@ func collectLocalHelpers(program checker.Program) ([]localHelper, error) {
 	return helpers, nil
 }
 
+// helperSignatureModel carries one anonymous helper's decided result
+// spelling, C name, and parameter list; the prototype and definition
+// templates both read all three.
+type helperSignatureModel struct {
+	Result string
+	Name   string
+	Params string
+}
+
 // writeLocalHelperPrototypes emits one static prototype per discovered
 // helper, in ordinal order, before any ordinary function or method
 // definition references one. This is what lets an enclosing function call a
@@ -97,10 +106,11 @@ func writeLocalHelperPrototypes(body *strings.Builder, helpers []localHelper, ty
 			}
 			parameters[index] = typeSpelling(parameter.Type)
 		}
-		fmt.Fprintf(body, "static %s %s(%s);\n", resultSpelling, localHelperCName(helper.ordinal), parameterList(parameters))
+		if err := renderInto(body, "module.h", "helper_prototype", helperSignatureModel{Result: resultSpelling, Name: localHelperCName(helper.ordinal), Params: parameterList(parameters)}); err != nil {
+			return err
+		}
 	}
-	body.WriteString("\n")
-	return nil
+	return renderInto(body, "module.h", "blank_line", struct{}{})
 }
 
 // writeLocalHelperDefinitions emits one file-scope static C function per
@@ -167,12 +177,18 @@ func writeLocalHelperDefinitions(ctx definitionContext, helpers []localHelper) e
 			}
 			parameters[index] = declaration(parameter.Type, name, false)
 		}
-		writeLineDirective(ctx.body, helper.sourceLine, ctx.filename)
-		fmt.Fprintf(ctx.body, "static %s %s(%s) {\n", resultSpelling, localHelperCName(helper.ordinal), parameterList(parameters))
+		if err := writeLineDirective(ctx.body, helper.sourceLine, ctx.filename); err != nil {
+			return err
+		}
+		if err := renderInto(ctx.body, "module.h", "helper_open", helperSignatureModel{Result: resultSpelling, Name: localHelperCName(helper.ordinal), Params: parameterList(parameters)}); err != nil {
+			return err
+		}
 		if err := writeStatements(ctx.body, helper.body, state, helper.result, true, helper.defers); err != nil {
 			return err
 		}
-		ctx.body.WriteString("}\n\n")
+		if err := renderInto(ctx.body, "module.h", "helper_close", struct{}{}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

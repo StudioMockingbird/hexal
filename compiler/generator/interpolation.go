@@ -82,6 +82,64 @@ func hoistInterpolationSegments(node checker.Expression, ordinal int, body *stri
 	return plans, nil
 }
 
+// interpCkdModel carries one checked-add guard's decided counter name and the
+// length operand added into it.
+type interpCkdModel struct {
+	Indent string
+	Name   string
+	Extra  string
+}
+
+// interpCapacityModel carries one inline-capacity guard: the overflow flag,
+// running total, and destination capacity.
+type interpCapacityModel struct {
+	Indent   string
+	Over     string
+	Total    string
+	Capacity string
+}
+
+// interpResultModel carries one fitted union result store: the decided
+// temporary, result type, variant tag, payload field, and value temporary.
+type interpResultModel struct {
+	Indent string
+	Name   string
+	Type   string
+	Tag    string
+	Field  string
+	Value  string
+}
+
+// interpSizeModel carries interpolation's size-carrying declarations and
+// storage stores; each template reads the fields it spells.
+type interpSizeModel struct {
+	Indent  string
+	Name    string
+	Size    string
+	Total   string
+	Storage string
+}
+
+// interpByteModel carries one segment memcpy: the destination base, running
+// offset, byte source, and byte length.
+type interpByteModel struct {
+	Indent string
+	Dest   string
+	Offset string
+	Data   string
+	Len    string
+}
+
+// interpFormatModel carries one scalar format call's decided helper, buffer,
+// and value temporaries.
+type interpFormatModel struct {
+	Indent   string
+	Name     string
+	Function string
+	Buf      string
+	Value    string
+}
+
 // hoistInlineInterpolate emits one String<N>.interpolate call's complete
 // lowering. Every embedded expression evaluates exactly once, in order, before
 // capacity is checked, so an overflow never skips or repeats a side effect. The
@@ -101,12 +159,22 @@ func hoistInlineInterpolate(node checker.Expression, body *strings.Builder, stat
 	destination := node.OperandType
 	totalTemp := fmt.Sprintf("hex_interp_total_%d", ordinal)
 	overTemp := fmt.Sprintf("hex_interp_over_%d", ordinal)
-	fmt.Fprintf(body, "%ssize_t %s = 0;\n", indent, totalTemp)
-	fmt.Fprintf(body, "%sbool %s = false;\n", indent, overTemp)
+	if err := renderInto(body, "module.c", "ordinal_decl", forStmtLineModel{Indent: indent, Name: totalTemp, Value: "0"}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "bool_decl", forStmtLineModel{Indent: indent, Name: overTemp}); err != nil {
+		return err
+	}
 	for _, plan := range plans {
-		fmt.Fprintf(body, "%sif (ckd_add(&%s, %s, %s)) {\n", indent, totalTemp, totalTemp, plan.byteLen)
-		fmt.Fprintf(body, "%s    %s = true;\n", indent, overTemp)
-		fmt.Fprintf(body, "%s}\n", indent)
+		if err := renderInto(body, "module.c", "ckd_add_open", interpCkdModel{Indent: indent, Name: totalTemp, Extra: plan.byteLen}); err != nil {
+			return err
+		}
+		if err := renderInto(body, "module.c", "assign_true", forStmtLineModel{Indent: indent, Name: overTemp}); err != nil {
+			return err
+		}
+		if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+			return err
+		}
 	}
 	fileHandle, ok := state.strings.Lookup(state.filename)
 	if !ok {
@@ -121,20 +189,56 @@ func hoistInlineInterpolate(node checker.Expression, body *strings.Builder, stat
 	resultTemp := fmt.Sprintf("hex_interp_result_%d", ordinal)
 	valueTemp := fmt.Sprintf("hex_interp_value_%d", ordinal)
 	offsetTemp := fmt.Sprintf("hex_interp_offset_%d", ordinal)
-	fmt.Fprintf(body, "%s%s %s;\n", indent, node.ResultType.CName, resultTemp)
-	fmt.Fprintf(body, "%sif (%s || %s > %d) {\n", indent, overTemp, totalTemp, destination.InlineString.Capacity)
-	fmt.Fprintf(body, "%s    %s = %s;\n", indent, resultTemp, overflow)
-	fmt.Fprintf(body, "%s} else {\n", indent)
-	fmt.Fprintf(body, "%s    %s %s = { .byte_length = %s };\n", indent, destination.CName, valueTemp, totalTemp)
-	fmt.Fprintf(body, "%s    size_t %s = 0;\n", indent, offsetTemp)
-	for _, plan := range plans {
-		fmt.Fprintf(body, "%s    if (%s != 0) {\n", indent, plan.byteLen)
-		fmt.Fprintf(body, "%s        memcpy(%s.data + %s, %s, %s);\n", indent, valueTemp, offsetTemp, plan.data, plan.byteLen)
-		fmt.Fprintf(body, "%s    }\n", indent)
-		fmt.Fprintf(body, "%s    %s += %s;\n", indent, offsetTemp, plan.byteLen)
+	if err := renderInto(body, "module.c", "var_decl", forStmtLineModel{Indent: indent, Type: node.ResultType.CName, Name: resultTemp}); err != nil {
+		return err
 	}
-	fmt.Fprintf(body, "%s    %s = (%s){ .tag = %s, .payload.%s = %s };\n", indent, resultTemp, node.ResultType.CName, tag, field, valueTemp)
-	fmt.Fprintf(body, "%s}\n", indent)
+	if err := renderInto(body, "module.c", "capacity_guard_open", interpCapacityModel{
+		Indent:   indent,
+		Over:     overTemp,
+		Total:    totalTemp,
+		Capacity: fmt.Sprintf("%d", destination.InlineString.Capacity),
+	}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "for_assign", forStmtLineModel{Indent: indent, Name: resultTemp, Value: overflow}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "else_open", indentModel{Indent: indent}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "value_init", forStmtLineModel{Indent: indent, Type: destination.CName, Name: valueTemp, Value: totalTemp}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "ordinal_decl", forStmtLineModel{Indent: indent + "    ", Name: offsetTemp, Value: "0"}); err != nil {
+		return err
+	}
+	for _, plan := range plans {
+		if err := renderInto(body, "module.c", "nonzero_guard_open", forStmtLineModel{Indent: indent + "    ", Value: plan.byteLen}); err != nil {
+			return err
+		}
+		if err := renderInto(body, "module.c", "memcpy_inline", interpByteModel{Indent: indent, Dest: valueTemp, Offset: offsetTemp, Data: plan.data, Len: plan.byteLen}); err != nil {
+			return err
+		}
+		if err := renderInto(body, "module.c", "inner_close", indentModel{Indent: indent}); err != nil {
+			return err
+		}
+		if err := renderInto(body, "module.c", "offset_add", forStmtLineModel{Indent: indent + "    ", Name: offsetTemp, Value: plan.byteLen}); err != nil {
+			return err
+		}
+	}
+	if err := renderInto(body, "module.c", "result_assign", interpResultModel{
+		Indent: indent,
+		Name:   resultTemp,
+		Type:   node.ResultType.CName,
+		Tag:    tag,
+		Field:  field,
+		Value:  valueTemp,
+	}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+		return err
+	}
 	if state.hoistedSequencing == nil {
 		state.hoistedSequencing = make(map[*checker.Expression]string)
 	}
@@ -163,12 +267,16 @@ func hoistStringInterpolate(node checker.Expression, body *strings.Builder, stat
 		return err
 	}
 	heapTemp := fmt.Sprintf("hex_interp_heap_%d", ordinal)
-	fmt.Fprintf(body, "%s%s = %s;\n", indent, declaration(compilerTypes.Heap, heapTemp, false), heap)
+	if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: declaration(compilerTypes.Heap, heapTemp, false), Value: heap}); err != nil {
+		return err
+	}
 	// hex_heap_allocate takes no heap argument (Heap is a capability token,
 	// not a distinct allocator identity; hex_string_make ignores its
 	// own Heap parameter identically), so the captured temporary is unused
 	// beyond proving the Heap expression was evaluated exactly once.
-	fmt.Fprintf(body, "%s(void)%s;\n", indent, heapTemp)
+	if err := renderInto(body, "module.c", "void_use", forStmtLineModel{Indent: indent, Name: heapTemp}); err != nil {
+		return err
+	}
 
 	plans, err := hoistInterpolationSegments(node, ordinal, body, state, indent)
 	if err != nil {
@@ -176,32 +284,65 @@ func hoistStringInterpolate(node checker.Expression, body *strings.Builder, stat
 	}
 
 	totalTemp := fmt.Sprintf("hex_interp_total_%d", ordinal)
-	fmt.Fprintf(body, "%ssize_t %s = 0;\n", indent, totalTemp)
+	if err := renderInto(body, "module.c", "ordinal_decl", forStmtLineModel{Indent: indent, Name: totalTemp, Value: "0"}); err != nil {
+		return err
+	}
 	for _, plan := range plans {
-		fmt.Fprintf(body, "%sif (ckd_add(&%s, %s, %s)) {\n", indent, totalTemp, totalTemp, plan.byteLen)
-		fmt.Fprintf(body, "%s    hex_runtime_trap(\"[Runtime Error] string allocation size overflow\\n\");\n", indent)
-		fmt.Fprintf(body, "%s}\n", indent)
+		if err := renderInto(body, "module.c", "ckd_add_open", interpCkdModel{Indent: indent, Name: totalTemp, Extra: plan.byteLen}); err != nil {
+			return err
+		}
+		if err := renderInto(body, "module.c", "overflow_trap", indentModel{Indent: indent}); err != nil {
+			return err
+		}
+		if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+			return err
+		}
 	}
 	sizeTemp := fmt.Sprintf("hex_interp_size_%d", ordinal)
-	fmt.Fprintf(body, "%ssize_t %s;\n", indent, sizeTemp)
-	fmt.Fprintf(body, "%sif (ckd_add(&%s, sizeof(hex_string_storage), %s) || ckd_add(&%s, %s, 1)) {\n", indent, sizeTemp, totalTemp, sizeTemp, sizeTemp)
-	fmt.Fprintf(body, "%s    hex_runtime_trap(\"[Runtime Error] string allocation size overflow\\n\");\n", indent)
-	fmt.Fprintf(body, "%s}\n", indent)
-	storageTemp := fmt.Sprintf("hex_interp_storage_%d", ordinal)
-	fmt.Fprintf(body, "%shex_string_storage *%s = hex_heap_allocate(%s);\n", indent, storageTemp, sizeTemp)
-	offsetTemp := fmt.Sprintf("hex_interp_offset_%d", ordinal)
-	fmt.Fprintf(body, "%ssize_t %s = 0;\n", indent, offsetTemp)
-	for _, plan := range plans {
-		fmt.Fprintf(body, "%sif (%s != 0) {\n", indent, plan.byteLen)
-		fmt.Fprintf(body, "%s    memcpy(%s->bytes + %s, %s, %s);\n", indent, storageTemp, offsetTemp, plan.data, plan.byteLen)
-		fmt.Fprintf(body, "%s}\n", indent)
-		fmt.Fprintf(body, "%s%s += %s;\n", indent, offsetTemp, plan.byteLen)
+	if err := renderInto(body, "module.c", "var_decl", forStmtLineModel{Indent: indent, Type: "size_t", Name: sizeTemp}); err != nil {
+		return err
 	}
-	fmt.Fprintf(body, "%s%s->bytes[%s] = 0;\n", indent, storageTemp, totalTemp)
-	fmt.Fprintf(body, "%s%s->header = (hex_string){ .data = %s->bytes, .byte_length = %s, .storage_kind = HEX_STRING_OWNED };\n",
-		indent, storageTemp, storageTemp, totalTemp)
+	if err := renderInto(body, "module.c", "storage_size_open", interpCkdModel{Indent: indent, Name: sizeTemp, Extra: totalTemp}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "overflow_trap", indentModel{Indent: indent}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+		return err
+	}
+	storageTemp := fmt.Sprintf("hex_interp_storage_%d", ordinal)
+	if err := renderInto(body, "module.c", "storage_alloc", interpSizeModel{Indent: indent, Name: storageTemp, Size: sizeTemp}); err != nil {
+		return err
+	}
+	offsetTemp := fmt.Sprintf("hex_interp_offset_%d", ordinal)
+	if err := renderInto(body, "module.c", "ordinal_decl", forStmtLineModel{Indent: indent, Name: offsetTemp, Value: "0"}); err != nil {
+		return err
+	}
+	for _, plan := range plans {
+		if err := renderInto(body, "module.c", "nonzero_guard_open", forStmtLineModel{Indent: indent, Value: plan.byteLen}); err != nil {
+			return err
+		}
+		if err := renderInto(body, "module.c", "memcpy_owned", interpByteModel{Indent: indent, Dest: storageTemp, Offset: offsetTemp, Data: plan.data, Len: plan.byteLen}); err != nil {
+			return err
+		}
+		if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+			return err
+		}
+		if err := renderInto(body, "module.c", "offset_add", forStmtLineModel{Indent: indent, Name: offsetTemp, Value: plan.byteLen}); err != nil {
+			return err
+		}
+	}
+	if err := renderInto(body, "module.c", "nul_terminate", interpSizeModel{Indent: indent, Name: storageTemp, Total: totalTemp}); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "header_init", interpSizeModel{Indent: indent, Name: storageTemp, Total: totalTemp}); err != nil {
+		return err
+	}
 	resultTemp := fmt.Sprintf("hex_interp_result_%d", ordinal)
-	fmt.Fprintf(body, "%sconst hex_string *const %s = &%s->header;\n", indent, resultTemp, storageTemp)
+	if err := renderInto(body, "module.c", "result_header", interpSizeModel{Indent: indent, Name: resultTemp, Storage: storageTemp}); err != nil {
+		return err
+	}
 
 	if state.hoistedInterpolations == nil {
 		state.hoistedInterpolations = make(map[*checker.Expression]string)
@@ -219,15 +360,21 @@ func hoistInterpolationValueSegment(value checker.Operand, ordinal, valueOrdinal
 		return interpolationSegmentPlan{}, err
 	}
 	valueTemp := fmt.Sprintf("hex_interp_val_%d_%d", ordinal, valueOrdinal)
-	fmt.Fprintf(body, "%s%s = %s;\n", indent, declaration(value.Type, valueTemp, false), rendered)
+	if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: declaration(value.Type, valueTemp, false), Value: rendered}); err != nil {
+		return interpolationSegmentPlan{}, err
+	}
 
 	typ := value.Type
 	switch {
 	case compilerTypes.Equal(typ, compilerTypes.Bool):
 		dataTemp := fmt.Sprintf("hex_interp_data_%d_%d", ordinal, valueOrdinal)
 		lenTemp := fmt.Sprintf("hex_interp_len_%d_%d", ordinal, valueOrdinal)
-		fmt.Fprintf(body, "%sconst uint8_t *%s = %s ? (const uint8_t *)\"true\" : (const uint8_t *)\"false\";\n", indent, dataTemp, valueTemp)
-		fmt.Fprintf(body, "%ssize_t %s = %s ? 4 : 5;\n", indent, lenTemp, valueTemp)
+		if err := renderInto(body, "module.c", "bool_text", forStmtLineModel{Indent: indent, Name: dataTemp, Value: valueTemp}); err != nil {
+			return interpolationSegmentPlan{}, err
+		}
+		if err := renderInto(body, "module.c", "bool_len", forStmtLineModel{Indent: indent, Name: lenTemp, Value: valueTemp}); err != nil {
+			return interpolationSegmentPlan{}, err
+		}
 		return interpolationSegmentPlan{data: dataTemp, byteLen: lenTemp}, nil
 	case compilerTypes.IsString(typ):
 		return interpolationSegmentPlan{data: valueTemp + "->data", byteLen: valueTemp + "->byte_length"}, nil
@@ -242,8 +389,12 @@ func hoistInterpolationValueSegment(value checker.Operand, ordinal, valueOrdinal
 	}
 	bufTemp := fmt.Sprintf("hex_interp_buf_%d_%d", ordinal, valueOrdinal)
 	lenTemp := fmt.Sprintf("hex_interp_len_%d_%d", ordinal, valueOrdinal)
-	fmt.Fprintf(body, "%schar %s[%d];\n", indent, bufTemp, bufferSize)
-	fmt.Fprintf(body, "%ssize_t %s = %s(%s, %s);\n", indent, lenTemp, formatFunction, bufTemp, valueTemp)
+	if err := renderInto(body, "module.c", "buf_decl", interpSizeModel{Indent: indent, Name: bufTemp, Size: strconv.Itoa(bufferSize)}); err != nil {
+		return interpolationSegmentPlan{}, err
+	}
+	if err := renderInto(body, "module.c", "format_len", interpFormatModel{Indent: indent, Name: lenTemp, Function: formatFunction, Buf: bufTemp, Value: valueTemp}); err != nil {
+		return interpolationSegmentPlan{}, err
+	}
 	return interpolationSegmentPlan{data: bufTemp, byteLen: lenTemp}, nil
 }
 

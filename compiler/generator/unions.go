@@ -146,29 +146,93 @@ func discoverGeneratedUnions(program checker.Program) (*generatedUnionState, err
 	return state, nil
 }
 
+// nominalForwardModel carries one nominal type's forward typedef name, shared
+// by union and ADT forward declarations.
+type nominalForwardModel struct {
+	Name string
+}
+
+// unionBodyModel carries one union's struct body. Each member's declarator
+// arrives decided: a function-pointer declaration or a value declaration.
+type unionBodyModel struct {
+	Name    string
+	Members []unionPayloadModel
+}
+
+// unionPayloadModel is one payload-union member's decided declarator text.
+type unionPayloadModel struct {
+	Declaration string
+}
+
+// unionWidenModel carries one widening helper's decided names and per-tag
+// cases. Payload is the decided payload assignment, empty for a tag-only
+// alternative.
+type unionWidenModel struct {
+	Destination string
+	Name        string
+	Source      string
+	Cases       []unionWidenCaseModel
+}
+
+// unionWidenCaseModel is one widening case's tag and payload assignment.
+type unionWidenCaseModel struct {
+	Tag     string
+	Payload string
+}
+
+// unionEqualModel carries one union equality helper's decided names and
+// per-tag cases. Comparisons is the decided comparison text preceding the
+// shared return.
+type unionEqualModel struct {
+	Name  string
+	CName string
+	Cases []unionEqualCaseModel
+}
+
+// unionEqualCaseModel is one equality case's tag and comparison text.
+type unionEqualCaseModel struct {
+	Tag         string
+	Comparisons string
+}
+
+// unionTruthyModel carries one truthiness helper's decided cases. Return is
+// the full decided return statement for the case.
+type unionTruthyModel struct {
+	CName string
+	Cases []unionTruthyCaseModel
+}
+
+// unionTruthyCaseModel is one truthiness case's tag and return statement.
+type unionTruthyCaseModel struct {
+	Tag    string
+	Return string
+}
+
 // writeUnionForwardDeclarations emits `typedef struct CName CName;` for every
 // discovered union, ahead of every full body, mirroring
 // writeAdtForwardDeclarations.
-func writeUnionForwardDeclarations(result *strings.Builder, state *generatedUnionState) {
+func writeUnionForwardDeclarations(result *strings.Builder, state *generatedUnionState) error {
 	if state == nil {
-		return
+		return nil
 	}
 	for _, union := range state.order {
 		if compilerTypes.IsBuiltinUnion(union) {
 			continue
 		}
-		name := union.CName
-		fmt.Fprintf(result, "\ntypedef struct %s %s;\n", name, name)
+		if err := renderInto(result, "module.h", "nominal_forward", nominalForwardModel{Name: union.CName}); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // writeUnionDefinitions emits every union's widening and truthiness helpers.
 // Full struct bodies are emitted by the dependency-ordered driver in
 // emission.go, through writeOneUnionBody; by the time this runs, every
 // union's own body already exists.
-func writeUnionDefinitions(result *strings.Builder, state *generatedUnionState, tags *tagRegistry) {
+func writeUnionDefinitions(result *strings.Builder, state *generatedUnionState, tags *tagRegistry) error {
 	if state == nil {
-		return
+		return nil
 	}
 	for _, widening := range state.widenings {
 		if compilerTypes.IsNullable(widening.source) && compilerTypes.IsNullable(widening.destination) {
@@ -176,15 +240,20 @@ func writeUnionDefinitions(result *strings.Builder, state *generatedUnionState, 
 			// so it emits no helper.
 			continue
 		}
-		writeUnionWidening(result, widening, tags)
+		if err := writeUnionWidening(result, widening, tags); err != nil {
+			return err
+		}
 	}
 	for _, union := range state.order {
 		if state.truthy[union.Union] {
-			writeUnionTruthiness(result, union, tags)
+			if err := writeUnionTruthiness(result, union, tags); err != nil {
+				return err
+			}
 		}
 		// Equality helpers are emitted by writeEqualityDefinitions after
 		// every struct definition, so recursive member compares resolve.
 	}
+	return nil
 }
 
 // writeOneUnionBody emits one union's full struct body: the shared hex_tag
@@ -193,45 +262,46 @@ func writeUnionDefinitions(result *strings.Builder, state *generatedUnionState, 
 // already be in scope; a payload member naming another nominal type by value
 // additionally needs that type's own full body already written, which the
 // dependency-ordered driver in emission.go guarantees before calling this.
-func writeOneUnionBody(result *strings.Builder, union compilerTypes.Type, tags *tagRegistry) {
-	name := union.CName
-	fmt.Fprintf(result, "\nstruct %s {\n    hex_tag tag;\n    union {\n", name)
+func writeOneUnionBody(result *strings.Builder, union compilerTypes.Type, tags *tagRegistry) error {
+	model := unionBodyModel{Name: union.CName}
 	for _, member := range union.Union.Members {
 		if compilerTypes.IsNil(member) || compilerTypes.IsEoS(member) {
 			continue
 		}
+		declaration := typeSpelling(member) + " " + tags.unionPayloadField(member)
 		if member.Signature != nil {
-			fmt.Fprintf(result, "        %s;\n", funDeclaration(member, tags.unionPayloadField(member), true))
-			continue
+			declaration = funDeclaration(member, tags.unionPayloadField(member), true)
 		}
-		fmt.Fprintf(result, "        %s %s;\n", typeSpelling(member), tags.unionPayloadField(member))
+		model.Members = append(model.Members, unionPayloadModel{Declaration: declaration})
 	}
-	fmt.Fprintf(result, "    } payload;\n};\n")
+	return renderInto(result, "module.h", "union_body", model)
 }
 
 func unionWidenHelperName(source, destination compilerTypes.Type) string {
 	return "hex_internal_widen_" + source.CName + "_to_" + destination.CName
 }
 
-func writeUnionWidening(result *strings.Builder, widening unionWidening, tags *tagRegistry) {
-	name := unionWidenHelperName(widening.source, widening.destination)
-	fmt.Fprintf(result, "\nstatic %s %s(%s value) {\n    switch (value.tag) {\n", widening.destination.CName, name, widening.source.CName)
+func writeUnionWidening(result *strings.Builder, widening unionWidening, tags *tagRegistry) error {
 	sourceMembers := compilerTypes.UnionMembers(widening.source)
 	destinationMembers := compilerTypes.UnionMembers(widening.destination)
+	model := unionWidenModel{
+		Destination: widening.destination.CName,
+		Name:        unionWidenHelperName(widening.source, widening.destination),
+		Source:      widening.source.CName,
+	}
 	for sourceIndex, destinationIndex := range widening.memberMap {
 		if sourceIndex >= sourceMembers.Len() || destinationIndex < 0 || destinationIndex >= destinationMembers.Len() {
 			continue
 		}
 		sourceMember, _ := sourceMembers.At(sourceIndex)
 		destinationMember, _ := destinationMembers.At(destinationIndex)
-		fmt.Fprintf(result, "    case %s:\n", tags.unionMemberTag(sourceMember))
-		if compilerTypes.IsNil(sourceMember) || compilerTypes.IsEoS(sourceMember) {
-			fmt.Fprintf(result, "        return (%s){ .tag = value.tag };\n", widening.destination.CName)
-			continue
+		caseModel := unionWidenCaseModel{Tag: tags.unionMemberTag(sourceMember)}
+		if !compilerTypes.IsNil(sourceMember) && !compilerTypes.IsEoS(sourceMember) {
+			caseModel.Payload = ".payload." + tags.unionPayloadField(destinationMember) + " = value.payload." + tags.unionPayloadField(sourceMember)
 		}
-		fmt.Fprintf(result, "        return (%s){ .tag = value.tag, .payload.%s = value.payload.%s };\n", widening.destination.CName, tags.unionPayloadField(destinationMember), tags.unionPayloadField(sourceMember))
+		model.Cases = append(model.Cases, caseModel)
 	}
-	fmt.Fprintf(result, "    default:\n        abort();\n    }\n}\n")
+	return renderInto(result, "module.h", "union_widen", model)
 }
 
 func unionSupportsEquality(union compilerTypes.Type) bool {
@@ -283,52 +353,47 @@ func unionMemberEqualityAvailable(typ compilerTypes.Type) bool {
 	return false
 }
 
-func writeUnionEquality(result *strings.Builder, union compilerTypes.Type, tags *tagRegistry) {
-	name := union.CName + "_equal"
-	fmt.Fprintf(result, "\nstatic bool %s(%s left, %s right) {\n    if (left.tag != right.tag) return false;\n    switch (left.tag) {\n", name, union.CName, union.CName)
+func writeUnionEquality(result *strings.Builder, union compilerTypes.Type, tags *tagRegistry) error {
 	members := compilerTypes.UnionMembers(union)
+	model := unionEqualModel{Name: union.CName + "_equal", CName: union.CName}
 	for index := 0; index < members.Len(); index++ {
 		member, _ := members.At(index)
 		field := tags.unionPayloadField(member)
-		fmt.Fprintf(result, "    case %s:\n", tags.unionMemberTag(member))
-		if compilerTypes.IsNil(member) {
-			fmt.Fprintln(result, "        return true;")
-			continue
-		}
-		if member.List != nil {
+		caseModel := unionEqualCaseModel{Tag: tags.unionMemberTag(member)}
+		switch {
+		case compilerTypes.IsNil(member):
+			// A tag-only alternative carries no payload; the tag equality
+			// checked in the header is the whole comparison.
+		case member.List != nil:
 			// A List union member is a pointer-sized handle; the per-type
 			// deep helper compares through the handle directly.
-			fmt.Fprintf(result, "        if (!%s(left.payload.%s, right.payload.%s)) return false;\n", equalityHelperName(member), field, field)
-			fmt.Fprintln(result, "        return true;")
-			continue
+			caseModel.Comparisons = fmt.Sprintf("        if (!%s(left.payload.%s, right.payload.%s)) return false;\n", equalityHelperName(member), field, field)
+		default:
+			var comparisons strings.Builder
+			if err := writeEqualityComparisons(&comparisons, "left.payload."+field, "right.payload."+field, member, "        ", tags); err != nil {
+				return err
+			}
+			caseModel.Comparisons = comparisons.String()
 		}
-		writeEqualityComparisons(result, "left.payload."+field, "right.payload."+field, member, "        ", tags)
-		fmt.Fprintln(result, "        return true;")
+		model.Cases = append(model.Cases, caseModel)
 	}
-	fmt.Fprintln(result, "    default:")
-	fmt.Fprintln(result, "        abort();")
-	fmt.Fprintln(result, "    }")
-	fmt.Fprintln(result, "}")
+	return renderInto(result, "module.h", "union_equal", model)
 }
 
-func writeUnionTruthiness(result *strings.Builder, union compilerTypes.Type, tags *tagRegistry) {
-	fmt.Fprintf(result, "\nstatic bool %s_truthy(%s value) {\n    switch (value.tag) {\n", union.CName, union.CName)
+func writeUnionTruthiness(result *strings.Builder, union compilerTypes.Type, tags *tagRegistry) error {
 	members := compilerTypes.UnionMembers(union)
+	model := unionTruthyModel{CName: union.CName}
 	for index := 0; index < members.Len(); index++ {
 		member, _ := members.At(index)
-		fmt.Fprintf(result, "    case %s:\n", tags.unionMemberTag(member))
+		caseModel := unionTruthyCaseModel{Tag: tags.unionMemberTag(member), Return: "        return true;"}
 		if compilerTypes.IsNil(member) {
-			fmt.Fprintln(result, "        return false;")
+			caseModel.Return = "        return false;"
 		} else if compilerTypes.Equal(member, compilerTypes.Bool) {
-			fmt.Fprintf(result, "        return value.payload.%s;\n", tags.unionPayloadField(member))
-		} else {
-			fmt.Fprintln(result, "        return true;")
+			caseModel.Return = "        return value.payload." + tags.unionPayloadField(member) + ";"
 		}
+		model.Cases = append(model.Cases, caseModel)
 	}
-	fmt.Fprintln(result, "    default:")
-	fmt.Fprintln(result, "        abort();")
-	fmt.Fprintln(result, "    }")
-	fmt.Fprintln(result, "}")
+	return renderInto(result, "module.h", "union_truthy", model)
 }
 
 func unionMemberIndex(union, member compilerTypes.Type) int {

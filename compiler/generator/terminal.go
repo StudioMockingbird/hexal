@@ -10,7 +10,6 @@ package generator
 // via the existing streamErrorArm/streamErrorArmWithKind helpers.
 
 import (
-	"fmt"
 	"strings"
 
 	"hexal/compiler/checker"
@@ -140,6 +139,30 @@ func moduleTerminalComponent(emission *moduleEmission) []string {
 	return []string{"hexal/terminal.h"}
 }
 
+// terminalAttachedAdapterModel carries one terminal-detection adapter's
+// decided union type, name suffix, bool arm tag and payload field, plus the
+// failure arm text.
+type terminalAttachedAdapterModel struct {
+	CName   string
+	Suffix  string
+	Tag     string
+	Field   string
+	Failure string
+}
+
+// terminalSizeAdapterModel carries one terminal-size adapter's decided union
+// type, name suffix, size arm tag and payload field, plus the three failure
+// arm texts.
+type terminalSizeAdapterModel struct {
+	CName             string
+	Suffix            string
+	Tag               string
+	Field             string
+	NotATerminal      string
+	InvalidDimensions string
+	Failure           string
+}
+
 // writeTerminalInlineHelpers emits the module-owned Terminal adapters: each
 // wraps the terminal.c core in one structural result union, built with this
 // module's file literal and reusing the shared IO native-error mapper.
@@ -155,17 +178,15 @@ func writeTerminalInlineHelpers(result *strings.Builder, state *generatedTermina
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_terminal_is_attached_%s(hex_io stream, size_t line, size_t column) {\n"+
-				"    hex_terminal_attached_result attached = hex_terminal_is_attached(stream);\n"+
-				"    if (attached.status == HEX_TERMINAL_OK) {\n"+
-				"        return (%s){ .tag = %s, .payload.%s = attached.attached };\n"+
-				"    }\n"+
-				"    return %s;\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union),
-			union.CName, boolTag, boolField,
-			failure)
+		if err := renderInto(result, "module.h", "terminal_attached_adapter", terminalAttachedAdapterModel{
+			CName:   union.CName,
+			Suffix:  streamAdapterSuffix(union),
+			Tag:     boolTag,
+			Field:   boolField,
+			Failure: failure,
+		}); err != nil {
+			return err
+		}
 	}
 
 	for _, union := range state.sizeUnions {
@@ -182,25 +203,17 @@ func writeTerminalInlineHelpers(result *strings.Builder, state *generatedTermina
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(result,
-			"\nstatic inline %s hex_terminal_size_%s(hex_io stream, size_t line, size_t column) {\n"+
-				"    hex_terminal_size_result queried = hex_terminal_size(stream);\n"+
-				"    switch (queried.status) {\n"+
-				"    case HEX_TERMINAL_OK: {\n"+
-				"        hex_t_TerminalSize value = { .hex_m_columns = queried.columns, .hex_m_rows = queried.rows };\n"+
-				"        return (%s){ .tag = %s, .payload.%s = value };\n"+
-				"    }\n"+
-				"    case HEX_TERMINAL_NOT_A_TERMINAL:\n"+
-				"        return %s;\n"+
-				"    case HEX_TERMINAL_INVALID_DIMENSIONS:\n"+
-				"        return %s;\n"+
-				"    default:\n"+
-				"        return %s;\n"+
-				"    }\n"+
-				"}\n",
-			union.CName, streamAdapterSuffix(union),
-			union.CName, sizeTag, sizeField,
-			notATerminal, invalidDimensions, failure)
+		if err := renderInto(result, "module.h", "terminal_size_adapter", terminalSizeAdapterModel{
+			CName:             union.CName,
+			Suffix:            streamAdapterSuffix(union),
+			Tag:               sizeTag,
+			Field:             sizeField,
+			NotATerminal:      notATerminal,
+			InvalidDimensions: invalidDimensions,
+			Failure:           failure,
+		}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

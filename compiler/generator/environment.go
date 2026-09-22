@@ -1,7 +1,6 @@
 package generator
 
 import (
-	"fmt"
 	"strings"
 
 	"hexal/compiler/checker"
@@ -12,20 +11,32 @@ import (
 // appears in a generated header.
 const entryEnvironmentName = "hex_entry_env"
 
+// environmentStructModel carries one entry environment struct part's
+// decided field declaration or type name; the open template needs no
+// fields.
+type environmentStructModel struct {
+	Field string
+	Name  string
+}
+
 // writeEntryEnvironmentType emits the private environment struct type when the
 // entry module captures at least one root binding. It precedes every prototype
 // and definition that names it.
-func writeEntryEnvironmentType(body *strings.Builder, program checker.Program) {
+func writeEntryEnvironmentType(body *strings.Builder, program checker.Program) error {
 	if len(program.EntryCaptures) == 0 {
-		return
+		return nil
 	}
-	body.WriteString("typedef struct {\n")
+	if err := renderInto(body, "module.h", "env_struct_open", struct{}{}); err != nil {
+		return err
+	}
 	for _, capture := range program.EntryCaptures {
 		// A fixed captured binding still needs a writable field for its one
 		// runtime initialization; the Hexal checker rejects later assignment.
-		fmt.Fprintf(body, "    %s;\n", declaration(capture.Type, privateCName(valueName, capture.Name, ""), true))
+		if err := renderInto(body, "module.h", "env_field", environmentStructModel{Field: declaration(capture.Type, privateCName(valueName, capture.Name, ""), true)}); err != nil {
+			return err
+		}
 	}
-	body.WriteString("} " + entryEnvironmentName + ";\n\n")
+	return renderInto(body, "module.h", "env_struct_close", environmentStructModel{Name: entryEnvironmentName})
 }
 
 // entryEnvironmentFunctions returns the names of the entry module's

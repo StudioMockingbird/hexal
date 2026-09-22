@@ -30,7 +30,10 @@ func equalityComponents(merged *programEmission) ([]componentArtifact, error) {
 	if merged == nil || merged.equalityTypes == nil {
 		return nil, nil
 	}
-	model := buildEqualityComponentModel(merged)
+	model, err := buildEqualityComponentModel(merged)
+	if err != nil {
+		return nil, err
+	}
 	if len(model.Helpers) == 0 {
 		return nil, nil
 	}
@@ -43,7 +46,7 @@ func equalityComponents(merged *programEmission) ([]componentArtifact, error) {
 
 // buildEqualityComponentModel pre-renders every program-owned equality
 // helper body.
-func buildEqualityComponentModel(merged *programEmission) equalityComponentModel {
+func buildEqualityComponentModel(merged *programEmission) (equalityComponentModel, error) {
 	model := equalityComponentModel{}
 	for _, typ := range merged.equalityTypes {
 		if !isProgramOwnedEqualityType(typ) {
@@ -51,11 +54,13 @@ func buildEqualityComponentModel(merged *programEmission) equalityComponentModel
 		}
 		collectEqualityComponentDependencies(typ, &model, make(map[string]bool))
 		var buf strings.Builder
-		writeEqualityHelper(&buf, typ, merged.tags)
+		if err := writeEqualityHelper(&buf, typ, merged.tags); err != nil {
+			return model, err
+		}
 		model.Helpers = append(model.Helpers, equalityHelperModel{Body: buf.String()})
 	}
 	model.Includes = equalityComponentIncludes(model)
-	return model
+	return model, nil
 }
 
 // collectEqualityComponentDependencies records the component headers needed

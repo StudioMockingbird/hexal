@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"hexal/compiler"
+	compilerTypes "hexal/compiler/types"
 )
 
 func TestDictFindReturnsOptionalAndProbesOnce(t *testing.T) {
@@ -103,11 +104,11 @@ func TestDictStringKeys(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"typedef struct hex_string_128 {",
+		"typedef struct " + compilerTypes.ErrorHeaderText.CName + " {",
 		"uint8_t data[128];",
-		"hex_dict_insert_String_128__Int32(hex_v_labels, (hex_string_128){ .byte_length = 5, .data = { 97, 108, 105, 99, 101, } }, 1);",
-		"hex_dict_contains_String_128__Int32(hex_v_labels, (hex_string_128){ .byte_length = 5, .data = { 97, 108, 105, 99, 101, } })",
-		"hex_v_score = hex_dict_get_String_128__Int32(hex_v_labels, (hex_string_128){ .byte_length = 3, .data = { 98, 111, 98, } });",
+		"hex_dict_insert_String_128__Int32(hex_v_labels, (" + compilerTypes.ErrorHeaderText.CName + "){ .byte_length = 5, .data = { 97, 108, 105, 99, 101, } }, 1);",
+		"hex_dict_contains_String_128__Int32(hex_v_labels, (" + compilerTypes.ErrorHeaderText.CName + "){ .byte_length = 5, .data = { 97, 108, 105, 99, 101, } })",
+		"hex_v_score = hex_dict_get_String_128__Int32(hex_v_labels, (" + compilerTypes.ErrorHeaderText.CName + "){ .byte_length = 3, .data = { 98, 111, 98, } });",
 		"hex_dict_insert_String_128__Int32(hex_v_labels, hex_v_key, 3);",
 		"hex_hash_text",
 	} {

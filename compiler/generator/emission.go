@@ -3,7 +3,6 @@
 package generator
 
 import (
-	"fmt"
 	"maps"
 	"slices"
 	"strings"
@@ -1071,11 +1070,15 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	// includes hexal.h, so the translation unit sees the shared
 	// program-support contract exactly once.
 	var moduleBody strings.Builder
-	moduleBody.WriteString("#include \"" + compilerTypes.ModuleArtifactStem(canonicalID) + ".h\"\n\n")
+	if err := renderInto(&moduleBody, "module.c", "module_include", moduleIncludeModel{Stem: compilerTypes.ModuleArtifactStem(canonicalID)}); err != nil {
+		return "", "", err
+	}
 
 	// The entry environment type precedes every prototype and definition that
 	// names it, and never appears in a generated header.
-	writeEntryEnvironmentType(&moduleBody, program)
+	if err := writeEntryEnvironmentType(&moduleBody, program); err != nil {
+		return "", "", err
+	}
 
 	// Module value definitions precede every function/method definition and
 	// prototype in this file: their static initializers reference no other
@@ -1138,7 +1141,9 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	if err := writeLocalHelperPrototypes(&moduleBody, localHelpers, typeState); err != nil {
 		return "", "", err
 	}
-	writeModulePrototypes(&moduleBody, program, owner)
+	if err := writeModulePrototypes(&moduleBody, program, owner); err != nil {
+		return "", "", err
+	}
 	// Concrete specialization prototypes are emitted here, before any
 	// definition: an ordinary function's body (drain<S>'s caller, say) may
 	// call a specialization that only a later ordinary function first
@@ -1181,7 +1186,9 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	// call the spawned functions directly. The adapter of a spawn lives
 	// beside the spawned function's own definition, so the call never
 	// crosses a translation unit.
-	writeSpawnAdapters(&moduleBody, merged.adapterSites[canonicalID])
+	if err := writeSpawnAdapters(&moduleBody, merged.adapterSites[canonicalID]); err != nil {
+		return "", "", err
+	}
 
 	renderState := &expressionValidation{
 		variables:      make(map[string]generatedBinding),
@@ -1219,13 +1226,19 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 			// uv_setup_args must run after the native bootstrap and before the
 			// first uv_exepath. Declaring it privately keeps <uv.h> and every
 			// libuv name out of the generated module headers.
-			moduleBody.WriteString("extern char **uv_setup_args(int argc, char **argv);\n\n")
+			if err := renderInto(&moduleBody, "module.c", "root_uv_setup_decl", struct{}{}); err != nil {
+				return "", "", err
+			}
 		}
-		writeRootEntrySignature(&moduleBody, config, entryAdapter)
+		if err := writeRootEntrySignature(&moduleBody, config, entryAdapter); err != nil {
+			return "", "", err
+		}
 		if merged.requirements != nil && merged.requirements.native {
 			// The native bootstrap precedes every module statement and the
 			// scheduler, so no libuv call can run before its allocator.
-			moduleBody.WriteString("    hex_runtime_native_init();\n")
+			if err := renderInto(&moduleBody, "module.c", "root_native_init", struct{}{}); err != nil {
+				return "", "", err
+			}
 		}
 		if executableReachable {
 			// The returned pointer is authoritative for POSIX argument
@@ -1235,28 +1248,40 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 			if argumentsReachable {
 				posixSetup = "argv = uv_setup_args(argc, argv);"
 			}
-			writeRootArgumentSetup(&moduleBody, config, "(void)uv_setup_args(__argc, __argv);", posixSetup)
+			if err := writeRootArgumentSetup(&moduleBody, config, "(void)uv_setup_args(__argc, __argv);", posixSetup); err != nil {
+				return "", "", err
+			}
 		}
 		if argumentsReachable {
-			writeRootArgumentSetup(&moduleBody, config, "hex_program_arguments_init();", "hex_program_arguments_init(argc, argv);")
+			if err := writeRootArgumentSetup(&moduleBody, config, "hex_program_arguments_init();", "hex_program_arguments_init(argc, argv);"); err != nil {
+				return "", "", err
+			}
 		}
 		if emission.rootReturn {
 			// One status slot owns the process exit classification; a root
 			// return assigns it and jumps to the single cleanup label.
-			moduleBody.WriteString("    uint8_t hex_exit_status = 0;\n")
+			if err := renderInto(&moduleBody, "module.c", "root_exit_status", struct{}{}); err != nil {
+				return "", "", err
+			}
 		}
 		if handleSelected(merged) {
 			// The handle registry backs every copied-handle capability's
 			// resolve, so it must exist before any module statement runs.
-			moduleBody.WriteString("    hex_handle_registry_init();\n")
+			if err := renderInto(&moduleBody, "module.c", "root_handle_init", struct{}{}); err != nil {
+				return "", "", err
+			}
 		}
 		if merged.concurrencyState != nil && merged.concurrencyState.used {
-			moduleBody.WriteString("    hex_scheduler_init();\n")
+			if err := renderInto(&moduleBody, "module.c", "root_scheduler_init", struct{}{}); err != nil {
+				return "", "", err
+			}
 		}
 		if len(program.EntryCaptures) > 0 {
 			// The one environment instance is an automatic local in main; no
 			// mutable C file-scope object exists.
-			moduleBody.WriteString("    " + entryEnvironmentName + " env;\n")
+			if err := renderInto(&moduleBody, "module.c", "root_env_decl", rootEnvDeclModel{Name: entryEnvironmentName}); err != nil {
+				return "", "", err
+			}
 			renderState.envPointer = "&env"
 		}
 		if statementErr := writeStatements(&moduleBody, program.Statements, renderState, nil, false, program.Defers); statementErr != nil {
@@ -1265,18 +1290,26 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		if emission.rootReturn {
 			// The cleanup label precedes the shared epilogue so an early root
 			// return still completes the root Task before C returns.
-			moduleBody.WriteString("hex_exit:\n")
+			if err := renderInto(&moduleBody, "module.c", "root_exit_label", struct{}{}); err != nil {
+				return "", "", err
+			}
 		}
 		if merged.concurrencyState != nil && merged.concurrencyState.used {
 			// Completing the root Task wakes the scheduler, stops the
 			// workers, and switches back to main so it returns normally.
 			// Tasks still active are abandoned to process termination.
-			moduleBody.WriteString("    hex_task_complete(hex_root_task);\n")
+			if err := renderInto(&moduleBody, "module.c", "root_task_complete", struct{}{}); err != nil {
+				return "", "", err
+			}
 		}
 		if emission.rootReturn {
-			moduleBody.WriteString("    return (int)hex_exit_status;\n}\n")
+			if err := renderInto(&moduleBody, "module.c", "root_return_status", struct{}{}); err != nil {
+				return "", "", err
+			}
 		} else {
-			moduleBody.WriteString("    return 0;\n}\n")
+			if err := renderInto(&moduleBody, "module.c", "root_return_ok", struct{}{}); err != nil {
+				return "", "", err
+			}
 		}
 	}
 
@@ -1287,11 +1320,19 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	// read their argument frames, so those frames are declared here too,
 	// self-contained in the owning module's translation unit.
 	var headerPrototypes strings.Builder
-	writeExportedPrototypes(&headerPrototypes, program, owner)
-	writeExportedModuleValueDeclarations(&headerPrototypes, program.ModuleValues, owner)
-	writeForeignPrototypes(&headerPrototypes, program, renderState)
+	if err := writeExportedPrototypes(&headerPrototypes, program, owner); err != nil {
+		return "", "", err
+	}
+	if err := writeExportedModuleValueDeclarations(&headerPrototypes, program.ModuleValues, owner); err != nil {
+		return "", "", err
+	}
+	if err := writeForeignPrototypes(&headerPrototypes, program, renderState); err != nil {
+		return "", "", err
+	}
 	var extraFrames strings.Builder
-	writeSpawnArgFrames(&extraFrames, routedFrames(emission, merged.adapterSites[canonicalID]))
+	if err := writeSpawnArgFrames(&extraFrames, routedFrames(emission, merged.adapterSites[canonicalID])); err != nil {
+		return "", "", err
+	}
 
 	foreignIncludes, foreignErr := moduleForeignIncludes(emission.program, merged.foreignIndex)
 	if foreignErr != nil {
@@ -1342,29 +1383,33 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 // and reads the MinGW CRT globals; a POSIX profile widens to argc/argv.
 // Host-neutral output spells both under #if defined(_WIN32) and lets the C
 // compiler choose.
-func writeRootEntrySignature(body *strings.Builder, config Config, demand bool) {
+func writeRootEntrySignature(body *strings.Builder, config Config, demand bool) error {
+	block := ""
 	switch {
 	case !demand, targetIsWindows(config):
-		body.WriteString("int main(void) {\n")
+		block = "root_entry_void"
 	case config.Target != "":
-		body.WriteString("int main(int argc, char **argv) {\n")
+		block = "root_entry_args"
 	default:
-		body.WriteString("#if defined(_WIN32)\nint main(void) {\n#else\nint main(int argc, char **argv) {\n#endif\n")
+		block = "root_entry_dual"
 	}
+	return renderInto(body, "module.c", block, struct{}{})
 }
 
 // writeRootArgumentSetup emits one host-invocation setup statement, keeping
 // the Windows and POSIX spellings under the same target selection as the
 // entry signature.
-func writeRootArgumentSetup(body *strings.Builder, config Config, windows, posix string) {
+func writeRootArgumentSetup(body *strings.Builder, config Config, windows, posix string) error {
+	block := ""
 	switch {
 	case targetIsWindows(config):
-		body.WriteString("    " + windows + "\n")
+		block = "root_arg_windows"
 	case config.Target != "":
-		body.WriteString("    " + posix + "\n")
+		block = "root_arg_posix"
 	default:
-		body.WriteString("#if defined(_WIN32)\n    " + windows + "\n#else\n    " + posix + "\n#endif\n")
+		block = "root_arg_dual"
 	}
+	return renderInto(body, "module.c", block, rootArgSetupModel{Windows: windows, POSIX: posix})
 }
 
 // routedFrames returns the entry-adapter argument frames this module's header
@@ -1483,6 +1528,53 @@ type moduleHeaderInput struct {
 	foreignHeaders []string
 }
 
+// Render models for the module header shell, the root main scaffolding, and
+// the object declarations embedded in a module header. Every value is decided
+// in Go before rendering; the templates hold presentation only.
+type moduleHeaderOpenModel struct {
+	Guard          string
+	Components     []string
+	ForeignHeaders []string
+}
+
+type moduleHeaderCloseModel struct {
+	Prototypes  string
+	ExtraFrames string
+}
+
+type moduleIncludeModel struct {
+	Stem string
+}
+
+type rootArgSetupModel struct {
+	Windows string
+	POSIX   string
+}
+
+type rootEnvDeclModel struct {
+	Name string
+}
+
+type objectForwardModel struct {
+	CName    string
+	Filename string
+	Line     int
+}
+
+type objectMemberModel struct {
+	Declaration string
+	Filename    string
+	Line        int
+}
+
+type objectBodyModel struct {
+	CName    string
+	Filename string
+	Line     int
+	Empty    bool
+	Members  []objectMemberModel
+}
+
 // hexalHeaderModel is the render model for the hexal.h template:
 // the guard, the demand-driven program-wide standard-header umbrella, the
 // retained source-dependent Size-literal assertions, the hex_eos typedef when
@@ -1526,20 +1618,15 @@ func hexalHeader(input hexalHeaderInput) (string, error) {
 // module.
 func moduleHeader(input moduleHeaderInput) (string, error) {
 	var result strings.Builder
-	result.WriteString("#ifndef " + compilerTypes.ModuleHeaderGuard(input.canonicalID) + "\n#define " + compilerTypes.ModuleHeaderGuard(input.canonicalID) + "\n\n#include \"hexal.h\"\n")
-	// The component headers this module needs follow hexal.h in dependency
-	// order; a module never includes a component selected only by another
-	// module.
-	for _, component := range input.components {
-		fmt.Fprintf(&result, "#include \"%s\"\n", component)
-	}
-	// Foreign headers follow the components and precede any declaration that
-	// names a foreign type. Each appears exactly once, in first-use order.
-	if len(input.foreignHeaders) > 0 {
-		result.WriteString("\n")
-		for _, include := range input.foreignHeaders {
-			result.WriteString(include + "\n")
-		}
+	// Component includes follow hexal.h in dependency order; foreign
+	// includes follow the components and precede any declaration that names
+	// a foreign type, each exactly once in first-use order.
+	if err := renderInto(&result, "module.h", "module_header_open", moduleHeaderOpenModel{
+		Guard:          compilerTypes.ModuleHeaderGuard(input.canonicalID),
+		Components:     input.components,
+		ForeignHeaders: input.foreignHeaders,
+	}); err != nil {
+		return "", err
 	}
 	// Forward typedefs for every object, ADT, and union come first,
 	// regardless of any cross-reference between them: a pointer-typed member
@@ -1551,11 +1638,21 @@ func moduleHeader(input moduleHeaderInput) (string, error) {
 	// direction requires that member's own complete definition already in
 	// scope, and a fixed category order cannot satisfy both directions when
 	// a program uses each at once.
-	writeObjectForwardDeclarations(&result, input.objects, input.filename)
-	writeAdtForwardDeclarations(&result, input.adts)
-	writeUnionForwardDeclarations(&result, input.unions)
-	writeNominalBodies(&result, input.objects, input.adts, input.unions, input.filename, input.tags)
-	writeUnionDefinitions(&result, input.unions, input.tags)
+	if err := writeObjectForwardDeclarations(&result, input.objects, input.filename); err != nil {
+		return "", err
+	}
+	if err := writeAdtForwardDeclarations(&result, input.adts); err != nil {
+		return "", err
+	}
+	if err := writeUnionForwardDeclarations(&result, input.unions); err != nil {
+		return "", err
+	}
+	if err := writeNominalBodies(&result, input.objects, input.adts, input.unions, input.filename, input.tags); err != nil {
+		return "", err
+	}
+	if err := writeUnionDefinitions(&result, input.unions, input.tags); err != nil {
+		return "", err
+	}
 	// Module-owned collection specializations follow their element
 	// definitions: component artifacts are program-wide and cannot declare
 	// per-module types, so each consuming module re-emits the specializations
@@ -1565,10 +1662,18 @@ func moduleHeader(input moduleHeaderInput) (string, error) {
 	}
 	// The typed heap allocation helpers reference module-owned element
 	// types, so they follow the object definitions.
-	writeHeapAllocateHelpers(&result, input.heaps)
-	writeStashHelpers(&result, input.stash)
-	writePrintDefinitions(&result, input.printState, input.tags)
-	writeEqualityDefinitions(&result, input.equality, input.tags)
+	if err := writeHeapAllocateHelpers(&result, input.heaps); err != nil {
+		return "", err
+	}
+	if err := writeStashHelpers(&result, input.stash); err != nil {
+		return "", err
+	}
+	if err := writePrintDefinitions(&result, input.printState, input.tags); err != nil {
+		return "", err
+	}
+	if err := writeEqualityDefinitions(&result, input.equality, input.tags); err != nil {
+		return "", err
+	}
 	if err := writeConcurrencyInlineHelpers(&result, input.concurrency, input.stringState, input.tags); err != nil {
 		return "", err
 	}
@@ -1599,15 +1704,12 @@ func moduleHeader(input moduleHeaderInput) (string, error) {
 	if err := writeCorelibInlineHelpers(&result, input.corelib, input.stringState, input.tags, input.event); err != nil {
 		return "", err
 	}
-	if input.prototypes != "" {
-		result.WriteString("\n/* Exported and foreign function prototypes. */\n")
-		result.WriteString(input.prototypes)
+	if err := renderInto(&result, "module.h", "module_header_close", moduleHeaderCloseModel{
+		Prototypes:  input.prototypes,
+		ExtraFrames: input.extraFrames,
+	}); err != nil {
+		return "", err
 	}
-	if input.extraFrames != "" {
-		result.WriteString("\n/* Spawn entry adapter argument frames. */\n")
-		result.WriteString(input.extraFrames)
-	}
-	result.WriteString("\n#endif\n")
 	return result.String(), nil
 }
 
@@ -1673,17 +1775,20 @@ func objectDefinitions(program checker.Program) ([]*compilerTypes.ObjectType, er
 // pointer-typed member naming an object needs only this forward name,
 // regardless of full-body emission order, and a recursive object needs its
 // own name in scope before its body can name a pointer to itself.
-func writeObjectForwardDeclarations(result *strings.Builder, objects []*compilerTypes.ObjectType, filename string) {
+func writeObjectForwardDeclarations(result *strings.Builder, objects []*compilerTypes.ObjectType, filename string) error {
 	for _, object := range objects {
 		if compilerTypes.IsBuiltinObject(object) {
 			continue
 		}
-		result.WriteString("\n")
-		if object.SourceLine > 0 {
-			fmt.Fprintf(result, "#line %d \"%s\"\n", object.SourceLine, filename)
+		if err := renderInto(result, "module.h", "object_forward", objectForwardModel{
+			CName:    object.CName,
+			Line:     object.SourceLine,
+			Filename: filename,
+		}); err != nil {
+			return err
 		}
-		fmt.Fprintf(result, "typedef struct %s %s;\n", object.CName, object.CName)
 	}
+	return nil
 }
 
 // writeOneObjectBody emits one object's full struct body. Its own forward
@@ -1691,28 +1796,28 @@ func writeObjectForwardDeclarations(result *strings.Builder, objects []*compiler
 // value additionally needs that type's own full body already written, which
 // the dependency-ordered driver in emission.go guarantees before calling
 // this.
-func writeOneObjectBody(result *strings.Builder, object *compilerTypes.ObjectType, filename string) {
-	result.WriteString("\n")
-	if object.SourceLine > 0 {
-		fmt.Fprintf(result, "#line %d \"%s\"\n", object.SourceLine, filename)
-	}
-	fmt.Fprintf(result, "struct %s {\n", object.CName)
-	if len(object.Members) == 0 {
-		// C23 has no portable zero-sized object type, so an empty struct
-		// carries one private byte instead; it is never read as part of
-		// the object's surface (construction, equality, and printing all
-		// special-case the empty member list).
-		fmt.Fprintf(result, "    unsigned char hex_empty;\n")
-	}
+func writeOneObjectBody(result *strings.Builder, object *compilerTypes.ObjectType, filename string) error {
+	// C23 has no portable zero-sized object type, so an empty struct
+	// carries one private byte instead; it is never read as part of
+	// the object's surface (construction, equality, and printing all
+	// special-case the empty member list).
+	members := make([]objectMemberModel, 0, len(object.Members))
 	for _, member := range object.Members {
-		if member.SourceLine > 0 {
-			fmt.Fprintf(result, "#line %d \"%s\"\n", member.SourceLine, filename)
-		}
 		// Reference-like members (String, List, Dict) are pointer-sized
 		// handles, spelled like their declarations.
-		fmt.Fprintf(result, "    %s;\n", declaration(member.Type, privateCName(memberName, member.Name, ""), true))
+		members = append(members, objectMemberModel{
+			Line:        member.SourceLine,
+			Filename:    filename,
+			Declaration: declaration(member.Type, privateCName(memberName, member.Name, ""), true),
+		})
 	}
-	fmt.Fprintf(result, "};\n")
+	return renderInto(result, "module.h", "object_body", objectBodyModel{
+		CName:    object.CName,
+		Line:     object.SourceLine,
+		Filename: filename,
+		Empty:    len(object.Members) == 0,
+		Members:  members,
+	})
 }
 
 // nominalBodyWriter emits object, ADT, and union struct bodies in dependency
@@ -1734,7 +1839,7 @@ type nominalBodyWriter struct {
 // writeNominalBodies writes every object, ADT, and union full body reachable
 // from these three discovery lists, each preceded by the bodies of every
 // nominal type it embeds by value.
-func writeNominalBodies(result *strings.Builder, objects []*compilerTypes.ObjectType, adts *generatedAdtState, unions *generatedUnionState, filename string, tags *tagRegistry) {
+func writeNominalBodies(result *strings.Builder, objects []*compilerTypes.ObjectType, adts *generatedAdtState, unions *generatedUnionState, filename string, tags *tagRegistry) error {
 	writer := &nominalBodyWriter{
 		result:       result,
 		filename:     filename,
@@ -1744,18 +1849,25 @@ func writeNominalBodies(result *strings.Builder, objects []*compilerTypes.Object
 		definedUnion: make(map[*compilerTypes.UnionInfo]bool),
 	}
 	for _, object := range objects {
-		writer.ensureObject(object)
+		if err := writer.ensureObject(object); err != nil {
+			return err
+		}
 	}
 	if adts != nil {
 		for _, adtType := range adts.order {
-			writer.ensureAdt(adtType)
+			if err := writer.ensureAdt(adtType); err != nil {
+				return err
+			}
 		}
 	}
 	if unions != nil {
 		for _, union := range unions.order {
-			writer.ensureUnion(union)
+			if err := writer.ensureUnion(union); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 // ensureType writes whatever by-value nominal body one member's type still
@@ -1766,67 +1878,74 @@ func writeNominalBodies(result *strings.Builder, objects []*compilerTypes.Object
 // tagged-struct body writeOneUnionBody produces, so it needs nothing here. A
 // pointer, scalar, string, or other reference-like handle needs only the
 // forward typedef every category already has.
-func (writer *nominalBodyWriter) ensureType(typ compilerTypes.Type) {
+func (writer *nominalBodyWriter) ensureType(typ compilerTypes.Type) error {
 	if compilerTypes.IsNullable(typ) {
-		return
+		return nil
 	}
 	switch {
 	case typ.Object != nil:
-		writer.ensureObject(typ.Object)
+		return writer.ensureObject(typ.Object)
 	case typ.Adt != nil:
-		writer.ensureAdt(typ)
+		return writer.ensureAdt(typ)
 	case typ.Union != nil:
-		writer.ensureUnion(typ)
+		return writer.ensureUnion(typ)
 	case typ.Array != nil:
-		writer.ensureType(typ.Array.Element)
+		return writer.ensureType(typ.Array.Element)
 	}
+	return nil
 }
 
-func (writer *nominalBodyWriter) ensureObject(object *compilerTypes.ObjectType) {
+func (writer *nominalBodyWriter) ensureObject(object *compilerTypes.ObjectType) error {
 	if object == nil || writer.definedObj[object] || compilerTypes.IsBuiltinObject(object) {
 		// ProcessOptions, EnvironmentVariable, and StartedProcess are
 		// compiler-owned structs whose bodies are hand-written once in
 		// hexal/process.h, mirroring the identical IsBuiltinAdt skip above.
-		return
+		return nil
 	}
 	writer.definedObj[object] = true
 	for _, member := range object.Members {
-		writer.ensureType(member.Type)
+		if err := writer.ensureType(member.Type); err != nil {
+			return err
+		}
 	}
-	writeOneObjectBody(writer.result, object, writer.filename)
+	return writeOneObjectBody(writer.result, object, writer.filename)
 }
 
-func (writer *nominalBodyWriter) ensureAdt(adtType compilerTypes.Type) {
+func (writer *nominalBodyWriter) ensureAdt(adtType compilerTypes.Type) error {
 	adt := adtType.Adt
 	if adt == nil || writer.definedAdt[adt] || compilerTypes.IsBuiltinAdt(adtType) {
 		// Seek is a fixed, module-ownerless built-in ADT emitted once, by
 		// seekComponents/moduleSeekComponent, into a shared header instead
 		// of repeated inline per module; see the identical skip this
 		// replaced in the former writeAdtDefinitions.
-		return
+		return nil
 	}
 	writer.definedAdt[adt] = true
 	for _, variant := range adt.Variants {
 		for _, member := range variant.Payload {
-			writer.ensureType(member.Type)
+			if err := writer.ensureType(member.Type); err != nil {
+				return err
+			}
 		}
 	}
-	writeOneAdtBody(writer.result, adtType)
+	return writeOneAdtBody(writer.result, adtType)
 }
 
-func (writer *nominalBodyWriter) ensureUnion(union compilerTypes.Type) {
+func (writer *nominalBodyWriter) ensureUnion(union compilerTypes.Type) error {
 	info := union.Union
 	if info == nil || writer.definedUnion[info] || compilerTypes.IsBuiltinUnion(union) {
 		// String | Nil and Pipe | Nil, ProcessOptions and StartedProcess's
 		// fixed structural fields, are hand-written once in hexal/process.h
 		// alongside the objects that embed them.
-		return
+		return nil
 	}
 	writer.definedUnion[info] = true
 	for _, member := range info.Members {
-		writer.ensureType(member)
+		if err := writer.ensureType(member); err != nil {
+			return err
+		}
 	}
-	writeOneUnionBody(writer.result, union, writer.tags)
+	return writeOneUnionBody(writer.result, union, writer.tags)
 }
 
 // collectTypeRequirements folds one module's written checked types into the

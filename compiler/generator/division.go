@@ -1,7 +1,6 @@
 package generator
 
 import (
-	"fmt"
 	"strings"
 
 	"hexal/compiler/checker"
@@ -32,28 +31,47 @@ func discoverGeneratedDivisions(program checker.Program) []compilerTypes.Type {
 	return types
 }
 
+// divisionHelperModel carries one guarded division helper's decided result
+// and parameter type, name suffix, signed-minimum macro, and operation;
+// each emitted part reads the fields it spells.
+type divisionHelperModel struct {
+	CName     string
+	Suffix    string
+	Minimum   string
+	Operation string
+}
+
 func writeDivisionHelper(result *strings.Builder, typ compilerTypes.Type, operator checker.Operator, suffix string) error {
 	cName := typ.CName
-	fmt.Fprintf(result, "\nstatic inline %s hex_%s_%s(%s left, %s right) {\n", cName, suffix, cName, cName, cName)
-	result.WriteString("    if (right == 0) {\n        hex_runtime_trap(\"[Runtime Error] numeric operation failed\\n\");\n    }\n")
+	if err := renderInto(result, "module.h", "division_helper_open", divisionHelperModel{CName: cName, Suffix: suffix}); err != nil {
+		return err
+	}
+	if err := renderInto(result, "module.h", "division_zero_guard", struct{}{}); err != nil {
+		return err
+	}
 	if compilerTypes.IsSignedInteger(typ) {
 		minimum, minimumErr := signedMinimumMacro(typ)
 		if minimumErr != nil {
 			return minimumErr
 		}
-		fmt.Fprintf(result, "    if (left == %s && right == -1) {\n", minimum)
+		if err := renderInto(result, "module.h", "division_min_guard", divisionHelperModel{Minimum: minimum}); err != nil {
+			return err
+		}
 		if operator == checker.RemainderOperator {
-			result.WriteString("        return 0;\n    }\n")
+			if err := renderInto(result, "module.h", "division_rem_close", struct{}{}); err != nil {
+				return err
+			}
 		} else {
-			fmt.Fprintf(result, "        return %s;\n    }\n", minimum)
+			if err := renderInto(result, "module.h", "division_min_return", divisionHelperModel{Minimum: minimum}); err != nil {
+				return err
+			}
 		}
 	}
 	operation := "/"
 	if operator == checker.RemainderOperator {
 		operation = "%"
 	}
-	result.WriteString("    return left " + operation + " right;\n}\n")
-	return nil
+	return renderInto(result, "module.h", "division_helper_close", divisionHelperModel{Operation: operation})
 }
 
 // renderDivisionOperation routes integer division and remainder through the

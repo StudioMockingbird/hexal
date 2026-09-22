@@ -9,6 +9,7 @@ package generator
 import (
 	"embed"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"text/template"
@@ -98,6 +99,20 @@ func renderComponent(component componentArtifact) (string, error) {
 		return "", compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("component %s render failed: %v", component.key, err)}
 	}
 	return result.String(), nil
+}
+
+// renderInto executes one named sub-template of an embedded template
+// directly into dst. A missing template or failed execution is an internal
+// compiler error: generation fails closed, mirroring renderComponent.
+func renderInto(dst io.Writer, templateName, block string, model any) error {
+	instance, ok := componentTemplates[templateName]
+	if !ok {
+		return compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("missing embedded component template %s", templateName)}
+	}
+	if err := instance.ExecuteTemplate(dst, block, model); err != nil {
+		return compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("template %s block %s render failed: %v", templateName, block, err)}
+	}
+	return nil
 }
 
 // componentTemplateNames returns every embedded template name in

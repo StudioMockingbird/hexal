@@ -107,6 +107,27 @@ func hoistTryInStatement(statement checker.Statement, body *strings.Builder, sta
 	return nil
 }
 
+// tryGuardModel carries one try guard's decided temp, tag test, and payload
+// field; each guard form reads the fields it spells.
+type tryGuardModel struct {
+	Indent string
+	Temp   string
+	Tag    string
+	Field  string
+}
+
+// tryArmModel carries one try Error or success arm's decided target, result
+// type, tag, payload field, source temp, and source payload field.
+type tryArmModel struct {
+	Indent  string
+	Name    string
+	Type    string
+	Tag     string
+	Field   string
+	Temp    string
+	Payload string
+}
+
 // hoistTry emits one try prologue: the operand evaluates exactly once into a
 // temporary; on Error the eligible defers and errdefers unwind and the Error
 // returns through the enclosing function's declared result; otherwise the
@@ -141,17 +162,23 @@ func hoistTry(node checker.Expression, body *strings.Builder, state *expressionV
 	}
 
 	var builder strings.Builder
-	fmt.Fprintf(&builder, "%sconst %s %s = %s;\n", indent, physicalType.CName, temp, operand)
+	if err := renderInto(&builder, "module.c", "const_decl", forStmtLineModel{Indent: indent, Type: physicalType.CName, Name: temp, Value: operand}); err != nil {
+		return err
+	}
 	resultType := node.Element
 	resultErrorIndex := -1
 	if compilerTypes.IsError(resultType) {
-		fmt.Fprintf(&builder, "%sif (%s.tag == %s) {\n", indent, temp, state.tags.unionMemberTag(errorMember))
+		if err := renderInto(&builder, "module.c", "tag_test_open", tryGuardModel{Indent: indent, Temp: temp, Tag: state.tags.unionMemberTag(errorMember)}); err != nil {
+			return err
+		}
 	} else {
 		resultErrorIndex = unionMemberIndex(resultType, compilerTypes.ErrorType)
 		if resultErrorIndex < 0 {
 			return unknownExpressionDiagnostic("try result does not accept Error")
 		}
-		fmt.Fprintf(&builder, "%sif (%s.tag == %s) {\n", indent, temp, state.tags.unionMemberTag(errorMember))
+		if err := renderInto(&builder, "module.c", "tag_test_open", tryGuardModel{Indent: indent, Temp: temp, Tag: state.tags.unionMemberTag(errorMember)}); err != nil {
+			return err
+		}
 	}
 	// The deferred actions unwind only on the Error path, before the Error
 	// returns: the success path runs them at the scope's own exit, and
@@ -161,13 +188,19 @@ func hoistTry(node checker.Expression, body *strings.Builder, state *expressionV
 		return err
 	}
 	if compilerTypes.IsError(resultType) {
-		fmt.Fprintf(&builder, "%s    return %s.payload.%s;\n", indent, temp, state.tags.unionPayloadField(errorMember))
+		if err := renderInto(&builder, "module.c", "payload_return", tryGuardModel{Indent: indent, Temp: temp, Field: state.tags.unionPayloadField(errorMember)}); err != nil {
+			return err
+		}
 	} else {
 		resultMembers := compilerTypes.UnionMembers(resultType)
 		resultErrorMember, _ := resultMembers.At(resultErrorIndex)
-		fmt.Fprintf(&builder, "%s    return (%s){ .tag = %s, .payload.%s = %s.payload.%s };\n", indent, resultType.CName, state.tags.unionMemberTag(errorMember), state.tags.unionPayloadField(resultErrorMember), temp, state.tags.unionPayloadField(errorMember))
+		if err := renderInto(&builder, "module.c", "union_return", tryArmModel{Indent: indent, Type: resultType.CName, Tag: state.tags.unionMemberTag(errorMember), Field: state.tags.unionPayloadField(resultErrorMember), Temp: temp, Payload: state.tags.unionPayloadField(errorMember)}); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintf(&builder, "%s}\n", indent)
+	if err := renderInto(&builder, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+		return err
+	}
 	success := node.ResultType
 	if success.Union == nil {
 		// Single success member: the try renders as its active payload.
@@ -177,7 +210,9 @@ func hoistTry(node checker.Expression, body *strings.Builder, state *expressionV
 		}
 		successSourceMember, _ := operandMembers.At(successIndex)
 		state.hoistedTries[node.Operand] = fmt.Sprintf("%s.payload.%s", temp, state.tags.unionPayloadField(successSourceMember))
-		body.WriteString(builder.String())
+		if err := renderInto(body, "module.c", "raw_text", rawTextModel{Text: builder.String()}); err != nil {
+			return err
+		}
 		return nil
 	}
 	// Multiple success members: a switch materializes the narrowed success
@@ -187,7 +222,9 @@ func hoistTry(node checker.Expression, body *strings.Builder, state *expressionV
 	state.tryCounter++
 	resultTemp := fmt.Sprintf("hex_try_result_%d", state.tryCounter)
 	builder.Reset()
-	fmt.Fprintf(&builder, "%sconst %s %s = %s;\n", indent, physicalType.CName, temp, operand)
+	if err := renderInto(&builder, "module.c", "const_decl", forStmtLineModel{Indent: indent, Type: physicalType.CName, Name: temp, Value: operand}); err != nil {
+		return err
+	}
 	resultErrorIndex = -1
 	if !compilerTypes.IsError(resultType) {
 		resultErrorIndex = unionMemberIndex(resultType, compilerTypes.ErrorType)
@@ -195,26 +232,38 @@ func hoistTry(node checker.Expression, body *strings.Builder, state *expressionV
 			return unknownExpressionDiagnostic("try result does not accept Error")
 		}
 	}
-	fmt.Fprintf(&builder, "%sif (%s.tag == %s) {\n", indent, temp, state.tags.unionMemberTag(errorMember))
+	if err := renderInto(&builder, "module.c", "tag_test_open", tryGuardModel{Indent: indent, Temp: temp, Tag: state.tags.unionMemberTag(errorMember)}); err != nil {
+		return err
+	}
 	// The unwind must precede the return so it executes; see the identical
 	// note on the first Error check above.
 	if err := unwindAllDefers(&builder, state, indent, "true"); err != nil {
 		return err
 	}
 	if compilerTypes.IsError(resultType) {
-		fmt.Fprintf(&builder, "%s    return %s.payload.%s;\n", indent, temp, state.tags.unionPayloadField(errorMember))
+		if err := renderInto(&builder, "module.c", "payload_return", tryGuardModel{Indent: indent, Temp: temp, Field: state.tags.unionPayloadField(errorMember)}); err != nil {
+			return err
+		}
 	} else {
 		resultMembers := compilerTypes.UnionMembers(resultType)
 		resultErrorMember, _ := resultMembers.At(resultErrorIndex)
-		fmt.Fprintf(&builder, "%s    return (%s){ .tag = %s, .payload.%s = %s.payload.%s };\n", indent, resultType.CName, state.tags.unionMemberTag(errorMember), state.tags.unionPayloadField(resultErrorMember), temp, state.tags.unionPayloadField(errorMember))
+		if err := renderInto(&builder, "module.c", "union_return", tryArmModel{Indent: indent, Type: resultType.CName, Tag: state.tags.unionMemberTag(errorMember), Field: state.tags.unionPayloadField(resultErrorMember), Temp: temp, Payload: state.tags.unionPayloadField(errorMember)}); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintf(&builder, "%s}\n", indent)
+	if err := renderInto(&builder, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+		return err
+	}
 	// mutable: every switch case below assigns resultTemp exactly once at
 	// runtime, but a const declaration can't express that statically, and
 	// the switch's own default: abort() is what makes every other case
 	// unreachable, not something a const-then-assign pattern could express.
-	fmt.Fprintf(&builder, "%s%s;\n", indent, declaration(success, resultTemp, true))
-	fmt.Fprintf(&builder, "%sswitch (%s.tag) {\n", indent, temp)
+	if err := renderInto(&builder, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: declaration(success, resultTemp, true)}); err != nil {
+		return err
+	}
+	if err := renderInto(&builder, "module.c", "switch_tag_open", tryGuardModel{Indent: indent, Temp: temp}); err != nil {
+		return err
+	}
 	successMembers := compilerTypes.UnionMembers(success)
 	for index := 0; index < successMembers.Len(); index++ {
 		successMember, _ := successMembers.At(index)
@@ -223,18 +272,30 @@ func hoistTry(node checker.Expression, body *strings.Builder, state *expressionV
 			return unknownExpressionDiagnostic("try success member is missing from its source union")
 		}
 		targetSourceMember, _ := operandMembers.At(sourceIndex)
-		fmt.Fprintf(&builder, "%scase %s:\n", indent, state.tags.unionMemberTag(successMember))
+		if err := renderInto(&builder, "module.c", "case_tag", tryGuardModel{Indent: indent, Tag: state.tags.unionMemberTag(successMember)}); err != nil {
+			return err
+		}
 		if compilerTypes.IsNil(successMember) || compilerTypes.IsEoS(successMember) {
 			// Nil and EoS are tag-only members with no payload field to copy.
-			fmt.Fprintf(&builder, "%s    %s = (%s){ .tag = %s };\n", indent, resultTemp, success.CName, state.tags.unionMemberTag(successMember))
+			if err := renderInto(&builder, "module.c", "tag_only_assign", tryArmModel{Indent: indent, Name: resultTemp, Type: success.CName, Tag: state.tags.unionMemberTag(successMember)}); err != nil {
+				return err
+			}
 		} else {
-			fmt.Fprintf(&builder, "%s    %s = (%s){ .tag = %s, .payload.%s = %s.payload.%s };\n", indent, resultTemp, success.CName, state.tags.unionMemberTag(successMember), state.tags.unionPayloadField(successMember), temp, state.tags.unionPayloadField(targetSourceMember))
+			if err := renderInto(&builder, "module.c", "payload_assign", tryArmModel{Indent: indent, Name: resultTemp, Type: success.CName, Tag: state.tags.unionMemberTag(successMember), Field: state.tags.unionPayloadField(successMember), Temp: temp, Payload: state.tags.unionPayloadField(targetSourceMember)}); err != nil {
+				return err
+			}
 		}
-		fmt.Fprintf(&builder, "%s    break;\n", indent)
+		if err := renderInto(&builder, "module.c", "break_stmt", indentModel{Indent: indent + "    "}); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintf(&builder, "%sdefault:\n%s    abort();\n%s}\n", indent, indent, indent)
+	if err := renderInto(&builder, "module.c", "default_abort", indentModel{Indent: indent}); err != nil {
+		return err
+	}
 	state.hoistedTries[node.Operand] = resultTemp
-	body.WriteString(builder.String())
+	if err := renderInto(body, "module.c", "raw_text", rawTextModel{Text: builder.String()}); err != nil {
+		return err
+	}
 	return nil
 }
 

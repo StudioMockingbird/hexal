@@ -138,11 +138,129 @@ func discoverGeneratedPrint(program checker.Program) (*generatedPrintState, erro
 	return state, nil
 }
 
+// Print fragment models carry only values Go already decided: canonical C
+// names, labels with their emitted byte lengths, and argument expressions
+// chosen by type predicates. Templates carry presentation only.
+type printHeaderTextModel struct {
+	HeaderType string
+}
+
+type printNestedForwardModel struct {
+	Names []string
+}
+
+type printNestedLeafModel struct {
+	CName string
+}
+
+type printNestedErrorKindModel struct {
+	CName      string
+	HeaderType string
+}
+
+type printNestedBitsModel struct {
+	CName string
+	Bits  int
+}
+
+type printNestedObjectEmptyModel struct {
+	CName   string
+	Name    string
+	TextLen int
+}
+
+// printMemberFragment is one already-lowered member line: the separator
+// flag, the label with its emitted byte length, and the nested call's
+// target helper and argument expression.
+type printMemberFragment struct {
+	Separator   bool
+	Label       string
+	LabelLen    int
+	NestedCName string
+	Arg         string
+}
+
+type printNestedObjectModel struct {
+	CName   string
+	Name    string
+	NameLen int
+	Members []printMemberFragment
+}
+
+type printVariantFragment struct {
+	Tag      string
+	Label    string
+	LabelLen int
+	Payload  []printMemberFragment
+}
+
+type printNestedAdtModel struct {
+	CName    string
+	Variants []printVariantFragment
+}
+
+type printNestedArrayModel struct {
+	CName        string
+	Length       uint64
+	ElementCName string
+	ElementArg   string
+}
+
+type printNestedSequenceModel struct {
+	CName        string
+	ElementCName string
+	ElementArg   string
+}
+
+type printNestedDictModel struct {
+	CName      string
+	KeyCName   string
+	KeyArg     string
+	ValueCName string
+	ValueArg   string
+}
+
+type printTempModel struct {
+	Indent string
+	Decl   string
+	Value  string
+}
+
+type printTransactionModel struct {
+	Indent string
+	Buffer string
+}
+
+type printArgumentTextModel struct {
+	Indent string
+	Buffer string
+	Name   string
+}
+
+type printArgumentBitsModel struct {
+	Indent string
+	Buffer string
+	Name   string
+	Bits   int
+}
+
+type printArgumentNestedModel struct {
+	Indent string
+	Buffer string
+	CName  string
+	Arg    string
+}
+
+type printArgumentNilModel struct {
+	Indent string
+	Buffer string
+}
+
 // writePrintDefinitions emits the shared print runtime and the per-concrete
 // nested aggregate helpers.
-func writePrintDefinitions(result *strings.Builder, state *generatedPrintState, tags *tagRegistry) {
+func writePrintDefinitions(result *strings.Builder, state *generatedPrintState, tags *tagRegistry) error {
 	if state == nil || !state.used {
-		return
+		return nil
 	}
 	errorUsedByPrint := false
 	errorNestedNeeded := false
@@ -154,46 +272,38 @@ func writePrintDefinitions(result *strings.Builder, state *generatedPrintState, 
 		}
 	}
 	if errorUsedByPrint {
-		result.WriteString("static void hex_print_error_direct(hex_print_buffer *out, const hex_t_Error *value) {\n")
-		result.WriteString("    hex_print_text(out, value->hex_m_file->data, value->hex_m_file->byte_length);\n")
-		result.WriteString("    hex_print_text(out, (const uint8_t *)\":\", 1);\n    hex_print_size(out, value->hex_m_line);\n")
-		result.WriteString("    hex_print_text(out, (const uint8_t *)\":\", 1);\n    hex_print_size(out, value->hex_m_column);\n")
-		result.WriteString("    hex_print_text(out, (const uint8_t *)\": \", 2);\n")
-		result.WriteString("    hex_string_128 header = hex_error_kind_header(value->hex_m_kind);\n")
-		result.WriteString("    hex_print_text(out, header.data, header.byte_length);\n")
-		result.WriteString("    hex_print_text(out, (const uint8_t *)\": \", 2);\n")
-		result.WriteString("    hex_print_text(out, value->hex_m_message.data, value->hex_m_message.byte_length);\n}\n")
+		if err := renderInto(result, "module.h", "print_error_direct", printHeaderTextModel{HeaderType: compilerTypes.ErrorHeaderText.CName}); err != nil {
+			return err
+		}
 	}
 	if errorNestedNeeded {
-		result.WriteString("static void hex_print_error_nested(hex_print_buffer *out, const hex_t_Error *value) {\n")
-		result.WriteString("    hex_print_text(out, (const uint8_t *)\"Error { file = \", 15);\n    hex_print_quoted_text(out, value->hex_m_file->data, value->hex_m_file->byte_length);\n")
-		result.WriteString("    hex_print_text(out, (const uint8_t *)\", line = \", 9);\n    hex_print_size(out, value->hex_m_line);\n")
-		result.WriteString("    hex_print_text(out, (const uint8_t *)\", column = \", 11);\n    hex_print_size(out, value->hex_m_column);\n")
-		result.WriteString("    hex_print_text(out, (const uint8_t *)\", kind = \", 9);\n    hex_string_128 nested_header = hex_error_kind_header(value->hex_m_kind);\n    hex_print_quoted_text(out, nested_header.data, nested_header.byte_length);\n")
-		result.WriteString("    hex_print_text(out, (const uint8_t *)\", message = \", 12);\n    hex_print_quoted_text(out, value->hex_m_message.data, value->hex_m_message.byte_length);\n")
-		result.WriteString("    hex_print_text(out, (const uint8_t *)\" }\", 2);\n}\n")
+		if err := renderInto(result, "module.h", "print_error_nested", printHeaderTextModel{HeaderType: compilerTypes.ErrorHeaderText.CName}); err != nil {
+			return err
+		}
+	}
+	// A container helper calls the helpers of its element and member
+	// types, which may follow it in discovery order, so every nested
+	// helper is declared before any definition; the generated C must
+	// compile warning-free as-is.
+	var forwardDeclarations []string
+	for _, typ := range state.types {
+		if state.needsNested[typ.Name] {
+			forwardDeclarations = append(forwardDeclarations, typ.CName)
+		}
+	}
+	if err := renderInto(result, "module.h", "print_nested_forward", printNestedForwardModel{Names: forwardDeclarations}); err != nil {
+		return err
 	}
 	for _, typ := range state.types {
 		if !state.needsNested[typ.Name] {
 			continue
 		}
-		// A container helper calls the helpers of its element and member
-		// types, which may follow it in discovery order, so every nested
-		// helper is declared before any definition; the generated C must
-		// compile warning-free as-is.
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value);\n", typ.CName)
-	}
-	for _, typ := range state.types {
-		if !state.needsNested[typ.Name] {
-			continue
+		if err := writePrintNestedHelper(result, typ, tags); err != nil {
+			return err
 		}
-		writePrintNestedHelper(result, typ, tags)
 	}
+	return nil
 }
-
-// writePrintNestedHelper emits one nested-context helper per concrete type.
-// Every helper takes `const void *` and casts internally, so aggregate call
-// sites can pass member and element addresses uniformly.
 
 // printNestedAddress renders the argument expression for a nested helper
 // call: pointer-semantic values (List, Dict, String) pass their pointer
@@ -205,99 +315,127 @@ func printNestedAddress(typ compilerTypes.Type, expression string) string {
 	return "&(" + expression + ")"
 }
 
-func writePrintNestedHelper(result *strings.Builder, typ compilerTypes.Type, tags *tagRegistry) {
+// writePrintNestedHelper emits one nested-context helper per concrete type.
+// Every helper takes `const void *` and casts internally, so aggregate call
+// sites can pass member and element addresses uniformly.
+func writePrintNestedHelper(result *strings.Builder, typ compilerTypes.Type, tags *tagRegistry) error {
+	block, model, matched := printNestedFragment(typ, tags)
+	if !matched {
+		return nil
+	}
+	return renderInto(result, "module.h", block, model)
+}
+
+// printNestedFragment selects the template block and decided model for one
+// nested helper. A type no case matches contributes no helper, so an
+// aggregate kind without a nested form stays silent exactly as before.
+func printNestedFragment(typ compilerTypes.Type, tags *tagRegistry) (string, any, bool) {
 	switch {
 	case compilerTypes.IsString(typ):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    const hex_string *text = value;\n    hex_print_quoted_text(out, text->data, text->byte_length);\n}\n", typ.CName)
+		return "print_nested_string", printNestedLeafModel{CName: typ.CName}, true
 	case compilerTypes.IsInlineString(typ):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_text text = hex_text_inline(value);\n    hex_print_quoted_text(out, text.data, text.length);\n}\n", typ.CName)
+		return "print_nested_inline_string", printNestedLeafModel{CName: typ.CName}, true
 	case compilerTypes.IsError(typ):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_error_nested(out, value);\n}\n", typ.CName)
+		return "print_nested_error", printNestedLeafModel{CName: typ.CName}, true
 	case compilerTypes.IsErrorKind(typ):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_string_128 text = hex_error_kind_header(*(const hex_t_ErrorKind *)value);\n    hex_print_text(out, text.data, text.byte_length);\n}\n", typ.CName)
+		return "print_nested_error_kind", printNestedErrorKindModel{CName: typ.CName, HeaderType: compilerTypes.ErrorHeaderText.CName}, true
 	case compilerTypes.Equal(typ, compilerTypes.Bool):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_bool(out, *(const bool *)value);\n}\n", typ.CName)
+		return "print_nested_bool", printNestedLeafModel{CName: typ.CName}, true
 	case compilerTypes.Equal(typ, compilerTypes.Nil):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    (void)value;\n    hex_print_nil(out);\n}\n", typ.CName)
+		return "print_nested_nil", printNestedLeafModel{CName: typ.CName}, true
 	case compilerTypes.IsSignedInteger(typ):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_int%d(out, *(const int%d_t *)value);\n}\n", typ.CName, typ.Bits, typ.Bits)
+		return "print_nested_int", printNestedBitsModel{CName: typ.CName, Bits: typ.Bits}, true
 	case compilerTypes.IsUnsignedInteger(typ):
 		if compilerTypes.Equal(typ, compilerTypes.SizeType) {
-			fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_size(out, *(const size_t *)value);\n}\n", typ.CName)
-		} else {
-			fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_uint%d(out, *(const uint%d_t *)value);\n}\n", typ.CName, typ.Bits, typ.Bits)
+			return "print_nested_size", printNestedLeafModel{CName: typ.CName}, true
 		}
+		return "print_nested_uint", printNestedBitsModel{CName: typ.CName, Bits: typ.Bits}, true
 	case compilerTypes.Equal(typ, compilerTypes.Float32):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_float32(out, *(const float *)value);\n}\n", typ.CName)
+		return "print_nested_float32", printNestedLeafModel{CName: typ.CName}, true
 	case compilerTypes.Equal(typ, compilerTypes.Float64):
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    hex_print_float64(out, *(const double *)value);\n}\n", typ.CName)
+		return "print_nested_float64", printNestedLeafModel{CName: typ.CName}, true
 	case typ.Object != nil:
 		if len(typ.Object.Members) == 0 {
 			// An empty struct's private byte member is not part of its
 			// surface, so its print output is the bare "Name {}" form with
 			// no member list and no interior padding.
-			fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    (void)value;\n", typ.CName)
-			fmt.Fprintf(result, "    hex_print_text(out, (const uint8_t *)\"%s {}\", %d);\n}\n", typ.Name, len(typ.Name)+3)
-			break
+			return "print_nested_object_empty", printNestedObjectEmptyModel{
+				CName:   typ.CName,
+				Name:    typ.Name,
+				TextLen: len(typ.Name) + 3,
+			}, true
 		}
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    const %s *v = value;\n", typ.CName, typ.CName)
-		fmt.Fprintf(result, "    hex_print_text(out, (const uint8_t *)\"%s { \", %d);\n", typ.Name, len(typ.Name)+3)
+		members := make([]printMemberFragment, 0, len(typ.Object.Members))
 		for index, member := range typ.Object.Members {
-			if index > 0 {
-				fmt.Fprintf(result, "    hex_print_text(out, (const uint8_t *)\", \", 2);\n")
-			}
-			fmt.Fprintf(result, "    hex_print_text(out, (const uint8_t *)\"%s = \", %d);\n", member.Name, len(member.Name)+3)
-			fmt.Fprintf(result, "    hex_print_nested_%s(out, %s);\n", member.Type.CName, printNestedAddress(member.Type, "v->"+privateCName(memberName, member.Name, "")))
+			members = append(members, printMemberFragment{
+				Separator:   index > 0,
+				Label:       member.Name + " = ",
+				LabelLen:    len(member.Name) + 3,
+				NestedCName: member.Type.CName,
+				Arg:         printNestedAddress(member.Type, "v->"+privateCName(memberName, member.Name, "")),
+			})
 		}
-		fmt.Fprintf(result, "    hex_print_text(out, (const uint8_t *)\" }\", 2);\n}\n")
+		return "print_nested_object", printNestedObjectModel{
+			CName:   typ.CName,
+			Name:    typ.Name,
+			NameLen: len(typ.Name) + 3,
+			Members: members,
+		}, true
 	case typ.Adt != nil:
 		adt := typ.Adt
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    const %s *v = value;\n    switch (v->tag) {\n", typ.CName, typ.CName)
+		variants := make([]printVariantFragment, 0, len(adt.Variants))
 		for variantIndex, variant := range adt.Variants {
-			fmt.Fprintf(result, "    case %s:\n", tags.adtVariantTag(adt, variantIndex))
-			fmt.Fprintf(result, "        hex_print_text(out, (const uint8_t *)\"%s.%s\", %d);\n", adt.Name, variant.Name, len(adt.Name)+1+len(variant.Name))
-			if len(variant.Payload) > 0 {
-				fmt.Fprintf(result, "        hex_print_text(out, (const uint8_t *)\" { \", 3);\n")
-				for index, member := range variant.Payload {
-					if index > 0 {
-						fmt.Fprintf(result, "        hex_print_text(out, (const uint8_t *)\", \", 2);\n")
-					}
-					fmt.Fprintf(result, "        hex_print_text(out, (const uint8_t *)\"%s = \", %d);\n", member.Name, len(member.Name)+3)
-					fmt.Fprintf(result, "        hex_print_nested_%s(out, %s);\n", member.Type.CName, printNestedAddress(member.Type, "v->payload."+variant.Name+".hex_m_"+member.Name))
-				}
-				fmt.Fprintf(result, "        hex_print_text(out, (const uint8_t *)\" }\", 2);\n")
+			fragment := printVariantFragment{
+				Tag:      tags.adtVariantTag(adt, variantIndex),
+				Label:    adt.Name + "." + variant.Name,
+				LabelLen: len(adt.Name) + 1 + len(variant.Name),
 			}
-			fmt.Fprintf(result, "        break;\n")
+			for index, member := range variant.Payload {
+				fragment.Payload = append(fragment.Payload, printMemberFragment{
+					Separator:   index > 0,
+					Label:       member.Name + " = ",
+					LabelLen:    len(member.Name) + 3,
+					NestedCName: member.Type.CName,
+					Arg:         printNestedAddress(member.Type, "v->payload."+variant.Name+".hex_m_"+member.Name),
+				})
+			}
+			variants = append(variants, fragment)
 		}
-		fmt.Fprintf(result, "    default:\n        abort();\n    }\n}\n")
+		return "print_nested_adt", printNestedAdtModel{CName: typ.CName, Variants: variants}, true
 	case typ.Array != nil:
 		element := typ.Array.Element
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    const %s *v = value;\n    hex_print_text(out, (const uint8_t *)\"[\", 1);\n", typ.CName, typ.CName)
-		fmt.Fprintf(result, "    for (size_t index = 0; index < %d; index++) {\n        if (index > 0) { hex_print_text(out, (const uint8_t *)\", \", 2); }\n", typ.Array.Length)
-		fmt.Fprintf(result, "        hex_print_nested_%s(out, %s);\n    }\n", element.CName, printNestedAddress(element, "v->data[index]"))
-		fmt.Fprintf(result, "    hex_print_text(out, (const uint8_t *)\"]\", 1);\n}\n")
+		return "print_nested_array", printNestedArrayModel{
+			CName:        typ.CName,
+			Length:       typ.Array.Length,
+			ElementCName: element.CName,
+			ElementArg:   printNestedAddress(element, "v->data[index]"),
+		}, true
 	case typ.Slice != nil:
 		element := typ.Slice.Element
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    const %s *v = value;\n    hex_print_text(out, (const uint8_t *)\"[\", 1);\n", typ.CName, typ.CName)
-		fmt.Fprintf(result, "    for (size_t index = 0; index < v->length; index++) {\n        if (index > 0) { hex_print_text(out, (const uint8_t *)\", \", 2); }\n")
-		fmt.Fprintf(result, "        hex_print_nested_%s(out, %s);\n    }\n", element.CName, printNestedAddress(element, "v->data[index]"))
-		fmt.Fprintf(result, "    hex_print_text(out, (const uint8_t *)\"]\", 1);\n}\n")
+		return "print_nested_sequence", printNestedSequenceModel{
+			CName:        typ.CName,
+			ElementCName: element.CName,
+			ElementArg:   printNestedAddress(element, "v->data[index]"),
+		}, true
 	case typ.List != nil:
 		element := typ.List.Element
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    const %s *v = value;\n    hex_print_text(out, (const uint8_t *)\"[\", 1);\n", typ.CName, typ.CName)
-		fmt.Fprintf(result, "    for (size_t index = 0; index < v->length; index++) {\n        if (index > 0) { hex_print_text(out, (const uint8_t *)\", \", 2); }\n")
-		fmt.Fprintf(result, "        hex_print_nested_%s(out, %s);\n    }\n", element.CName, printNestedAddress(element, "v->data[index]"))
-		fmt.Fprintf(result, "    hex_print_text(out, (const uint8_t *)\"]\", 1);\n}\n")
+		return "print_nested_sequence", printNestedSequenceModel{
+			CName:        typ.CName,
+			ElementCName: element.CName,
+			ElementArg:   printNestedAddress(element, "v->data[index]"),
+		}, true
 	case typ.Dict != nil:
 		key := typ.Dict.Key
 		valueType := typ.Dict.Value
-		fmt.Fprintf(result, "static void hex_print_nested_%s(hex_print_buffer *out, const void *value) {\n    const %s *v = value;\n    hex_print_text(out, (const uint8_t *)\"{\", 1);\n    bool first = true;\n", typ.CName, typ.CName)
-		fmt.Fprintf(result, "    for (size_t index = 0; index < v->capacity; index++) {\n        if (!v->buckets[index].active) { continue; }\n        if (!first) { hex_print_text(out, (const uint8_t *)\", \", 2); }\n        first = false;\n")
-		fmt.Fprintf(result, "        hex_print_nested_%s(out, %s);\n", key.CName, printNestedAddress(key, "v->buckets[index].key"))
-		fmt.Fprintf(result, "        hex_print_text(out, (const uint8_t *)\": \", 2);\n")
-		fmt.Fprintf(result, "        hex_print_nested_%s(out, %s);\n    }\n", valueType.CName, printNestedAddress(valueType, "v->buckets[index].value"))
-		fmt.Fprintf(result, "    hex_print_text(out, (const uint8_t *)\"}\", 1);\n}\n")
+		return "print_nested_dict", printNestedDictModel{
+			CName:      typ.CName,
+			KeyCName:   key.CName,
+			KeyArg:     printNestedAddress(key, "v->buckets[index].key"),
+			ValueCName: valueType.CName,
+			ValueArg:   printNestedAddress(valueType, "v->buckets[index].value"),
+		}, true
 	}
+	return "", nil, false
 }
 
 // renderPrintStatement lowers one print call: each argument evaluates once
@@ -315,7 +453,10 @@ func renderPrintStatement(body *strings.Builder, node checker.Expression, state 
 		}
 		state.printCounter++
 		name := fmt.Sprintf("hex_print_arg_%d", state.printCounter)
-		fmt.Fprintf(body, "%s%s = %s;\n", indent, declaration(argument.Type, name, false), rendered)
+		declarationText := declaration(argument.Type, name, false)
+		if err := renderInto(body, "module.c", "print_statement_temp", printTempModel{Indent: indent, Decl: declarationText, Value: rendered}); err != nil {
+			return err
+		}
 		names = append(names, name)
 	}
 	types := make([]compilerTypes.Type, 0, len(node.Arguments))
@@ -331,55 +472,67 @@ func renderPrintStatement(body *strings.Builder, node checker.Expression, state 
 func writePrintTransaction(body *strings.Builder, types []compilerTypes.Type, names []string, state *expressionValidation, indent string) error {
 	state.printCounter++
 	buffer := fmt.Sprintf("hex_print_out_%d", state.printCounter)
-	fmt.Fprintf(body, "%shex_print_buffer %s;\n", indent, buffer)
-	fmt.Fprintf(body, "%shex_print_begin(&%s);\n", indent, buffer)
+	if err := renderInto(body, "module.c", "print_txn_begin", printTransactionModel{Indent: indent, Buffer: buffer}); err != nil {
+		return err
+	}
 	for index, typ := range types {
 		if err := writePrintArgument(body, typ, names[index], "&"+buffer, indent); err != nil {
 			return err
 		}
 	}
-	fmt.Fprintf(body, "%shex_print_commit(&%s);\n", indent, buffer)
-	fmt.Fprintf(body, "%shex_print_destroy(&%s);\n", indent, buffer)
-	return nil
+	return renderInto(body, "module.c", "print_txn_end", printTransactionModel{Indent: indent, Buffer: buffer})
 }
 
 // writePrintArgument emits one argument's direct (top-level) print form,
 // appending to the transaction's builder.
 func writePrintArgument(body *strings.Builder, typ compilerTypes.Type, name, buffer, indent string) error {
+	var block string
+	var model any
 	switch {
 	case compilerTypes.Equal(typ, compilerTypes.Bool):
-		fmt.Fprintf(body, "%shex_print_bool(%s, %s);\n", indent, buffer, name)
+		block = "print_arg_bool"
+		model = printArgumentTextModel{Indent: indent, Buffer: buffer, Name: name}
 	case compilerTypes.Equal(typ, compilerTypes.Nil):
-		fmt.Fprintf(body, "%shex_print_nil(%s);\n", indent, buffer)
+		block = "print_arg_nil"
+		model = printArgumentNilModel{Indent: indent, Buffer: buffer}
 	case compilerTypes.IsSignedInteger(typ):
-		width := typ.Bits
 		if compilerTypes.Equal(typ, compilerTypes.SizeType) {
-			fmt.Fprintf(body, "%shex_print_size(%s, %s);\n", indent, buffer, name)
+			block = "print_arg_size"
+			model = printArgumentTextModel{Indent: indent, Buffer: buffer, Name: name}
 		} else {
-			fmt.Fprintf(body, "%shex_print_int%d(%s, %s);\n", indent, width, buffer, name)
+			block = "print_arg_int"
+			model = printArgumentBitsModel{Indent: indent, Buffer: buffer, Name: name, Bits: typ.Bits}
 		}
 	case compilerTypes.IsUnsignedInteger(typ):
 		if compilerTypes.Equal(typ, compilerTypes.SizeType) {
-			fmt.Fprintf(body, "%shex_print_size(%s, %s);\n", indent, buffer, name)
+			block = "print_arg_size"
+			model = printArgumentTextModel{Indent: indent, Buffer: buffer, Name: name}
 		} else {
-			fmt.Fprintf(body, "%shex_print_uint%d(%s, %s);\n", indent, typ.Bits, buffer, name)
+			block = "print_arg_uint"
+			model = printArgumentBitsModel{Indent: indent, Buffer: buffer, Name: name, Bits: typ.Bits}
 		}
 	case compilerTypes.Equal(typ, compilerTypes.Float32):
-		fmt.Fprintf(body, "%shex_print_float32(%s, %s);\n", indent, buffer, name)
+		block = "print_arg_float32"
+		model = printArgumentTextModel{Indent: indent, Buffer: buffer, Name: name}
 	case compilerTypes.Equal(typ, compilerTypes.Float64):
-		fmt.Fprintf(body, "%shex_print_float64(%s, %s);\n", indent, buffer, name)
+		block = "print_arg_float64"
+		model = printArgumentTextModel{Indent: indent, Buffer: buffer, Name: name}
 	case compilerTypes.IsString(typ):
-		fmt.Fprintf(body, "%shex_print_text(%s, %s->data, %s->byte_length);\n", indent, buffer, name, name)
+		block = "print_arg_string"
+		model = printArgumentTextModel{Indent: indent, Buffer: buffer, Name: name}
 	case compilerTypes.IsInlineString(typ):
-		fmt.Fprintf(body, "%shex_print_text(%s, %s.data, %s.byte_length);\n", indent, buffer, name, name)
+		block = "print_arg_inline_string"
+		model = printArgumentTextModel{Indent: indent, Buffer: buffer, Name: name}
 	case compilerTypes.IsError(typ):
-		fmt.Fprintf(body, "%shex_print_error_direct(%s, &%s);\n", indent, buffer, name)
+		block = "print_arg_error"
+		model = printArgumentTextModel{Indent: indent, Buffer: buffer, Name: name}
 	default:
 		// Aggregates use their nested helper at the top level too;
 		// pointer-semantic values pass their pointer directly.
-		fmt.Fprintf(body, "%shex_print_nested_%s(%s, %s);\n", indent, typ.CName, buffer, printNestedAddress(typ, name))
+		block = "print_arg_nested"
+		model = printArgumentNestedModel{Indent: indent, Buffer: buffer, CName: typ.CName, Arg: printNestedAddress(typ, name)}
 	}
-	return nil
+	return renderInto(body, "module.c", block, model)
 }
 
 // renderDeferredPrint renders a deferred print action at cleanup time. The

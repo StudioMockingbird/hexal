@@ -32,7 +32,10 @@ func numericComponents(merged *programEmission) ([]componentArtifact, error) {
 	if merged == nil {
 		return nil, nil
 	}
-	model := buildNumericModel(merged)
+	model, modelErr := buildNumericModel(merged)
+	if modelErr != nil {
+		return nil, modelErr
+	}
 	if len(model.Conversions) == 0 && len(model.Divisions) == 0 &&
 		len(model.Shifts) == 0 && len(model.BitCasts) == 0 && len(model.Endians) == 0 {
 		return nil, nil
@@ -46,11 +49,13 @@ func numericComponents(merged *programEmission) ([]componentArtifact, error) {
 
 // buildNumericModel pre-renders every helper body from the program-wide merged
 // specs using the existing body builders.
-func buildNumericModel(merged *programEmission) numericComponentModel {
+func buildNumericModel(merged *programEmission) (numericComponentModel, error) {
 	model := numericComponentModel{}
 	for _, spec := range merged.conversionSpecs {
 		var buf strings.Builder
-		writeConversionHelper(&buf, spec)
+		if err := writeConversionHelper(&buf, spec); err != nil {
+			return model, err
+		}
 		model.Conversions = append(model.Conversions, numericHelperRecord{Body: buf.String()})
 	}
 	for _, typ := range merged.divisionTypes {
@@ -60,29 +65,37 @@ func buildNumericModel(merged *programEmission) numericComponentModel {
 				op = checker.RemainderOperator
 			}
 			var buf strings.Builder
-			writeDivisionHelper(&buf, typ, op, suffix)
+			if err := writeDivisionHelper(&buf, typ, op, suffix); err != nil {
+				return model, err
+			}
 			model.Divisions = append(model.Divisions, numericHelperRecord{Body: buf.String()})
 		}
 	}
 	for _, spec := range merged.shiftSpecs {
 		var buf strings.Builder
-		writeShiftHelper(&buf, spec)
+		if err := writeShiftHelper(&buf, spec); err != nil {
+			return model, err
+		}
 		model.Shifts = append(model.Shifts, numericHelperRecord{Body: buf.String()})
 	}
 	for _, spec := range merged.bitCastSpecs {
 		var buf strings.Builder
-		writeBitCastDefinitions(&buf, []bitCastSpec{spec})
+		if err := writeBitCastDefinitions(&buf, []bitCastSpec{spec}); err != nil {
+			return model, err
+		}
 		model.BitCasts = append(model.BitCasts, numericHelperRecord{Body: buf.String()})
 	}
 	for _, spec := range merged.endianSpecs {
 		var buf strings.Builder
-		writeEndianHelper(&buf, spec)
+		if err := writeEndianHelper(&buf, spec); err != nil {
+			return model, err
+		}
 		model.Endians = append(model.Endians, numericHelperRecord{Body: buf.String()})
 		if needsEndianArray(spec) {
 			model.NeedArray = true
 		}
 	}
-	return model
+	return model, nil
 }
 
 // needsEndianArray reports whether the endian helper's to_bytes variant

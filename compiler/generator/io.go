@@ -384,6 +384,71 @@ func streamSeekTag(tags *tagRegistry, index int) string {
 	return tags.adtVariantTag(compilerTypes.SeekType.Adt, index)
 }
 
+// ioOpenAdapterModel carries one standard stream opener's decided union
+// type, stream name, success arm tag and payload field, and failure arm
+// text.
+type ioOpenAdapterModel struct {
+	CName   string
+	Name    string
+	Success string
+	Field   string
+	Error   string
+}
+
+// streamReadAdapterModel carries one read adapter's decided suffix, union
+// type, count and end-of-stream arm tags, count payload field, the
+// operation-specific guard arm (not-readable or self-read), and the
+// transfer-failure arm.
+type streamReadAdapterModel struct {
+	Suffix  string
+	CName   string
+	Success string
+	Field   string
+	EosTag  string
+	Guard   string
+	Error   string
+}
+
+// streamWriteAdapterModel carries one write adapter's decided suffix, union
+// type, count arm tag and payload field, the operation-specific guard arm
+// (not-writable or overlap), and the transfer-failure arm.
+type streamWriteAdapterModel struct {
+	Suffix  string
+	CName   string
+	Success string
+	Field   string
+	Guard   string
+	Error   string
+}
+
+// seekAdapterModel carries one seek adapter's decided receiver core,
+// suffix, parameter type, per-origin tag and call triples, union type,
+// success arm tag and payload field, and failure arm text.
+type seekAdapterModel struct {
+	CName       string
+	Core        string
+	Suffix      string
+	Receiver    string
+	StartTag    string
+	StartCall   string
+	CurrentTag  string
+	CurrentCall string
+	EndTag      string
+	EndCall     string
+	Success     string
+	Field       string
+	Error       string
+}
+
+// ioCloseAdapterModel carries one closer's decided suffix, union type,
+// success arm tag, and failure arm text.
+type ioCloseAdapterModel struct {
+	Suffix  string
+	CName   string
+	Success string
+	Error   string
+}
+
 // writeStreamInlineHelpers emits the module-owned stream adapters after every
 // family that can fail. Each adapter wraps one structural result union around
 // the component core and constructs failures with this module's file literal
@@ -408,17 +473,15 @@ func writeStreamInlineHelpers(result *strings.Builder, state *generatedStreamSta
 			return armErr
 		}
 		for _, name := range []string{"stdin", "stdout", "stderr"} {
-			fmt.Fprintf(result,
-				"\nstatic inline %s hex_io_open_%s(size_t line, size_t column) {\n"+
-					"    hex_io_open opened = hex_io_%s();\n"+
-					"    if (opened.status == HEX_IO_OK) {\n"+
-					"        return (%s){ .tag = %s, .payload.%s = opened.stream };\n"+
-					"    }\n"+
-					"    return %s;\n"+
-					"}\n",
-				union.CName, name, name,
-				union.CName, ioTag, ioField,
-				failure)
+			if err := renderInto(result, "module.h", "io_open_adapter", ioOpenAdapterModel{
+				CName:   union.CName,
+				Name:    name,
+				Success: ioTag,
+				Field:   ioField,
+				Error:   failure,
+			}); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -434,50 +497,34 @@ func writeStreamInlineHelpers(result *strings.Builder, state *generatedStreamSta
 			if armErr != nil {
 				return armErr
 			}
-			fmt.Fprintf(result,
-				"\nstatic inline %s hex_io_read_%s(hex_io stream, hex_list_UInt8 *into, size_t max, size_t line, size_t column) {\n"+
-					"    hex_io_transfer transfer = hex_io_read(stream, into, max);\n"+
-					"    switch (transfer.status) {\n"+
-					"    case HEX_IO_OK:\n"+
-					"        return (%s){ .tag = %s, .payload.%s = transfer.count };\n"+
-					"    case HEX_IO_EOS:\n"+
-					"        return (%s){ .tag = %s };\n"+
-					"    case HEX_IO_NOT_READABLE:\n"+
-					"        return %s;\n"+
-					"    default:\n"+
-					"        return %s;\n"+
-					"    }\n"+
-					"}\n",
-				union.CName, streamAdapterSuffix(union),
-				union.CName, sizeTag, sizeField,
-				union.CName, eosTag,
-				notReadable,
-				readFailed)
+			if err := renderInto(result, "module.h", "io_read_adapter", streamReadAdapterModel{
+				Suffix:  streamAdapterSuffix(union),
+				CName:   union.CName,
+				Success: sizeTag,
+				Field:   sizeField,
+				EosTag:  eosTag,
+				Guard:   notReadable,
+				Error:   readFailed,
+			}); err != nil {
+				return err
+			}
 		}
 		if state.readBytes {
 			selfRead, armErr := errorArmWithKind("InvalidInput", streamMessageSelfRead, union)
 			if armErr != nil {
 				return armErr
 			}
-			fmt.Fprintf(result,
-				"\nstatic inline %s hex_bytes_read_%s(hex_bytes *stream, hex_list_UInt8 *into, size_t max, size_t line, size_t column) {\n"+
-					"    hex_io_transfer transfer = hex_bytes_read(stream, into, max);\n"+
-					"    switch (transfer.status) {\n"+
-					"    case HEX_IO_OK:\n"+
-					"        return (%s){ .tag = %s, .payload.%s = transfer.count };\n"+
-					"    case HEX_IO_EOS:\n"+
-					"        return (%s){ .tag = %s };\n"+
-					"    case HEX_IO_SELF_READ:\n"+
-					"        return %s;\n"+
-					"    default:\n"+
-					"        return %s;\n"+
-					"    }\n"+
-					"}\n",
-				union.CName, streamAdapterSuffix(union),
-				union.CName, sizeTag, sizeField,
-				union.CName, eosTag,
-				selfRead,
-				readFailed)
+			if err := renderInto(result, "module.h", "bytes_read_adapter", streamReadAdapterModel{
+				Suffix:  streamAdapterSuffix(union),
+				CName:   union.CName,
+				Success: sizeTag,
+				Field:   sizeField,
+				EosTag:  eosTag,
+				Guard:   selfRead,
+				Error:   readFailed,
+			}); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -492,44 +539,32 @@ func writeStreamInlineHelpers(result *strings.Builder, state *generatedStreamSta
 			if armErr != nil {
 				return armErr
 			}
-			fmt.Fprintf(result,
-				"\nstatic inline %s hex_io_write_%s(hex_io stream, hex_slice_UInt8 from, size_t line, size_t column) {\n"+
-					"    hex_io_transfer transfer = hex_io_write(stream, from);\n"+
-					"    switch (transfer.status) {\n"+
-					"    case HEX_IO_OK:\n"+
-					"        return (%s){ .tag = %s, .payload.%s = transfer.count };\n"+
-					"    case HEX_IO_NOT_WRITABLE:\n"+
-					"        return %s;\n"+
-					"    default:\n"+
-					"        return %s;\n"+
-					"    }\n"+
-					"}\n",
-				union.CName, streamAdapterSuffix(union),
-				union.CName, sizeTag, sizeField,
-				notWritable,
-				writeFailed)
+			if err := renderInto(result, "module.h", "io_write_adapter", streamWriteAdapterModel{
+				Suffix:  streamAdapterSuffix(union),
+				CName:   union.CName,
+				Success: sizeTag,
+				Field:   sizeField,
+				Guard:   notWritable,
+				Error:   writeFailed,
+			}); err != nil {
+				return err
+			}
 		}
 		if state.writeBytes {
 			overlap, armErr := errorArmWithKind("InvalidInput", streamMessageOverlap, union)
 			if armErr != nil {
 				return armErr
 			}
-			fmt.Fprintf(result,
-				"\nstatic inline %s hex_bytes_write_%s(hex_bytes *stream, hex_slice_UInt8 from, size_t line, size_t column) {\n"+
-					"    hex_io_transfer transfer = hex_bytes_write(stream, from);\n"+
-					"    switch (transfer.status) {\n"+
-					"    case HEX_IO_OK:\n"+
-					"        return (%s){ .tag = %s, .payload.%s = transfer.count };\n"+
-					"    case HEX_IO_OVERLAP:\n"+
-					"        return %s;\n"+
-					"    default:\n"+
-					"        return %s;\n"+
-					"    }\n"+
-					"}\n",
-				union.CName, streamAdapterSuffix(union),
-				union.CName, sizeTag, sizeField,
-				overlap,
-				writeFailed)
+			if err := renderInto(result, "module.h", "bytes_write_adapter", streamWriteAdapterModel{
+				Suffix:  streamAdapterSuffix(union),
+				CName:   union.CName,
+				Success: sizeTag,
+				Field:   sizeField,
+				Guard:   overlap,
+				Error:   writeFailed,
+			}); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -539,46 +574,41 @@ func writeStreamInlineHelpers(result *strings.Builder, state *generatedStreamSta
 		if armErr != nil {
 			return armErr
 		}
-		emit := func(core string, receiverType string, startCall string, currentCall string, endCall string) {
-			fmt.Fprintf(result,
-				"\nstatic inline %s %sseek_%s(%s stream, hex_t_Seek to, size_t line, size_t column) {\n"+
-					"    hex_io_position moved;\n"+
-					"    switch (to.tag) {\n"+
-					"    case %s:\n"+
-					"        moved = %s;\n"+
-					"        break;\n"+
-					"    case %s:\n"+
-					"        moved = %s;\n"+
-					"        break;\n"+
-					"    case %s:\n"+
-					"        moved = %s;\n"+
-					"        break;\n"+
-					"    default:\n"+
-					"        abort();\n"+
-					"    }\n"+
-					"    if (moved.status == HEX_IO_OK) {\n"+
-					"        return (%s){ .tag = %s, .payload.%s = (size_t)moved.position };\n"+
-					"    }\n"+
-					"    return %s;\n"+
-					"}\n",
-				union.CName, core, streamAdapterSuffix(union), receiverType,
-				streamSeekTag(tags, 0), startCall,
-				streamSeekTag(tags, 1), currentCall,
-				streamSeekTag(tags, 2), endCall,
-				union.CName, sizeTag, sizeField,
-				seekFailed)
+		emit := func(core string, receiverType string, startCall string, currentCall string, endCall string) error {
+			if err := renderInto(result, "module.h", "seek_adapter", seekAdapterModel{
+				CName:       union.CName,
+				Core:        core,
+				Suffix:      streamAdapterSuffix(union),
+				Receiver:    receiverType,
+				StartTag:    streamSeekTag(tags, 0),
+				StartCall:   startCall,
+				CurrentTag:  streamSeekTag(tags, 1),
+				CurrentCall: currentCall,
+				EndTag:      streamSeekTag(tags, 2),
+				EndCall:     endCall,
+				Success:     sizeTag,
+				Field:       sizeField,
+				Error:       seekFailed,
+			}); err != nil {
+				return err
+			}
+			return nil
 		}
 		if state.seekIO {
-			emit("hex_io_", "hex_io",
+			if err := emit("hex_io_", "hex_io",
 				"hex_io_seek_start(stream, to.payload.Start.hex_m_position)",
 				"hex_io_seek_current(stream, to.payload.Current.hex_m_offset)",
-				"hex_io_seek_end(stream, to.payload.End.hex_m_offset)")
+				"hex_io_seek_end(stream, to.payload.End.hex_m_offset)"); err != nil {
+				return err
+			}
 		}
 		if state.seekBytes {
-			emit("hex_bytes_", "hex_bytes *",
+			if err := emit("hex_bytes_", "hex_bytes *",
 				"hex_bytes_seek_from(stream, 0u, (int64_t)to.payload.Start.hex_m_position)",
 				"hex_bytes_seek_from(stream, 1u, to.payload.Current.hex_m_offset)",
-				"hex_bytes_seek_from(stream, 2u, to.payload.End.hex_m_offset)")
+				"hex_bytes_seek_from(stream, 2u, to.payload.End.hex_m_offset)"); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -589,17 +619,14 @@ func writeStreamInlineHelpers(result *strings.Builder, state *generatedStreamSta
 			return armErr
 		}
 		if state.closeIO {
-			fmt.Fprintf(result,
-				"\nstatic inline %s hex_io_close_%s(hex_io stream, size_t line, size_t column) {\n"+
-					"    hex_io_status_only closed = hex_io_close(stream);\n"+
-					"    if (closed.status == HEX_IO_OK) {\n"+
-					"        return (%s){ .tag = %s };\n"+
-					"    }\n"+
-					"    return %s;\n"+
-					"}\n",
-				union.CName, streamAdapterSuffix(union),
-				union.CName, nilTag,
-				closeFailed)
+			if err := renderInto(result, "module.h", "io_close_adapter", ioCloseAdapterModel{
+				Suffix:  streamAdapterSuffix(union),
+				CName:   union.CName,
+				Success: nilTag,
+				Error:   closeFailed,
+			}); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

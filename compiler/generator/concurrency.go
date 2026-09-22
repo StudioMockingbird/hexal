@@ -319,19 +319,121 @@ func (state *generatedConcurrencyState) messageLiteral(literals *literalRegistry
 	return literals.CName(handle)
 }
 
+// Concurrency fragment models carry only decided values: canonical C names,
+// union tags, literal names, and pre-rendered expressions. Templates carry
+// presentation only.
+type schedErrorHelperModel struct {
+	FileCName string
+}
+
+type taskJoinModel struct {
+	Suffix string
+}
+
+type taskJoinValueModel struct {
+	Suffix         string
+	ResultSpelling string
+}
+
+type spawnFrameModel struct {
+	Key    string
+	Fields []string
+}
+
+type chanNewModel struct {
+	UnionCName      string
+	Suffix          string
+	ElementSpelling string
+	ChannelTag      string
+	ChannelField    string
+	ErrorTag        string
+	ErrorField      string
+	KindTag         string
+	Message         string
+}
+
+type chanSendModel struct {
+	UnionCName      string
+	Suffix          string
+	ElementSpelling string
+	NilTag          string
+	ErrorTag        string
+	ErrorField      string
+	KindTag         string
+	Message         string
+}
+
+type chanRecvModel struct {
+	UnionCName      string
+	Suffix          string
+	ElementSpelling string
+	ElementTag      string
+	ElementField    string
+	EosTag          string
+}
+
+type suffixModel struct {
+	Suffix string
+}
+
+type mutexNewModel struct {
+	UnionCName string
+	MutexTag   string
+	MutexField string
+	ErrorTag   string
+	ErrorField string
+	KindTag    string
+	Message    string
+}
+
+type atomicHelperModel struct {
+	ElementSpelling string
+	AtomicSpelling  string
+}
+
+type spawnAdapterModel struct {
+	Key            string
+	HasFrame       bool
+	Function       string
+	Arguments      string
+	ResultSpelling string
+}
+
+type spawnFrameDeclModel struct {
+	Indent   string
+	ArgsType string
+	Temp     string
+}
+
+type spawnFrameFillModel struct {
+	Indent string
+	Temp   string
+	Index  int
+	Value  string
+}
+
+type spawnCallFrameModel struct {
+	Indent     string
+	TaskTemp   string
+	Key        string
+	ArgsType   string
+	Temp       string
+	ResultArgs string
+}
+
+type spawnCallBareModel struct {
+	Indent     string
+	TaskTemp   string
+	Key        string
+	ResultArgs string
+}
+
 // writeErrorHelper emits the runtime Error-construction helper hex_sched_error
 // once, before any operation family that can fail. The caller supplies the
 // exact ErrorKind for its own failure reason: Task, Channel, and Mutex
 // creation report ResourceExhausted; Channel send after close reports Closed.
-func (state *generatedConcurrencyState) writeErrorHelper(result *strings.Builder, literals *literalRegistry) {
-	fmt.Fprintf(result, "\nstatic inline hex_t_Error hex_sched_error(hex_t_ErrorKind kind, size_t line, size_t column, const hex_string *message) {\n")
-	fmt.Fprintf(result, "    return (hex_t_Error){\n")
-	fmt.Fprintf(result, "        .hex_m_file = &%s,\n", literals.CName(state.fileLiteral))
-	fmt.Fprintf(result, "        .hex_m_line = line,\n")
-	fmt.Fprintf(result, "        .hex_m_column = column,\n")
-	fmt.Fprintf(result, "        .hex_m_kind = kind,\n")
-	fmt.Fprintf(result, "        .hex_m_message = hex_error_message(hex_text_heap(message)),\n")
-	fmt.Fprintf(result, "    };\n}\n")
+func (state *generatedConcurrencyState) writeErrorHelper(result *strings.Builder, literals *literalRegistry) error {
+	return renderInto(result, "concurrency.h", "sched_error_helper", schedErrorHelperModel{FileCName: literals.CName(state.fileLiteral)})
 }
 
 // writeConcurrencyInlineHelpers emits the per-element, per-result inline
@@ -349,10 +451,16 @@ func writeConcurrencyInlineHelpers(result *strings.Builder, state *generatedConc
 			// through hex_sched_error, spawn prologues included. One helper
 			// precedes every family that references it; the per-family
 			// writers must not re-emit it.
-			state.writeErrorHelper(result, literals)
+			if err := state.writeErrorHelper(result, literals); err != nil {
+				return err
+			}
 		}
-		writeSpawnArgFrames(result, state.spawns)
-		writeTaskTypeHelpers(result, state)
+		if err := writeSpawnArgFrames(result, state.spawns); err != nil {
+			return err
+		}
+		if err := writeTaskTypeHelpers(result, state); err != nil {
+			return err
+		}
 		if err := writeChannelInlineHelpers(result, state, literals, tags); err != nil {
 			return err
 		}
@@ -360,29 +468,37 @@ func writeConcurrencyInlineHelpers(result *strings.Builder, state *generatedConc
 			return err
 		}
 	}
-	writeAtomicHelpers(result, state)
-	return nil
+	return writeAtomicHelpers(result, state)
 }
 
 // writeTaskTypeHelpers emits the per-result join helper that copies R out of
 // the task frame and reclaims the task. The handle typedefs themselves are
 // emitted in the header prelude.
-func writeTaskTypeHelpers(result *strings.Builder, state *generatedConcurrencyState) {
+func writeTaskTypeHelpers(result *strings.Builder, state *generatedConcurrencyState) error {
 	if len(state.joinTypes) == 0 {
-		return
+		return nil
 	}
-	result.WriteString("\n// join copies R out of the result frame and reclaims the task storage.\n")
+	if err := renderInto(result, "concurrency.h", "task_join_comment", struct{}{}); err != nil {
+		return err
+	}
 	names := slices.Sorted(maps.Keys(state.joinTypes))
 	for _, name := range names {
 		task := state.joinTypes[name]
 		suffix := taskSuffix(task)
 		if task.Task.Result == (compilerTypes.Type{}) || compilerTypes.Equal(task.Task.Result, compilerTypes.Nil) {
-			fmt.Fprintf(result, "static inline void hex_task_join_%s(hex_task *task) {\n    (void)hex_task_join(task);\n    hex_task_release(task);\n}\n", suffix)
+			if err := renderInto(result, "concurrency.h", "task_join_void", taskJoinModel{Suffix: suffix}); err != nil {
+				return err
+			}
 			continue
 		}
-		resultType := task.Task.Result
-		fmt.Fprintf(result, "static inline %s hex_task_join_%s(hex_task *task) {\n    %s *frame = (%s *)hex_task_join(task);\n    %s value = *frame;\n    hex_task_release(task);\n    return value;\n}\n", typeSpelling(resultType), suffix, typeSpelling(resultType), typeSpelling(resultType), typeSpelling(resultType))
+		if err := renderInto(result, "concurrency.h", "task_join_value", taskJoinValueModel{
+			Suffix:         suffix,
+			ResultSpelling: typeSpelling(task.Task.Result),
+		}); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // writeSpawnAdapters emits, in the spawned function's own module C file, one
@@ -394,47 +510,47 @@ func writeTaskTypeHelpers(result *strings.Builder, state *generatedConcurrencySt
 // prologues in other modules. The argument frame structs themselves are
 // declared in the module header (writeSpawnArgFrames) so the spawn prologues
 // inside function bodies can fill them.
-func writeSpawnAdapters(result *strings.Builder, sites []spawnSite) {
+func writeSpawnAdapters(result *strings.Builder, sites []spawnSite) error {
 	if len(sites) == 0 {
-		return
+		return nil
 	}
 	for _, site := range sites {
-		fmt.Fprintf(result, "\nvoid hex_task_entry_%s(hex_task *task) {\n", site.key())
-		if site.hasFrame() {
-			fmt.Fprintf(result, "    hex_task_args_%s *args = (hex_task_args_%s *)task->args;\n", site.key(), site.key())
+		model := spawnAdapterModel{
+			Key:       site.key(),
+			HasFrame:  site.hasFrame(),
+			Function:  site.function,
+			Arguments: spawnArguments(site),
 		}
+		block := "spawn_adapter_void"
 		if site.result != (compilerTypes.Type{}) && !compilerTypes.Equal(site.result, compilerTypes.Nil) {
-			fmt.Fprintf(result, "    %s result = %s(", typeSpelling(site.result), site.function)
-			writeSpawnArguments(result, site)
-			fmt.Fprintf(result, ");\n    *(%s *)task->result = result;\n", typeSpelling(site.result))
-		} else {
-			fmt.Fprintf(result, "    %s(", site.function)
-			writeSpawnArguments(result, site)
-			fmt.Fprintf(result, ");\n")
+			block = "spawn_adapter_value"
+			model.ResultSpelling = typeSpelling(site.result)
 		}
-		fmt.Fprintf(result, "    hex_task_complete(task);\n}\n")
+		if err := renderInto(result, "module.c", block, model); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-func writeSpawnArguments(result *strings.Builder, site spawnSite) {
+// spawnArguments is the adapter's comma-joined call argument list: the
+// frame's fixed fields in source order, then the rest Slice over the
+// inline element fields.
+func spawnArguments(site spawnSite) string {
 	if !site.hasFrame() {
 		if site.rest {
-			result.WriteString(restFrameSlice(site))
+			return restFrameSlice(site)
 		}
-		return
+		return ""
 	}
+	arguments := make([]string, 0, site.fixed+1)
 	for index := 0; index < site.fixed; index++ {
-		if index > 0 {
-			result.WriteString(", ")
-		}
-		fmt.Fprintf(result, "args->a%d", index+1)
+		arguments = append(arguments, fmt.Sprintf("args->a%d", index+1))
 	}
 	if site.rest {
-		if site.fixed > 0 {
-			result.WriteString(", ")
-		}
-		result.WriteString(restFrameSlice(site))
+		arguments = append(arguments, restFrameSlice(site))
 	}
+	return strings.Join(arguments, ", ")
 }
 
 // restFrameSlice renders the adapter's Slice over the frame's inline rest
@@ -454,27 +570,30 @@ func restFrameSlice(site spawnSite) string {
 
 // writeSpawnArgFrames emits one argument-frame struct per spawned function
 // into the module header, before any function body that fills one.
-func writeSpawnArgFrames(result *strings.Builder, sites []spawnSite) {
+func writeSpawnArgFrames(result *strings.Builder, sites []spawnSite) error {
 	if len(sites) == 0 {
-		return
+		return nil
 	}
 	for _, site := range sites {
 		if !site.hasFrame() {
 			continue
 		}
-		fmt.Fprintf(result, "\ntypedef struct hex_task_args_%s {\n", site.key())
+		fields := make([]string, 0, len(site.params))
 		for index, parameter := range site.params {
 			if site.rest && index == len(site.params)-1 {
 				// The rest parameter stores each element inline, one field each.
 				for offset := 0; offset < site.restCount; offset++ {
-					fmt.Fprintf(result, "    %s;\n", declaration(site.element, fmt.Sprintf("a%d", index+1+offset), true))
+					fields = append(fields, declaration(site.element, fmt.Sprintf("a%d", index+1+offset), true))
 				}
 				continue
 			}
-			fmt.Fprintf(result, "    %s;\n", declaration(parameter, fmt.Sprintf("a%d", index+1), true))
+			fields = append(fields, declaration(parameter, fmt.Sprintf("a%d", index+1), true))
 		}
-		fmt.Fprintf(result, "} hex_task_args_%s;\n", site.key())
+		if err := renderInto(result, "concurrency.h", "spawn_arg_frame", spawnFrameModel{Key: site.key(), Fields: fields}); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // writeChannelInlineHelpers emits the per-element Channel adapters into the
@@ -501,8 +620,19 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 				channelMember, _ := unionMembers.At(channelIndex)
 				errorMember, _ := unionMembers.At(errorIndex)
 				message := state.messageLiteral(literals, state.channelCreationFailed)
-				fmt.Fprintf(result, "\nstatic inline %s hex_chan_new_%s(hex_heap h, size_t capacity, size_t line, size_t column, const hex_string *message) {\n    (void)h;\n    (void)message;\n    hex_chan *channel = hex_chan_new(capacity, sizeof(%s));\n    if (channel != nullptr) {\n        return (%s){ .tag = %s, .payload.%s = channel };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error((hex_t_ErrorKind){ .tag = %s }, line, column, &%s) };\n}\n",
-					union.CName, suffix, elementSpelling, union.CName, tags.unionMemberTag(channelMember), tags.unionPayloadField(channelMember), union.CName, tags.unionMemberTag(errorMember), tags.unionPayloadField(errorMember), errorKindTag(tags, "ResourceExhausted"), message)
+				if err := renderInto(result, "concurrency.h", "chan_new_adapter", chanNewModel{
+					UnionCName:      union.CName,
+					Suffix:          suffix,
+					ElementSpelling: elementSpelling,
+					ChannelTag:      tags.unionMemberTag(channelMember),
+					ChannelField:    tags.unionPayloadField(channelMember),
+					ErrorTag:        tags.unionMemberTag(errorMember),
+					ErrorField:      tags.unionPayloadField(errorMember),
+					KindTag:         errorKindTag(tags, "ResourceExhausted"),
+					Message:         message,
+				}); err != nil {
+					return err
+				}
 			}
 		}
 		if state.channelSend {
@@ -514,8 +644,18 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 				nilMember, _ := unionMembers.At(nilIndex)
 				errorMember, _ := unionMembers.At(errorIndex)
 				message := state.messageLiteral(literals, state.channelSendFailed)
-				fmt.Fprintf(result, "\nstatic inline %s hex_chan_send_%s(hex_chan *channel, %s value, size_t line, size_t column, const hex_string *message) {\n    (void)message;\n    if (hex_chan_send(channel, &value)) {\n        return (%s){ .tag = %s };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error((hex_t_ErrorKind){ .tag = %s }, line, column, &%s) };\n}\n",
-					union.CName, suffix, elementSpelling, union.CName, tags.unionMemberTag(nilMember), union.CName, tags.unionMemberTag(errorMember), tags.unionPayloadField(errorMember), errorKindTag(tags, "Closed"), message)
+				if err := renderInto(result, "concurrency.h", "chan_send_adapter", chanSendModel{
+					UnionCName:      union.CName,
+					Suffix:          suffix,
+					ElementSpelling: elementSpelling,
+					NilTag:          tags.unionMemberTag(nilMember),
+					ErrorTag:        tags.unionMemberTag(errorMember),
+					ErrorField:      tags.unionPayloadField(errorMember),
+					KindTag:         errorKindTag(tags, "Closed"),
+					Message:         message,
+				}); err != nil {
+					return err
+				}
 			}
 		}
 		// The receive union is emitted for every used Channel<T>: receive
@@ -529,10 +669,20 @@ func writeChannelInlineHelpers(result *strings.Builder, state *generatedConcurre
 			eosIndex := unionMemberIndex(receiveUnion, compilerTypes.EoS)
 			elementMember, _ := receiveMembers.At(elementIndex)
 			eosMember, _ := receiveMembers.At(eosIndex)
-			fmt.Fprintf(result, "\nstatic inline %s hex_chan_recv_%s(hex_chan *channel) {\n    %s value;\n    if (hex_chan_receive(channel, &value)) {\n        return (%s){ .tag = %s, .payload.%s = value };\n    }\n    return (%s){ .tag = %s };\n}\n",
-				receiveUnion.CName, suffix, elementSpelling, receiveUnion.CName, tags.unionMemberTag(elementMember), tags.unionPayloadField(elementMember), receiveUnion.CName, tags.unionMemberTag(eosMember))
+			if err := renderInto(result, "concurrency.h", "chan_recv_adapter", chanRecvModel{
+				UnionCName:      receiveUnion.CName,
+				Suffix:          suffix,
+				ElementSpelling: elementSpelling,
+				ElementTag:      tags.unionMemberTag(elementMember),
+				ElementField:    tags.unionPayloadField(elementMember),
+				EosTag:          tags.unionMemberTag(eosMember),
+			}); err != nil {
+				return err
+			}
 		}
-		fmt.Fprintf(result, "\nstatic inline void hex_chan_free_%s(hex_heap h, hex_chan *channel) {\n    (void)h;\n    hex_chan_free(channel);\n}\n", suffix)
+		if err := renderInto(result, "concurrency.h", "chan_free_adapter", suffixModel{Suffix: suffix}); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -555,11 +705,22 @@ func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrenc
 			mutexMember, _ := mutexMembers.At(mutexIndex)
 			errorMember, _ := mutexMembers.At(errorIndex)
 			message := state.messageLiteral(literals, state.mutexCreationFailed)
-			fmt.Fprintf(result, "\nstatic inline %s hex_mutex_new_mutex(hex_heap h, size_t line, size_t column, const hex_string *message) {\n    (void)h;\n    (void)message;\n    hex_mutex *mutex = hex_mutex_new();\n    if (mutex != nullptr) {\n        return (%s){ .tag = %s, .payload.%s = mutex };\n    }\n    return (%s){ .tag = %s, .payload.%s = hex_sched_error((hex_t_ErrorKind){ .tag = %s }, line, column, &%s) };\n}\n",
-				union.CName, union.CName, tags.unionMemberTag(mutexMember), tags.unionPayloadField(mutexMember), union.CName, tags.unionMemberTag(errorMember), tags.unionPayloadField(errorMember), errorKindTag(tags, "ResourceExhausted"), message)
+			if err := renderInto(result, "concurrency.h", "mutex_new_adapter", mutexNewModel{
+				UnionCName: union.CName,
+				MutexTag:   tags.unionMemberTag(mutexMember),
+				MutexField: tags.unionPayloadField(mutexMember),
+				ErrorTag:   tags.unionMemberTag(errorMember),
+				ErrorField: tags.unionPayloadField(errorMember),
+				KindTag:    errorKindTag(tags, "ResourceExhausted"),
+				Message:    message,
+			}); err != nil {
+				return err
+			}
 		}
 	}
-	fmt.Fprintf(result, "\nstatic inline void hex_mutex_free_hex_mutex(hex_heap h, hex_mutex *mutex) {\n    (void)h;\n    hex_mutex_free(mutex);\n}\n")
+	if err := renderInto(result, "concurrency.h", "mutex_free_adapter", struct{}{}); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -568,34 +729,43 @@ func writeMutexInlineHelpers(result *strings.Builder, state *generatedConcurrenc
 // element. Bool excludes fetch_add and fetch_sub. The receiver methods take
 // the Atomic's address; the helper never copies an Atomic value. The
 // <stdatomic.h> prerequisite arrives through the hexal.h umbrella.
-func writeAtomicHelpers(result *strings.Builder, state *generatedConcurrencyState) {
+func writeAtomicHelpers(result *strings.Builder, state *generatedConcurrencyState) error {
 	if len(state.atomics) == 0 {
-		return
+		return nil
 	}
 	atomicNames := slices.Sorted(maps.Keys(state.atomics))
 	for _, name := range atomicNames {
 		atomic := state.atomics[name]
 		suffix := atomicSuffix(atomic)
 		element := atomic.Atomic.Element
-		elementSpelling := typeSpelling(element)
-		atomicSpelling := "hex_atomic_" + suffix
-		fmt.Fprintf(result, "typedef _Atomic(%s) %s;\n", elementSpelling, atomicSpelling)
+		model := atomicHelperModel{
+			ElementSpelling: typeSpelling(element),
+			AtomicSpelling:  "hex_atomic_" + suffix,
+		}
+		if err := renderInto(result, "concurrency.h", "atomic_typedef", model); err != nil {
+			return err
+		}
 		// The constructor returns the element value, not the _Atomic type:
 		// C ignores qualifiers on function return types, so an _Atomic
 		// return would warn under -Werror. value already has that type, so
 		// no cast is needed; casting it to the _Atomic type here was
 		// returning exactly the mismatched type this comment says to avoid,
 		// which GCC tolerated but Clang and zig cc correctly rejected.
-		fmt.Fprintf(result, "static inline %s %s_new(%s value) {\n    return value;\n}\n", elementSpelling, atomicSpelling, elementSpelling)
-		fmt.Fprintf(result, "static inline %s %s_load(%s *atomic) {\n    return atomic_load_explicit(atomic, memory_order_seq_cst);\n}\n", elementSpelling, atomicSpelling, atomicSpelling)
-		fmt.Fprintf(result, "static inline void %s_store(%s *atomic, %s value) {\n    atomic_store_explicit(atomic, value, memory_order_seq_cst);\n}\n", atomicSpelling, atomicSpelling, elementSpelling)
-		fmt.Fprintf(result, "static inline %s %s_exchange(%s *atomic, %s value) {\n    return atomic_exchange_explicit(atomic, value, memory_order_seq_cst);\n}\n", elementSpelling, atomicSpelling, atomicSpelling, elementSpelling)
-		if !compilerTypes.Equal(element, compilerTypes.Bool) {
-			fmt.Fprintf(result, "static inline %s %s_fetch_add(%s *atomic, %s value) {\n    return atomic_fetch_add_explicit(atomic, value, memory_order_seq_cst);\n}\n", elementSpelling, atomicSpelling, atomicSpelling, elementSpelling)
-			fmt.Fprintf(result, "static inline %s %s_fetch_sub(%s *atomic, %s value) {\n    return atomic_fetch_sub_explicit(atomic, value, memory_order_seq_cst);\n}\n", elementSpelling, atomicSpelling, atomicSpelling, elementSpelling)
+		if err := renderInto(result, "concurrency.h", "atomic_new", model); err != nil {
+			return err
 		}
-		fmt.Fprintf(result, "static inline bool %s_compare_exchange(%s *atomic, %s expected, %s desired) {\n    return atomic_compare_exchange_strong_explicit(atomic, &expected, desired, memory_order_seq_cst, memory_order_seq_cst);\n}\n", atomicSpelling, atomicSpelling, elementSpelling, elementSpelling)
+		blocks := []string{"atomic_load", "atomic_store", "atomic_exchange"}
+		if !compilerTypes.Equal(element, compilerTypes.Bool) {
+			blocks = append(blocks, "atomic_fetch_add", "atomic_fetch_sub")
+		}
+		blocks = append(blocks, "atomic_compare_exchange")
+		for _, block := range blocks {
+			if err := renderInto(result, "concurrency.h", block, model); err != nil {
+				return err
+			}
+		}
 	}
+	return nil
 }
 
 // hoistConcurrencyInStatement emits the spawn prologues for one statement
@@ -652,26 +822,45 @@ func hoistSpawn(node checker.Expression, body *strings.Builder, state *expressio
 	}
 	if site.hasFrame() {
 		argsType := "hex_task_args_" + site.key()
-		fmt.Fprintf(body, "%s%s %s;\n", indent, argsType, temp)
+		if err := renderInto(body, "module.c", "spawn_frame_decl", spawnFrameDeclModel{Indent: indent, ArgsType: argsType, Temp: temp}); err != nil {
+			return err
+		}
 		for index, argument := range call.Arguments {
 			rendered, renderErr := renderOperandWithState(argument, state)
 			if renderErr != nil {
 				return renderErr
 			}
-			fmt.Fprintf(body, "%s%s.a%d = %s;\n", indent, temp, index+1, rendered)
+			if err := renderInto(body, "module.c", "spawn_frame_fill", spawnFrameFillModel{Indent: indent, Temp: temp, Index: index + 1, Value: rendered}); err != nil {
+				return err
+			}
 		}
-		spawnArgs := fmt.Sprintf("sizeof(%s), _Alignof(%s), &%s", argsType, argsType, temp)
 		resultArgs := "0, 0"
 		if site.result != (compilerTypes.Type{}) && !compilerTypes.Equal(site.result, compilerTypes.Nil) {
 			resultArgs = fmt.Sprintf("sizeof(%s), _Alignof(%s)", typeSpelling(site.result), typeSpelling(site.result))
 		}
-		fmt.Fprintf(body, "%shex_task *%s = hex_task_spawn(hex_task_entry_%s, %s, %s);\n", indent, taskTemp, site.key(), spawnArgs, resultArgs)
+		if err := renderInto(body, "module.c", "spawn_call_frame", spawnCallFrameModel{
+			Indent:     indent,
+			TaskTemp:   taskTemp,
+			Key:        site.key(),
+			ArgsType:   argsType,
+			Temp:       temp,
+			ResultArgs: resultArgs,
+		}); err != nil {
+			return err
+		}
 	} else {
 		resultArgs := "0, 0"
 		if site.result != (compilerTypes.Type{}) && !compilerTypes.Equal(site.result, compilerTypes.Nil) {
 			resultArgs = fmt.Sprintf("sizeof(%s), _Alignof(%s)", typeSpelling(site.result), typeSpelling(site.result))
 		}
-		fmt.Fprintf(body, "%shex_task *%s = hex_task_spawn(hex_task_entry_%s, 0, 0, nullptr, %s);\n", indent, taskTemp, site.key(), resultArgs)
+		if err := renderInto(body, "module.c", "spawn_call_bare", spawnCallBareModel{
+			Indent:     indent,
+			TaskTemp:   taskTemp,
+			Key:        site.key(),
+			ResultArgs: resultArgs,
+		}); err != nil {
+			return err
+		}
 	}
 	state.hoistedSpawns[node.Operand] = taskTemp
 	return nil

@@ -57,18 +57,56 @@ func isFullyParenthesized(expr string) bool {
 	return depth == 0
 }
 
-func writeControlHeader(body *strings.Builder, indent, prefix, condition string, keywordLine, conditionLine int, filename string) {
-	writeLineDirective(body, keywordLine, filename)
+// controlHeaderModel carries one control opener's decided indent, keyword
+// prefix, and condition; each opener form reads the fields it spells.
+type controlHeaderModel struct {
+	Indent    string
+	Prefix    string
+	Condition string
+}
+
+// callStmtModel carries one call statement's decided call expression.
+type callStmtModel struct {
+	Indent string
+	Call   string
+}
+
+// lineDirectiveModel carries one #line directive's source line and file.
+type lineDirectiveModel struct {
+	Line string
+	File string
+}
+
+// objectFieldModel is one object literal's decided member initializer.
+type objectFieldModel struct {
+	Name  string
+	Value string
+}
+
+// objectLiteralModel carries one object literal's result type and ordered
+// member initializers in written order.
+type objectLiteralModel struct {
+	Type   string
+	Fields []objectFieldModel
+}
+
+func writeControlHeader(body *strings.Builder, indent, prefix, condition string, keywordLine, conditionLine int, filename string) error {
+	if err := writeLineDirective(body, keywordLine, filename); err != nil {
+		return err
+	}
 	if isFullyParenthesized(condition) {
 		condition = condition[1 : len(condition)-1]
 	}
 	if conditionLine > 0 && conditionLine != keywordLine {
-		fmt.Fprintf(body, "%s%s (\n", indent, prefix)
-		writeLineDirective(body, conditionLine, filename)
-		fmt.Fprintf(body, "%s    %s) {\n", indent, condition)
-		return
+		if err := renderInto(body, "module.c", "control_keyword", controlHeaderModel{Indent: indent, Prefix: prefix}); err != nil {
+			return err
+		}
+		if err := writeLineDirective(body, conditionLine, filename); err != nil {
+			return err
+		}
+		return renderInto(body, "module.c", "control_condition", controlHeaderModel{Indent: indent, Condition: condition})
 	}
-	fmt.Fprintf(body, "%s%s (%s) {\n", indent, prefix, condition)
+	return renderInto(body, "module.c", "control_open", controlHeaderModel{Indent: indent, Prefix: prefix, Condition: condition})
 }
 
 func writeStatementsAt(body *strings.Builder, statements []checker.Statement, state *expressionValidation, frame statementFrame, indent string) error {
@@ -109,7 +147,9 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if !supportedGeneratedTypeWithState(statement.Type, state) {
 				return unknownExpressionDiagnostic("unsupported checked declaration type")
 			}
-			writeLineDirective(body, statement.SourceLine, state.filename)
+			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+				return err
+			}
 			var name string
 			if statement.Captured {
 				name = "env." + privateCName(valueName, statement.Name, "")
@@ -132,19 +172,25 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				if matchErr != nil {
 					return matchErr
 				}
-				fmt.Fprintf(body, "%s%s = %s;\n", indent, declared, resultName)
+				if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: declared, Value: resultName}); err != nil {
+					return err
+				}
 				break
 			}
 			value, literalErr := renderOperandWithState(statement.Source, state)
 			if literalErr != nil {
 				return literalErr
 			}
-			fmt.Fprintf(body, "%s%s = %s;\n", indent, declared, value)
+			if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: declared, Value: value}); err != nil {
+				return err
+			}
 		case checker.Assignment:
 			if !supportedGeneratedTypeWithState(statement.Type, state) || !supportedGeneratedTypeWithState(statement.Target.Type, state) {
 				return unknownExpressionDiagnostic("unsupported checked assignment type")
 			}
-			writeLineDirective(body, statement.SourceLine, state.filename)
+			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+				return err
+			}
 			target, expressionErr := renderOperandWithState(statement.Target, state)
 			if expressionErr != nil {
 				return expressionErr
@@ -157,16 +203,22 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				if matchErr != nil {
 					return matchErr
 				}
-				fmt.Fprintf(body, "%s%s = %s;\n", indent, target, resultName)
+				if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: target, Value: resultName}); err != nil {
+					return err
+				}
 				break
 			}
 			value, literalErr := renderOperandWithState(statement.Source, state)
 			if literalErr != nil {
 				return literalErr
 			}
-			fmt.Fprintf(body, "%s%s = %s;\n", indent, target, value)
+			if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: target, Value: value}); err != nil {
+				return err
+			}
 		case checker.CallStatement:
-			writeLineDirective(body, statement.SourceLine, state.filename)
+			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+				return err
+			}
 			if statement.Call.Node.Kind == checker.PrintExpression {
 				// print is a statement-level builtin producing no value; it
 				// renders its own temporaries and helper calls.
@@ -179,21 +231,29 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if callErr != nil {
 				return callErr
 			}
-			fmt.Fprintf(body, "%s%s;\n", indent, call)
+			if err := renderInto(body, "module.c", "call_stmt", callStmtModel{Indent: indent, Call: call}); err != nil {
+				return err
+			}
 		case checker.TryStatement:
 			// The try prologue already hoisted above; the success value is
 			// discarded, so the statement renders nothing.
-			writeLineDirective(body, statement.SourceLine, state.filename)
+			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+				return err
+			}
 		case checker.ReturnStatement:
 			if !frame.inFunction {
 				return unknownExpressionDiagnostic("return outside a function body")
 			}
-			writeLineDirective(body, statement.SourceLine, state.filename)
+			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+				return err
+			}
 			text, returnErr := renderReturnStatement(statement, frame.result, state, indent)
 			if returnErr != nil {
 				return returnErr
 			}
-			body.WriteString(text)
+			if err := renderInto(body, "module.c", "raw_text", rawTextModel{Text: text}); err != nil {
+				return err
+			}
 		case checker.RootReturnStatement:
 			// Only the entry module's root scope produces one; a root return
 			// reached inside a function body is a checker-to-generator
@@ -201,18 +261,24 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if frame.inFunction {
 				return unknownExpressionDiagnostic("root return inside a function body")
 			}
-			writeLineDirective(body, statement.SourceLine, state.filename)
+			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+				return err
+			}
 			text, returnErr := renderRootReturnStatement(statement, state, indent)
 			if returnErr != nil {
 				return returnErr
 			}
-			body.WriteString(text)
+			if err := renderInto(body, "module.c", "raw_text", rawTextModel{Text: text}); err != nil {
+				return err
+			}
 		case checker.IfStatement:
 			condition, conditionErr := renderTruthiness(&statement.Condition, state)
 			if conditionErr != nil {
 				return conditionErr
 			}
-			writeControlHeader(body, indent, "if", condition, statement.SourceLine, statement.ConditionLine, state.filename)
+			if err := writeControlHeader(body, indent, "if", condition, statement.SourceLine, statement.ConditionLine, state.filename); err != nil {
+				return err
+			}
 			state.pushScope()
 			if err := writeStatementsAt(body, statement.Then, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: statement.ThenDefers}, indent+"    "); err != nil {
 				return err
@@ -223,7 +289,9 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				if branchErr != nil {
 					return branchErr
 				}
-				writeControlHeader(body, indent, "} else if", condition, branch.SourceLine, branch.ConditionLine, state.filename)
+				if err := writeControlHeader(body, indent, "} else if", condition, branch.SourceLine, branch.ConditionLine, state.filename); err != nil {
+					return err
+				}
 				state.pushScope()
 				if err := writeStatementsAt(body, branch.Body, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: branchDefers(statement, branchIndex)}, indent+"    "); err != nil {
 					return err
@@ -231,21 +299,29 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				state.popScope()
 			}
 			if statement.Else != nil {
-				writeLineDirective(body, statement.ElseLine, state.filename)
-				fmt.Fprintf(body, "%s} else {\n", indent)
+				if err := writeLineDirective(body, statement.ElseLine, state.filename); err != nil {
+					return err
+				}
+				if err := renderInto(body, "module.c", "else_open", indentModel{Indent: indent}); err != nil {
+					return err
+				}
 				state.pushScope()
 				if err := writeStatementsAt(body, statement.Else, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: statement.ElseDefers}, indent+"    "); err != nil {
 					return err
 				}
 				state.popScope()
 			}
-			fmt.Fprintf(body, "%s}\n", indent)
+			if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+				return err
+			}
 		case checker.WhileStatement:
 			condition, conditionErr := renderTruthiness(&statement.Condition, state)
 			if conditionErr != nil {
 				return conditionErr
 			}
-			writeControlHeader(body, indent, "while", condition, statement.SourceLine, statement.ConditionLine, state.filename)
+			if err := writeControlHeader(body, indent, "while", condition, statement.SourceLine, statement.ConditionLine, state.filename); err != nil {
+				return err
+			}
 			state.pushScope()
 			previousLoopDepth := state.loopDepth
 			state.loopDepth++
@@ -257,7 +333,9 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(body, "%s}\n", indent)
+			if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+				return err
+			}
 		case checker.ForStatement:
 			if err := renderForStatement(body, statement, state, frame.result, frame.inFunction, indent); err != nil {
 				return err
@@ -277,29 +355,41 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if state.loopDepth == 0 {
 				return unknownExpressionDiagnostic("checked break outside a while loop")
 			}
-			writeLineDirective(body, statement.SourceLine, state.filename)
+			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+				return err
+			}
 			if err := unwindToLoopDepth(body, state, indent, "false"); err != nil {
 				return err
 			}
-			fmt.Fprintf(body, "%sbreak;\n", indent)
+			if err := renderInto(body, "module.c", "break_stmt", indentModel{Indent: indent}); err != nil {
+				return err
+			}
 		case checker.ContinueStatement:
 			if state.loopDepth == 0 {
 				return unknownExpressionDiagnostic("checked continue outside a while loop")
 			}
-			writeLineDirective(body, statement.SourceLine, state.filename)
+			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+				return err
+			}
 			if err := unwindToLoopDepth(body, state, indent, "false"); err != nil {
 				return err
 			}
-			fmt.Fprintf(body, "%scontinue;\n", indent)
+			if err := renderInto(body, "module.c", "continue_stmt", indentModel{Indent: indent}); err != nil {
+				return err
+			}
 		case checker.DeferStatement:
-			writeLineDirective(body, statement.SourceLine, state.filename)
+			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+				return err
+			}
 			if err := writeDeferStatement(body, statement, state, indent); err != nil {
 				return err
 			}
 		case checker.ErrdeferStatement:
 			// errdefer registers exactly like defer; the Err flag decides at
 			// the exit edge whether the action runs.
-			writeLineDirective(body, statement.SourceLine, state.filename)
+			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+				return err
+			}
 			if err := writeDeferStatement(body, checker.DeferStatement{Expression: statement.Expression, Action: statement.Action, SourceLine: statement.SourceLine, SourceColumn: statement.SourceColumn}, state, indent); err != nil {
 				return err
 			}
@@ -461,7 +551,9 @@ func renderReturnStatement(statement checker.ReturnStatement, result *compilerTy
 		if err := unwindAllDefers(&builder, state, indent, "false"); err != nil {
 			return "", err
 		}
-		builder.WriteString(indent + "return " + resultName + ";\n")
+		if err := renderInto(&builder, "module.c", "return_stmt", forStmtLineModel{Indent: indent, Value: resultName}); err != nil {
+			return "", err
+		}
 		return builder.String(), nil
 	}
 	value, err := renderOperandWithState(*statement.Value, state)
@@ -477,18 +569,24 @@ func renderReturnStatement(statement checker.ReturnStatement, result *compilerTy
 		state.returnCounter++
 		name := fmt.Sprintf("hex_return_%d", state.returnCounter)
 		var builder strings.Builder
-		fmt.Fprintf(&builder, "%s%s = %s;\n", indent, declaration(*result, name, false), value)
+		if err := renderInto(&builder, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: declaration(*result, name, false), Value: value}); err != nil {
+			return "", err
+		}
 		if hasPendingErrDefers(state) {
 			state.returnCounter++
 			errorName := fmt.Sprintf("hex_err_%d", state.returnCounter)
-			fmt.Fprintf(&builder, "%sconst bool %s = %s;\n", indent, errorName, returnErrorExit(statement.Value.Type, name, state.tags))
+			if err := renderInto(&builder, "module.c", "error_exit_decl", forStmtLineModel{Indent: indent, Name: errorName, Value: returnErrorExit(statement.Value.Type, name, state.tags)}); err != nil {
+				return "", err
+			}
 			if err := unwindAllDefers(&builder, state, indent, errorName); err != nil {
 				return "", err
 			}
 		} else if err := unwindAllDefers(&builder, state, indent, "false"); err != nil {
 			return "", err
 		}
-		builder.WriteString(indent + "return " + name + ";\n")
+		if err := renderInto(&builder, "module.c", "return_stmt", forStmtLineModel{Indent: indent, Value: name}); err != nil {
+			return "", err
+		}
 		return builder.String(), nil
 	}
 	return indent + "return " + value + ";\n", nil
@@ -501,18 +599,24 @@ func renderReturnStatement(statement checker.ReturnStatement, result *compilerTy
 func renderRootReturnStatement(statement checker.RootReturnStatement, state *expressionValidation, indent string) (string, error) {
 	var builder strings.Builder
 	if statement.Value == nil {
-		fmt.Fprintf(&builder, "%shex_exit_status = 0;\n", indent)
+		if err := renderInto(&builder, "module.c", "exit_status_zero", indentModel{Indent: indent}); err != nil {
+			return "", err
+		}
 	} else {
 		value, err := renderOperandWithState(*statement.Value, state)
 		if err != nil {
 			return "", err
 		}
-		fmt.Fprintf(&builder, "%shex_exit_status = (uint8_t)(%s);\n", indent, value)
+		if err := renderInto(&builder, "module.c", "exit_status_value", forStmtLineModel{Indent: indent, Value: value}); err != nil {
+			return "", err
+		}
 	}
 	if err := unwindAllDefers(&builder, state, indent, "false"); err != nil {
 		return "", err
 	}
-	builder.WriteString(indent + "goto hex_exit;\n")
+	if err := renderInto(&builder, "module.c", "goto_exit", indentModel{Indent: indent}); err != nil {
+		return "", err
+	}
 	return builder.String(), nil
 }
 
@@ -1939,10 +2043,11 @@ func expressionTypeWithStateSeen(node checker.Expression, state *expressionValid
 	return compilerTypes.Type{}, false
 }
 
-func writeLineDirective(body *strings.Builder, line int, filename string) {
-	if line > 0 {
-		fmt.Fprintf(body, "#line %d \"%s\"\n", line, filename)
+func writeLineDirective(body *strings.Builder, line int, filename string) error {
+	if line <= 0 {
+		return nil
 	}
+	return renderInto(body, "module.c", "line_directive", lineDirectiveModel{Line: fmt.Sprintf("%d", line), File: filename})
 }
 
 // renderOperand renders one operand under a fresh validation state bound to
@@ -2038,8 +2143,7 @@ func objectLiteralWithState(value *checker.ObjectValue, state *expressionValidat
 		}
 		byMemberIndex[initializer.Member] = index
 	}
-	var result strings.Builder
-	fmt.Fprintf(&result, "(%s){", value.Type.CName)
+	model := objectLiteralModel{Type: value.Type.CName}
 	for index := range value.Type.Object.Members {
 		member := &value.Type.Object.Members[index]
 		sourceIndex, ok := byMemberIndex[member]
@@ -2050,9 +2154,12 @@ func objectLiteralWithState(value *checker.ObjectValue, state *expressionValidat
 		if err != nil {
 			return "", err
 		}
-		fmt.Fprintf(&result, "\n        .%s = %s,", privateCName(memberName, member.Name, ""), rendered)
+		model.Fields = append(model.Fields, objectFieldModel{Name: privateCName(memberName, member.Name, ""), Value: rendered})
 	}
-	result.WriteString("\n    }")
+	var result strings.Builder
+	if err := renderInto(&result, "module.c", "object_literal", model); err != nil {
+		return "", err
+	}
 	return result.String(), nil
 }
 
