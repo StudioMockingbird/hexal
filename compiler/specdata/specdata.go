@@ -40,5 +40,8 @@ func Validate() error {
 	if err := validateCorelib(); err != nil {
 		return err
 	}
-	return validateComponents()
+	if err := validateComponents(); err != nil {
+		return err
+	}
+	return validateConstructors()
 }
