@@ -17,6 +17,7 @@ import (
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
+	"hexal/internal/graph"
 	"hexal/stdlib"
 )
 
@@ -329,7 +330,7 @@ func reachableModulesTarget(sources map[string]string, entrypoint, target string
 		sources:              sources,
 		stdlibSources:        stdlibSourcesByCanonical(),
 		nodes:                make(map[string]*checker.ModuleNode),
-		visited:              make(map[string]bool),
+		walk:                 graph.NewWalker[string](),
 		byModule:             make(map[string]compilerTypes.Diagnostics),
 		target:               target,
 		prepared:             make(map[string]bool),
@@ -339,26 +340,27 @@ func reachableModulesTarget(sources map[string]string, entrypoint, target string
 		return nil, err
 	}
 	state.validatePreparedBindings()
-	graph := &checker.ModuleGraph{
-		Order:   state.order,
-		Modules: make(map[string]checker.ModuleNode, len(state.order)),
+	order := state.walk.Order()
+	moduleGraph := &checker.ModuleGraph{
+		Order:   order,
+		Modules: make(map[string]checker.ModuleNode, len(order)),
 		Root:    root,
 	}
 	// Order is the membership authority: a node is published only for a
 	// module that completed its visit, so the two can never disagree.
-	for _, moduleID := range state.order {
-		graph.Modules[moduleID] = *state.nodes[moduleID]
+	for _, moduleID := range order {
+		moduleGraph.Modules[moduleID] = *state.nodes[moduleID]
 	}
 	merged := make(compilerTypes.Diagnostics, 0)
-	for _, moduleID := range state.order {
+	for _, moduleID := range order {
 		diagnostics := state.byModule[moduleID]
 		slices.SortStableFunc(diagnostics, compilerTypes.CompareDiagnostic)
 		merged = append(merged, diagnostics...)
 	}
 	if len(merged) > 0 {
-		return graph, merged
+		return moduleGraph, merged
 	}
-	return graph, nil
+	return moduleGraph, nil
 }
 
 // DiscoverCImports returns every reachable C header request in deterministic
@@ -370,7 +372,7 @@ func DiscoverCImports(sources map[string]string, entrypoint string) ([]CImportRe
 		sources:       sources,
 		stdlibSources: stdlibSourcesByCanonical(),
 		nodes:         make(map[string]*checker.ModuleNode),
-		visited:       make(map[string]bool),
+		walk:          graph.NewWalker[string](),
 		byModule:      make(map[string]compilerTypes.Diagnostics),
 		discover:      true,
 		prepared:      make(map[string]bool),
@@ -382,20 +384,21 @@ func DiscoverCImports(sources map[string]string, entrypoint string) ([]CImportRe
 }
 
 // reachState carries one import-resolution DFS: the node under construction
-// per canonical id, the post-order canonical id list, the DFS stack for cycle
-// detection, and every resolution diagnostic bucketed by its module. Each
-// node records the token count observed while lexing it, so the caller never
-// re-lexes for stats.
+// per canonical id, the graph walker that owns the visited set, active path,
+// cycle detection, and post-order, and every resolution diagnostic bucketed by
+// its module. Each node records the token count observed while lexing it, so
+// the caller never re-lexes for stats.
 type reachState struct {
 	sources map[string]string
 	// stdlibSources holds the embedded source stdlib modules, keyed by
 	// canonical id; it is read-only for the whole walk.
 	stdlibSources map[string]string
 	nodes         map[string]*checker.ModuleNode // canonical id -> node under construction
-	visited       map[string]bool                // canonical ids with a visit begun
-	stack         []string                       // canonical ids on the current DFS path
-	order         []string                       // post-order: dependencies first
-	byModule      map[string]compilerTypes.Diagnostics
+	// walk owns the graph mechanics: which canonical ids a visit has begun,
+	// the active DFS path cycle detection consults, and the dependency-first
+	// post-order the caller reads once resolution finishes.
+	walk     *graph.Walker[string]
+	byModule map[string]compilerTypes.Diagnostics
 	// target is the selected qualified profile; a reachable C import requires
 	// it because `long`, plain `char`, layout, and calling ABI are
 	// target-dependent.
@@ -464,14 +467,15 @@ func preparedModuleNamesHeader(program parser.Program, request CImportRequest) b
 // to the post-order list. It returns the failing module's merged diagnostics
 // when that module cannot be lexed or parsed.
 func (s *reachState) visit(canonical string) error {
-	if s.visited[canonical] {
+	if !s.walk.Enter(canonical) {
 		return nil
 	}
-	s.visited[canonical] = true
 	key, text, ok := s.sourceFor(canonical)
 	if !ok {
 		// Unreachable: Compile validates the entrypoint and every import
-		// checks existence before recursing.
+		// checks existence before recursing. Leave anyway so Enter and Leave
+		// stay balanced and the active path never keeps a phantom node.
+		s.walk.Leave()
 		return nil
 	}
 	if !s.prepared[canonical] {
@@ -498,7 +502,6 @@ func (s *reachState) visit(canonical string) error {
 		SourceLines: sourceLineCount(text),
 	}
 
-	s.stack = append(s.stack, canonical)
 	imported := make(map[string]bool)
 	if program.Import != nil {
 		for _, entry := range program.Import.Entries {
@@ -507,8 +510,7 @@ func (s *reachState) visit(canonical string) error {
 			}
 		}
 	}
-	s.stack = s.stack[:len(s.stack)-1]
-	s.order = append(s.order, canonical)
+	s.walk.Leave()
 	return nil
 }
 
@@ -598,8 +600,7 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportEn
 				return nil
 			}
 			imported[target] = true
-			if at := slices.Index(s.stack, target); at >= 0 {
-				cycle := append(append([]string{}, s.stack[at:]...), target)
+			if cycle, ok := s.walk.Cycle(target); ok {
 				s.record(fromModule, line, column, "import cycle: "+strings.Join(cycle, " -> "))
 				return nil
 			}
@@ -618,8 +619,7 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportEn
 		return nil
 	}
 	imported[target] = true
-	if at := slices.Index(s.stack, target); at >= 0 {
-		cycle := append(append([]string{}, s.stack[at:]...), target)
+	if cycle, ok := s.walk.Cycle(target); ok {
 		s.record(fromModule, line, column, "import cycle: "+strings.Join(cycle, " -> "))
 		return nil
 	}
