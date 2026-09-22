@@ -1,72 +1,37 @@
 package compiler
 
 import (
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
 
-// targetProfile is the compiler-private record for one qualified target.
-// It carries only facts consumed by current checking or generation; a new
-// fact enters here only when checking or generation consumes it. The public
-// identity is compilerTypes.TargetProfileID. Callers select identities,
-// never facts.
-type targetProfile struct {
-	identity      compilerTypes.TargetProfileID
-	os            string
-	architecture  string
-	littleEndian  bool
-	pointerWidth  int
-	sizeWidth     int
-	windowsTarget bool
-	threading     string
-	tls           bool
-	fibers        bool
-	nativeIO      bool
+// targetFactID maps each language-visible target identity to its specdata
+// facts record. Identity stays in compiler/types and facts stay in specdata;
+// this table is the only place the two names meet.
+var targetFactID = map[compilerTypes.TargetProfileID]specdata.TargetID{
+	compilerTypes.TargetX86_64WindowsGNU: specdata.TargetWindowsUCRT,
+	compilerTypes.TargetX86_64LinuxGNU:   specdata.TargetLinuxGNU,
 }
 
-// targetProfiles is the registry of qualified targets, keyed by public
-// identity. It holds the Windows C-generation target and the Linux profile of
-// the one qualified native driver.
-var targetProfiles = map[compilerTypes.TargetProfileID]targetProfile{
-	compilerTypes.TargetX86_64WindowsGNU: {
-		identity:      compilerTypes.TargetX86_64WindowsGNU,
-		os:            "windows",
-		architecture:  "x86_64",
-		littleEndian:  true,
-		pointerWidth:  64,
-		sizeWidth:     64,
-		windowsTarget: true,
-		threading:     "windows",
-		tls:           true,
-		fibers:        true,
-		nativeIO:      true,
-	},
-	compilerTypes.TargetX86_64LinuxGNU: {
-		identity:      compilerTypes.TargetX86_64LinuxGNU,
-		os:            "linux",
-		architecture:  "x86_64",
-		littleEndian:  true,
-		pointerWidth:  64,
-		sizeWidth:     64,
-		windowsTarget: false,
-		threading:     "posix",
-		tls:           true,
-		fibers:        true,
-		nativeIO:      true,
-	},
-}
-
-// resolveTargetProfile maps a Project.Target identity to its private record.
+// resolveTargetProfile maps a Project.Target identity to its facts record.
 // The empty identity selects no profile: the zero Project value stays
 // host-neutral and preserves the existing deterministic generated-C
 // contract. Any other identity must name a qualified target, or compilation
 // fails before lexing.
-func resolveTargetProfile(target compilerTypes.TargetProfileID) (targetProfile, error) {
+func resolveTargetProfile(target compilerTypes.TargetProfileID) (specdata.TargetFacts, error) {
 	if target == "" {
-		return targetProfile{}, nil
+		return specdata.TargetFacts{}, nil
 	}
-	profile, ok := targetProfiles[target]
+	id, known := targetFactID[target]
+	if !known {
+		return specdata.TargetFacts{}, projectDiagnostic("unknown target profile " + string(target))
+	}
+	facts, ok := specdata.Target(id)
 	if !ok {
-		return targetProfile{}, projectDiagnostic("unknown target profile " + string(target))
+		// Validate() rejects a registry missing a key its consumers name, so
+		// only a compiler defect reaches here; report it as one rather than as
+		// an unknown target the caller could act on.
+		return specdata.TargetFacts{}, compilerTypes.NewDiagnostic(compilerTypes.UnknownError, "compile", 0, 0, "target registry record missing")
 	}
-	return profile, nil
+	return facts, nil
 }

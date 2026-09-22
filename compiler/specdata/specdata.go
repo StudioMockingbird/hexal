@@ -30,6 +30,12 @@ package specdata
 // It is called from a test rather than from init, so a bad record fails the
 // suite instead of crashing every consumer. An empty registry is valid, which
 // is what lets each domain arrive in its own slice without a placeholder.
+//
+// Each domain owns its check and reports the first failure; adding a domain
+// means adding one delegated call, not editing the others.
 func Validate() error {
+	if err := validateTargets(); err != nil {
+		return err
+	}
 	return nil
 }
