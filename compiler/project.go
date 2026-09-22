@@ -3,7 +3,7 @@ package compiler
 import (
 	"fmt"
 
-	"hexal/compiler/generator"
+	"hexal/compiler/config"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -12,11 +12,11 @@ import (
 // entrypoint, Project{}) behaves exactly as the two-argument form did.
 type Project struct {
 	// TaskStackReserve is the per-Task address-space ceiling in bytes.
-	// Zero selects generator.DefaultTaskStackReserve (1 MiB).
+	// Zero selects config.DefaultTaskStackReserveBytes (1 MiB).
 	TaskStackReserve uint64
 
 	// TaskStackCommit is the bytes committed when a Task is spawned.
-	// Zero selects generator.DefaultTaskStackCommit (8 KiB).
+	// Zero selects config.DefaultTaskStackCommitBytes (8 KiB).
 	TaskStackCommit uint64
 
 	// Target selects one compiler-owned target profile identity. Empty
@@ -25,11 +25,6 @@ type Project struct {
 	// target, or compilation fails before lexing.
 	Target compilerTypes.TargetProfileID
 }
-
-// configPageSize is the page size the POSIX guard depends on; Windows rounds
-// its own arguments, but the rule applies to both targets so a value is never
-// accepted on one and rejected on the other.
-const configPageSize = 4096
 
 // validateProject checks the effective settings before any stage runs: the
 // zero value selects a default before the rules apply, so a caller is never
@@ -43,20 +38,20 @@ func validateProject(project Project) error {
 	}
 	reserve := project.TaskStackReserve
 	if reserve == 0 {
-		reserve = generator.DefaultTaskStackReserve
+		reserve = config.DefaultTaskStackReserveBytes
 	}
 	commit := project.TaskStackCommit
 	if commit == 0 {
-		commit = generator.DefaultTaskStackCommit
+		commit = config.DefaultTaskStackCommitBytes
 	}
 	if commit > reserve {
 		return projectDiagnostic(fmt.Sprintf("TaskStackCommit %d exceeds TaskStackReserve %d", commit, reserve))
 	}
-	if reserve%configPageSize != 0 {
-		return projectDiagnostic(fmt.Sprintf("TaskStackReserve %d is not a multiple of %d", reserve, configPageSize))
+	if reserve%config.PageSizeBytes != 0 {
+		return projectDiagnostic(fmt.Sprintf("TaskStackReserve %d is not a multiple of %d", reserve, config.PageSizeBytes))
 	}
-	if commit%configPageSize != 0 {
-		return projectDiagnostic(fmt.Sprintf("TaskStackCommit %d is not a multiple of %d", commit, configPageSize))
+	if commit%config.PageSizeBytes != 0 {
+		return projectDiagnostic(fmt.Sprintf("TaskStackCommit %d is not a multiple of %d", commit, config.PageSizeBytes))
 	}
 	return nil
 }

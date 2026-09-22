@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 
+	"hexal/compiler/config"
 	"hexal/compiler/lexer"
 	compilerTypes "hexal/compiler/types"
 )
@@ -50,11 +51,6 @@ type Parser struct {
 	syntaxDepth int
 }
 
-// maxSyntaxDepth bounds recursive-syntax nesting. It is a compiler limit, not
-// a language rule: a program that reaches it is rejected clearly with a
-// Syntax Error rather than terminating the process.
-const maxSyntaxDepth = 128
-
 // enterSyntax increments the shared recursive-syntax depth and returns the
 // matching exit function, which the caller must defer immediately so the
 // depth unwinds on every return path, including one already carrying this
@@ -64,7 +60,7 @@ const maxSyntaxDepth = 128
 func (parser *Parser) enterSyntax() (func(), error) {
 	parser.syntaxDepth++
 	exit := func() { parser.syntaxDepth-- }
-	if parser.syntaxDepth > maxSyntaxDepth {
+	if parser.syntaxDepth > config.MaxSyntaxDepth {
 		return exit, parser.errorAtCurrent("nesting exceeds the maximum depth of 128")
 	}
 	return exit, nil

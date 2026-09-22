@@ -1,6 +1,10 @@
 package types
 
-import "testing"
+import (
+	"testing"
+
+	"hexal/compiler/config"
+)
 
 func TestDiagnosticFormatsCategoryBeforeDescription(t *testing.T) {
 	diagnostic := Diagnostic{
@@ -88,13 +92,13 @@ func TestInlineStringTypeIsInterned(t *testing.T) {
 	if !IsText(first) || !IsInlineString(first) || IsString(first) {
 		t.Fatalf("String<16> classification is wrong: text=%v inline=%v heap=%v", IsText(first), IsInlineString(first), IsString(first))
 	}
-	for _, capacity := range []uint64{0, MaxInlineStringCapacity + 1} {
+	for _, capacity := range []uint64{0, config.MaxInlineStringCapacity + 1} {
 		if typ := environment.InlineStringType(capacity); typ != (Type{}) {
 			t.Fatalf("InlineStringType(%d) = %#v, want the zero type", capacity, typ)
 		}
 	}
-	if typ := environment.InlineStringType(MaxInlineStringCapacity); typ.InlineString == nil {
-		t.Fatalf("InlineStringType(%d) must resolve", MaxInlineStringCapacity)
+	if typ := environment.InlineStringType(config.MaxInlineStringCapacity); typ.InlineString == nil {
+		t.Fatalf("InlineStringType(%d) must resolve", config.MaxInlineStringCapacity)
 	}
 }
 
@@ -102,7 +106,7 @@ func TestInlineStringTypeIsInterned(t *testing.T) {
 // a written String<128> and String<256>.
 func TestErrorTextCapacitiesShareTheWrittenTypes(t *testing.T) {
 	environment := NewEnvironment()
-	if !Equal(environment.InlineStringType(ErrorHeaderCapacity), ErrorHeaderText) || !Equal(environment.InlineStringType(ErrorMessageCapacity), ErrorMessageText) {
+	if !Equal(environment.InlineStringType(config.ErrorHeaderCapacity), ErrorHeaderText) || !Equal(environment.InlineStringType(config.ErrorMessageCapacity), ErrorMessageText) {
 		t.Fatal("a written String<128> or String<256> is not the Error text type")
 	}
 }

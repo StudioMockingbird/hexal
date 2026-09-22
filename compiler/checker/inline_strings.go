@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"hexal/compiler/config"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -26,8 +27,8 @@ func inlineStringCapacity(argument parser.TypeExpression, fallback lexer.Token) 
 	if err != nil || capacity == 0 {
 		return 0, diagnosticAt(typeErrorAt(literal.Token, "String capacity must be a positive integer literal"))
 	}
-	if capacity > compilerTypes.MaxInlineStringCapacity {
-		message := fmt.Sprintf("String capacity %d exceeds the maximum of %d", capacity, compilerTypes.MaxInlineStringCapacity)
+	if capacity > config.MaxInlineStringCapacity {
+		message := fmt.Sprintf("String capacity %d exceeds the maximum of %d", capacity, config.MaxInlineStringCapacity)
 		return 0, diagnosticAt(typeErrorAt(literal.Token, message))
 	}
 	return capacity, nil

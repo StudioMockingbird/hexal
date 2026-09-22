@@ -22,22 +22,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"hexal/compiler"
+	compilerConfig "hexal/compiler/config"
 	"hexal/internal/backend"
 )
 
-// The initial inspection budget. These are conservative first-version bounds,
-// not language limits; changing them requires measured importer evidence.
-const (
-	inspectionByteLimit = 64 << 20
-	inspectionTimeout   = 30 * time.Second
-	clangMinimumMajor   = 18
-)
+// clangMinimumMajor is the oldest Clang major the importer accepts. It is a
+// toolchain floor, not a language limit: changing it requires measured
+// importer evidence.
+const clangMinimumMajor = 18
 
 // preparedBinding is one normalized binding module: its reserved logical key
 // and its normalized Hexal source.
@@ -53,7 +50,7 @@ type preparedBinding struct {
 // whole inspection shares one 30-second deadline and one 64 MiB bound on each
 // command's output.
 func inspectRequest(selected *backend.Backend, staging string, request compiler.CImportRequest, options headerOptions, result *BuildResult) (preparedBinding, *BuildError) {
-	ctx, cancel := context.WithTimeout(context.Background(), inspectionTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), compilerConfig.ForeignInspectionTimeout)
 	defer cancel()
 
 	inspectDir := filepath.Join(staging, "hexalc")
@@ -209,7 +206,7 @@ func objectMacroInventory(text, header string) []string {
 		seen[name] = true
 		names = append(names, name)
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	return names
 }
 
@@ -400,8 +397,8 @@ func runExternalBounded(exe, directory string, environment, overrides []string, 
 	command := exec.CommandContext(ctx, exe, args...)
 	command.Dir = directory
 	command.Env = environment
-	stdout := newBoundedBuffer(inspectionByteLimit)
-	stderr := newBoundedBuffer(inspectionByteLimit)
+	stdout := newBoundedBuffer(compilerConfig.ForeignInspectionByteLimit)
+	stderr := newBoundedBuffer(compilerConfig.ForeignInspectionByteLimit)
 	command.Stdout = stdout
 	command.Stderr = stderr
 	runErr := command.Run()

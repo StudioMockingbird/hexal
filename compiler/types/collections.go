@@ -1,6 +1,10 @@
 package types
 
-import "strconv"
+import (
+	"strconv"
+
+	"hexal/compiler/config"
+)
 
 // ArrayInfo is the metadata of one fixed inline array type.
 type ArrayInfo struct {
@@ -111,10 +115,6 @@ func (environment *Environment) ArrayType(element Type, length uint64) Type {
 	return typ
 }
 
-// MaxInlineStringCapacity is the largest String<N> capacity: one page, past
-// which an inline text value is the wrong tool for a stack.
-const MaxInlineStringCapacity = 4096
-
 // InlineStringInfo is the metadata of an inline text type, String<N>.
 type InlineStringInfo struct {
 	// Capacity is N, the number of payload bytes the value can hold.
@@ -126,10 +126,10 @@ func inlineStringKey(capacity uint64) string {
 }
 
 // InlineStringType constructs or retrieves the canonical String<N> type for
-// one capacity in 1 through MaxInlineStringCapacity. It returns the zero Type
-// outside that range.
+// one capacity in 1 through config.MaxInlineStringCapacity. It returns the zero
+// Type outside that range.
 func (environment *Environment) InlineStringType(capacity uint64) Type {
-	if environment == nil || capacity == 0 || capacity > MaxInlineStringCapacity {
+	if environment == nil || capacity == 0 || capacity > config.MaxInlineStringCapacity {
 		return Type{}
 	}
 	canonicalKey := inlineStringKey(capacity)
@@ -153,16 +153,11 @@ func (environment *Environment) InlineStringType(capacity uint64) Type {
 // The two capacities Error fixes: an ErrorKind.Other header and an Error
 // message. They are compiler-owned instances, seeded into every arena so the
 // checker's own String<128> and String<256> resolve to the same identity.
-const (
-	ErrorHeaderCapacity  = 128
-	ErrorMessageCapacity = 256
-)
-
 var (
 	// ErrorHeaderText is String<128>, the ErrorKind.Other header type.
-	ErrorHeaderText = builtinInlineString(ErrorHeaderCapacity)
+	ErrorHeaderText = builtinInlineString(config.ErrorHeaderCapacity)
 	// ErrorMessageText is String<256>, the Error.message type.
-	ErrorMessageText = builtinInlineString(ErrorMessageCapacity)
+	ErrorMessageText = builtinInlineString(config.ErrorMessageCapacity)
 )
 
 var builtinInlineStrings = []Type{ErrorHeaderText, ErrorMessageText}

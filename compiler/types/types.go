@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"hexal/compiler/config"
 )
 
 // ScalarKind enumerates the scalar types Hexal supports. ScalarNone is the
@@ -1049,7 +1051,7 @@ func isCanonicalForEnvironment(environment *Environment, typ Type, state *canoni
 		return isCanonicalArray(environment, typ, state)
 	}
 	if typ.InlineString != nil {
-		return typ.InlineString.Capacity >= 1 && typ.InlineString.Capacity <= MaxInlineStringCapacity &&
+		return typ.InlineString.Capacity >= 1 && typ.InlineString.Capacity <= config.MaxInlineStringCapacity &&
 			typ.identity.signature == inlineStringKey(typ.InlineString.Capacity)
 	}
 	if typ.Slice != nil {

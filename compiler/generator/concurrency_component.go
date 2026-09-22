@@ -5,16 +5,8 @@ import (
 	"slices"
 	"strconv"
 
+	"hexal/compiler/config"
 	compilerTypes "hexal/compiler/types"
-)
-
-// DefaultTaskStackReserve and DefaultTaskStackCommit are the per-Task stack
-// sizes a zero Config selects: 1 MiB of address space and 8 KiB committed at
-// spawn. The POSIX backend lazily maps the whole reserve and never pre-commits;
-// the Windows backend passes both to CreateFiberEx.
-const (
-	DefaultTaskStackReserve = 1 << 20
-	DefaultTaskStackCommit  = 8 << 10
 )
 
 // Config carries the build-time settings that reach the generated runtime.
@@ -183,7 +175,7 @@ func concurrencySourceModelFrom(state *generatedConcurrencyState, config Config,
 // "1u << 20" for the default reserve, a u-suffixed decimal literal otherwise,
 // so a zero Config keeps the runtime text byte-identical.
 func stackSizeExpression(reserve uint64) string {
-	if reserve == 0 || reserve == DefaultTaskStackReserve {
+	if reserve == 0 || reserve == config.DefaultTaskStackReserveBytes {
 		return "1u << 20"
 	}
 	return strconv.FormatUint(reserve, 10) + "u"

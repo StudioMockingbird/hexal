@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"hexal/compiler/config"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -448,12 +449,6 @@ type Token struct {
 	Line   int
 	Column int
 }
-
-// maxInterpolationDepth bounds nested interpreted-string-with-interpolation
-// recursion (a string literal written inside an embedded expression, itself
-// containing another interpolation, and so on). It matches the parser's own
-// maxSyntaxDepth so both stages report the same limit with the same message.
-const maxInterpolationDepth = 128
 
 // Lex tokenizes source. Numeric spelling remains in tokens; exact semantic
 // decoding belongs to the checker so no later phase trusts unchecked text.
@@ -933,7 +928,7 @@ func skipToClosingQuote(source string, index, line, column int) (int, int, int) 
 // string literal written inside an embedded expression) and is capped to
 // keep this recursive scan bounded.
 func lexInterpretedString(source string, start, line, column, depth int) ([]Token, []compilerTypes.Diagnostic, int, int, int) {
-	if depth > maxInterpolationDepth {
+	if depth > config.MaxInterpolationDepth {
 		end, endLine, endColumn := skipToClosingQuote(source, start+1, line, column+1)
 		return nil, []compilerTypes.Diagnostic{*literalDiagnostic(line, column, "nesting exceeds the maximum depth of 128")}, end, endLine, endColumn
 	}
