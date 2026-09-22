@@ -24,8 +24,8 @@ import (
 )
 
 // qualifiedProject is the compiler-owned registry's one current entry
-// (compiler/profile.go's targetProfiles), the only target this release's
-// native driver qualifies.
+// (compiler/profile.go), the only target this release's native driver
+// qualifies.
 var qualifiedProject = compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU}
 
 // resolveQualified is fixture.resolve, but compiled against qualifiedProject
