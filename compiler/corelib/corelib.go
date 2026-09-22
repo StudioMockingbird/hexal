@@ -77,58 +77,9 @@ func FunctionByRuntime(runtime string) (string, Function, bool) {
 }
 
 // resolveCoreType maps one registry type identifier to its canonical
-// compiler/types identity. This is the adapter the import boundary requires:
-// the registry stores identifiers because it imports no compiler package, and
-// the live Type values stay on this side. A compiler/types-owned resolver will
-// replace this switch; the registry side, one identifier per exported type,
-// does not change with it.
+// compiler/types identity through the registry's shared adapter. The registry
+// stores identifiers because it imports no compiler package; ResolveSpecID is
+// the one place that crosses back to the live Type.
 func resolveCoreType(id specdata.CoreTypeID) (compilerTypes.Type, bool) {
-	switch id {
-	case specdata.CoreTypeIO:
-		return compilerTypes.IOType, true
-	case specdata.CoreTypeBytes:
-		return compilerTypes.BytesType, true
-	case specdata.CoreTypeSeek:
-		return compilerTypes.SeekType, true
-	case specdata.CoreTypeFile:
-		return compilerTypes.FileType, true
-	case specdata.CoreTypeFileMode:
-		return compilerTypes.FileModeType, true
-	case specdata.CoreTypeDuration:
-		return compilerTypes.DurationType, true
-	case specdata.CoreTypeInstant:
-		return compilerTypes.InstantType, true
-	case specdata.CoreTypeWallTime:
-		return compilerTypes.WallTimeType, true
-	case specdata.CoreTypeAddress:
-		return compilerTypes.AddressType, true
-	case specdata.CoreTypeTcpConnection:
-		return compilerTypes.TcpConnectionType, true
-	case specdata.CoreTypeTcpListener:
-		return compilerTypes.TcpListenerType, true
-	case specdata.CoreTypeProcess:
-		return compilerTypes.ProcessType, true
-	case specdata.CoreTypePipe:
-		return compilerTypes.PipeType, true
-	case specdata.CoreTypeProcessOptions:
-		return compilerTypes.ProcessOptionsType, true
-	case specdata.CoreTypeStartedProcess:
-		return compilerTypes.StartedProcessType, true
-	case specdata.CoreTypeEnvironment:
-		return compilerTypes.EnvironmentType, true
-	case specdata.CoreTypeEnvironmentVariable:
-		return compilerTypes.EnvironmentVariableType, true
-	case specdata.CoreTypeProcessStream:
-		return compilerTypes.ProcessStreamType, true
-	case specdata.CoreTypeExitStatus:
-		return compilerTypes.ExitStatusType, true
-	case specdata.CoreTypeSignal:
-		return compilerTypes.SignalType, true
-	case specdata.CoreTypeSignals:
-		return compilerTypes.SignalsType, true
-	case specdata.CoreTypeTerminalSize:
-		return compilerTypes.TerminalSizeType, true
-	default:
-		return compilerTypes.Type{}, false
-	}
+	return compilerTypes.ResolveSpecID(specdata.TypeID(id))
 }

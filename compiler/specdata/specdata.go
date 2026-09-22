@@ -37,5 +37,8 @@ func Validate() error {
 	if err := validateTargets(); err != nil {
 		return err
 	}
-	return validateCorelib()
+	if err := validateCorelib(); err != nil {
+		return err
+	}
+	return validateConstructors()
 }
