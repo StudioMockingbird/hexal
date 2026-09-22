@@ -170,19 +170,20 @@ const (
 )
 
 // ConstructorFacts are the facts equal across every specialization of one type
-// constructor: representation, copy and free behavior, and comparison
-// eligibility. A C name, layout, size, and element eligibility vary by
-// argument and are never stored here.
+// constructor: representation, copy and free behavior, comparison eligibility,
+// and the runtime component the constructor demands. A C name, layout, size,
+// and element eligibility vary by argument and are never stored here.
 //
-// Runtime-component demand is also invariant, but the component identity it
-// would name is owned by the runtime-component registry; restating it here
-// would give one fact two owners.
+// Component is the constructor's demand, not a restatement of a component fact:
+// the runtime-component registry records each component's own files,
+// dependencies, and headers, and never which constructors pull it.
 type ConstructorFacts struct {
 	Representation Representation
 	CopyMode       CopyMode
 	FreeMode       FreeMode
 	Comparable     ComparisonMode
 	Hashable       bool
+	Component      ComponentID
 }
 
 // ParamKind classifies one type-constructor parameter.
@@ -212,61 +213,61 @@ var typeConstructors = []TypeConstructorSpec{
 		ID:         TypeArray,
 		SourceName: "Array",
 		Params:     []ParamKind{ParamType, ParamInteger},
-		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, FreeMode: FreeNone, Comparable: ComparisonEquality},
+		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, FreeMode: FreeNone, Comparable: ComparisonEquality, Component: ComponentArray},
 	},
 	{
 		ID:         TypeInlineString,
 		SourceName: "String",
 		Params:     []ParamKind{ParamInteger},
-		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, FreeMode: FreeNone, Comparable: ComparisonEquality, Hashable: true},
+		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, FreeMode: FreeNone, Comparable: ComparisonEquality, Hashable: true, Component: ComponentString},
 	},
 	{
 		ID:         TypeSlice,
 		SourceName: "Slice",
 		Params:     []ParamKind{ParamType},
-		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, FreeMode: FreeNone, Comparable: ComparisonEquality},
+		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, FreeMode: FreeNone, Comparable: ComparisonEquality, Component: ComponentSlice},
 	},
 	{
 		ID:         TypeList,
 		SourceName: "List",
 		Params:     []ParamKind{ParamType},
-		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone},
+		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentList},
 	},
 	{
 		ID:         TypeDict,
 		SourceName: "Dict",
 		Params:     []ParamKind{ParamType, ParamType},
-		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone},
+		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentDict},
 	},
 	{
 		ID:         TypeTask,
 		SourceName: "Task",
 		Params:     []ParamKind{ParamType},
-		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeNone, Comparable: ComparisonNone},
+		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeNone, Comparable: ComparisonNone, Component: ComponentConcurrency},
 	},
 	{
 		ID:         TypeChannel,
 		SourceName: "Channel",
 		Params:     []ParamKind{ParamType},
-		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone},
+		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentConcurrency},
 	},
 	{
 		ID:         TypeAtomic,
 		SourceName: "Atomic",
 		Params:     []ParamKind{ParamType},
-		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyUnavailable, FreeMode: FreeNone, Comparable: ComparisonNone},
+		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyUnavailable, FreeMode: FreeNone, Comparable: ComparisonNone, Component: ComponentConcurrency},
 	},
 	{
 		ID:         TypeStash,
 		SourceName: "Stash",
 		Params:     []ParamKind{ParamType},
-		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone},
+		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentStash},
 	},
 	{
 		ID:         TypePool,
 		SourceName: "Pool",
 		Params:     []ParamKind{ParamType},
-		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone},
+		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentPool},
 	},
 }
 
@@ -350,6 +351,9 @@ func validateConstructors() error {
 		}
 		if spec.Facts.Comparable != ComparisonNone && spec.Facts.Comparable != ComparisonEquality && spec.Facts.Comparable != ComparisonOrdered {
 			return fmt.Errorf("specdata/constructors: constructor %q has unknown comparison mode", spec.ID)
+		}
+		if _, known := Component(spec.Facts.Component); !known {
+			return fmt.Errorf("specdata/constructors: constructor %q demands unknown component %q", spec.ID, spec.Facts.Component)
 		}
 	}
 	// A concrete identifier must not also be a constructor identifier: the two
