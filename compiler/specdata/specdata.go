@@ -32,7 +32,9 @@ package specdata
 // is what lets each domain arrive in its own slice without a placeholder.
 //
 // Each domain owns its check and reports the first failure; adding a domain
-// means adding one delegated call, not editing the others.
+// means adding one delegated call, not editing the others. The final call
+// checks the references one domain makes into another, so an internal domain
+// check that goes missing cannot leave a cross-domain gap silent.
 func Validate() error {
 	if err := validateTargets(); err != nil {
 		return err
@@ -52,5 +54,8 @@ func Validate() error {
 	if err := validateScalars(); err != nil {
 		return err
 	}
-	return validateOperators()
+	if err := validateOperators(); err != nil {
+		return err
+	}
+	return validateCrossDomain()
 }
