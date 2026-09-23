@@ -15,6 +15,120 @@ gets deleted.
 | --- | --- | --- | --- |
 | Prove end-to-end automatic import and static linking of an unmodified Raylib package | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) | High | Medium |
 
+### RFC 0229 migration follow-ups
+
+The repository-wide duplicate-owner audit RFC 0229's *Implementation
+readiness* requires, one entry per surviving second authority. Each names the
+file that still owns the fact and the step that would give the fact one owner.
+Facts confirmed to have exactly one consumer are not listed.
+
+- **Built-in method and constructor records are additive, not authoritative
+  ([0229](specs/0229-data-driven-compiler-facts.md)).** `specdata.Method` /
+  `Methods` (`compiler/specdata/methods.go:360,370`) and
+  `specdata.TypeConstructors` (`compiler/specdata/constructors.go:286`) have
+  no caller at all, and `TypeConstructor` (`:275`) is called only by
+  `validateMethods` (`methods.go:403`). The checker still dispatches builtins
+  from its own tables: the receiver-type switch at
+  `compiler/checker/methods.go:384-664`, `checkBareConstructorCall`'s name
+  switch at `compiler/checker/calls.go:567-603`, and per-family name switches
+  such as `compiler/checker/lists.go:64` and `compiler/checker/stash.go:58`;
+  the generator repeats the same switches (e.g.
+  `compiler/generator/arrays.go:267`,
+  `compiler/generator/concurrency.go:984`). Step: switch checker and generator
+  dispatch onto the records, or delete them as reserved.
+
+- **Type representation and copy facts are recorded but unconsumed
+  ([0229](specs/0229-data-driven-compiler-facts.md)).** `ConstructorFacts`
+  (`compiler/specdata/constructors.go:180-272`) carries Representation,
+  CopyMode, FreeMode, Comparable, and Hashable, but no non-test code reads it;
+  the authoritative rules are the position model at
+  `compiler/types/collections.go:283-384` (`Storable`, `Eligible`,
+  `ContainsAtomic`). Step: switch the position model onto the records, or
+  withdraw the fields.
+
+- **Component `RequiredCHeaders` is recorded but unconsumed
+  ([0229](specs/0229-data-driven-compiler-facts.md)).** The registry owns the
+  field at `compiler/specdata/components.go:79`, read only by the clone and
+  validator, while the program-wide header set is still built from hard-coded
+  literals in `computeHeaderRequirements`
+  (`compiler/generator/emission.go:650-880`, e.g. heap at :661, string at :678,
+  print at :732). The sets are not interchangeable: equality (:697 with the
+  conditional :699) and concurrency (:759 with the conditional :770) list
+  headers the generator adds only under a condition, numeric's bitcast
+  `string.h` (:725) and handle's `string.h` have no matching branch, and the
+  generator adds headers for conversion, interpolation, union, and
+  size-literal families no component record names. Step: reconcile the record
+  model with the family-gated computation before any builder reads it; a
+  straight substitution moves generated C.
+
+- **Component `RuntimeDependencies` is recorded but unconsumed
+  ([0229](specs/0229-data-driven-compiler-facts.md)).** `components.go:78`
+  records each component's native inputs, read only by the clone and validator
+  (`:295,:329`); the program's dependency set is computed from generator state
+  (`compiler/generator/generator.go:114-124`) and the driver keeps its own pack
+  ordering. Step: have the dependency aggregation read the component records,
+  or mark the field reserved.
+
+- **`TargetFacts` fields have no consumer
+  ([0229](specs/0229-data-driven-compiler-facts.md)).**
+  `resolveTargetProfile` (`compiler/profile.go:21`) returns the record, but its
+  only caller discards it (`compiler/project.go:36`), and nothing reads `OS`,
+  `Architecture`, `PointerWidth`, `SizeWidth`, `LittleEndian`, `WindowsTarget`,
+  `Threading`, `TLS`, `Fibers`, or `NativeIO` from
+  `compiler/specdata/targets.go:24-68`; generated C keeps both platform
+  branches for the C compiler's own macros to select. Step: switch a real
+  target consumer onto the record, or withdraw the fields until one exists.
+
+- **C scalar mappings are duplicated target conditionals, not records
+  ([0229](specs/0229-data-driven-compiler-facts.md)).**
+  `internal/driver/normalize.go:482-523` (`fundamentalSpelling`) and
+  `compiler/checker/foreign.go:688-745` (`foreignScalarForSpelling`) each
+  encode the LP64/LLP64 `long` rule against a `TargetProfileID`, and
+  `internal/driver/normalize.go:457-480` adds Hexal-to-C spelling tables. Step:
+  land target-qualified `CScalarMapping` records and have both sites read them.
+
+- **Numeric widening and the operator and conversion matrices have no records
+  ([0229](specs/0229-data-driven-compiler-facts.md)).** The owners are
+  `compiler/types/widening.go:8-41` (`losslessWideningTargets`,
+  `wideningRank`), `compiler/checker/operator_checking.go:962`
+  (`operatorAllowsType`), and `compiler/checker/conversions.go:113`
+  (`conversionPairValid`); `compiler/specdata` declares no `OperatorSpec` or
+  `ConversionSpec`. Step: land the records and have the checker read them, or
+  record the deferral explicitly.
+
+- **Error-kind payload and header relationships have no record, and the C
+  template hard-codes the capacities
+  ([0229](specs/0229-data-driven-compiler-facts.md)).**
+  `compiler/types/error_kind.go:12-124` owns the variant list, the display
+  headers, and the `Other` payload; `compiler/config/config.go:65-66` owns the
+  128/256 capacities, which `compiler/types/collections.go:158-160` turn into
+  `hex_string_128`/`hex_string_256`; `compiler/generator/packages/error.h:13,
+  25,32,60` spells those C names literally. Step: land an `ErrorKindSpec` and
+  render the capacity-derived type name, or delete the config indirection.
+
+- **Generated-C layout facts have no records
+  ([0229](specs/0229-data-driven-compiler-facts.md)).** `size_of` and
+  `align_of` lower to C `sizeof`/`alignof`
+  (`compiler/checker/layout.go:19-40`), and declaration text lives in the
+  `compiler/generator/packages/*.h` templates; there is no `LayoutSpec`. Step:
+  run the layout experiment Settled question 4 describes and adopt records
+  only where the record-versus-template comparison is favourable.
+
+- **Stable runtime message ownership has no records
+  ([0229](specs/0229-data-driven-compiler-facts.md)).** Every runtime trap text
+  lives where it is emitted, e.g. `compiler/generator/packages/error.h:35,69`;
+  `compiler/specdata` declares no `MessageID` or message record. Step: record
+  message identity and stability metadata, leaving wording with the phase that
+  emits it.
+
+- **Foreign dialect policy is a driver-local table
+  ([0229](specs/0229-data-driven-compiler-facts.md)).**
+  `internal/driver/foreign.go:26,30` owns `defaultForeignDialect` and
+  `foreignDialects`, and no record exists for either. Step: decide the
+  boundary (a `config` default versus a driver capability set) and record the
+  accepted set once, or state explicitly that dialect policy is out of the
+  migration scope.
+
 ## Deferred ideas
 
 Open ideas under discussion live in `docs/specs/deferred/`, with a README
