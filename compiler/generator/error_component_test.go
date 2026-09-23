@@ -116,3 +116,45 @@ func TestErrorKindRegistryOrderDrivesGeneratedHeader(t *testing.T) {
 		previous = at
 	}
 }
+
+// The emitted Error header and message field types are the compiler/types
+// spellings of the configured capacities, not literals in the template.
+// Rendering the same model with sentinel names proves every occurrence in
+// hexal/error.h reads the model: a capacity change in compiler/config then
+// moves the emitted C name instead of leaving a stale literal behind.
+func TestErrorComponentTypesComeFromModel(t *testing.T) {
+	model := buildErrorComponentModel(nil)
+	if model.HeaderType != compilerTypes.ErrorHeaderText.CName {
+		t.Fatalf("model HeaderType = %q, want %q", model.HeaderType, compilerTypes.ErrorHeaderText.CName)
+	}
+	if model.MessageType != compilerTypes.ErrorMessageText.CName {
+		t.Fatalf("model MessageType = %q, want %q", model.MessageType, compilerTypes.ErrorMessageText.CName)
+	}
+	const (
+		probeHeader  = "hex_probe_error_header"
+		probeMessage = "hex_probe_error_message"
+	)
+	model.HeaderType = probeHeader
+	model.MessageType = probeMessage
+	rendered, err := renderComponent(componentArtifact{key: "hexal/error.h", template: "error.h", model: model})
+	if err != nil {
+		t.Fatalf("renderComponent() error = %v", err)
+	}
+	for _, want := range []string{
+		probeHeader + " other_header;",
+		probeMessage + " hex_m_message;",
+		"static inline " + probeMessage + " hex_error_message(hex_text text) {",
+		probeMessage + " message = { .byte_length = text.length };",
+		"static inline " + probeHeader + " hex_error_kind_header(hex_t_ErrorKind kind) {",
+		"return (" + probeHeader + "){ .byte_length =",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("hexal/error.h = %q, want %q", rendered, want)
+		}
+	}
+	for _, literal := range []string{"hex_string_128", "hex_string_256"} {
+		if strings.Contains(rendered, literal) {
+			t.Fatalf("hexal/error.h still spells %q literally: %q", literal, rendered)
+		}
+	}
+}

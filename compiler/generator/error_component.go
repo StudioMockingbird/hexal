@@ -17,9 +17,19 @@ type errorKindVariantModel struct {
 // errorComponentModel is the render model for packages/error.h: every unit
 // ErrorKind variant plus the Other tag, resolved against the program's
 // finalized tag registry.
+//
+// HeaderType and MessageType are the C spellings of the two bounded-text types
+// Error fixes: the ErrorKind.Other header and the Error message. They are model
+// fields, never template literals, because compiler/types derives each spelling
+// from the compiler/config capacity and defines the inline-string struct with
+// it. A literal in error.h would keep printing the old name the moment a
+// capacity changes, leaving the header's layout silently disagreeing with the
+// struct it stores.
 type errorComponentModel struct {
 	KindVariants []errorKindVariantModel
 	OtherTag     string
+	HeaderType   string
+	MessageType  string
 }
 
 // errorKindTag resolves one ErrorKind variant's generated tag constant. The
@@ -37,7 +47,10 @@ func errorKindTag(tags *tagRegistry, variant string) string {
 // buildErrorComponentModel resolves every ErrorKind variant's tag and fixed
 // header in declaration order.
 func buildErrorComponentModel(tags *tagRegistry) errorComponentModel {
-	model := errorComponentModel{}
+	model := errorComponentModel{
+		HeaderType:  compilerTypes.ErrorHeaderText.CName,
+		MessageType: compilerTypes.ErrorMessageText.CName,
+	}
 	for _, name := range compilerTypes.ErrorKindVariantNames {
 		if name == "Other" {
 			model.OtherTag = errorKindTag(tags, name)
