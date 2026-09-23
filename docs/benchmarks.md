@@ -117,6 +117,64 @@ vs `-O2` difference, so it is not a signal either mode is meaningfully faster
 for small programs. Neither observation is a target — see the ratio note at
 the top of this file.
 
+## Diagnostic and correctness runs
+
+Four `go` invocations that are not part of `go test ./...`. Each finds a class
+of defect the ordinary suite cannot see; none produces a number this file
+tracks, so none belongs in Measurement history.
+
+### Race detection
+
+```bash
+go test -race ./...
+```
+
+Catches concurrent access to shared state that single-goroutine execution hides.
+Reach for it after touching anything that moves work across goroutines — the
+snippet catalog's concurrent compile test is the known site. A race is a
+correctness failure, not a measurement, so the no-threshold policy does not
+apply. This extends the narrower `go test -race ./workbench/snippets/...` run
+RFC 0140 established to the whole tree.
+
+Prerequisite the other runs do not have: `-race` requires `CGO_ENABLED=1` and a
+working C toolchain, so on Windows it needs an installed gcc. This is a separate
+invocation from `go test ./...`, which still passes with no external toolchain.
+
+### Coverage
+
+```bash
+go test -coverprofile=cover.out ./...
+go tool cover -func=cover.out
+```
+
+Shows which statements no test reaches. Reach for it when deciding which entry
+in `docs/status.md`'s "Known coverage gaps" list to close next. No threshold is
+asserted anywhere; the number is a diagnostic, and a target would turn it into a
+goal.
+
+### Order randomization and repetition
+
+```bash
+go test -shuffle=on -count=2 ./...
+```
+
+Shuffling exposes inter-test order dependence; a second count exposes time- or
+state-dependence that one pass cannot. Reach for it when a test fails only in a
+full run, or after adding tests that share package-level state.
+
+### Profiling
+
+```bash
+go test -bench . -benchtime 1x -cpuprofile cpu.out -memprofile heap.out ./compiler/tests/benchmarks
+go tool pprof cpu.out
+```
+
+Shows where CPU time and heap allocations actually go inside a compile. Reach
+for it when a benchmark row moves and the counters do not explain why. Block and
+mutex profiling (`-blockprofile`, `-mutexprofile`) are available and deliberately
+unused: the compiler's own path is single-goroutine, so a contention profile
+says nothing a reader of the frontend can act on.
+
 ## Measurement history
 
 Newest first.

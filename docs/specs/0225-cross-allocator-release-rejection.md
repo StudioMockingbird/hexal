@@ -1,10 +1,12 @@
 # RFC 0225: Cross-Allocator Release Rejection
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion; implementation not started. Graduated from
-  RFC 0160's Invalid-free row, which records the gap but owns no work
+- Status: Implementation ready, blocked only on sequencing. Graduated from
+  RFC 0160's Invalid-free row, which records the gap but owns no work.
+  Implement after RFC 0165, whose allocation identity is the key this RFC's
+  allocator-kind fact uses; every open question is settled
 - Created: 2026-09-20
-- Updated: 2026-09-20
+- Updated: 2026-09-23
 - Scope: reject releasing a pointer through an allocator that provably did not
   produce it, using the provenance edge the checker already records
 - Depends on: nothing. The provenance edge, its recorder, and one consumer of
@@ -246,15 +248,17 @@ Interaction with existing rules:
 - A deferred release (`defer h.free(p)`) is checked on the same rule as a
   straight-line one, against the kind recorded when the binding was declared.
 
-Aliasing, which depends on sequencing:
+Aliasing:
 
-- Keyed by `BindingID`: `let p = pl.allocate(1); let q = p; h.free(q)` is
-  **accepted**.
-- Keyed by allocation identity after RFC 0165: the same program is **rejected**
-  with the Pool message.
-
-Whichever is implemented, the other must not be silently assumed. The
-Validation suite states which key is in force.
+- `let p = pl.allocate(1); let q = p; h.free(q)` is **rejected** with the Pool
+  message. The key in force is RFC 0165's allocation identity, which every
+  binding denoting one allocation shares, so the kind follows the allocation
+  rather than the name.
+- An alias formed on only one branch of an `if` does not carry the kind past
+  the join, matching RFC 0165's identity-agreement merge: a conditional alias
+  is not proof of a shared allocation, and no diagnostic is produced.
+- `let p = pl.allocate(1); let q = p; pl.free(q)` is **accepted** — the alias
+  carries the correct pool handle, not merely the kind.
 
 Conformance:
 
@@ -292,8 +296,12 @@ Conformance:
 
 ## Open questions
 
-1. Sequencing against RFC 0165, and therefore which key `allocatorKind` uses.
-   Allocation identity is recommended; see Relationship to RFC 0165.
+1. **Settled, 2026-09-23: RFC 0165 lands first and this RFC keys
+   `allocatorKind` by allocation identity.** The `BindingID` fallback is not
+   implemented, so the aliased row in the Current behavior table is rejected
+   from this RFC's first commit rather than flipping later. Every Validation
+   entry below that reads "keyed by `BindingID`" is therefore inert and kept
+   only to record what was considered.
 2. Should a pointer whose kind is heap be *required* to be released through
    `Heap.free` — that is, should a known-heap allocation that is never freed
    become diagnosable? No. That is static leak diagnosis, which RFC 0165

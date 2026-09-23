@@ -227,10 +227,16 @@ explicitly verify that the implemented behavior already matches the reference.
 An implementation is incomplete while code, tests, and `docs/reference.md`
 disagree.
 
-These two are the only canonical documents. `docs/grammar.ebnf` was merged into
-`docs/reference.md`, and `docs/language.md` was retired after its still-relevant
-content was migrated there. Do not recreate either file or add a third prose
-document alongside these.
+These two are the only canonical prose documents. `docs/language.md` was retired
+after its still-relevant content was migrated into `docs/reference.md`; do not
+recreate it or add a third prose document alongside these.
+
+The normative grammar is `GRAMMAR.ebnf` at the repository root, in
+`golang.org/x/exp/ebnf` form, which `docs/reference.md` links as authoritative
+and `TestGrammarIsVerifiable` parses and verifies. It is machine-checkable data
+rather than prose, which is why it lives outside the two documents; the older
+`docs/grammar.ebnf` it replaced is gone. A change to accepted syntax updates the
+grammar in the same change as the parser.
 
 `docs/reference.md` is primarily an input to agentic development workflows and
 secondarily a lookup document for humans. Optimize it for precise retrieval:
@@ -246,10 +252,14 @@ secondarily a lookup document for humans. Optimize it for precise retrieval:
 
 Closed specs are historical records, superseded wherever they disagree with
 `docs/reference.md`. Some contain syntax the language never had — blanket `:=`
-inference in older proposals; do not reintroduce it. The current declaration
-operator is `:=` for both typed and inferred value bindings. Inference still
-rejects initializers that provide neither a type nor a usable contextual type.
-Other closed specs
+inference in older proposals; do not reintroduce it. `:=` is not a declaration
+operator in any form and the compiler rejects it outright: every value binding
+is introduced by `let`, which states its type exactly once, on one side or the
+other. `let name: T = initializer` states it on the left; `let name =
+initializer` lets the initializer state it, and is rejected when the initializer
+is contextual — an integer, float, or string literal, `nil`, an array literal,
+or a `match` whose every arm is contextual. Stating it on neither side is an
+error. `mut` follows `let` when the binding is replaceable. Other closed specs
 predate RFC 0061 and show the old delimiter-free forms (`fun f()` or
 `if cond` without the mandatory `do`/`then`); the language now requires those
 block openers, so treat their absence in a closed spec as superseded, not as

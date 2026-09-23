@@ -1,9 +1,13 @@
 # RFC 0165: Memory-Bug Diagnosis Without Ownership Semantics
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion (proposal); not scheduled. This RFC is an
-  alternative to one *part* of the ownership arc, not a replacement for it;
-  see Relationship to the ownership arc before promoting either
+- Status: Implementation ready. Phases 1 and 2 are fully specified against
+  named call sites, the Validation section is exhaustive, and no open question
+  blocks implementation — the remaining entries under Decisions and remaining
+  questions are settled decisions or explicitly out of scope. Phase 3
+  (interprocedural summaries) is optional and deliberately unscheduled. This is
+  no longer one of two candidate cleanup models: RFC 0110 and RFC 0149 are both
+  Blocked citing this RFC, so this is the cleanup story
 - Created: 2026-09-10
 - Updated: 2026-09-20
 - Origin: an audit of eleven classical memory-bug classes against the shipped
@@ -15,7 +19,11 @@
   implemented), RFC 0156 (fenced pointer arithmetic, closed and implemented),
   RFC 0161 (pointer mutability and Slice, implemented; supersedes RFC 0153 and
   RFC 0154), RFC 0157 (uninitialized allocation), RFC 0158 (debug allocation
-  tracking)
+  tracking), RFC 0225 (cross-allocator release rejection)
+- Consumed by: RFC 0225, which keys its allocator-kind fact by the allocation
+  identity this RFC introduces. Sequencing is settled — this RFC lands first —
+  so Phase 1 must leave the identity reachable to a second fact keyed the same
+  way, rather than private to the freed-state checks
 - Does not update `docs/reference.md`: synchronize only after implementation
   is approved and behavior stabilizes
 
@@ -50,14 +58,14 @@ Re-probed 2026-09-20 in current syntax: address-of is `@`, dereference is
 
 | Bug class | Probe | Result |
 | --- | --- | --- |
-| Null pointer dereference | member access on an unnarrowed nullable pointer | rejected: "may be Nil; narrow it before calling it" |
+| Null pointer dereference | `^p` on an unnarrowed nullable pointer | rejected: "Ptr<mut Int32> \| Nil may be Nil; narrow it before dereferencing" |
 | Out-of-bounds read (constant) | `a[7]` on `Array<Int32, 3>` | rejected: "array index 7 is out of bounds for Array<Int32, 3>" |
 | Stack/heap buffer overflow, safe code | `p + 1` outside `unsafe` | rejected: "operator + requires numeric operands; got Ptr<mut Int32>" |
 | Pointer type confusion | `let q: Ptr<Bool> = p` from `Ptr<Int32>` | rejected: "expected Ptr<Bool> initializer; got Ptr<Int32>" |
 | Off-by-one (as memory safety) | runtime `l[i]` | accepted, then bounds-checked at runtime; traps rather than corrupting |
 | Uninitialized memory read | `let n: Int32` with no initializer | rejected by the current `let` declaration syntax |
 | Uninitialized heap allocation | `h.allocate<Int32>()` | rejected: "allocation requires an explicit initializer" |
-| Missing string null-terminator | `s[0]` on a String | rejected: "cannot index String; use rune_cursor() ..."; String is pointer-plus-length with the count in its header and is never NUL-terminated |
+| Missing string null-terminator | `s[0]` on a String | rejected: "cannot index String; use bytes() for indexed byte access"; String is pointer-plus-byte-length with the count in its header and is never NUL-terminated |
 | Invalid / arbitrary free | `h.free(p)` where `let p: Ptr<mut Int32> = @n` names a local `n` | rejected: "free does not accept a pointer into this function's local storage" |
 
 The mechanism is worth naming, because it is the cheap one and it is already
@@ -289,7 +297,8 @@ insufficient in practice.
   not excluded: they are ordinary `Ptr<mut T>` and are covered. See Stash and
   Pool.
 - Soundness. Undecidable cases stay accepted, matching the current contract.
-- Runtime leak detection, which RFC 0158 covers with a tracking allocator.
+- Runtime leak detection, which RFC 0158 covers with a LeakSanitizer gate on
+  the Linux lane.
 - Runtime generation, tombstone, quarantine, and sanitizer checks supplied by
   RFC 0158 are complementary diagnostics, not ownership or lifetime rules.
 - Cycle detection. Nothing here detects cyclic garbage; nothing here creates
@@ -558,17 +567,20 @@ a dependency of this RFC and not a compile-time guarantee.
 
 ## Decisions and remaining questions
 
-1. **Does this replace part of the arc, or accompany it?** If RFC 0110 lands
-   in full, checks 1 and 2 still apply to raw `Heap` pointers, which the arc
-   leaves manual. If the arc is deferred, this becomes the whole memory-safety
-   story for cleanup. The answer changes nothing in this document's design but
-   determines its priority.
+1. **Settled: this replaces that part of the arc.** The question was written
+   while RFC 0110 and RFC 0149 were live alternatives. They are not: both are
+   `Blocked`, each citing *this* RFC as the reason, and `docs/reference.md`'s
+   Language boundary now states shallow copying with explicit cleanup as the
+   model. So this RFC is the cleanup story, not one of two candidates, and its
+   priority follows from that rather than from an undecided comparison. The
+   design is unchanged either way, which is why this was never a blocker.
 2. Static leak rejection is deferred, and this is a decision rather than a
    sequencing note. A compile-time leak error requires an explicit convention
    for intentional process-lifetime allocations, which Hexal does not have.
-   RFC 0158's opt-in runtime tracker is the selected mechanism for leak
-   reporting. Nothing in this RFC implies that non-escaping leaks become hard
-   errors later; that would be a new design decision, not a phase of this one.
+   RFC 0158's LeakSanitizer gate on the Linux lane is the selected mechanism
+   for leak reporting. Nothing in this RFC implies that non-escaping leaks
+   become hard errors later; that would be a new design decision, not a phase
+   of this one.
 3. Settled: pointers allocated from Stash and Pool are in scope and gain the
    improvement, because they are pointers. See Stash and Pool.
 4. **Open: should `.offset` and `.cast` results inherit their base's

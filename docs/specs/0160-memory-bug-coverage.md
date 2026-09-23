@@ -9,8 +9,9 @@
 - Depends on: nothing; this RFC records implemented behavior plus
   small deltas against it
 - Coordinates with: RFC 0155 (unsafe posture for the uninit escape), RFC
-  0156 (arithmetic and foreign-write hazards), RFC 0157 (explicit uninit
-  allocation), RFC 0158 (test-time tracking allocator), RFC 0165 (alias
+  0156 (arithmetic and foreign-write hazards), archived RFC 0157 (explicit
+  uninit allocation, discarded on its benchmark gate), RFC 0158 (leak detection
+  on the Linux lane), RFC 0165 (alias
   diagnosis), RFC 0225 (cross-allocator release), RFC 0039 (foreign
   contracts)
 - Does not update `docs/reference.md`
@@ -76,7 +77,7 @@ mechanism, not the whole implementation.
 | Out-of-bounds read | Solved for the checked Array/Slice/List/String paths. Constant Array indices are already rejected; unknown cases trap at runtime | Broader constant folding is optional. It must not be described as entirely unimplemented. Guardrail: `Array<T, N>`'s contribution to this row is that N *is* the length, so every in-range index is valid by construction. A proposal replacing it with a capacity-plus-runtime-length form (RFC 0226) weakens that to "an index `>= N` is still statically wrong", and must show the row stays solved or record the regression |
 | Off-by-one | Half solved. `for...in` is exact by construction; checked indexing converts mistakes to traps | Compiler-side advisory warning for suspicious `<=` or `==` against `.length()`. It remains non-fatal and may have false positives |
 | Uninitialized read | Solved by construction for safe code. Mandatory initializers; `allocate<T>(initial)`; complete aggregate construction | None, plus a guardrail: RFC 0157's uninit escape must **confine** this row rather than preserve it. An unsafe-gated uninitialized allocation creates exactly the bug this row calls solved; what must be preserved is that safe code cannot spell it. RFC 0157 owns the write-before-read contract as a programmer assertion, not a checker proof, and adds no fill in any build mode. A second guardrail applies to any proposal adding a partially-filled inline container (RFC 0226): because Hexal has no default-value concept, capacity beyond the logical length holds no valid T, and a by-value copy of the container reads it. Such a proposal must show this row stays solved in **safe** code, where RFC 0157's unsafe gate is not available to confine it |
-| Missing NUL terminator | Solved for the checked safe-language operations, by two different mechanisms. `String` carries its lengths: `hex_string` is `{data, byte_length, rune_length, storage_kind}` (`generator/packages/string.h`), never a sentinel. `Strand` is **not** length-carrying — it is 32 inline bytes holding at most 31 UTF-8 payload bytes, a NUL, then zero fill, and `Strand.length()` scans bounded by those 31 bytes. Safe code still cannot spell the bug, because the terminator and the bound are both structural and neither is caller-supplied | Confine NUL creation to C-boundary conversion ops (single audited sites each). Any proposal that generalizes `Strand`'s capacity must keep the bound structural: a scanned terminator is safe at one fixed width and stops being obviously safe once the width is a parameter |
+| Missing NUL terminator | Solved for the checked safe-language operations, by two different mechanisms. `String` carries its length: `hex_string` is `{data, byte_length, storage_kind}` (`generator/packages/string.h`), never a sentinel. It is a byte count, not a scalar count — RFC 0224 made text byte-oriented and removed the cached `rune_length` field, so `rune_length()` decodes on demand and no length in the header can disagree with the bytes. `Strand` is **not** length-carrying — it is 32 inline bytes holding at most 31 UTF-8 payload bytes, a NUL, then zero fill, and `Strand.length()` scans bounded by those 31 bytes. Safe code still cannot spell the bug, because the terminator and the bound are both structural and neither is caller-supplied | Confine NUL creation to C-boundary conversion ops (single audited sites each). Any proposal that generalizes `Strand`'s capacity must keep the bound structural: a scanned terminator is safe at one fixed width and stops being obviously safe once the width is a parameter |
 
 ## Detection phases
 
@@ -111,8 +112,11 @@ being silently promoted to compile-time guarantees.
   address taken with `@` is **not** on this list: it is implemented and
   verified, and listing it invites re-opening a closed row.
 - Runtime items (fill-after-free, free-list tombstones): the debug-backend
-  vehicle alongside RFC 0158's tracking allocator.
-- Tooling items (tracking allocator, leak reports): RFC 0158's vehicle.
+  vehicle alongside RFC 0158's leak lane.
+- Tooling items (leak reports): RFC 0158's vehicle, now a LeakSanitizer gate on
+  the Linux lane rather than a tracking allocator. The allocator was abandoned
+  after a sweep found the vendored mimalloc cannot enumerate the runtime's own
+  allocations.
 - Guardrail items (0157 preserves the uninit row; 0153 preserves the
   out-of-bounds row): acceptance criteria on those RFCs, not work here.
 - Foreign items: RFC 0039's vehicle.
@@ -128,7 +132,9 @@ Validation section.
   at compile time, and the mirror case (`pool.free` of a Heap pointer) fails
   the same way.
 - A program leaking under the tracking backend reports every outstanding
-  allocation under RFC 0158's selected native-stack/debug-symbol attribution;
+  allocation with the allocation stack trace LeakSanitizer supplies under RFC
+  0158, which is stronger attribution than the native-stack/debug-symbol
+  compromise the tracking-allocator design had settled for;
   a clean program reports nothing.
 - Literal out-of-range indices fail at compile time where folded, trap
   otherwise; no previously compiling program changes meaning.

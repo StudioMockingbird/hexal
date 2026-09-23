@@ -66,9 +66,8 @@ func TestComponentDemandStaysInBuilders(t *testing.T) {
 // Each native dependency identity is declared in exactly one non-test Go
 // source file of the compiler. The registry owns the names; runtime_dependency.go
 // aliases them and the generator references those aliases, so the name never
-// has a second declaration site inside the compiler. The build driver keeps its
-// own pack-manifest ordering of the same names until a later slice removes that
-// last consumer.
+// has a second declaration site inside the compiler. The build driver derives
+// its pack-manifest ordering from the same registry.
 func TestRuntimeDependencyIdentityIsDeclaredOnce(t *testing.T) {
 	identities := map[string]bool{}
 	for _, dependency := range specdata.Dependencies() {

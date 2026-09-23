@@ -165,8 +165,12 @@ func TestNoThirdPartyImportsOutsideBenchmarks(t *testing.T) {
 				return err
 			}
 			if entry.IsDir() {
-				// bin/ holds built binaries; .git holds no Go source.
-				if name := entry.Name(); name == ".git" || name == "bin" {
+				// bin/ holds built binaries; .git holds no Go source; .tmp/
+				// holds scratch probes, which are expected to import whatever
+				// the question needs and never ship. This walk reaches the
+				// filesystem rather than the package graph, so a probe there
+				// would otherwise fail a suite it is not part of.
+				if name := entry.Name(); name == ".git" || name == "bin" || name == ".tmp" {
 					return filepath.SkipDir
 				}
 				return nil

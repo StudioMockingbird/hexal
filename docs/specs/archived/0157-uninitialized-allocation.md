@@ -1,11 +1,17 @@
 # RFC 0157: Explicit Uninitialized Allocation
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion; not scheduled. Deferred behind the benchmark gate;
-  its memory-diagnostics compatibility contract is ready for the 0158/0165
-  arc, but the language feature itself is not approved
+- Status: Discarded, 2026-09-23, on the evidence its own Motivation gate
+  demanded. The gate required a benchmark showing a real workload materially
+  paying for dummy initialization, and said to discard the RFC if ordinary
+  initialized allocation met the workload without material overhead. It does:
+  the initialization is a single `*pointer = initial` store whose cost is
+  unmeasurable below roughly a kilobyte, and the kilobyte case is excluded by
+  this RFC's own Non-goals. `Heap.allocate<T>(initial)` remains the only heap
+  allocation; nothing in the language changes. See The gate was attempted.
+  Retained as the record of the measurement so it is not re-run from intuition
 - Created: 2026-09-10
-- Updated: 2026-09-20
+- Updated: 2026-09-23
 - Depends on: the implemented `unsafe do ... end` contract from archived RFC
   0155
 - Coordinates with: RFC 0118 (task boundaries are not escape boundaries), RFC
@@ -46,9 +52,53 @@ generated C, compiler/toolchain, target, and measured time.
 If ordinary initialized allocation, List growth, or a typed foreign API meets
 the workload without material overhead, discard this RFC.
 
-No such benchmark exists yet. There is no workload, no threshold for
-"materially", no target, and no generated-C comparison — so the gate has not
-been attempted, let alone passed.
+### The gate was attempted on 2026-09-23, and it fails
+
+**Generated C.** `Heap.allocate<T>(initial)` lowers to one specialized helper
+per `T`, and the initialization this RFC would remove is a single store:
+
+```c
+static int32_t * hex_heap_allocate_Int32(hex_heap h, int32_t initial) {
+    (void)h;
+    int32_t *pointer = hex_heap_allocate(sizeof(int32_t));
+    *pointer = initial;
+    return pointer;
+}
+```
+
+Not a `memset`, not a loop. Note also that `initial` arrives **by value**: the
+caller has already constructed and copied it, so `allocate_uninit<T>()` removes
+this store and nothing else unless the caller's own construction also
+disappears.
+
+**Measurement.** The store was benchmarked directly against the `mi_malloc` it
+follows, using the vendored mimalloc 3.5.1 archive, GCC 16.1.0
+(MinGW-W64 x86-64 UCRT), `-O2 -std=c23`, 2,000,000 iterations per case, four
+runs:
+
+| T | `sizeof(T)` | allocation alone | allocation + store | delta |
+| --- | --- | --- | --- | --- |
+| `Int32` | 4 | 5.0-15.3 ns | 4.6-16.2 ns | **noise: -0.8 to +3.2 ns, sign changes between runs** |
+| 4x`Int64` struct | 32 | 5.6-15.7 ns | 4.4-12.8 ns | **noise: -2.9 to +3.5 ns, sign changes between runs** |
+| 1 KiB struct | 1024 | 6.8-19.0 ns | 26.4-39.0 ns | **+17.5 to +21.2 ns, consistent across all four runs** |
+
+**Conclusion: the gate fails, and this RFC is discarded by its own rule.** The
+cost is proportional to `sizeof(T)` and is unmeasurable below roughly a
+kilobyte — for a scalar or a small struct the store disappears into the
+allocator's own 5-15 ns, swinging negative as often as positive.
+
+The one size where the cost is real is excluded by this RFC's own Non-goals.
+At a kilobyte the initialization is a `memcpy`, and this RFC scopes itself to
+"one uninitialized T", explicitly not "raw byte-count allocation" or "arrays of
+uninitialized T". A program wanting a kilobyte of uninitialized storage wants a
+buffer, which Hexal serves with `List`, `Array`, and `Slice` — and it would
+still have to construct the 1 KiB `initial` value to call `allocate<T>` at all,
+so the by-value parameter means the saving is not even the full memcpy unless
+the caller's construction is elided too.
+
+That is exactly the discard condition stated above: ordinary initialized
+allocation meets the workload without material overhead at every size this RFC
+covers.
 
 **The gate as scoped is very likely to fail, and that is worth saying
 plainly.** One uninitialized `T` saves exactly one dummy store, which no
@@ -126,6 +176,19 @@ decision rather than a live benchmark plan.
 - Stash or Pool uninitialized variants.
 - Static leak diagnosis or an ownership/borrow requirement.
 - Always-on initialization metadata or runtime overhead in ordinary builds.
+
+## What the discard leaves behind
+
+Nothing to migrate. Every other spec that names this one does so
+conditionally — RFC 0160's "Guardrail items (0157 preserves the uninit row)",
+RFC 0118's "an uninitialized allocation from RFC 0157, *if that feature is ever
+promoted*", RFC 0226's comparison, and RFC 0165's coordinates line. Each says
+what must remain true *if* `allocate_uninit` exists. It does not, so those
+obligations are discharged rather than orphaned, and their wording stays correct
+without edits.
+
+The uninitialized-read row in RFC 0160's coverage matrix stays solved by
+construction, which is the outcome those guardrails existed to protect.
 
 ## Promotion gate
 

@@ -21,6 +21,7 @@ import (
 
 	"hexal/compiler"
 	compilerConfig "hexal/compiler/config"
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 	"hexal/internal/backend"
 	"hexal/lib"
@@ -280,7 +281,10 @@ func validateRuntimeManifest(manifest runtimeManifest, target compilerTypes.Targ
 	if manifest.TargetProfile != string(target) {
 		return fmt.Errorf("runtime pack target %s does not match %s", manifest.TargetProfile, target)
 	}
-	want := []string{"libuv", "mimalloc", "utf8proc"}
+	var want []string
+	for _, dependency := range specdata.Dependencies() {
+		want = append(want, string(dependency.ID))
+	}
 	if len(manifest.Dependencies) != len(want) {
 		return fmt.Errorf("runtime pack must declare %s in order", strings.Join(want, ", "))
 	}

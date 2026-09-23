@@ -254,8 +254,11 @@ Probed against the tree on 2026-09-20:
 | `return p`; caller double-frees the result | **rejected** |
 | `let pp = @p`; `h.free(p)`; `h.free(p)` | accepted |
 
-`flowState.escape` has exactly one production call site — a writable `@` in
-`compiler/checker/places.go`. Nothing else abandons a cleanup fact. Routing
+`flowState.escape` has exactly one production site that *originates* an escape:
+a writable `@` in `compiler/checker/places.go:537`. The only other call,
+`scope.go:662`, is the branch merge propagating an `escaped` flag some branch
+already set, so it creates no escape of its own. Nothing else abandons a
+cleanup fact. Routing
 `spawn`, Channel `send`, `join`, `detach`, and opaque calls through it would
 turn the first five rows from rejected to accepted, deleting six diagnostics
 that work today.

@@ -124,10 +124,11 @@ type ComponentSpec struct {
 	ConditionalHeaders  []ConditionalHeaders
 }
 
-// dependencyRegistry declares every native runtime input exactly once.
+// dependencyRegistry declares every native runtime input exactly once, in the
+// runtime pack's manifest order.
 var dependencyRegistry = []DependencySpec{
-	{ID: DependencyMimalloc},
 	{ID: DependencyLibuv},
+	{ID: DependencyMimalloc},
 	{ID: DependencyUtf8proc},
 }
 

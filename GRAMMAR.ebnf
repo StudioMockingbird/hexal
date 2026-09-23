@@ -71,7 +71,7 @@ Parameter = identifier  ":"  TypeExpression  [ "..." ] .
 GenericParameterList = "<"  identifier  { ","  identifier }  ">" .
 
 Statement = NonControlStatement | ReturnStatement
-            | IfStatement | WhileStatement | ForStatement .
+            | IfStatement | WhileStatement | ForStatement | UnsafeStatement .
 NonControlStatement = Declaration | Assignment | CallStatement
                         | TryStatement
                         | "break" | "continue"
@@ -92,6 +92,7 @@ IfStatement = "if"  Expression  "then"  Block
 WhileStatement = "while"  Expression  "do"  Block  "end" .
 ForStatement = "for"  ForBinders  "in"  Expression
                  "do"  Block  "end" .
+UnsafeStatement = "unsafe"  "do"  Block  "end" .
 ForBinders = ForBinder
               | ForBinder  ","  ForBinder
               | ForBinder  ","  ForBinder  ","  ForBinder .
