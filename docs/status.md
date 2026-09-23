@@ -22,21 +22,6 @@ readiness* requires, one entry per surviving second authority. Each names the
 file that still owns the fact and the step that would give the fact one owner.
 Facts confirmed to have exactly one consumer are not listed.
 
-- **The runtime-symbol fact still has more than one owner
-  ([0229](specs/0229-data-driven-compiler-facts.md)).** Built-in method and
-  constructor dispatch read `specdata.Method` and
-  `specdata.TypeConstructors`, and the deferred and queued paths read
-  `RuntimeSymbol` too, with tests that empty or corrupt a record and show the
-  answer move. Recorded symbols are nevertheless still spelled literally in
-  `compiler/generator/arrays.go` (the `Array` and `List` `slice` and `mut_slice`
-  operations), `compiler/generator/stash.go` and `defer.go`
-  (`hex_stash_reset`/`destroy`/`alloc_%s`), `compiler/generator/pool.go`
-  (`hex_pool_alloc`/`free`/`destroy_%s`), and the text set in
-  `compiler/generator/strings.go` plus `interpolation.go` (`hex_text_*`,
-  `hex_string_make`, `hex_string_free`, `hex_string_casefold_%s`,
-  `hex_string_normalize_%s`, `hex_string_concat_%s`). Step: have those sites
-  read the record's `RuntimeSymbol`, so the symbol has one owner everywhere.
-
 ## Deferred ideas
 
 Open ideas under discussion live in `docs/specs/deferred/`, with a README
