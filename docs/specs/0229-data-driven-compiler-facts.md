@@ -1,9 +1,14 @@
 # RFC 0229: Data-Driven Compiler Facts
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Open Discussion; proposed. **Blocked on RFC 0230**, which settles
-  the import graph, the generic-specialization model, the validation contract,
-  the demand model, and the first migration slice
+- Status: Partially implemented. Slices 0-4 of the implementation plan have
+  landed: `compiler/specdata` holds records for runtime components and
+  dependencies, target facts, core-library modules, type constructors, and
+  methods, with `Validate()` and the conformance guards enforced. The registry
+  is not yet the sole authority — the repository-wide duplicate-owner audit
+  recorded in `docs/status.md` names each consumer that still owns a migrated
+  fact, and the Validation section holds only when those close. RFC 0230 is
+  closed, so this is no longer blocked on it.
 - Created: 2026-09-21
 - Scope: make compiler-owned language and runtime facts declarative, typed,
   centrally registered, validated, and reusable across checking, generation,
@@ -598,10 +603,14 @@ compiler/checker
 compiler/generator
 compiler/profile.go
 compiler/runtime_dependency.go
-compiler/runtimeabi.go
+compiler/config
 internal/backend
 internal/driver
 ```
+
+`compiler/runtimeabi.go` was inventoried but does not exist: the runtime ABI
+version is a scalar policy value owned by RFC 0228 at `compiler/config`, and
+`internal/driver/runpack.go` is its consumer.
 
 Initial migration targets include:
 
