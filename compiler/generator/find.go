@@ -5,17 +5,18 @@ import (
 	"strings"
 
 	"hexal/compiler/checker"
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
 
 // dictFindDeclModel carries one hoisted Dict.find temporary's declaration:
-// the indent, spelled value type, temporary name, dictionary suffix, and the
-// receiver and key expressions, all decided in Go.
+// the indent, spelled value type, temporary name, recorded runtime symbol, and
+// the receiver and key expressions, all decided in Go.
 type dictFindDeclModel struct {
 	Indent   string
 	Type     string
 	Temp     string
-	Suffix   string
+	Symbol   string
 	Receiver string
 	Key      string
 }
@@ -48,11 +49,15 @@ func hoistDictFindInStatement(statement checker.Statement, body *strings.Builder
 		if valueType == (compilerTypes.Type{}) {
 			return unknownExpressionDiagnostic("dictionary find has no checked value type")
 		}
+		symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeDict), "find", dictSuffix(node.OperandType))
+		if symbolErr != nil {
+			return symbolErr
+		}
 		if err := renderInto(body, "module.c", "dict_find_decl", dictFindDeclModel{
 			Indent:   indent,
 			Type:     typeSpelling(valueType),
 			Temp:     temp,
-			Suffix:   dictSuffix(node.OperandType),
+			Symbol:   symbol,
 			Receiver: receiver,
 			Key:      key,
 		}); err != nil {

@@ -58,6 +58,11 @@ func TestBuiltinMethodDispatchReadsTheRegistry(t *testing.T) {
 			want:   "String has no method bytes",
 		},
 		{
+			family: "InlineString",
+			source: "let label: String<16> = \"hexal\"\nlet runes: Size = label.rune_length()\n",
+			want:   "String<16> has no method rune_length",
+		},
+		{
 			family: "Channel",
 			source: "fun demo(): Int32 | Error do\n    let h: Heap = Heap()\n    let channel: Channel<Int32> = try Channel<Int32>(h, 1)\n    channel.close()\n    return 0\nend\n",
 			want:   "Channel has no method close; use send, receive, close, length, capacity, is_closed, or free",
@@ -101,17 +106,18 @@ func TestPerFamilyDispatchMatchesTheRegistry(t *testing.T) {
 		declared[string(owner)][method.Name] = true
 	}
 	for owner, names := range map[string][]string{
-		"Array":   {"length", "slice", "mut_slice"},
-		"Slice":   {"length", "slice", "pointer"},
-		"List":    {"length", "slice", "mut_slice", "push", "clear", "pop", "free"},
-		"Dict":    {"length", "insert", "get", "find", "remove", "contains", "free"},
-		"Task":    {"join", "detach"},
-		"Channel": {"send", "receive", "close", "free", "length", "capacity", "is_closed"},
-		"Atomic":  {"load", "store", "exchange", "fetch_add", "fetch_sub", "compare_exchange"},
-		"Stash":   {"allocate", "reset", "destroy"},
-		"Pool":    {"allocate", "free", "destroy"},
-		"Mutex":   {"lock", "unlock", "free"},
-		"String":  {"length", "rune_length", "grapheme_length", "byte_cursor", "rune_cursor", "grapheme_cursor", "bytes", "slice", "casefold", "normalize", "copy", "concat", "free", "c_pointer"},
+		"Array":        {"length", "slice", "mut_slice"},
+		"Slice":        {"length", "slice", "pointer"},
+		"List":         {"length", "slice", "mut_slice", "push", "clear", "pop", "free"},
+		"Dict":         {"length", "insert", "get", "find", "remove", "contains", "free"},
+		"Task":         {"join", "detach"},
+		"Channel":      {"send", "receive", "close", "free", "length", "capacity", "is_closed"},
+		"Atomic":       {"load", "store", "exchange", "fetch_add", "fetch_sub", "compare_exchange"},
+		"Stash":        {"allocate", "reset", "destroy"},
+		"Pool":         {"allocate", "free", "destroy"},
+		"Mutex":        {"lock", "unlock", "free"},
+		"String":       {"length", "rune_length", "grapheme_length", "byte_cursor", "rune_cursor", "grapheme_cursor", "bytes", "slice", "casefold", "normalize", "copy", "concat", "free", "c_pointer"},
+		"InlineString": {"length", "rune_length", "grapheme_length", "byte_cursor", "rune_cursor", "grapheme_cursor", "bytes", "slice", "casefold", "normalize", "copy", "concat", "widen"},
 	} {
 		for _, name := range names {
 			if !declared[owner][name] {

@@ -435,11 +435,12 @@ func checkTextMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		}
 		return heap, nil
 	}
-	// The heap String's record covers its whole surface, so its dispatch is
-	// registry-driven. The inline form's record is not yet complete -- it omits
-	// the shared read-only operations String<N> accepts -- so only the heap
-	// receiver gates on the registry; the inline form keeps its explicit switch.
-	if !inline && !hasBuiltinMethod(receiver.typ, name) {
+	// Both text forms' records cover their whole surface, so each dispatch is
+	// registry-driven. The inline form's record carries the shared read-only
+	// operations String<N> accepts, so the same gate rejects exactly the names
+	// the switch below has no case for -- free and c_pointer on the inline form,
+	// widen on the heap form -- with the identical diagnostic.
+	if !hasBuiltinMethod(receiver.typ, name) {
 		return fail(receiver.typ.Name + " has no method " + name)
 	}
 	switch name {

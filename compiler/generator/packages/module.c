@@ -145,5 +145,5 @@ int main(int argc, char **argv) {
 {{.Indent}}}
 {{end}}{{define "inline_literal"}}({{.Type}}){ .byte_length = {{.Length}}, .data = {{"{"}}{{range .Bytes}} {{.}},{{end}} } }{{end}}{{define "errdef_guard_open"}}{{.Indent}}if ({{.Value}}) {
 {{end}}{{define "defer_discard"}}{{.Indent}}(void)({{.Value}});
-{{end}}{{define "dict_find_decl"}}{{.Indent}}const {{.Type}} *{{.Temp}} = hex_dict_find_{{.Suffix}}({{.Receiver}}, {{.Key}});
+{{end}}{{define "dict_find_decl"}}{{.Indent}}const {{.Type}} *{{.Temp}} = {{.Symbol}}({{.Receiver}}, {{.Key}});
 {{end}}

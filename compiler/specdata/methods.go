@@ -656,6 +656,11 @@ var methods = []MethodSpec{
 		Component: ComponentString,
 	},
 
+	// String<N> shares the heap form's read-only and constructing operations,
+	// because both lower through the same byte-view helpers; each shared record
+	// therefore names the heap record's symbol. The operations unique to one
+	// form -- free and c_pointer on the heap form, widen on the inline form --
+	// stay single-owner.
 	{
 		Owner:     ConstructorOwner(TypeInlineString),
 		Name:      "length",
@@ -665,12 +670,46 @@ var methods = []MethodSpec{
 		// callable is emitted.
 	},
 	{
-		Owner:     ConstructorOwner(TypeInlineString),
-		Name:      "bytes",
-		Result:    ResultSpec{Type: AppliedType(TypeSlice, AccessReadOnly, ConcreteType(TypeUInt8))},
-		Component: ComponentString,
-		// Shared with the heap form: hex_text_bytes takes the byte view.
+		Owner:         ConstructorOwner(TypeInlineString),
+		Name:          "rune_length",
+		Result:        ResultSpec{Type: ConcreteType(TypeSize)},
+		RuntimeSymbol: "hex_text_rune_length",
+		Component:     ComponentString,
+	},
+	{
+		Owner:         ConstructorOwner(TypeInlineString),
+		Name:          "grapheme_length",
+		Result:        ResultSpec{Type: ConcreteType(TypeSize)},
+		RuntimeSymbol: "hex_text_grapheme_length",
+		Component:     ComponentString,
+	},
+	{
+		Owner:         ConstructorOwner(TypeInlineString),
+		Name:          "byte_cursor",
+		Result:        ResultSpec{Type: ConcreteType(TypeByteCursor)},
+		RuntimeSymbol: "hex_text_byte_cursor",
+		Component:     ComponentString,
+	},
+	{
+		Owner:         ConstructorOwner(TypeInlineString),
+		Name:          "rune_cursor",
+		Result:        ResultSpec{Type: ConcreteType(TypeRuneCursor)},
+		RuntimeSymbol: "hex_text_rune_cursor",
+		Component:     ComponentString,
+	},
+	{
+		Owner:         ConstructorOwner(TypeInlineString),
+		Name:          "grapheme_cursor",
+		Result:        ResultSpec{Type: ConcreteType(TypeGraphemeCursor)},
+		RuntimeSymbol: "hex_text_grapheme_cursor",
+		Component:     ComponentString,
+	},
+	{
+		Owner:         ConstructorOwner(TypeInlineString),
+		Name:          "bytes",
+		Result:        ResultSpec{Type: AppliedType(TypeSlice, AccessReadOnly, ConcreteType(TypeUInt8))},
 		RuntimeSymbol: "hex_text_bytes",
+		Component:     ComponentString,
 	},
 	{
 		Owner: ConstructorOwner(TypeInlineString),
@@ -682,6 +721,38 @@ var methods = []MethodSpec{
 		Result:        ResultSpec{Type: AppliedType(TypeSlice, AccessReadOnly, ConcreteType(TypeUInt8))},
 		RuntimeSymbol: "hex_text_slice",
 		Component:     ComponentString,
+	},
+	{
+		Owner:         ConstructorOwner(TypeInlineString),
+		Name:          "copy",
+		Parameters:    []ParameterSpec{{Name: "heap", Type: ConcreteType(TypeHeap)}},
+		Result:        ResultSpec{Type: ConcreteType(TypeString)},
+		RuntimeSymbol: "hex_string_make",
+		Component:     ComponentString,
+		Allocation:    AllocationHeap,
+	},
+	{
+		Owner:         ConstructorOwner(TypeInlineString),
+		Name:          "casefold",
+		Parameters:    []ParameterSpec{{Name: "heap", Type: ConcreteType(TypeHeap)}},
+		Result:        ResultSpec{Type: ConcreteType(TypeString)},
+		Failure:       FailureChecked,
+		RuntimeSymbol: "hex_string_casefold_%s",
+		Component:     ComponentString,
+		Allocation:    AllocationHeap,
+	},
+	{
+		Owner: ConstructorOwner(TypeInlineString),
+		Name:  "normalize",
+		Parameters: []ParameterSpec{
+			{Name: "heap", Type: ConcreteType(TypeHeap)},
+			{Name: "form", Type: ConcreteType(TypeNormalization)},
+		},
+		Result:        ResultSpec{Type: ConcreteType(TypeString)},
+		Failure:       FailureChecked,
+		RuntimeSymbol: "hex_string_normalize_%s",
+		Component:     ComponentString,
+		Allocation:    AllocationHeap,
 	},
 	{
 		Owner: ConstructorOwner(TypeInlineString),

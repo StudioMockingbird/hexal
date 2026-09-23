@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"hexal/compiler/checker"
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -295,34 +296,54 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		// The captures hold the receiver (the owning header) first and the
 		// heap second; the helper takes them in the opposite order.
 		if node.OperandType.List != nil {
-			return "hex_list_free_" + listSuffix(node.OperandType) + "(" + arguments[1] + ", " + arguments[0] + ")", nil
+			symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeList), "free", listSuffix(node.OperandType))
+			if symbolErr != nil {
+				return "", symbolErr
+			}
+			return symbol + "(" + arguments[1] + ", " + arguments[0] + ")", nil
 		}
-		return "hex_dict_free_" + dictSuffix(node.OperandType) + "(" + arguments[1] + ", " + arguments[0] + ")", nil
+		symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeDict), "free", dictSuffix(node.OperandType))
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + arguments[1] + ", " + arguments[0] + ")", nil
 	case checker.ChannelMethodCallExpression:
 		if node.Name != "free" || len(arguments) != 2 {
 			return "", unknownExpressionDiagnostic("deferred channel free without captured arguments")
 		}
 		// The captures hold the receiver (the Channel handle) first and the
 		// heap second; the helper takes the heap token.
-		return "hex_chan_free_" + channelSuffix(node.OperandType) + "(" + arguments[1] + ", " + arguments[0] + ")", nil
+		symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeChannel), "free", channelSuffix(node.OperandType))
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + arguments[1] + ", " + arguments[0] + ")", nil
 	case checker.MutexMethodCallExpression:
 		switch node.Name {
-		case "lock":
-			return "hex_mutex_lock(" + arguments[0] + ")", nil
-		case "unlock":
-			return "hex_mutex_unlock(" + arguments[0] + ")", nil
+		case "lock", "unlock":
+			symbol, symbolErr := builtinMethodCallSymbol(specdata.ExactOwner(specdata.TypeMutex), node.Name, "")
+			if symbolErr != nil {
+				return "", symbolErr
+			}
+			return symbol + "(" + arguments[0] + ")", nil
 		case "free":
 			// The captures hold the receiver (the Mutex handle) first and
 			// the heap second; the adapter takes the heap token.
-			return "hex_mutex_free_hex_mutex(" + arguments[1] + ", " + arguments[0] + ")", nil
+			symbol, symbolErr := builtinMethodCallSymbol(specdata.ExactOwner(specdata.TypeMutex), "free", "")
+			if symbolErr != nil {
+				return "", symbolErr
+			}
+			return symbol + "(" + arguments[1] + ", " + arguments[0] + ")", nil
 		}
 		return "", unknownExpressionDiagnostic("deferred mutex method without a captured receiver")
 	case checker.TaskMethodCallExpression:
 		switch node.Name {
-		case "join":
-			return "hex_task_join_" + taskSuffix(node.OperandType) + "(" + arguments[0] + ")", nil
-		case "detach":
-			return "hex_task_detach(" + arguments[0] + ")", nil
+		case "join", "detach":
+			symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeTask), node.Name, taskSuffix(node.OperandType))
+			if symbolErr != nil {
+				return "", symbolErr
+			}
+			return symbol + "(" + arguments[0] + ")", nil
 		}
 		return "", unknownExpressionDiagnostic("deferred task method without a captured receiver")
 	case checker.TimeExpression:
