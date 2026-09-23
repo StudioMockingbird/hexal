@@ -74,16 +74,12 @@ func Serve(version string) error {
 }
 func routes(catalog []snippets.Category) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", serveIndex)
-	mux.HandleFunc("/api/compile", compileHandler)
-	mux.HandleFunc("/api/snippets", snippetsHandler(catalog))
+	mux.HandleFunc("GET /{$}", serveIndex)
+	mux.HandleFunc("POST /api/compile", compileHandler)
+	mux.HandleFunc("GET /api/snippets", snippetsHandler(catalog))
 	return mux
 }
 func serveIndex(response http.ResponseWriter, request *http.Request) {
-	if request.URL.Path != "/" {
-		http.NotFound(response, request)
-		return
-	}
 	response.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// no-store, because the point of reading from disk is that a reload shows
 	// the edit; a cached page would defeat it.
@@ -105,20 +101,10 @@ func indexPage() []byte {
 }
 func snippetsHandler(catalog []snippets.Category) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodGet {
-			response.Header().Set("Allow", http.MethodGet)
-			http.Error(response, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
 		writeJSON(response, http.StatusOK, catalog)
 	}
 }
 func compileHandler(response http.ResponseWriter, request *http.Request) {
-	if request.Method != http.MethodPost {
-		response.Header().Set("Allow", http.MethodPost)
-		http.Error(response, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
 	var input compileRequest
 	if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
 		writeJSON(response, http.StatusBadRequest, compileResponse{

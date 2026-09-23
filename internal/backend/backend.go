@@ -14,7 +14,7 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
-	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -41,8 +41,28 @@ type Backend struct {
 	EnvironmentOverrides []string
 }
 
-// clangVersionPattern extracts the major version from a Clang version banner.
-var clangVersionPattern = regexp.MustCompile(`clang version (\d+)\.`)
+// clangVersionMarker introduces the major version in a Clang version banner.
+const clangVersionMarker = "clang version "
+
+// clangMajorVersion returns the decimal major version after the Clang
+// marker. A banner without the marker, without digits before the version
+// separator, or with a major version that overflows int fails closed;
+// strconv.Atoi reports the overflow a digit loop wrapped silently.
+func clangMajorVersion(banner string) (int, bool) {
+	start := strings.Index(banner, clangVersionMarker)
+	if start < 0 {
+		return 0, false
+	}
+	version, _, found := strings.Cut(banner[start+len(clangVersionMarker):], ".")
+	if !found || version == "" || version[0] < '0' || version[0] > '9' {
+		return 0, false
+	}
+	major, err := strconv.Atoi(version)
+	if err != nil {
+		return 0, false
+	}
+	return major, true
+}
 
 // NewBackend opens the installed Clang at exe and reads its identity from
 // `<exe> --version`. Callers supply the path; nothing here searches for it.
@@ -58,13 +78,9 @@ func NewBackend(exe string) (*Backend, error) {
 	if banner == "" {
 		return nil, fmt.Errorf("compiler reported no version")
 	}
-	match := clangVersionPattern.FindStringSubmatch(banner)
-	if match == nil {
+	major, ok := clangMajorVersion(banner)
+	if !ok {
 		return nil, fmt.Errorf("compiler is not Clang")
-	}
-	major := 0
-	for _, character := range match[1] {
-		major = major*10 + int(character-'0')
 	}
 	return &Backend{Exe: exe, Version: banner, Major: major}, nil
 }

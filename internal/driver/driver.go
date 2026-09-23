@@ -7,10 +7,11 @@ package driver
 import (
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
-	"sort"
+	"slices"
 	"strings"
 
 	"hexal/compiler"
@@ -475,20 +476,22 @@ func freshStagingDir(outDir string) (string, error) {
 // resolver. A source entry that is a symlink or a junction is rejected:
 // following one would compile code from outside the rooted tree. Directory
 // symlinks are not descended into; the exact staging directory is skipped.
+// WalkDir reads the entry type ReadDir already returned, so no entry costs
+// a stat to classify.
 func discover(root, staging string) (map[string]string, error) {
 	sources := map[string]string{}
 	folded := map[string]string{}
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if path != root {
-			if info.Mode()&os.ModeSymlink != 0 {
+			if entry.Type()&fs.ModeSymlink != 0 {
 				return fmt.Errorf("source %q is a symlink; links are not followed", path)
 			}
 		}
-		if info.IsDir() {
-			if path != root && (path == staging || strings.HasPrefix(info.Name(), ".")) {
+		if entry.IsDir() {
+			if path != root && (path == staging || strings.HasPrefix(entry.Name(), ".")) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -526,11 +529,7 @@ func materialize(staging string, files map[string]string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	keys := make([]string, 0, len(files))
-	for key := range files {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
+	keys := slices.Sorted(maps.Keys(files))
 	seen := map[string]string{}
 	var cFiles []string
 	for _, key := range keys {

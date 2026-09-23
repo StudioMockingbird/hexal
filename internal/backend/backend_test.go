@@ -12,13 +12,15 @@ func TestFirstNonemptyLine(t *testing.T) {
 	}
 }
 
-func TestClangVersionPattern(t *testing.T) {
-	match := clangVersionPattern.FindStringSubmatch("clang version 23.1.1")
-	if match == nil || match[1] != "23" {
-		t.Fatalf("clang version not extracted: %q", match)
+func TestClangMajorVersion(t *testing.T) {
+	if major, ok := clangMajorVersion("clang version 23.1.1"); !ok || major != 23 {
+		t.Fatalf("clang major version not extracted: %d, %v", major, ok)
 	}
-	if clangVersionPattern.FindStringSubmatch("gcc (SUSE Linux) 16.2.0") != nil {
-		t.Fatalf("non-Clang banner matched")
+	if _, ok := clangMajorVersion("gcc (SUSE Linux) 16.2.0"); ok {
+		t.Fatalf("non-Clang banner accepted")
+	}
+	if _, ok := clangMajorVersion("clang version 99999999999999999999.1"); ok {
+		t.Fatalf("major version overflowing int accepted")
 	}
 }
 
