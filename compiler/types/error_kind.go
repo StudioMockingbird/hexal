@@ -1,71 +1,65 @@
 package types
 
+import "hexal/compiler/specdata"
+
 // ErrorKind is the protected builtin classification carried by every Error.
 // Every variant but Other is a unit variant; Other carries the one caller-
 // supplied String<128> header for a failure with no closed classification.
+//
+// The variant identities, their declaration order, and the one payload-carrying
+// variant are registry facts in compiler/specdata. This file owns the display
+// wording for each unit variant and the interned ErrorKind Type.
 
-// ErrorKindVariantNames is the fixed, declaration-ordered variant list. Order
-// here is the order ErrorKind.header() derivation, match declaration order,
-// and generated tag registration all agree on. It is an array rather than a
-// slice, so a caller that takes a copy gets an independent value instead of a
-// second reference to the compiler's own storage.
-var ErrorKindVariantNames = [26]string{
-	"NotFound",
-	"PermissionDenied",
-	"AlreadyExists",
-	"InvalidInput",
-	"InvalidPath",
-	"NotADirectory",
-	"IsADirectory",
-	"DirectoryNotEmpty",
-	"ReadOnly",
-	"Busy",
-	"Interrupted",
-	"Cancelled",
-	"TimedOut",
-	"Unsupported",
-	"ResourceExhausted",
-	"Closed",
-	"AddressInUse",
-	"AddressUnavailable",
-	"ConnectionRefused",
-	"ConnectionReset",
-	"ConnectionAborted",
-	"HostUnreachable",
-	"NetworkUnreachable",
-	"BrokenPipe",
-	"NotConnected",
-	"Other",
+// ErrorKindVariantNames is the fixed, declaration-ordered variant list, derived
+// from the registry. Order here is the order ErrorKind.header() derivation,
+// match declaration order, and generated tag registration all agree on. It is
+// an array rather than a slice, so a caller that takes a copy gets an
+// independent value instead of a second reference to the compiler's own
+// storage; the array's arity is this exported API's contract, not a second
+// declaration of the variant set.
+var ErrorKindVariantNames = errorKindVariantNames()
+
+func errorKindVariantNames() [26]string {
+	specs := specdata.ErrorKinds()
+	var names [26]string
+	for index := range names {
+		if index >= len(specs) {
+			break
+		}
+		names[index] = string(specs[index].ID)
+	}
+	return names
 }
 
-// errorKindHeaders is the fixed display header for each unit variant. Other
-// has no entry here: its header is its own payload, not a fixed string.
-var errorKindHeaders = map[string]string{
-	"NotFound":           "not found",
-	"PermissionDenied":   "permission denied",
-	"AlreadyExists":      "already exists",
-	"InvalidInput":       "invalid input",
-	"InvalidPath":        "invalid path",
-	"NotADirectory":      "not a directory",
-	"IsADirectory":       "is a directory",
-	"DirectoryNotEmpty":  "directory not empty",
-	"ReadOnly":           "read only",
-	"Busy":               "busy",
-	"Interrupted":        "interrupted",
-	"Cancelled":          "cancelled",
-	"TimedOut":           "timed out",
-	"Unsupported":        "unsupported",
-	"ResourceExhausted":  "resource exhausted",
-	"Closed":             "closed",
-	"AddressInUse":       "address in use",
-	"AddressUnavailable": "address unavailable",
-	"ConnectionRefused":  "connection refused",
-	"ConnectionReset":    "connection reset",
-	"ConnectionAborted":  "connection aborted",
-	"HostUnreachable":    "host unreachable",
-	"NetworkUnreachable": "network unreachable",
-	"BrokenPipe":         "broken pipe",
-	"NotConnected":       "not connected",
+// errorKindHeaders is the fixed display header for each unit variant, keyed by
+// the registry's variant identity. Other has no entry here: its header is its
+// own payload, not a fixed string.
+var errorKindHeaders = map[specdata.ErrorKindID]string{
+	specdata.ErrorKindNotFound:           "not found",
+	specdata.ErrorKindPermissionDenied:   "permission denied",
+	specdata.ErrorKindAlreadyExists:      "already exists",
+	specdata.ErrorKindInvalidInput:       "invalid input",
+	specdata.ErrorKindInvalidPath:        "invalid path",
+	specdata.ErrorKindNotADirectory:      "not a directory",
+	specdata.ErrorKindIsADirectory:       "is a directory",
+	specdata.ErrorKindDirectoryNotEmpty:  "directory not empty",
+	specdata.ErrorKindReadOnly:           "read only",
+	specdata.ErrorKindBusy:               "busy",
+	specdata.ErrorKindInterrupted:        "interrupted",
+	specdata.ErrorKindCancelled:          "cancelled",
+	specdata.ErrorKindTimedOut:           "timed out",
+	specdata.ErrorKindUnsupported:        "unsupported",
+	specdata.ErrorKindResourceExhausted:  "resource exhausted",
+	specdata.ErrorKindClosed:             "closed",
+	specdata.ErrorKindAddressInUse:       "address in use",
+	specdata.ErrorKindAddressUnavailable: "address unavailable",
+	specdata.ErrorKindConnectionRefused:  "connection refused",
+	specdata.ErrorKindConnectionReset:    "connection reset",
+	specdata.ErrorKindConnectionAborted:  "connection aborted",
+	specdata.ErrorKindHostUnreachable:    "host unreachable",
+	specdata.ErrorKindNetworkUnreachable: "network unreachable",
+	specdata.ErrorKindBrokenPipe:         "broken pipe",
+	specdata.ErrorKindNotConnected:       "not connected",
 }
 
 // ErrorKindType is the protected compiler-owned ErrorKind ADT. It is
@@ -74,13 +68,15 @@ var errorKindHeaders = map[string]string{
 var ErrorKindType = errorKindType()
 
 func errorKindType() Type {
-	variants := make([]AdtVariant, len(ErrorKindVariantNames))
-	for index, name := range ErrorKindVariantNames {
-		if name == "Other" {
-			variants[index] = AdtVariant{Name: name, Payload: []ObjectMember{{Name: "header", Type: ErrorHeaderText, Use: NewTypeUse(ErrorHeaderText)}}}
-			continue
+	specs := specdata.ErrorKinds()
+	variants := make([]AdtVariant, len(specs))
+	for index, spec := range specs {
+		variant := AdtVariant{Name: string(spec.ID)}
+		if spec.HeaderType != "" {
+			header := errorKindHeaderType(spec.HeaderType)
+			variant.Payload = []ObjectMember{{Name: "header", Type: header, Use: NewTypeUse(header)}}
 		}
-		variants[index] = AdtVariant{Name: name}
+		variants[index] = variant
 	}
 	adt := &AdtType{
 		Name:     "ErrorKind",
@@ -97,6 +93,18 @@ func errorKindType() Type {
 	}
 }
 
+// errorKindHeaderType resolves the registry's payload header constructor to the
+// concrete bounded text type Error fixes. The record names the bounded-string
+// constructor; ErrorHeaderText is the one type built from the configured header
+// capacity, so the capacity stays in the configuration package and this adapter
+// is the single place the constructor meets it.
+func errorKindHeaderType(constructor specdata.TypeID) Type {
+	if constructor == specdata.TypeInlineString {
+		return ErrorHeaderText
+	}
+	return Type{}
+}
+
 func init() {
 	builtinTypes["ErrorKind"] = ErrorKindType
 }
@@ -105,20 +113,15 @@ func init() {
 func IsErrorKind(typ Type) bool { return typ.Adt != nil && typ.Adt == ErrorKindType.Adt }
 
 // ErrorKindVariantIndex returns the declaration index of a variant name, or
-// -1 if unknown.
+// -1 if unknown. The registry owns the declaration order.
 func ErrorKindVariantIndex(variant string) int {
-	for index, name := range ErrorKindVariantNames {
-		if name == variant {
-			return index
-		}
-	}
-	return -1
+	return specdata.ErrorKindIndex(specdata.ErrorKindID(variant))
 }
 
 // ErrorKindHeader returns the fixed display header for a unit ErrorKind
 // variant name. It reports false for Other, whose header is its own payload,
 // and for any unknown name.
 func ErrorKindHeader(variant string) (string, bool) {
-	header, ok := errorKindHeaders[variant]
+	header, ok := errorKindHeaders[specdata.ErrorKindID(variant)]
 	return header, ok
 }
