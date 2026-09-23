@@ -49,5 +49,8 @@ func Validate() error {
 	if err := validateErrorKinds(); err != nil {
 		return err
 	}
-	return validateScalars()
+	if err := validateScalars(); err != nil {
+		return err
+	}
+	return validateOperators()
 }
