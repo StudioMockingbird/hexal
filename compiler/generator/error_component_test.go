@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -80,5 +81,38 @@ func TestErrorComponentDeterministic(t *testing.T) {
 	}
 	if first["hexal/error.h"] != second["hexal/error.h"] {
 		t.Fatalf("equivalent programs rendered hexal/error.h differently")
+	}
+}
+
+// The ErrorKind registry's declaration order drives the generated header
+// derivation switch, and the one payload-carrying variant stores its
+// caller-supplied header in the configured bounded-text field. The program-wide
+// tag enum sorts by canonical identity, so declaration order is observable only
+// in the switch; this asserts it there against the registry and pins the
+// exported variant-name alias to the registry's identities.
+func TestErrorKindRegistryOrderDrivesGeneratedHeader(t *testing.T) {
+	program := checkedGeneratorSource(t, "fun demo(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"Read Error\"), \"bad\")\nend")
+	files := generateOne(t, program)
+	errorH := files["hexal/error.h"]
+	if !strings.Contains(errorH, compilerTypes.ErrorHeaderText.CName+" other_header;") {
+		t.Fatalf("hexal/error.h lacks the Other header payload field: %q", errorH)
+	}
+	specs := specdata.ErrorKinds()
+	if len(compilerTypes.ErrorKindVariantNames) != len(specs) {
+		t.Fatalf("ErrorKindVariantNames has %d entries, registry declares %d", len(compilerTypes.ErrorKindVariantNames), len(specs))
+	}
+	previous := -1
+	for index, spec := range specs {
+		if compilerTypes.ErrorKindVariantNames[index] != string(spec.ID) {
+			t.Fatalf("ErrorKindVariantNames[%d] = %q, registry declares %q", index, compilerTypes.ErrorKindVariantNames[index], spec.ID)
+		}
+		at := strings.Index(errorH, "case hex_tag_ErrorKind_"+string(spec.ID)+":")
+		if at < 0 {
+			t.Fatalf("hexal/error.h lacks the header case for %s: %q", spec.ID, errorH)
+		}
+		if at <= previous {
+			t.Fatalf("hexal/error.h case %s is out of registry declaration order", spec.ID)
+		}
+		previous = at
 	}
 }

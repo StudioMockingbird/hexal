@@ -43,5 +43,8 @@ func Validate() error {
 	if err := validateComponents(); err != nil {
 		return err
 	}
-	return validateConstructors()
+	if err := validateConstructors(); err != nil {
+		return err
+	}
+	return validateErrorKinds()
 }
