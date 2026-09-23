@@ -4,6 +4,7 @@ import (
 	"strconv"
 
 	"hexal/compiler/config"
+	"hexal/compiler/specdata"
 )
 
 // ArrayInfo is the metadata of one fixed inline array type.
@@ -69,11 +70,76 @@ func IsList(typ Type) bool { return typ.List != nil }
 // IsDict reports whether typ is an owning dictionary.
 func IsDict(typ Type) bool { return typ.Dict != nil }
 
-// isManaged reports whether typ is a reference-like handle value rejected
-// from inline positions, storage, and union alternatives. Slices are
-// the borrowed form; String, List, and Dict are owning forms.
+// typeFactsOf is the adapter the position and pointer models read to resolve a
+// Type to its registry facts. It is a variable so a test can replace it and
+// prove the consumers read the registry rather than a hard-coded fact.
+var typeFactsOf = resolveTypeFacts
+
+// TypeFactsOf resolves one Type to the facts of its compiler-owned identity,
+// reporting false for a type the registry does not describe: a user object,
+// ADT, union, pointer, scalar, or type parameter. The registry imports no
+// compiler package, so this adapter is the one place that knows both spaces; it
+// is the inverse of ResolveSpecID extended to the constructor families and the
+// structural function identity.
+func TypeFactsOf(typ Type) (specdata.TypeFacts, bool) {
+	return typeFactsOf(typ)
+}
+
+// resolveTypeFacts maps one Type to the registry identifier that names its
+// compiler-owned identity and returns that record. The identity is the Type's
+// structural kind, never its name or C spelling, so a forged metadata copy
+// cannot claim another identity's facts.
+func resolveTypeFacts(typ Type) (specdata.TypeFacts, bool) {
+	var id specdata.TypeID
+	switch {
+	case typ.Array != nil:
+		id = specdata.TypeArray
+	case typ.InlineString != nil:
+		id = specdata.TypeInlineString
+	case typ.Slice != nil:
+		id = specdata.TypeSlice
+	case typ.List != nil:
+		id = specdata.TypeList
+	case typ.Dict != nil:
+		id = specdata.TypeDict
+	case typ.Task != nil:
+		id = specdata.TypeTask
+	case typ.Channel != nil:
+		id = specdata.TypeChannel
+	case typ.Atomic != nil:
+		id = specdata.TypeAtomic
+	case typ.Stash != nil:
+		id = specdata.TypeStash
+	case typ.Pool != nil:
+		id = specdata.TypePool
+	case typ.Signature != nil:
+		id = specdata.TypeFun
+	case IsNil(typ):
+		id = specdata.TypeNil
+	case IsUnknown(typ):
+		id = specdata.TypeUnknown
+	case IsHeap(typ):
+		id = specdata.TypeHeap
+	case IsString(typ):
+		id = specdata.TypeString
+	case IsIO(typ):
+		id = specdata.TypeIO
+	case IsBytes(typ):
+		id = specdata.TypeBytes
+	default:
+		return specdata.TypeFacts{}, false
+	}
+	return specdata.Facts(id)
+}
+
+// isManaged reports whether typ is one of the types that already carries its
+// own aliasing and invalidation rules over borrowed or allocated storage, so a
+// pointer to it would add a second aliasing layer with no defined semantics.
+// The registry records the fact; representation cannot, because String is a
+// handle and Slice a value yet both are excluded.
 func isManaged(typ Type) bool {
-	return typ.Slice != nil || IsString(typ) || IsList(typ) || IsDict(typ)
+	facts, ok := typeFactsOf(typ)
+	return ok && facts.Managed
 }
 
 // IsMutex reports whether typ is the canonical scheduler-aware Mutex handle.
@@ -276,63 +342,22 @@ const (
 	PositionHeapAllocation
 )
 
-func isConstructionPosition(position Position) bool {
-	return position == PositionBinding || position == PositionObjectMember
-}
-
 // Storable reports whether typ may occupy position: complete and finite, not
-// Unknown, not an unspecialized type parameter, and Fun only in Binding,
-// UnionMember, or FunctionParam. Atomic is storable only in a construction
-// position (Binding or ObjectMember); every other position acquires its value
-// by copying and is governed by the separate Copyable rule. Nil is storable
-// only as a union member.
+// an unspecialized type parameter, and admitted by its registry record's
+// position mask. A type the registry does not describe -- a scalar, pointer,
+// object, ADT, or union -- is storable everywhere. Atomic is recorded as
+// storable only in a construction position (Binding or ObjectMember); every
+// other position acquires its value by copying and is governed by the separate
+// Copyable rule. Nil is recorded as storable only as a union member.
 func Storable(typ Type, position Position) bool {
-	if !IsCompleteValue(typ) || IsUnknown(typ) || ContainsTypeParameter(typ) {
+	if !IsCompleteValue(typ) || ContainsTypeParameter(typ) {
 		return false
 	}
-	if IsNil(typ) {
-		return position == PositionUnionMember
+	facts, ok := typeFactsOf(typ)
+	if !ok {
+		return true
 	}
-	if typ.Signature != nil {
-		switch position {
-		case PositionBinding, PositionUnionMember, PositionFunctionParam, PositionFunctionResult,
-			PositionObjectMember, PositionADTPayload, PositionArrayElement, PositionSliceElement,
-			PositionListElement, PositionDictValue, PositionTaskArgument, PositionTaskResult,
-			PositionChannelElement:
-			return true
-		default:
-			return false
-		}
-	}
-	if typ.Atomic != nil && !isConstructionPosition(position) {
-		return false
-	}
-	// Stream bootstrap restriction: IO may cross a Task boundary as a
-	// shallow copy but has no generation-checked lifetime, so it does not
-	// survive in long-lived aggregate storage. File instead carries a
-	// generation-checked handle: closing invalidates every copy at runtime,
-	// so it is safe in every ordinary complete-value position and falls
-	// through to the unrestricted default below.
-	if IsIO(typ) {
-		switch position {
-		case PositionBinding, PositionUnionMember, PositionFunctionParam,
-			PositionFunctionResult, PositionTaskArgument, PositionTaskResult,
-			PositionPointee:
-			return true
-		default:
-			return false
-		}
-	}
-	if IsBytes(typ) {
-		switch position {
-		case PositionBinding, PositionUnionMember, PositionFunctionParam,
-			PositionFunctionResult, PositionPointee:
-			return true
-		default:
-			return false
-		}
-	}
-	return true
+	return facts.Positions.Allows(uint8(position))
 }
 
 // Eligible reports whether a concrete element may be stored at position: it

@@ -98,6 +98,12 @@ const (
 	TypePool         TypeID = "Pool"
 )
 
+// TypeFun is the structural function identity. It has no interned Type:
+// ResolveSpecID never resolves it, and a function Type reaches it through its
+// Signature field. It is recorded so the function placement and comparison
+// facts have one owner instead of a Signature check repeated in each consumer.
+const TypeFun TypeID = "Fun"
+
 // concreteTypeIDs lists every identifier ResolveSpecID resolves to an interned
 // Type. It is a slice so Validate reports a repeated identifier as a
 // source-tree defect instead of the compiler refusing an identical map key
@@ -157,33 +163,129 @@ const (
 	FreeOwned
 )
 
-// ComparisonMode classifies equality and ordering eligibility.
-type ComparisonMode uint8
+// ComparisonForm classifies how a compiler-owned type's equality is decided.
+// It is a form, not a per-type verdict, because equality is structural: a
+// List<T> is equality-comparable exactly when T is, so one enum value per
+// constructor cannot express the fact.
+type ComparisonForm uint8
 
 const (
-	// ComparisonNone has neither equality nor ordering.
-	ComparisonNone ComparisonMode = iota
-	// ComparisonEquality supports == and != only.
-	ComparisonEquality
-	// ComparisonOrdered supports equality plus <, <=, >, and >=.
-	ComparisonOrdered
+	// ComparisonNever has no equality: == and != are always unavailable.
+	ComparisonNever ComparisonForm = iota
+	// ComparisonAlways supports == and != regardless of any component.
+	ComparisonAlways
+	// ComparisonStructural supports == and != exactly when every component
+	// the value stores is itself equality-available.
+	ComparisonStructural
 )
+
+// PositionMask is a bit set over the compiler's storing positions. Bit i is
+// set when the type may occupy position index i; the index order is the shared
+// position model's declaration order, and a compiler-side test pins the two
+// orders together.
+type PositionMask uint16
+
+// The position bits, in the shared position model's declaration order.
+const (
+	StorableBinding PositionMask = 1 << iota
+	StorableObjectMember
+	StorableADTPayload
+	StorableUnionMember
+	StorableArrayElement
+	StorableSliceElement
+	StorableListElement
+	StorableDictValue
+	StorableFunctionParam
+	StorableFunctionResult
+	StorableTaskArgument
+	StorableTaskResult
+	StorableChannelElement
+	StorablePointee
+	StorableHeapAllocation
+)
+
+// The named position sets the registry records. StorableEverywhere is the
+// default a complete, finitely sized value gets unless a rule excludes it.
+const (
+	// StorableEverywhere is every position.
+	StorableEverywhere PositionMask = StorableBinding | StorableObjectMember | StorableADTPayload | StorableUnionMember | StorableArrayElement | StorableSliceElement | StorableListElement | StorableDictValue | StorableFunctionParam | StorableFunctionResult | StorableTaskArgument | StorableTaskResult | StorableChannelElement | StorablePointee | StorableHeapAllocation
+	// StorableNowhere is no position.
+	StorableNowhere PositionMask = 0
+	// StorableConstructionOnly is the in-place construction positions.
+	StorableConstructionOnly PositionMask = StorableBinding | StorableObjectMember
+	// StorableUnionMemberOnly is Nil's single position.
+	StorableUnionMemberOnly PositionMask = StorableUnionMember
+	// StorableFunction is the function-value placement set: everywhere
+	// except a pointer pointee and a heap allocation.
+	StorableFunction PositionMask = StorableBinding | StorableObjectMember | StorableADTPayload | StorableUnionMember | StorableArrayElement | StorableSliceElement | StorableListElement | StorableDictValue | StorableFunctionParam | StorableFunctionResult | StorableTaskArgument | StorableTaskResult | StorableChannelElement
+	// StorableIO is the stream-descriptor placement set: the short-lived
+	// positions a borrowed descriptor may cross, plus a pointer pointee.
+	StorableIO PositionMask = StorableBinding | StorableUnionMember | StorableFunctionParam | StorableFunctionResult | StorableTaskArgument | StorableTaskResult | StorablePointee
+	// StorableBytes is the memory-stream placement set: StorableIO without
+	// the Task positions.
+	StorableBytes PositionMask = StorableBinding | StorableUnionMember | StorableFunctionParam | StorableFunctionResult | StorablePointee
+)
+
+// Allows reports whether the mask admits one position index.
+func (mask PositionMask) Allows(position uint8) bool {
+	return mask&(PositionMask(1)<<position) != 0
+}
 
 // ConstructorFacts are the facts equal across every specialization of one type
 // constructor: representation, copy and free behavior, comparison eligibility,
-// and the runtime component the constructor demands. A C name, layout, size,
-// and element eligibility vary by argument and are never stored here.
+// the storable positions, and the runtime component the constructor demands. A
+// C name, layout, size, and element eligibility vary by argument and are never
+// stored here.
 //
 // Component is the constructor's demand, not a restatement of a component fact:
 // the runtime-component registry records each component's own files,
 // dependencies, and headers, and never which constructors pull it.
+//
+// Managed is not Representation. Representation follows ownership, so Slice is
+// a value and String a handle; yet both, with List and Dict, are excluded as
+// pointer pointees because each carries its own aliasing and invalidation rules
+// over borrowed or allocated storage. Managed records that exclusion.
 type ConstructorFacts struct {
 	Representation Representation
 	CopyMode       CopyMode
 	FreeMode       FreeMode
-	Comparable     ComparisonMode
+	Comparison     ComparisonForm
+	Ordered        bool
 	Hashable       bool
+	Managed        bool
+	Positions      PositionMask
 	Component      ComponentID
+}
+
+// TypeFacts returns the subset of facts a concrete or structural identity is
+// consumed for: comparison, ordering, pointee exclusion, and storable
+// positions. A concrete record stores only this subset, because a concrete
+// identity is never consumed for representation, copy, or free behavior.
+func (facts ConstructorFacts) TypeFacts() TypeFacts {
+	return TypeFacts{
+		Comparison: facts.Comparison,
+		Ordered:    facts.Ordered,
+		Managed:    facts.Managed,
+		Positions:  facts.Positions,
+	}
+}
+
+// TypeFacts are the facts consumed for one concrete or structural
+// compiler-owned identity. A concrete identity with every default fact needs no
+// record: the resolver reports it absent and the consumer applies the default.
+type TypeFacts struct {
+	Comparison ComparisonForm
+	Ordered    bool
+	Managed    bool
+	Positions  PositionMask
+}
+
+// ConcreteTypeSpec is one concrete or structural compiler-owned identity that
+// carries a non-default fact. It has no parameters, so unlike a
+// TypeConstructorSpec it stores no parameter list and no constructibility.
+type ConcreteTypeSpec struct {
+	ID    TypeID
+	Facts TypeFacts
 }
 
 // ParamKind classifies one type-constructor parameter.
@@ -218,68 +320,99 @@ var typeConstructors = []TypeConstructorSpec{
 		ID:         TypeArray,
 		SourceName: "Array",
 		Params:     []ParamKind{ParamType, ParamInteger},
-		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, FreeMode: FreeNone, Comparable: ComparisonEquality, Component: ComponentArray},
+		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, FreeMode: FreeNone, Comparison: ComparisonStructural, Positions: StorableEverywhere, Component: ComponentArray},
 	},
 	{
 		ID:         TypeInlineString,
 		SourceName: "String",
 		Params:     []ParamKind{ParamInteger},
-		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, FreeMode: FreeNone, Comparable: ComparisonEquality, Hashable: true, Component: ComponentString},
+		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, FreeMode: FreeNone, Comparison: ComparisonAlways, Ordered: true, Hashable: true, Positions: StorableEverywhere, Component: ComponentString},
 	},
 	{
 		ID:         TypeSlice,
 		SourceName: "Slice",
 		Params:     []ParamKind{ParamType},
-		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, FreeMode: FreeNone, Comparable: ComparisonEquality, Component: ComponentSlice},
+		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, FreeMode: FreeNone, Comparison: ComparisonStructural, Managed: true, Positions: StorableEverywhere, Component: ComponentSlice},
 	},
 	{
 		ID:            TypeList,
 		SourceName:    "List",
 		Params:        []ParamKind{ParamType},
-		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentList},
+		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparison: ComparisonStructural, Managed: true, Positions: StorableEverywhere, Component: ComponentList},
 		Constructible: true,
 	},
 	{
 		ID:            TypeDict,
 		SourceName:    "Dict",
 		Params:        []ParamKind{ParamType, ParamType},
-		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentDict},
+		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparison: ComparisonNever, Managed: true, Positions: StorableEverywhere, Component: ComponentDict},
 		Constructible: true,
 	},
 	{
 		ID:         TypeTask,
 		SourceName: "Task",
 		Params:     []ParamKind{ParamType},
-		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeNone, Comparable: ComparisonNone, Component: ComponentConcurrency},
+		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeNone, Comparison: ComparisonNever, Positions: StorableEverywhere, Component: ComponentConcurrency},
 	},
 	{
 		ID:            TypeChannel,
 		SourceName:    "Channel",
 		Params:        []ParamKind{ParamType},
-		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentConcurrency},
+		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparison: ComparisonNever, Positions: StorableEverywhere, Component: ComponentConcurrency},
 		Constructible: true,
 	},
 	{
 		ID:            TypeAtomic,
 		SourceName:    "Atomic",
 		Params:        []ParamKind{ParamType},
-		Facts:         ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyUnavailable, FreeMode: FreeNone, Comparable: ComparisonNone, Component: ComponentConcurrency},
+		Facts:         ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyUnavailable, FreeMode: FreeNone, Comparison: ComparisonNever, Positions: StorableConstructionOnly, Component: ComponentConcurrency},
 		Constructible: true,
 	},
 	{
 		ID:            TypeStash,
 		SourceName:    "Stash",
 		Params:        []ParamKind{ParamType},
-		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentStash},
+		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparison: ComparisonNever, Positions: StorableEverywhere, Component: ComponentStash},
 		Constructible: true,
 	},
 	{
 		ID:            TypePool,
 		SourceName:    "Pool",
 		Params:        []ParamKind{ParamType},
-		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentPool},
+		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparison: ComparisonNever, Positions: StorableEverywhere, Component: ComponentPool},
 		Constructible: true,
 	},
+}
+
+// concreteFacts is the registry of concrete and structural compiler-owned
+// identities whose facts are not the default. A concrete identity with every
+// default fact (a scalar, Mutex, a core object or ADT) is deliberately absent:
+// the resolver reports it absent and the consumer applies the default, so the
+// absence is itself the recorded default rather than a missing record.
+var concreteFacts = []ConcreteTypeSpec{
+	{ID: TypeNil, Facts: TypeFacts{Comparison: ComparisonAlways, Positions: StorableUnionMemberOnly}},
+	{ID: TypeUnknown, Facts: TypeFacts{Comparison: ComparisonNever, Positions: StorableNowhere}},
+	{ID: TypeFun, Facts: TypeFacts{Comparison: ComparisonNever, Positions: StorableFunction}},
+	{ID: TypeHeap, Facts: TypeFacts{Comparison: ComparisonNever, Positions: StorableEverywhere}},
+	{ID: TypeString, Facts: TypeFacts{Comparison: ComparisonAlways, Ordered: true, Managed: true, Positions: StorableEverywhere}},
+	{ID: TypeIO, Facts: TypeFacts{Comparison: ComparisonNever, Positions: StorableIO}},
+	{ID: TypeBytes, Facts: TypeFacts{Comparison: ComparisonNever, Positions: StorableBytes}},
+}
+
+// Facts resolves one compiler-owned identity to the facts a concrete or
+// structural consumer reads. It searches the constructor registry and the
+// concrete registry, so a caller never needs to know which kind the identifier
+// names.
+func Facts(id TypeID) (TypeFacts, bool) {
+	if spec, ok := TypeConstructor(id); ok {
+		return spec.Facts.TypeFacts(), true
+	}
+	for _, spec := range concreteFacts {
+		if spec.ID == id {
+			return spec.Facts, true
+		}
+	}
+	return TypeFacts{}, false
 }
 
 // TypeConstructor resolves one type constructor by identifier.
@@ -393,8 +526,11 @@ func validateConstructors() error {
 		if spec.Facts.FreeMode != FreeNone && spec.Facts.FreeMode != FreeOwned {
 			return fmt.Errorf("specdata/constructors: constructor %q has unknown free mode", spec.ID)
 		}
-		if spec.Facts.Comparable != ComparisonNone && spec.Facts.Comparable != ComparisonEquality && spec.Facts.Comparable != ComparisonOrdered {
-			return fmt.Errorf("specdata/constructors: constructor %q has unknown comparison mode", spec.ID)
+		if spec.Facts.Comparison != ComparisonNever && spec.Facts.Comparison != ComparisonAlways && spec.Facts.Comparison != ComparisonStructural {
+			return fmt.Errorf("specdata/constructors: constructor %q has unknown comparison form", spec.ID)
+		}
+		if spec.Facts.Positions&^StorableEverywhere != 0 {
+			return fmt.Errorf("specdata/constructors: constructor %q has a position bit outside the position model", spec.ID)
 		}
 		if _, known := Component(spec.Facts.Component); !known {
 			return fmt.Errorf("specdata/constructors: constructor %q demands unknown component %q", spec.ID, spec.Facts.Component)
@@ -405,6 +541,27 @@ func validateConstructors() error {
 	for _, id := range concreteTypeIDs {
 		if seen[id] {
 			return fmt.Errorf("specdata/constructors: %q names both a concrete type and a constructor", id)
+		}
+	}
+	concreteSeen := make(map[TypeID]bool, len(concreteFacts))
+	for _, spec := range concreteFacts {
+		if spec.ID == "" {
+			return fmt.Errorf("specdata/constructors: concrete record has an empty id")
+		}
+		if concreteSeen[spec.ID] {
+			return fmt.Errorf("specdata/constructors: concrete record %q is declared twice", spec.ID)
+		}
+		concreteSeen[spec.ID] = true
+		// TypeFun is a structural identity with no interned Type; every
+		// other concrete record must name an identity ResolveSpecID resolves.
+		if spec.ID != TypeFun && !isConcreteTypeID(spec.ID) {
+			return fmt.Errorf("specdata/constructors: concrete record %q names no concrete type", spec.ID)
+		}
+		if spec.Facts.Comparison != ComparisonNever && spec.Facts.Comparison != ComparisonAlways && spec.Facts.Comparison != ComparisonStructural {
+			return fmt.Errorf("specdata/constructors: concrete record %q has unknown comparison form", spec.ID)
+		}
+		if spec.Facts.Positions&^StorableEverywhere != 0 {
+			return fmt.Errorf("specdata/constructors: concrete record %q has a position bit outside the position model", spec.ID)
 		}
 	}
 	return validateMethods(methods)
