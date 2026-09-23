@@ -46,29 +46,6 @@ Facts confirmed to have exactly one consumer are not listed.
   `ContainsAtomic`). Step: switch the position model onto the records, or
   withdraw the fields.
 
-- **Component `RequiredCHeaders` is recorded but unconsumed
-  ([0229](specs/0229-data-driven-compiler-facts.md)).** The registry owns the
-  field at `compiler/specdata/components.go:79`, read only by the clone and
-  validator, while the program-wide header set is still built from hard-coded
-  literals in `computeHeaderRequirements`
-  (`compiler/generator/emission.go:650-880`, e.g. heap at :661, string at :678,
-  print at :732). The sets are not interchangeable: equality (:697 with the
-  conditional :699) and concurrency (:759 with the conditional :770) list
-  headers the generator adds only under a condition, numeric's bitcast
-  `string.h` (:725) and handle's `string.h` have no matching branch, and the
-  generator adds headers for conversion, interpolation, union, and
-  size-literal families no component record names. Step: reconcile the record
-  model with the family-gated computation before any builder reads it; a
-  straight substitution moves generated C.
-
-- **Component `RuntimeDependencies` is recorded but unconsumed
-  ([0229](specs/0229-data-driven-compiler-facts.md)).** `components.go:78`
-  records each component's native inputs, read only by the clone and validator
-  (`:295,:329`); the program's dependency set is computed from generator state
-  (`compiler/generator/generator.go:114-124`) and the driver keeps its own pack
-  ordering. Step: have the dependency aggregation read the component records,
-  or mark the field reserved.
-
 - **`TargetFacts` fields have no consumer
   ([0229](specs/0229-data-driven-compiler-facts.md)).**
   `resolveTargetProfile` (`compiler/profile.go:21`) returns the record, but its
