@@ -22,27 +22,20 @@ readiness* requires, one entry per surviving second authority. Each names the
 file that still owns the fact and the step that would give the fact one owner.
 Facts confirmed to have exactly one consumer are not listed.
 
-- **Runtime symbols still have a second owner in the generator's deferred and
-  queued paths ([0229](specs/0229-data-driven-compiler-facts.md)).** Built-in
-  method and constructor dispatch now read `specdata.Method` and
-  `specdata.TypeConstructors` in both the checker and the generator, with tests
-  that empty or corrupt a record and show the answer move. What remains is the
-  symbol fact: the same names are still spelled literally in
-  `compiler/generator/defer.go` (`hex_list_free_*`, `hex_dict_free_*`,
-  `hex_chan_free_*`, `hex_mutex_lock/unlock/free`, `hex_task_join/detach`) and
-  in `compiler/generator/packages/*` (`dict_find_decl`). Step: have those sites
+- **The runtime-symbol fact still has more than one owner
+  ([0229](specs/0229-data-driven-compiler-facts.md)).** Built-in method and
+  constructor dispatch read `specdata.Method` and
+  `specdata.TypeConstructors`, and the deferred and queued paths read
+  `RuntimeSymbol` too, with tests that empty or corrupt a record and show the
+  answer move. Recorded symbols are nevertheless still spelled literally in
+  `compiler/generator/arrays.go` (the `Array` and `List` `slice` and `mut_slice`
+  operations), `compiler/generator/stash.go` and `defer.go`
+  (`hex_stash_reset`/`destroy`/`alloc_%s`), `compiler/generator/pool.go`
+  (`hex_pool_alloc`/`free`/`destroy_%s`), and the text set in
+  `compiler/generator/strings.go` plus `interpolation.go` (`hex_text_*`,
+  `hex_string_make`, `hex_string_free`, `hex_string_casefold_%s`,
+  `hex_string_normalize_%s`, `hex_string_concat_%s`). Step: have those sites
   read the record's `RuntimeSymbol`, so the symbol has one owner everywhere.
-
-- **The inline-string record omits methods the checker accepts
-  ([0229](specs/0229-data-driven-compiler-facts.md)).** The shared read-only
-  text operations are accepted on a bounded string -- `String<16>.rune_length()`
-  compiles and `docs/reference.md` lists them -- but the `InlineString` records
-  do not carry them, so gating that receiver on the registry would reject valid
-  programs; it is deliberately left ungated. Step: complete the shared
-  text-method records for `InlineString`. Note that
-  `compiler/tests/integration/builtin_method_symbols_test.go` currently requires
-  one owner-and-symbol program per record, so a shared record needs either a
-  second program or a stated exemption.
 
 - **Type representation and copy facts are recorded but unconsumed
   ([0229](specs/0229-data-driven-compiler-facts.md)).** `ConstructorFacts`
