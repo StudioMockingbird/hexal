@@ -538,10 +538,18 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 				return "", heapErr
 			}
 			if node.OperandType.List != nil {
-				return "hex_list_free_" + listSuffix(node.OperandType) + "(" + heap + ", " + receiver + ")", nil
+				symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeList), "free", listSuffix(node.OperandType))
+				if symbolErr != nil {
+					return "", symbolErr
+				}
+				return symbol + "(" + heap + ", " + receiver + ")", nil
 			}
 			if node.OperandType.Dict != nil {
-				return "hex_dict_free_" + dictSuffix(node.OperandType) + "(" + heap + ", " + receiver + ")", nil
+				symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeDict), "free", dictSuffix(node.OperandType))
+				if symbolErr != nil {
+					return "", symbolErr
+				}
+				return symbol + "(" + heap + ", " + receiver + ")", nil
 			}
 			return "", unknownExpressionDiagnostic("collection free without a list or dictionary receiver")
 		case "insert", "get", "find", "contains", "remove":

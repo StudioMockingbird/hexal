@@ -174,8 +174,16 @@ const stringMethodsProgram = "fun demo(h: Heap) do\n" +
 const inlineStringMethodsProgram = "fun demo(h: Heap) do\n" +
 	"    let label: String<16> = \"hexal\"\n" +
 	"    let length: Size = label.length()\n" +
+	"    let runes: Size = label.rune_length()\n" +
+	"    let graphemes: Size = label.grapheme_length()\n" +
+	"    let bytes_cursor: ByteCursor = label.byte_cursor()\n" +
+	"    let runes_cursor: RuneCursor = label.rune_cursor()\n" +
+	"    let graphemes_cursor: GraphemeCursor = label.grapheme_cursor()\n" +
 	"    let raw: Slice<UInt8> = label.bytes()\n" +
 	"    let part: Slice<UInt8> = label.slice(0, 1)\n" +
+	"    let copied: String = label.copy(h)\n" +
+	"    let folded: String | Error = label.casefold(h)\n" +
+	"    let normalized: String | Error = label.normalize(h, NormalizationForm.NFC())\n" +
 	"    let joined: String | Error = label.concat(h, raw)\n" +
 	"    let wide: String<32> = label.widen<32>()\n" +
 	"    if length == 0 then\n" +
@@ -183,67 +191,82 @@ const inlineStringMethodsProgram = "fun demo(h: Heap) do\n" +
 	"    end\n" +
 	"    let spare2: String | Error = joined\n" +
 	"    let spare3: String<32> = wide\n" +
+	"    let spare4: String = copied\n" +
+	"    let spare5: String | Error = folded\n" +
+	"    let spare6: String | Error = normalized\n" +
+	"    let spare7: ByteCursor = bytes_cursor\n" +
+	"    let spare8: RuneCursor = runes_cursor\n" +
+	"    let spare9: GraphemeCursor = graphemes_cursor\n" +
+	"    let spare10: Size = runes + graphemes\n" +
 	"end"
 
 // methodSources binds one program to each registered method whose record names
 // a runtime symbol.
 var methodSources = map[string]string{
-	"Array.slice":             arraySliceProgram,
-	"Array.mut_slice":         arraySliceProgram,
-	"Slice.slice":             arraySliceProgram,
-	"Slice.pointer":           arraySliceProgram,
-	"List.push":               listMethodsProgram,
-	"List.pop":                listMethodsProgram,
-	"List.clear":              listMethodsProgram,
-	"List.free":               listMethodsProgram,
-	"List.slice":              listMethodsProgram,
-	"List.mut_slice":          listMethodsProgram,
-	"Dict.insert":             dictMethodsProgram,
-	"Dict.get":                dictMethodsProgram,
-	"Dict.find":               dictMethodsProgram,
-	"Dict.remove":             dictMethodsProgram,
-	"Dict.contains":           dictMethodsProgram,
-	"Dict.free":               dictMethodsProgram,
-	"Task.join":               channelTaskProgram,
-	"Task.detach":             taskDetachProgram,
-	"Channel.send":            channelTaskProgram,
-	"Channel.receive":         channelTaskProgram,
-	"Channel.close":           channelTaskProgram,
-	"Channel.free":            channelTaskProgram,
-	"Channel.length":          channelTaskProgram,
-	"Channel.capacity":        channelTaskProgram,
-	"Channel.is_closed":       channelTaskProgram,
-	"Atomic.load":             atomicMethodsProgram,
-	"Atomic.store":            atomicMethodsProgram,
-	"Atomic.exchange":         atomicMethodsProgram,
-	"Atomic.fetch_add":        atomicMethodsProgram,
-	"Atomic.fetch_sub":        atomicMethodsProgram,
-	"Atomic.compare_exchange": atomicMethodsProgram,
-	"Stash.allocate":          stashMethodsProgram,
-	"Stash.reset":             stashMethodsProgram,
-	"Stash.destroy":           stashMethodsProgram,
-	"Pool.allocate":           poolMethodsProgram,
-	"Pool.free":               poolMethodsProgram,
-	"Pool.destroy":            poolMethodsProgram,
-	"String.rune_length":      stringMethodsProgram,
-	"String.grapheme_length":  stringMethodsProgram,
-	"String.byte_cursor":      stringMethodsProgram,
-	"String.rune_cursor":      stringMethodsProgram,
-	"String.grapheme_cursor":  stringMethodsProgram,
-	"String.bytes":            stringMethodsProgram,
-	"String.slice":            stringMethodsProgram,
-	"String.casefold":         stringMethodsProgram,
-	"String.normalize":        stringMethodsProgram,
-	"String.copy":             stringMethodsProgram,
-	"String.concat":           stringMethodsProgram,
-	"String.free":             stringMethodsProgram,
-	"InlineString.bytes":      inlineStringMethodsProgram,
-	"InlineString.slice":      inlineStringMethodsProgram,
-	"InlineString.concat":     inlineStringMethodsProgram,
-	"InlineString.widen":      inlineStringMethodsProgram,
-	"Mutex.lock":              mutexMethodsProgram,
-	"Mutex.unlock":            mutexMethodsProgram,
-	"Mutex.free":              mutexMethodsProgram,
+	"Array.slice":                  arraySliceProgram,
+	"Array.mut_slice":              arraySliceProgram,
+	"Slice.slice":                  arraySliceProgram,
+	"Slice.pointer":                arraySliceProgram,
+	"List.push":                    listMethodsProgram,
+	"List.pop":                     listMethodsProgram,
+	"List.clear":                   listMethodsProgram,
+	"List.free":                    listMethodsProgram,
+	"List.slice":                   listMethodsProgram,
+	"List.mut_slice":               listMethodsProgram,
+	"Dict.insert":                  dictMethodsProgram,
+	"Dict.get":                     dictMethodsProgram,
+	"Dict.find":                    dictMethodsProgram,
+	"Dict.remove":                  dictMethodsProgram,
+	"Dict.contains":                dictMethodsProgram,
+	"Dict.free":                    dictMethodsProgram,
+	"Task.join":                    channelTaskProgram,
+	"Task.detach":                  taskDetachProgram,
+	"Channel.send":                 channelTaskProgram,
+	"Channel.receive":              channelTaskProgram,
+	"Channel.close":                channelTaskProgram,
+	"Channel.free":                 channelTaskProgram,
+	"Channel.length":               channelTaskProgram,
+	"Channel.capacity":             channelTaskProgram,
+	"Channel.is_closed":            channelTaskProgram,
+	"Atomic.load":                  atomicMethodsProgram,
+	"Atomic.store":                 atomicMethodsProgram,
+	"Atomic.exchange":              atomicMethodsProgram,
+	"Atomic.fetch_add":             atomicMethodsProgram,
+	"Atomic.fetch_sub":             atomicMethodsProgram,
+	"Atomic.compare_exchange":      atomicMethodsProgram,
+	"Stash.allocate":               stashMethodsProgram,
+	"Stash.reset":                  stashMethodsProgram,
+	"Stash.destroy":                stashMethodsProgram,
+	"Pool.allocate":                poolMethodsProgram,
+	"Pool.free":                    poolMethodsProgram,
+	"Pool.destroy":                 poolMethodsProgram,
+	"String.rune_length":           stringMethodsProgram,
+	"String.grapheme_length":       stringMethodsProgram,
+	"String.byte_cursor":           stringMethodsProgram,
+	"String.rune_cursor":           stringMethodsProgram,
+	"String.grapheme_cursor":       stringMethodsProgram,
+	"String.bytes":                 stringMethodsProgram,
+	"String.slice":                 stringMethodsProgram,
+	"String.casefold":              stringMethodsProgram,
+	"String.normalize":             stringMethodsProgram,
+	"String.copy":                  stringMethodsProgram,
+	"String.concat":                stringMethodsProgram,
+	"String.free":                  stringMethodsProgram,
+	"InlineString.rune_length":     inlineStringMethodsProgram,
+	"InlineString.grapheme_length": inlineStringMethodsProgram,
+	"InlineString.byte_cursor":     inlineStringMethodsProgram,
+	"InlineString.rune_cursor":     inlineStringMethodsProgram,
+	"InlineString.grapheme_cursor": inlineStringMethodsProgram,
+	"InlineString.bytes":           inlineStringMethodsProgram,
+	"InlineString.slice":           inlineStringMethodsProgram,
+	"InlineString.copy":            inlineStringMethodsProgram,
+	"InlineString.casefold":        inlineStringMethodsProgram,
+	"InlineString.normalize":       inlineStringMethodsProgram,
+	"InlineString.concat":          inlineStringMethodsProgram,
+	"InlineString.widen":           inlineStringMethodsProgram,
+	"Mutex.lock":                   mutexMethodsProgram,
+	"Mutex.unlock":                 mutexMethodsProgram,
+	"Mutex.free":                   mutexMethodsProgram,
 }
 
 func TestBuiltinMethodRuntimeSymbolsAppearInGeneratedC(t *testing.T) {

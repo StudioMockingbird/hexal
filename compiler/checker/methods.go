@@ -44,6 +44,8 @@ func builtinOwner(typ compilerTypes.Type) (specdata.TypePattern, bool) {
 		return specdata.ConstructorOwner(specdata.TypePool), true
 	case compilerTypes.IsString(typ):
 		return specdata.ExactOwner(specdata.TypeString), true
+	case compilerTypes.IsInlineString(typ):
+		return specdata.ConstructorOwner(specdata.TypeInlineString), true
 	case compilerTypes.IsMutex(typ):
 		return specdata.ExactOwner(specdata.TypeMutex), true
 	}
