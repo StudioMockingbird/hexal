@@ -117,12 +117,12 @@ func renderFileMethod(node checker.Expression, state *expressionValidation) (str
 		}
 		arguments = append(arguments, rendered)
 	}
-	return fileMethodCall(node, arguments)
+	return fileMethodCall(node, arguments, state)
 }
 
 // fileMethodCall spells one File operation over rendered operands, receiver
 // first; the deferred-close path shares it.
-func fileMethodCall(node checker.Expression, arguments []string) (string, error) {
+func fileMethodCall(node checker.Expression, arguments []string, state *expressionValidation) (string, error) {
 	want := map[string]int{"read": 3, "write": 2, "seek": 2, "flush": 1, "close": 1}[node.Name]
 	if want == 0 || len(arguments) != want {
 		return "", unknownExpressionDiagnostic("file operation has invalid rendered operands")

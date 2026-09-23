@@ -90,12 +90,12 @@ func renderTimeExpression(node checker.Expression, state *expressionValidation) 
 		}
 		arguments = append(arguments, rendered)
 	}
-	return timeCall(node, arguments)
+	return timeCall(node, arguments, state)
 }
 
 // timeCall spells one time operation over already-rendered operands. The
 // deferred-cleanup path shares it with the ordinary render path.
-func timeCall(node checker.Expression, arguments []string) (string, error) {
+func timeCall(node checker.Expression, arguments []string, state *expressionValidation) (string, error) {
 	if arity, ok := timeOperationArity(node.Name); !ok || arity != len(arguments) {
 		return "", unknownExpressionDiagnostic("time operation has invalid rendered operands")
 	}
