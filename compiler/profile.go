@@ -18,6 +18,14 @@ var targetFactID = map[compilerTypes.TargetProfileID]specdata.TargetID{
 // host-neutral and preserves the existing deterministic generated-C
 // contract. Any other identity must name a qualified target, or compilation
 // fails before lexing.
+//
+// The record's ten facts describe the target rather than steer generation:
+// generated C carries both platform branches for the C compiler's own macros to
+// select, and size_of and align_of lower to C sizeof and alignof, so reading
+// them from Go would mean deleting a branch the C compiler still needs. The
+// record is still load-bearing, because this lookup is what proves a requested
+// target is one the compiler holds facts for, and it fails closed when it is
+// not.
 func resolveTargetProfile(target compilerTypes.TargetProfileID) (specdata.TargetFacts, error) {
 	if target == "" {
 		return specdata.TargetFacts{}, nil

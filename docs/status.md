@@ -102,16 +102,6 @@ Facts confirmed to have exactly one consumer are not listed.
   ordering. Step: have the dependency aggregation read the component records,
   or mark the field reserved.
 
-- **`TargetFacts` fields have no consumer
-  ([0229](specs/0229-data-driven-compiler-facts.md)).**
-  `resolveTargetProfile` (`compiler/profile.go:21`) returns the record, but its
-  only caller discards it (`compiler/project.go:36`), and nothing reads `OS`,
-  `Architecture`, `PointerWidth`, `SizeWidth`, `LittleEndian`, `WindowsTarget`,
-  `Threading`, `TLS`, `Fibers`, or `NativeIO` from
-  `compiler/specdata/targets.go:24-68`; generated C keeps both platform
-  branches for the C compiler's own macros to select. Step: switch a real
-  target consumer onto the record, or withdraw the fields until one exists.
-
 - **C scalar mappings are duplicated target conditionals, not records
   ([0229](specs/0229-data-driven-compiler-facts.md)).**
   `internal/driver/normalize.go:482-523` (`fundamentalSpelling`) and
