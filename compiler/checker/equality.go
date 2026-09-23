@@ -4,11 +4,17 @@ import (
 	"fmt"
 
 	"hexal/compiler/lexer"
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
 
 // Equality and ordering eligibility, the lossless numeric comparison
 // widening, and the deep-comparison nodes for non-scalar values.
+
+// typeFacts resolves one compiler-owned type to its recorded facts. It is a
+// variable so a test can replace it and prove the comparison consumer reads the
+// registry rather than restating the fact.
+var typeFacts = compilerTypes.TypeFactsOf
 
 // EqualityAvailable reports whether typ supports == and !=, returning the
 // first member name that makes it unavailable. Pointers compare identity,
@@ -45,35 +51,51 @@ func EqualityAvailable(typ compilerTypes.Type) (bool, string) {
 		return true, ""
 	case typ.NullableBase != nil:
 		return EqualityAvailable(*typ.NullableBase)
-	case typ.Array != nil:
-		if ok, _ := EqualityAvailable(typ.Array.Element); !ok {
-			return false, "element type " + typ.Array.Element.Name
-		}
-		return true, ""
-	case typ.Slice != nil:
-		if ok, _ := EqualityAvailable(typ.Slice.Element); !ok {
-			return false, "element type " + typ.Slice.Element.Name
-		}
-		return true, ""
-	case typ.List != nil:
-		if ok, _ := EqualityAvailable(typ.List.Element); !ok {
-			return false, "element type " + typ.List.Element.Name
-		}
-		return true, ""
 	case typ.Element != nil:
 		// Pointer identity equality never dereferences the pointee, so it
 		// stays finite and always available.
 		return true, ""
-	case compilerTypes.IsText(typ),
-		compilerTypes.IsInteger(typ), compilerTypes.IsFloat(typ),
-		compilerTypes.Equal(typ, compilerTypes.Bool), compilerTypes.IsNil(typ):
+	case compilerTypes.IsInteger(typ), compilerTypes.IsFloat(typ),
+		compilerTypes.Equal(typ, compilerTypes.Bool):
 		return true, ""
-	case typ.Signature != nil:
-		return false, ""
-	case typ.Dict != nil, compilerTypes.IsHeap(typ), compilerTypes.IsUnknown(typ):
+	}
+	facts, ok := typeFacts(typ)
+	if !ok {
+		// A type the registry does not describe has no equality contract:
+		// function values, allocator handles, and every other non-scalar
+		// identity without a record.
 		return false, ""
 	}
+	switch facts.Comparison {
+	case specdata.ComparisonAlways:
+		return true, ""
+	case specdata.ComparisonNever:
+		return false, ""
+	case specdata.ComparisonStructural:
+		return structuralEqualityAvailable(typ)
+	}
 	return false, ""
+}
+
+// structuralEqualityAvailable recurses over the components of one value whose
+// record declares the structural comparison form. Only Array, Slice, and List
+// declare it today, and each stores one element component.
+func structuralEqualityAvailable(typ compilerTypes.Type) (bool, string) {
+	var element compilerTypes.Type
+	switch {
+	case typ.Array != nil:
+		element = typ.Array.Element
+	case typ.Slice != nil:
+		element = typ.Slice.Element
+	case typ.List != nil:
+		element = typ.List.Element
+	default:
+		return false, ""
+	}
+	if ok, _ := EqualityAvailable(element); !ok {
+		return false, "element type " + element.Name
+	}
+	return true, ""
 }
 
 // equalityUnavailableDiagnostic reports why equality is unavailable for one
@@ -102,9 +124,12 @@ func equalityUnavailableDiagnostic(typ compilerTypes.Type, reason string, token 
 	return &diagnostic
 }
 
-// orderingAvailable reports whether typ supports the ordering operators.
+// orderingAvailable reports whether typ supports the ordering operators. The
+// registry records the fact for each text form; no other compiler-owned type is
+// ordered.
 func orderingAvailable(typ compilerTypes.Type) bool {
-	return compilerTypes.IsText(typ)
+	facts, ok := typeFacts(typ)
+	return ok && facts.Ordered
 }
 
 // checkDeepComparison resolves ==, !=, and the ordering operators that the
