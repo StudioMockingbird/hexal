@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"hexal/compiler"
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -139,8 +140,8 @@ type importer struct {
 	// alias to one is not a value type, so it resolves inline instead.
 	incompleteRecords map[string]bool
 	// target is the selected Hexal target-profile identity. It selects the C
-	// data model fundamental spellings resolve under: LP64 (long is 64-bit) on
-	// x86_64-linux-gnu, LLP64 (long is 32-bit) on x86_64-windows-gnu-ucrt.
+	// data model fundamental spellings resolve under: specdata owns the
+	// target-qualified scalar mappings and this identity picks the record set.
 	target string
 	// macroTypes maps one object-like macro defined in the requested header to
 	// the C qualType Clang proved for it. A macro whose type maps to a
@@ -473,55 +474,26 @@ var cSpellings = map[string]string{
 	"Size":    "size_t",
 }
 
-// exactWidthTypedef maps one C exact-width or platform typedef to its Hexal
-// canonical scalar.
-var exactWidthTypedef = map[string]string{
-	"int8_t": "Int8", "int16_t": "Int16", "int32_t": "Int32", "int64_t": "Int64",
-	"uint8_t": "UInt8", "uint16_t": "UInt16", "uint32_t": "UInt32", "uint64_t": "UInt64",
-	"size_t": "Size", "bool": "Bool",
+// scalarTarget selects the C data model the imported header normalizes under.
+// The empty identity is unreachable in production, where an automatic import
+// requires a qualified profile; it and every non-Linux identity keep the
+// historical LLP64 selection so pure-Go normalization tests stay stable.
+func (importer *importer) scalarTarget() specdata.TargetID {
+	if importer.target == string(compilerTypes.TargetX86_64LinuxGNU) {
+		return specdata.TargetLinuxGNU
+	}
+	return specdata.TargetWindowsUCRT
 }
 
-// fundamentalSpelling maps one C fundamental type spelling to its Hexal
-// scalar under the selected target's C data model. `long` is 32-bit under
-// LLP64 (x86_64-windows-gnu-ucrt) and 64-bit under LP64 (x86_64-linux-gnu).
-// An empty target is unreachable in production, where an automatic import
-// requires a qualified profile; it keeps the historical LLP64 mapping so
-// pure-Go normalization tests stay stable.
-func (importer *importer) fundamentalSpelling(base string) (string, bool) {
-	longType, ulongType := "Int32", "UInt32"
-	if importer.target == string(compilerTypes.TargetX86_64LinuxGNU) {
-		longType, ulongType = "Int64", "UInt64"
-	}
-	switch base {
-	case "_Bool", "bool":
-		return "Bool", true
-	case "char", "signed char":
-		return "Int8", true
-	case "unsigned char":
-		return "UInt8", true
-	case "short", "short int", "signed short", "signed short int":
-		return "Int16", true
-	case "unsigned short", "unsigned short int":
-		return "UInt16", true
-	case "int", "signed", "signed int":
-		return "Int32", true
-	case "unsigned", "unsigned int":
-		return "UInt32", true
-	case "long", "long int", "signed long", "signed long int":
-		return longType, true
-	case "unsigned long", "unsigned long int":
-		return ulongType, true
-	case "long long", "long long int", "signed long long", "signed long long int":
-		return "Int64", true
-	case "unsigned long long", "unsigned long long int":
-		return "UInt64", true
-	case "float":
-		return "Float32", true
-	case "double":
-		return "Float64", true
-	default:
+// scalarSpelling resolves one C base spelling to its Hexal scalar under the
+// importer's target. The target-qualified registry owns the mapping, including
+// the LP64/LLP64 long rule, so no driver-owned table duplicates it.
+func (importer *importer) scalarSpelling(base string) (string, bool) {
+	mapping, ok := specdata.CScalar(importer.scalarTarget(), base)
+	if !ok {
 		return "", false
 	}
+	return string(mapping.HexalType), true
 }
 
 // parsedCType is one parsed C type spelling.
@@ -615,13 +587,7 @@ func (importer *importer) resolveBase(base string) (string, bool) {
 	if hexName, ok := importer.byCName[base]; ok {
 		return hexName, true
 	}
-	if hexal, exact := exactWidthTypedef[base]; exact {
-		return hexal, true
-	}
-	if hexal, scalar := importer.fundamentalSpelling(base); scalar {
-		if base == "void" {
-			return "", false
-		}
+	if hexal, scalar := importer.scalarSpelling(base); scalar {
 		return hexal, true
 	}
 	if strings.HasPrefix(base, "struct ") || strings.HasPrefix(base, "union ") {

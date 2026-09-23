@@ -16,6 +16,7 @@ import (
 
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -686,62 +687,33 @@ func splitCSpelling(spelling string) (int, []bool, string) {
 }
 
 // foreignScalarForSpelling maps a normalized restricted C scalar spelling to
-// the Hexal scalar it represents on the selected target.
+// the Hexal scalar it represents on the selected target. The target-qualified
+// registry owns the mapping, including the LP64/LLP64 long rule, so no
+// checker-owned table duplicates it.
 func foreignScalarForSpelling(spelling string, target compilerTypes.TargetProfileID) (compilerTypes.Type, bool) {
-	switch strings.TrimSpace(spelling) {
-	case "bool", "_Bool":
-		return compilerTypes.Bool, true
-	case "char", "signed char":
-		return compilerTypes.Int8, true
-	case "unsigned char":
-		return compilerTypes.UInt8, true
-	case "short", "short int", "signed short", "signed short int":
-		return compilerTypes.Int16, true
-	case "unsigned short", "unsigned short int":
-		return compilerTypes.UInt16, true
-	case "int", "signed", "signed int":
-		return compilerTypes.Int32, true
-	case "unsigned", "unsigned int":
-		return compilerTypes.UInt32, true
-	case "long", "long int", "signed long", "signed long int":
-		if target == compilerTypes.TargetX86_64WindowsGNU {
-			return compilerTypes.Int32, true
-		}
-		return compilerTypes.Int64, true
-	case "unsigned long", "unsigned long int":
-		if target == compilerTypes.TargetX86_64WindowsGNU {
-			return compilerTypes.UInt32, true
-		}
-		return compilerTypes.UInt64, true
-	case "long long", "long long int", "signed long long", "signed long long int":
-		return compilerTypes.Int64, true
-	case "unsigned long long", "unsigned long long int":
-		return compilerTypes.UInt64, true
-	case "float":
-		return compilerTypes.Float32, true
-	case "double":
-		return compilerTypes.Float64, true
-	case "size_t":
-		return compilerTypes.SizeType, true
-	case "int8_t":
-		return compilerTypes.Int8, true
-	case "int16_t":
-		return compilerTypes.Int16, true
-	case "int32_t":
-		return compilerTypes.Int32, true
-	case "int64_t":
-		return compilerTypes.Int64, true
-	case "uint8_t":
-		return compilerTypes.UInt8, true
-	case "uint16_t":
-		return compilerTypes.UInt16, true
-	case "uint32_t":
-		return compilerTypes.UInt32, true
-	case "uint64_t":
-		return compilerTypes.UInt64, true
-	default:
+	mapping, ok := specdata.CScalar(scalarTarget(target), strings.TrimSpace(spelling))
+	if !ok {
 		return compilerTypes.Type{}, false
 	}
+	typ, ok := compilerTypes.ResolveSpecID(mapping.HexalType)
+	if !ok {
+		// The registry validator rejects a mapping no concrete type declares,
+		// so an unresolvable record is a compiler-development failure; keeping
+		// the spelling unsupported fails closed instead of inventing a type.
+		return compilerTypes.Type{}, false
+	}
+	return typ, true
+}
+
+// scalarTarget selects the C data model foreign scalar spellings resolve
+// under. Windows is LLP64; every other identity is LP64. An empty target never
+// reaches a scalar because a foreign block requires a qualified target, so the
+// fallback only keeps the historical mapping stable.
+func scalarTarget(target compilerTypes.TargetProfileID) specdata.TargetID {
+	if target == compilerTypes.TargetX86_64WindowsGNU {
+		return specdata.TargetWindowsUCRT
+	}
+	return specdata.TargetLinuxGNU
 }
 
 // isCharSpelling reports whether a base spelling is one of C's plain or
