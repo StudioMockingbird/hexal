@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"hexal/internal/span"
+	"hexal/compiler/span"
 )
 
 // sameToken compares the legacy fields a token carries at the migration

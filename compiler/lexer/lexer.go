@@ -8,8 +8,8 @@ import (
 	"unicode/utf8"
 
 	"hexal/compiler/config"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
-	"hexal/internal/span"
 )
 
 // literalEscapeSet selects the escape grammar of one quoted literal form.
@@ -445,7 +445,7 @@ func (kind TokenKind) String() string {
 
 // Token is one lexical unit, the byte range it occupies in its logical source
 // file, and its 1-based source location. Span is the authoritative identity:
-// the offset-to-line/column convention lives in internal/span, and Line and
+// the offset-to-line/column convention lives in compiler/span, and Line and
 // Column are the same start position in the legacy integer form the parser and
 // diagnostics still consume during migration.
 type Token struct {
