@@ -1,20 +1,64 @@
 # RFC 0236: Native Runtime Input Layout
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Proposed
+- Status: Discarded, 2026-09-23, without implementation. The current
+  per-profile layout stays: `lib/<target-profile>/<lib>_<version>/` with
+  `include/`, the license files, and `<lib>.a` under each profile, the manifest
+  at `lib/<target-profile>/manifest.json`, paths relative to that profile
+  directory, and `lib/pack.go`'s single `//go:embed x86_64-linux-gnu`. Nothing
+  in `lib/`, `internal/driver/runpack.go`, or the pack test fixtures changes,
+  and RFC 0233 and RFC 0234 add their dependencies under the shape they already
+  specify. Retained as the record of why. See Why this was discarded
 - Created: 2026-09-22
-- Updated: 2026-09-22
+- Updated: 2026-09-23
 - Origin: the checked-in native inputs under `lib/` duplicate every dependency's
   headers and licenses once per target profile, although only the static archive
-  actually differs between profiles. RFC 0213 and RFC 0214 own the
-  target-qualified static runtime pack this restructures
+  actually differs between profiles. Closed RFC 0213 established the
+  target-qualified static runtime pack and implemented RFC 0217 owns the current
+  embed and backend path this restructures. RFC 0214 is Discarded and
+  consolidated into RFC 0217; it is not an owner
 - Depends on: the current `lib/` pack contract (embedded pack,
   `<target-profile>/manifest.json`, `include_root`, `archive`, `license_file`,
-  `files`), RFC 0055 (build and runtime-pack inputs), and the current
+  `files`), ADR 0055 (build and runtime-pack inputs), and the current
   target-profile matrix
+- Supersedes: nothing. This was discarded, so the per-profile pack layout
+  recorded in closed RFC 0213, RFC 0217, and RFC 0227 remains current, and RFC
+  0233 and RFC 0234 stand as written
 - Does not update: `docs/reference.md`. This changes where the compiler's own
   native inputs live, not the language, so no language rule moves. It also does
   not touch `modules/`, which is out of scope
+
+## Why this was discarded
+
+The proposal below is sound and its premises were verified: the include trees
+and license files are byte-identical across both shipped profiles, and only the
+archives differ. The duplication is real. The benefit of removing it is not.
+
+- **Git already stores it once.** The duplicated files are byte-identical, so
+  they are one blob in the object store. The repository does not shrink.
+- **The binary already carries one copy.** `lib/pack.go` embeds a single
+  profile, so no shipped artifact contains the duplication in the first place.
+  The binary does not shrink either.
+- **The working-tree cost is about 548 KB** across 31 files, against a 5.5 MB
+  `lib/`. That is the entire measured saving.
+
+Against that: two manifests rewritten key by key, `lib/pack.go`'s one embed
+pattern replaced by an enumerated set that must be edited whenever a dependency
+or shipped profile changes, `runpack.go`'s root resolution, walk exemption, and
+one diagnostic string, every synthetic fixture in `runpack_test.go`,
+`c23validation/dependencies_test.go`'s own pack rooting, and `lib/BUILD.md`.
+The embed set is the sharp edge: `go:embed` cannot exclude, so a directory-level
+pattern would silently ship a non-shipped profile's archives.
+
+The one property worth keeping from this proposal is **drift detection** —
+nothing today would notice if a header diverged between profiles. That is a
+test, not a layout: compare each dependency's include tree and license files
+across profiles and fail on a difference. It costs about twenty lines, needs no
+migration, and does not block RFC 0233. If that check is wanted, it belongs in a
+spec of its own and not in a restructure.
+
+Everything below is the discarded proposal, kept so the measurement and the
+sequencing argument do not have to be redone.
 
 ## Decision summary
 
@@ -62,6 +106,20 @@ per target, which is the only input that is actually target-qualified.
   identity per profile, naming the exact dependencies, archives, include roots,
   licenses, system libraries, and file digests that profile ships.
 
+### Shared headers are a constraint, not an observation
+
+This layout can only express a dependency whose public headers are identical on
+every target profile. That holds for libuv, mimalloc, and utf8proc today, and it
+is a rule this RFC imposes going forward, not a fact it happens to record: a
+dependency that generates a per-target `config.h` has no home here.
+
+A future dependency that needs per-target headers must either have that header
+generated into the compiler's own emitted C instead of the pack, or this layout
+must grow a per-profile `include_overrides/<target-profile>/` beside the shared
+tree. Neither is specified here. Qualifying a new dependency includes checking
+its headers are profile-independent, and a dependency that fails that check
+stops for a layout decision rather than being bent into this shape.
+
 ## Manifest contract
 
 Every path a manifest names is relative to the `lib/` root, not to the profile
@@ -102,23 +160,103 @@ directory:
   license files are verified, and its system libraries are appended in manifest
   order.
 
-## Migration
+### The embed set is enumerated, because `go:embed` cannot exclude
+
+`go:embed` has no negation, so a directory-level pattern is wrong here: embedding
+`libuv_v1.52.1` would pull in every profile's archive under `static/`, breaking
+the shipped-profile rule silently and growing the binary by the non-shipped
+archives. The shipped profile's set is therefore written out, one pattern per
+shared tree, per license, and per shipped archive directory:
+
+```go
+//go:embed x86_64-linux-gnu/manifest.json
+//go:embed libuv_v1.52.1/include libuv_v1.52.1/LICENSE libuv_v1.52.1/LICENSE-docs libuv_v1.52.1/LICENSE-extra
+//go:embed libuv_v1.52.1/static/x86_64-linux-gnu
+//go:embed mimalloc_v3.5.1/include mimalloc_v3.5.1/LICENSE
+//go:embed mimalloc_v3.5.1/static/x86_64-linux-gnu
+//go:embed utf8proc_v2.11.3/include utf8proc_v2.11.3/LICENSE.md
+//go:embed utf8proc_v2.11.3/static/x86_64-linux-gnu
+var runtimePacks embed.FS
+```
+
+This is a real cost the old layout did not carry: today the whole shipped pack is
+one pattern, `//go:embed x86_64-linux-gnu`, and adding a dependency needs no edit
+to `lib/pack.go`. Under this layout, adding a dependency adds two patterns and
+changing the shipped profile rewrites every `static/` pattern. The compensating
+guarantee is the Validation item below: an embed set that omits a manifest-listed
+path fails `hexal doctor` on the first run, and one that includes an unlisted
+path fails the same walk, so neither mistake is silent.
+
+### Driver changes this restructure forces
+
+- `verifyRuntimePack`'s completeness walk exempts exactly one path today,
+  `manifest.json` at the filesystem root. The shipped manifest now lives at
+  `<target-profile>/manifest.json`, so the exemption moves with it. Left
+  unchanged, the walk reports the shipped manifest as a file "not listed in the
+  manifest" and `hexal doctor` fails on the first run after migration.
+- `validPackPath`'s rejection reads "escapes the target directory". The bounding
+  root is now the pack root, so the message and the test asserting it
+  (`TestManifestEscapingPathRejected`) both move to "escapes the pack root". The
+  rule itself — no `.`, `..`, backslash, absolute form, or drive letter — is
+  unchanged.
+- `versionedPrefix` is unchanged and still decides the shared-prefix rule:
+  `<lib>_<version>/static/<profile>/<lib>.a` keeps the same `<lib>_<version>/`
+  first component as the include root and license path.
+- `packInputs.ManifestDigest` is SHA-256 of the manifest's exact bytes and feeds
+  `buildIdentity`. The manifest's bytes change, so every cached build
+  invalidates once. No generated byte and no linker argument changes; only the
+  cache key does.
+
+## Sequencing (moot)
+
+This was the argument that the restructure had to happen before RFC 0233
+(yyjson, Implementation ready) and RFC 0234 (PCRE2), because each adds one
+dependency under the per-profile shape and migrating later would cost five
+dependencies instead of three. The conclusion drawn was "now or never." Never
+was chosen: 0233 and 0234 land as written, and no dependency migrates.
+
+## Migration (not performed)
 
 1. `git mv` each `lib/<profile>/<lib>_<version>/include` and license files to
    `lib/<lib>_<version>/`, and each archive to
    `lib/<lib>_<version>/static/<profile>/<lib>.a`.
 2. Rewrite both `manifest.json` files' `dependencies[]` paths and `files` keys to
-   the `lib/`-relative form; digests do not change, because no file's bytes
-   change.
-3. Update `lib/pack.go`'s embed set and `internal/driver/runpack.go`'s root
-   resolution and validation.
-4. Rewrite the per-dependency sections of `lib/BUILD.md` to record the archive
+   the `lib/`-relative form. No payload digest changes, because no payload
+   file's bytes change; the risk the Validation section covers is a mispaired
+   key and digest, not a stale hash. `format_version` and `runtime_abi_version`
+   are untouched.
+3. Replace `lib/pack.go`'s single embed pattern with the enumerated set above,
+   and update `lib/accessor.go`'s doc comment, which currently documents the
+   `fs.Sub` selection this RFC removes.
+4. Update `internal/driver/runpack.go`: drop the `fs.Sub` in `runtimePackFS`,
+   read the manifest at `<target-profile>/manifest.json`, move the
+   `verifyRuntimePack` walk exemption to that path, and reword the
+   `validPackPath` rejection to name the pack root.
+5. Re-root the test fixtures that encode the current shape. They are not
+   incidental; they are where the contract is asserted:
+   - `internal/driver/runpack_test.go` builds synthetic packs with the manifest
+     at the filesystem root and payload paths like `libuv_v1.52.1/libuv.a`.
+     Every fixture moves to `<profile>/manifest.json` and
+     `<lib>_<version>/static/<profile>/<lib>.a`, including the escaping-path,
+     missing-file, corrupt-digest, and unlisted-file cases.
+   - `compiler/tests/c23validation/dependencies_test.go` holds its own
+     `packDirName` constant and a second `fs.Sub` into the profile directory.
+     Both are removed in favour of the single root.
+6. Rewrite the per-dependency sections of `lib/BUILD.md` to record the archive
    path under `static/<profile>/`, and state that headers and licenses are
    shared across profiles rather than copied per profile.
+7. Close the provenance gap this move exposes. `lib/BUILD.md` is titled "Linux
+   native runtime libraries" and its only Windows section records utf8proc, but
+   the tree ships `x86_64-windows-gnu-ucrt` archives for libuv (1.67 MB) and
+   mimalloc (1.41 MB) with no build identity, source commit, or compile command
+   recorded. Hoisting makes each dependency's directory the unit that owns its
+   record, so the missing Windows entries are written in the same change or
+   explicitly deferred with a named owner.
 
-## Validation
+## Validation (not performed)
 
-This section is exhaustive.
+This section was exhaustive for the proposal as designed. Nothing in it ran,
+because the restructure was discarded before implementation.
 
 - Every shipped profile's manifest validates under the `lib/`-rooted contract:
   dependencies in the required order, `include_root`, `archive`, and
@@ -127,13 +265,24 @@ This section is exhaustive.
 - Every declared path resolves from the single embedded root, and every shipped
   byte matches its recorded digest.
 - The driver rejects each of: a missing file, a digest mismatch, a path that
-  escapes `lib/`, a repeated path, and a dependency whose three paths do not
-  share one `<lib>_<version>/` prefix.
-- No include file and no license file appears in more than one profile
-  directory: `find lib -name uv.h` and its equivalents report exactly one hit
-  per profile-independent file.
-- Only the static archive differs between the two profiles for each dependency:
-  the include trees and licenses compare byte-identical across profiles.
+  escapes the pack root, a repeated path, and a dependency whose three paths do
+  not share one `<lib>_<version>/` prefix.
+- The shipped profile's manifest is not itself reported as an unlisted payload
+  file: `hexal doctor` passes with the manifest at
+  `<target-profile>/manifest.json`.
+- Every shared header and license exists exactly once in the tree:
+  `find lib -name uv.h` and its equivalents each report exactly one hit.
+- The embed set is exact in both directions. A pattern omitted from
+  `lib/pack.go` makes a manifest-listed path unreadable and fails verification;
+  a pattern that admits a non-shipped profile's archive makes an unlisted file
+  reachable and fails the completeness walk. Both are exercised.
+- Before the move, every file about to be shared is proven identical across
+  profiles: each dependency's include tree and license files compare
+  byte-for-byte between `x86_64-linux-gnu` and `x86_64-windows-gnu-ucrt`, and
+  only the archives differ. A mismatch stops the migration rather than silently
+  electing one profile's copy as the shared one. After the move the property is
+  structural — there is one copy — so this is a migration gate, not a standing
+  test.
 - `hexal doctor` passes for the shipped profile, and the archives it links are
   byte-identical to the ones linked before the restructure.
 - The shipped profile embeds its own manifest, the shared include and license

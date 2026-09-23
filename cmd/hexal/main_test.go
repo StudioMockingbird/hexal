@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -129,10 +130,30 @@ func TestHelpListsForeignOptions(t *testing.T) {
 	}
 }
 
+// assertHostGate reports whether this host is outside the one qualified build
+// host, asserting the host diagnostic when it is. Configuration checks the
+// host first, so on any other host the target and backend diagnostics are
+// unreachable and asserting them would test nothing. Returning true tells the
+// caller its own assertions do not apply here.
+func assertHostGate(t *testing.T) bool {
+	t.Helper()
+	if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
+		return false
+	}
+	err := build([]string{"-entry", "main.hex"})
+	if err == nil || !strings.Contains(err.Error(), "is not qualified; this release builds x86-64 Linux from installed Clang") {
+		t.Fatalf("build on %s/%s = %v, want the host-qualification diagnostic", runtime.GOOS, runtime.GOARCH, err)
+	}
+	return true
+}
+
 // A missing or unqualified target and a missing compiler fail at
 // configuration before any external command runs. A project entrypoint is
 // supplied so the CLI does not stop at its own -entry requirement first.
 func TestBuildRequiresCompilerAndTarget(t *testing.T) {
+	if assertHostGate(t) {
+		return
+	}
 	for _, testCase := range []struct {
 		args []string
 		want string
@@ -202,6 +223,9 @@ func TestDoctorRequiresCompilerAndTarget(t *testing.T) {
 }
 
 func TestBuildRejectsNonExecutableCompilerPath(t *testing.T) {
+	if assertHostGate(t) {
+		return
+	}
 	directory := t.TempDir()
 	for _, path := range []string{filepath.Join(directory, "missing.exe"), directory} {
 		err := build([]string{"-entry", "main.hex", "-cc", path, "-target", "x86_64-linux-gnu"})
