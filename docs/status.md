@@ -22,44 +22,27 @@ readiness* requires, one entry per surviving second authority. Each names the
 file that still owns the fact and the step that would give the fact one owner.
 Facts confirmed to have exactly one consumer are not listed.
 
-- **Built-in method and constructor records are additive, not authoritative
-  ([0229](specs/0229-data-driven-compiler-facts.md)).** `specdata.Method` /
-  `Methods` (`compiler/specdata/methods.go:360,370`) and
-  `specdata.TypeConstructors` (`compiler/specdata/constructors.go:286`) have
-  no caller at all, and `TypeConstructor` (`:275`) is called only by
-  `validateMethods` (`methods.go:403`). The checker still dispatches builtins
-  from its own tables: the receiver-type switch at
-  `compiler/checker/methods.go:384-664`, `checkBareConstructorCall`'s name
-  switch at `compiler/checker/calls.go:567-603`, and per-family name switches
-  such as `compiler/checker/lists.go:64` and `compiler/checker/stash.go:58`;
-  the generator repeats the same switches (e.g.
-  `compiler/generator/arrays.go:267`,
-  `compiler/generator/concurrency.go:984`).
+- **Runtime symbols still have a second owner in the generator's deferred and
+  queued paths ([0229](specs/0229-data-driven-compiler-facts.md)).** Built-in
+  method and constructor dispatch now read `specdata.Method` and
+  `specdata.TypeConstructors` in both the checker and the generator, with tests
+  that empty or corrupt a record and show the answer move. What remains is the
+  symbol fact: the same names are still spelled literally in
+  `compiler/generator/defer.go` (`hex_list_free_*`, `hex_dict_free_*`,
+  `hex_chan_free_*`, `hex_mutex_lock/unlock/free`, `hex_task_join/detach`) and
+  in `compiler/generator/packages/*` (`dict_find_decl`). Step: have those sites
+  read the record's `RuntimeSymbol`, so the symbol has one owner everywhere.
 
-  The switch is blocked on the record model, not on effort. The records omit
-  exactly the methods whose result is an applied constructor or a structural
-  union: `Array`/`Slice`/`List` `slice` and `mut_slice`, `Slice.pointer`,
-  `Channel.receive`, `Stash`/`Pool` `allocate`, `Pool.free`, `Dict.find`, and
-  `String.bytes`, `slice`, `concat`, `widen`, and `c_pointer`. `TypeRef` has no
-  kind for `Slice<T>`, for `T | EoS` or `Ptr<T> | Nil`, for a method type
-  argument such as `String<M>`, or for an `index: Integer` parameter, so
-  forcing the switch would drop those methods from accepted programs.
-
-  A second gap blocks the generator even for the complete families: the Go
-  `MethodSpec` (`compiler/specdata/methods.go:90-97`) carries only Owner, Name,
-  Parameters, Result, Failure, and Allocation, while the specification's own
-  `MethodSpec` also declares `RuntimeSymbol`, `Component`, and `Receiver`.
-  Lowering reads the symbol -- `compiler/generator/concurrency.go:979` emits
-  `hex_chan_send_%s` -- so there is no field to read. The bare-constructor name
-  sets do not overlap either: `checkBareConstructorCall`
-  (`compiler/checker/calls.go:567-603`) accepts `Error`, `Heap`, and `Mutex`,
-  which are concrete types rather than constructors, while `Array`, `Slice`,
-  `String`, and `Task` have records but require type arguments.
-
-  Step: extend the record model first -- a `TypeRef` for applied constructors
-  and unions, the `RuntimeSymbol`/`Component`/`Receiver` fields the
-  specification already declares, and a bare-constructor fact spanning concrete
-  types -- then switch the consumers.
+- **The inline-string record omits methods the checker accepts
+  ([0229](specs/0229-data-driven-compiler-facts.md)).** The shared read-only
+  text operations are accepted on a bounded string -- `String<16>.rune_length()`
+  compiles and `docs/reference.md` lists them -- but the `InlineString` records
+  do not carry them, so gating that receiver on the registry would reject valid
+  programs; it is deliberately left ungated. Step: complete the shared
+  text-method records for `InlineString`. Note that
+  `compiler/tests/integration/builtin_method_symbols_test.go` currently requires
+  one owner-and-symbol program per record, so a shared record needs either a
+  second program or a stated exemption.
 
 - **Type representation and copy facts are recorded but unconsumed
   ([0229](specs/0229-data-driven-compiler-facts.md)).** `ConstructorFacts`
@@ -75,9 +58,15 @@ Facts confirmed to have exactly one consumer are not listed.
   (`compiler/types/types.go:592-604`) classifies Slice by identity rather than
   by Representation. `Storable` also special-cases `Fun`, `Nil`, `IO`, `Bytes`,
   and `Unknown`, none of which has a constructor record, and `FreeMode` and
-  `Hashable` have no consumer at all. Step: record the concrete compiler-owned
-  types and the structural forms, and give eligibility a per-position fact or a
-  constructor identity on `Type`, then switch the consumers.
+  `Hashable` have no consumer at all, and the switch probe confirmed that a
+  single constructor-level comparison mode cannot express the comparison fact,
+  because equality is element-derived (`List<Dict<...>>` is not equal even
+  though `List<Int32>` is). Step: record the concrete compiler-owned types and
+  the structural forms, and give eligibility a per-position fact or a
+  constructor identity on `Type`, then switch the consumers. The comparison
+  fact additionally needs a derived form rather than one enum value per
+  constructor, or an explicit statement that comparison is not this record's
+  fact.
 
 - **Stable runtime message ownership has no records
   ([0229](specs/0229-data-driven-compiler-facts.md)).** Every runtime trap text
