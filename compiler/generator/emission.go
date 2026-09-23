@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"hexal/compiler/checker"
+	"hexal/compiler/span"
 	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
@@ -95,7 +96,7 @@ type moduleEmission struct {
 // logicalKey is its source-map filename for #line directives
 // ("graphics/shapes.hex"). literals is the registry shared by every module
 // in dependency-first discovery order.
-func discoverModuleEmission(program checker.Program, canonicalID, logicalKey string, literals *literalRegistry) (*moduleEmission, error) {
+func discoverModuleEmission(program checker.Program, canonicalID, logicalKey string, literals *literalRegistry, table *span.Table) (*moduleEmission, error) {
 	owner := compilerTypes.EncodeModuleOwner(canonicalID)
 	functions, functionErr := declaredFunctions(program)
 	if functionErr != nil {
@@ -119,7 +120,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	emission.stringState = literals
 	emission.stringUsed = discoverGeneratedStrings(program, literals)
 	emission.interpolationUsed = discoverInterpolationUsed(program)
-	if validationErr := validateCheckedProgram(program, functions, methods, literals); validationErr != nil {
+	if validationErr := validateCheckedProgram(program, functions, methods, literals, table); validationErr != nil {
 		return nil, validationErr
 	}
 	emission.errorUsed = discoverErrorUsed(program)

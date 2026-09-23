@@ -55,7 +55,7 @@ func GenerateCheckedWithMetadata(graph *checker.ModuleGraph, programs map[string
 			// omitted module.
 			return GenerationResult{}, compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("the graph names module %s at source key %s, but no checked program has that key", canonical, key)}
 		}
-		emission, discoveryErr := discoverModuleEmission(program, canonical, key, literals)
+		emission, discoveryErr := discoverModuleEmission(program, canonical, key, literals, config.SourceTable)
 		if discoveryErr != nil {
 			return GenerationResult{}, compilerTypes.StampModule(discoveryErr, key)
 		}

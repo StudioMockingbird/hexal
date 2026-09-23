@@ -168,7 +168,8 @@ func TestStringComponentSelectionIsModuleLocal(t *testing.T) {
 		"app.hex":  "import\n    Math from \"./math\"\nend\nlet result: Int32 = Math.compute()\n",
 		"math.hex": "fun compute(): Int32 do\n    let text: String = \"hello\"\n    return 1\nend\nexport\n    compute\nend\n",
 	} {
-		tokens, err := lexer.Lex("test.hex", source)
+		testSpanTable.Add(key, source)
+		tokens, err := lexer.Lex(key, source)
 		if err != nil {
 			t.Fatalf("Lex(%q) error = %v", key, err)
 		}
@@ -183,7 +184,7 @@ func TestStringComponentSelectionIsModuleLocal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CheckModules() error = %v", err)
 	}
-	files, err := GenerateChecked(graph, programs, Config{})
+	files, err := GenerateChecked(graph, programs, Config{SourceTable: testSpanTable})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}

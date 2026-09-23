@@ -9,7 +9,7 @@ import (
 
 func TestGenerateGenericFunctionSpecialization(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun identity<T>(value: T): T do\nreturn value\nend let answer: Int32 = identity(42)")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{SourceTable: testSpanTable})
 	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
@@ -24,7 +24,7 @@ func TestGenerateGenericFunctionSpecialization(t *testing.T) {
 
 func TestGenerateGenericObjectSpecialization(t *testing.T) {
 	program := checkedGeneratorSource(t, "type Box<T> is struct\n    value: T,\nend\nlet box: Box<Int32> = Box<Int32>(value = 42)")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{SourceTable: testSpanTable})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {
 		t.Fatal(err)
@@ -39,7 +39,7 @@ func TestGenerateGenericObjectSpecialization(t *testing.T) {
 
 func TestGenerateGenericMethodSpecialization(t *testing.T) {
 	program := checkedGeneratorSource(t, "type Box<T> is struct\n    value: T,\nend\nmethod Box<T>.get(): T do\nreturn self.value\nend let box: Box<Int32> = Box<Int32>(value = 42)\nlet value: Int32 = box.get()")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{SourceTable: testSpanTable})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {
 		t.Fatal(err)

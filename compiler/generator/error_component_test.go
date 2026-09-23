@@ -71,11 +71,11 @@ func TestErrorComponentAbsentWithoutError(t *testing.T) {
 // Rendering the error component is deterministic for an equivalent program.
 func TestErrorComponentDeterministic(t *testing.T) {
 	merged := &programEmission{errorUsed: true}
-	first, err := renderComponentArtifacts(merged, Config{})
+	first, err := renderComponentArtifacts(merged, Config{SourceTable: testSpanTable})
 	if err != nil {
 		t.Fatalf("renderComponentArtifacts() error = %v", err)
 	}
-	second, err := renderComponentArtifacts(merged, Config{})
+	second, err := renderComponentArtifacts(merged, Config{SourceTable: testSpanTable})
 	if err != nil {
 		t.Fatalf("renderComponentArtifacts() error = %v", err)
 	}

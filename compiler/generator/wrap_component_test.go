@@ -20,7 +20,7 @@ func TestWrapHeaderRendersSelectedHelpersInDiscoveryOrder(t *testing.T) {
 		{name: "mul", typ: compilerTypes.Int64},
 		{name: "neg", typ: compilerTypes.Int8},
 	}
-	artifacts, err := renderComponentArtifacts(&programEmission{wrapState: state}, Config{})
+	artifacts, err := renderComponentArtifacts(&programEmission{wrapState: state}, Config{SourceTable: testSpanTable})
 	if err != nil {
 		t.Fatalf("renderComponentArtifacts() error = %v", err)
 	}
@@ -88,7 +88,7 @@ func TestWrapComponentAbsentWithoutSelection(t *testing.T) {
 	if _, exists := files["hexal/wrap.h"]; exists {
 		t.Fatalf("scalar-only program emitted hexal/wrap.h: %v", files)
 	}
-	artifacts, err := renderComponentArtifacts(&programEmission{wrapState: &generatedWrapState{seen: make(map[string]bool)}}, Config{})
+	artifacts, err := renderComponentArtifacts(&programEmission{wrapState: &generatedWrapState{seen: make(map[string]bool)}}, Config{SourceTable: testSpanTable})
 	if err != nil {
 		t.Fatalf("renderComponentArtifacts() error = %v", err)
 	}
@@ -164,7 +164,7 @@ func TestGenerateSignedWrappingBoundaries(t *testing.T) {
 			},
 		},
 	}}
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{SourceTable: testSpanTable})
 	rootC, rootH := files["modules/app.c"], files["modules/app.h"]
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)

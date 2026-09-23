@@ -156,7 +156,7 @@ func TestGenerateScalarOnlyEmitsNoHeapArtifacts(t *testing.T) {
 
 func TestGenerateDeferReverseOrderAndCapture(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun record(value: Int32) do end let mut first: Int32 = 1 let mut second: Int32 = 2 defer record(first) defer record(second)")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{SourceTable: testSpanTable})
 	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)
@@ -171,7 +171,7 @@ func TestGenerateDeferReverseOrderAndCapture(t *testing.T) {
 
 func TestGenerateDeferRoutesBreakAndReturn(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun record(value: Int32) do end fun run(): Int32 do\nlet mut flag: Bool = true\nwhile flag do\n    defer record(1)\n    break\nend\nreturn 0\nend")
-	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{})
+	files, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{SourceTable: testSpanTable})
 	rootC := files["modules/app.c"]
 	if err != nil {
 		t.Fatal(err)

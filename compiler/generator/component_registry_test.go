@@ -20,7 +20,7 @@ import (
 func TestComponentDemandsCoverTheRegistry(t *testing.T) {
 	components := specdata.Components()
 	claimed := make(map[specdata.ComponentID]int, len(components))
-	for _, demand := range componentDemands(Config{}) {
+	for _, demand := range componentDemands(Config{SourceTable: testSpanTable}) {
 		if demand.build == nil {
 			t.Fatal("component demand has a nil builder")
 		}
@@ -47,14 +47,14 @@ func TestComponentDemandsCoverTheRegistry(t *testing.T) {
 // emission with no discovered state selects nothing; adding only the trap
 // requirement selects only the runtime component.
 func TestComponentDemandStaysInBuilders(t *testing.T) {
-	empty, err := renderComponentArtifacts(&programEmission{}, Config{})
+	empty, err := renderComponentArtifacts(&programEmission{}, Config{SourceTable: testSpanTable})
 	if err != nil {
 		t.Fatalf("renderComponentArtifacts(empty) error = %v", err)
 	}
 	if len(empty) != 0 {
 		t.Fatalf("empty program emitted %v, want no artifacts", empty)
 	}
-	trapped, err := renderComponentArtifacts(&programEmission{requirements: &cHeaderRequirements{trap: true}}, Config{})
+	trapped, err := renderComponentArtifacts(&programEmission{requirements: &cHeaderRequirements{trap: true}}, Config{SourceTable: testSpanTable})
 	if err != nil {
 		t.Fatalf("renderComponentArtifacts(trap) error = %v", err)
 	}

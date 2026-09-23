@@ -51,11 +51,11 @@ func restCallProgram(environment *compilerTypes.Environment, restElement compile
 func TestGeneratorPreflightRejectsForgedRestMetadata(t *testing.T) {
 	environment := compilerTypes.NewEnvironment()
 	valid := restCallProgram(environment, compilerTypes.Int32)
-	if _, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": valid}, Config{}); err != nil {
+	if _, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": valid}, Config{SourceTable: testSpanTable}); err != nil {
 		t.Fatalf("a consistent rest call was rejected: %v", err)
 	}
 	forged := restCallProgram(environment, compilerTypes.Int64)
-	_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": forged}, Config{})
+	_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": forged}, Config{SourceTable: testSpanTable})
 	if err == nil || !strings.Contains(err.Error(), "rest call metadata does not match its checked signature") {
 		t.Fatalf("forged rest element accepted: %v", err)
 	}

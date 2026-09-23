@@ -298,7 +298,8 @@ func TestConcurrencyComponentSelectionIsModuleLocal(t *testing.T) {
 		"app.hex":  "import\n    Math from \"./math\"\nend\nlet result: Int32 | Error = Math.compute()\n",
 		"math.hex": "fun double(v: Int32): Int32 do\n    return v * 2\nend\nfun compute(): Int32 | Error do\n    let task: Task<Int32> = try spawn double(21)\n    return task.join()\nend\nexport\n    compute\nend\n",
 	} {
-		tokens, err := lexer.Lex("test.hex", source)
+		testSpanTable.Add(key, source)
+		tokens, err := lexer.Lex(key, source)
 		if err != nil {
 			t.Fatalf("Lex(%q) error = %v", key, err)
 		}
@@ -313,7 +314,7 @@ func TestConcurrencyComponentSelectionIsModuleLocal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CheckModules() error = %v", err)
 	}
-	files, err := GenerateChecked(graph, programs, Config{})
+	files, err := GenerateChecked(graph, programs, Config{SourceTable: testSpanTable})
 	if err != nil {
 		t.Fatalf("GenerateChecked() error = %v", err)
 	}

@@ -62,11 +62,11 @@ func TestEqualityComponentDeterministic(t *testing.T) {
 			{Object: &compilerTypes.ObjectType{ModuleID: ""}},
 		},
 	}
-	first, err := renderComponentArtifacts(merged, Config{})
+	first, err := renderComponentArtifacts(merged, Config{SourceTable: testSpanTable})
 	if err != nil {
 		t.Fatalf("renderComponentArtifacts() error = %v", err)
 	}
-	second, err := renderComponentArtifacts(merged, Config{})
+	second, err := renderComponentArtifacts(merged, Config{SourceTable: testSpanTable})
 	if err != nil {
 		t.Fatalf("renderComponentArtifacts() error = %v", err)
 	}
@@ -82,7 +82,7 @@ func TestEqualityComponentGuard(t *testing.T) {
 			{Object: &compilerTypes.ObjectType{ModuleID: ""}},
 		},
 	}
-	files, err := renderComponentArtifacts(merged, Config{})
+	files, err := renderComponentArtifacts(merged, Config{SourceTable: testSpanTable})
 	if err != nil {
 		t.Fatalf("renderComponentArtifacts() error = %v", err)
 	}
