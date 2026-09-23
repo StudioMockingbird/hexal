@@ -33,8 +33,8 @@ const (
 	CoreParamMutByteSlice
 )
 
-// CoreResult is one function's success shape. Every result except
-// CoreResultSize unions with the built-in Error type at the call site.
+// CoreResult is one function's success shape. The Error union a fallible
+// function adds at the call site is classified separately by ErrorBehavior.
 type CoreResult uint8
 
 const (
@@ -44,18 +44,34 @@ const (
 	CoreResultSize
 )
 
+// ErrorBehavior classifies whether a function's result unions with the built-in
+// Error type at the call site. It restates the error half of CoreResult as its
+// own fact; a builtin function's error behavior belongs to the checker
+// operation it routes to, so its record leaves this zero and validation checks
+// the pair only for a runtime function.
+type ErrorBehavior uint8
+
+const (
+	// ErrorNever yields its result directly, never an Error.
+	ErrorNever ErrorBehavior = iota
+	// ErrorFallible unions its result with the built-in Error type.
+	ErrorFallible
+)
+
 // CoreFunction is one exported module function. A moved capability's static
 // operation carries Builtin, the checker operation that resolves it. A
-// core-library runtime function carries Runtime, the emitted C entry point,
-// and its Params and Result. Exactly one of Builtin and Runtime is set. The
-// runtime template owns the function's stable ErrorKind and fixed message, so
-// neither crosses this boundary.
+// core-library runtime function carries Runtime, the emitted C entry point
+// (the RuntimeSymbol fact), and its Params and Result. Exactly one
+// of Builtin and Runtime is set. The runtime template owns the function's
+// stable ErrorKind and fixed message, so neither crosses this boundary.
 type CoreFunction struct {
-	Name    string
-	Builtin string
-	Params  []CoreParam
-	Result  CoreResult
-	Runtime string
+	Name          string
+	Builtin       string
+	Params        []CoreParam
+	Result        CoreResult
+	ErrorBehavior ErrorBehavior
+	Runtime       string
+	Components    []ComponentID
 }
 
 // CoreTypeExport is one exported type name and the identifier of the canonical
@@ -197,18 +213,18 @@ var coreModules = []CoreModule{
 	{
 		ID: "std/program",
 		Functions: []CoreFunction{
-			{Name: "arguments", Result: CoreResultStringSlice, Runtime: "hex_program_arguments"},
-			{Name: "current_directory", Params: []CoreParam{CoreParamHeap}, Result: CoreResultString, Runtime: "hex_program_current_directory"},
-			{Name: "home_directory", Params: []CoreParam{CoreParamHeap}, Result: CoreResultString, Runtime: "hex_program_home_directory"},
-			{Name: "temporary_directory", Params: []CoreParam{CoreParamHeap}, Result: CoreResultString, Runtime: "hex_program_temporary_directory"},
-			{Name: "executable_path", Params: []CoreParam{CoreParamHeap}, Result: CoreResultString, Runtime: "hex_program_executable_path"},
-			{Name: "available_parallelism", Result: CoreResultSize, Runtime: "hex_program_available_parallelism"},
+			{Name: "arguments", Result: CoreResultStringSlice, ErrorBehavior: ErrorFallible, Runtime: "hex_program_arguments", Components: []ComponentID{ComponentProgram}},
+			{Name: "current_directory", Params: []CoreParam{CoreParamHeap}, Result: CoreResultString, ErrorBehavior: ErrorFallible, Runtime: "hex_program_current_directory", Components: []ComponentID{ComponentProgram}},
+			{Name: "home_directory", Params: []CoreParam{CoreParamHeap}, Result: CoreResultString, ErrorBehavior: ErrorFallible, Runtime: "hex_program_home_directory", Components: []ComponentID{ComponentProgram}},
+			{Name: "temporary_directory", Params: []CoreParam{CoreParamHeap}, Result: CoreResultString, ErrorBehavior: ErrorFallible, Runtime: "hex_program_temporary_directory", Components: []ComponentID{ComponentProgram}},
+			{Name: "executable_path", Params: []CoreParam{CoreParamHeap}, Result: CoreResultString, ErrorBehavior: ErrorFallible, Runtime: "hex_program_executable_path", Components: []ComponentID{ComponentProgram}},
+			{Name: "available_parallelism", Result: CoreResultSize, ErrorBehavior: ErrorNever, Runtime: "hex_program_available_parallelism", Components: []ComponentID{ComponentProgram}},
 		},
 	},
 	{
 		ID: "std/entropy",
 		Functions: []CoreFunction{
-			{Name: "fill", Params: []CoreParam{CoreParamMutByteSlice}, Result: CoreResultNil, Runtime: "hex_entropy_fill"},
+			{Name: "fill", Params: []CoreParam{CoreParamMutByteSlice}, Result: CoreResultNil, ErrorBehavior: ErrorFallible, Runtime: "hex_entropy_fill", Components: []ComponentID{ComponentEntropy}},
 		},
 	},
 }
@@ -284,22 +300,27 @@ func cloneCoreModule(module CoreModule) CoreModule {
 	return module
 }
 
-// cloneCoreFunction deep-copies one function record's parameter slice.
+// cloneCoreFunction deep-copies one function record's parameter and component
+// slices.
 func cloneCoreFunction(function CoreFunction) CoreFunction {
 	function.Params = append([]CoreParam(nil), function.Params...)
+	function.Components = append([]ComponentID(nil), function.Components...)
 	return function
 }
 
-// validateCorelib checks the core-library registry's internal consistency:
+// validateCorelib checks one core-library registry for internal consistency:
 // unique module paths; unique export names inside a module; exactly one of a
-// builtin and a runtime entry point per function; and runtime entry points
-// unique across every module. It cannot check that a type identifier resolves,
-// because resolution crosses the import boundary; the corelib adapter's own
-// test covers that half.
-func validateCorelib() error {
-	moduleIDs := make(map[CoreModuleID]bool, len(coreModules))
+// builtin and a runtime entry point per function; runtime entry points unique
+// across every module; and, for each runtime function, a valid error behavior
+// consistent with its result and at least one known component demand. It
+// cannot check that a type identifier resolves, because resolution crosses the
+// import boundary; the corelib adapter's own test covers that half. It takes
+// the slice so a test can validate a crafted registry without mutating the
+// package's own.
+func validateCorelib(modules []CoreModule) error {
+	moduleIDs := make(map[CoreModuleID]bool, len(modules))
 	runtimes := make(map[string]CoreModuleID)
-	for _, module := range coreModules {
+	for _, module := range modules {
 		if module.ID == "" {
 			return fmt.Errorf("specdata/corelib: module has an empty id")
 		}
@@ -328,16 +349,39 @@ func validateCorelib() error {
 				return fmt.Errorf("specdata/corelib: module %q exports %q twice", module.ID, function.Name)
 			}
 			exports[function.Name] = true
+			if function.ErrorBehavior != ErrorNever && function.ErrorBehavior != ErrorFallible {
+				return fmt.Errorf("specdata/corelib: function %q.%q has unknown error behavior", module.ID, function.Name)
+			}
 			if (function.Builtin == "") == (function.Runtime == "") {
 				return fmt.Errorf("specdata/corelib: function %q.%q must name exactly one of a builtin or a runtime entry point", module.ID, function.Name)
 			}
-			if function.Runtime == "" {
+			// A builtin routes to a checker operation that owns its error
+			// behavior and component demand; only a runtime function states
+			// both here.
+			if function.Builtin != "" {
 				continue
 			}
 			if owner, ok := runtimes[function.Runtime]; ok {
 				return fmt.Errorf("specdata/corelib: runtime %q is declared by %q and %q", function.Runtime, owner, module.ID)
 			}
 			runtimes[function.Runtime] = module.ID
+			fallible := function.Result != CoreResultSize
+			if (function.ErrorBehavior == ErrorFallible) != fallible {
+				return fmt.Errorf("specdata/corelib: runtime %q.%q result and error behavior disagree", module.ID, function.Name)
+			}
+			if len(function.Components) == 0 {
+				return fmt.Errorf("specdata/corelib: runtime %q.%q names no component", module.ID, function.Name)
+			}
+			seenComponents := make(map[ComponentID]bool, len(function.Components))
+			for _, id := range function.Components {
+				if _, known := Component(id); !known {
+					return fmt.Errorf("specdata/corelib: runtime %q.%q names unknown component %q", module.ID, function.Name, id)
+				}
+				if seenComponents[id] {
+					return fmt.Errorf("specdata/corelib: runtime %q.%q repeats component %q", module.ID, function.Name, id)
+				}
+				seenComponents[id] = true
+			}
 		}
 	}
 	return nil
