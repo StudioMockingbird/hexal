@@ -1,4 +1,10 @@
 // Package parser turns tokens into a syntax tree using recursive descent.
+//
+// A node's authoritative source location is a span: a node built from source
+// keeps the lexer tokens it was assembled from, and each token carries a span
+// naming its logical file and byte range. The parser never computes a line or
+// column from a counter of its own; a synthetic token (the second half of a
+// split `>>`) derives its location from the real token it came from.
 package parser
 
 import "hexal/compiler/lexer"

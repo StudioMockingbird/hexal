@@ -774,6 +774,7 @@ func configurationErrorAt(token lexer.Token, message string) compilerTypes.Diagn
 	return compilerTypes.Diagnostic{
 		Category: compilerTypes.ConfigurationError,
 		Stage:    "checker",
+		Span:     token.Span,
 		Line:     token.Line,
 		Column:   token.Column,
 		Message:  message,
