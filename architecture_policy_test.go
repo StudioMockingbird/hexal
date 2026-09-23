@@ -254,12 +254,31 @@ func TestConfigAndSpecdataHoldNoDiagnosticText(t *testing.T) {
 }
 
 // looksLikeDiagnostic is a deliberate proxy, not a parser: at least four
-// words and twenty characters, with no path separator or template action.
+// words and twenty characters, with no path separator or template action. A
+// literal drawn only from C scalar specifier words is a type spelling -- the
+// C fragment the contract allows -- not wording, so it is exempt.
 func looksLikeDiagnostic(value string) bool {
 	if len(value) < 20 || strings.ContainsAny(value, "/{}") {
 		return false
 	}
-	return len(strings.Fields(value)) >= 4
+	words := strings.Fields(value)
+	if len(words) < 4 {
+		return false
+	}
+	for _, word := range words {
+		if !cScalarSpecifierWords[word] {
+			return true
+		}
+	}
+	return false
+}
+
+// cScalarSpecifierWords are the words a multi-word C scalar spelling is built
+// from in compiler/specdata. A diagnostic sentence contains at least one word
+// outside this set, so the exemption cannot hide real wording.
+var cScalarSpecifierWords = map[string]bool{
+	"bool": true, "char": true, "short": true, "int": true, "long": true,
+	"signed": true, "unsigned": true, "float": true, "double": true, "void": true,
 }
 
 // Both packages sit at ordinary paths. A package named config or specdata

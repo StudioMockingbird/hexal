@@ -102,14 +102,6 @@ Facts confirmed to have exactly one consumer are not listed.
   ordering. Step: have the dependency aggregation read the component records,
   or mark the field reserved.
 
-- **C scalar mappings are duplicated target conditionals, not records
-  ([0229](specs/0229-data-driven-compiler-facts.md)).**
-  `internal/driver/normalize.go:482-523` (`fundamentalSpelling`) and
-  `compiler/checker/foreign.go:688-745` (`foreignScalarForSpelling`) each
-  encode the LP64/LLP64 `long` rule against a `TargetProfileID`, and
-  `internal/driver/normalize.go:457-480` adds Hexal-to-C spelling tables. Step:
-  land target-qualified `CScalarMapping` records and have both sites read them.
-
 - **Numeric widening and the operator and conversion matrices have no records
   ([0229](specs/0229-data-driven-compiler-facts.md)).** The owners are
   `compiler/types/widening.go:8-41` (`losslessWideningTargets`,
