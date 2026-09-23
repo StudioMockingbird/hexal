@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"hexal/compiler/checker"
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -208,15 +209,28 @@ var boundedTextTraps = map[string]string{
 	"ErrorKind.Other header": "[Runtime Error] ErrorKind.Other header exceeds 128 bytes\n",
 }
 
-// textFill spells an inline value of type typ holding the view's text. The
-// destination is a zeroed compound literal, so the value is complete in one
-// expression; checkedMessage, when not empty, is the trap taken when the text
-// does not fit, and empty means the caller has proven it does.
-func textFill(typ compilerTypes.Type, view, checkedMessage string) string {
-	if checkedMessage == "" {
-		return "(*(" + typ.CName + " *)hex_text_fill(&(" + typ.CName + "){0}, " + view + "))"
-	}
+// textFill spells an inline value of type typ holding the view's text, copied
+// by fill into a zeroed compound literal, so the value is complete in one
+// expression. fill is the recorded symbol of the shared fill helper: the
+// widen method names it, and the Error-coercion and inline from_bytes lowerings
+// read the same record because they emit the same helper.
+func textFill(typ compilerTypes.Type, view, fill string) string {
+	return "(*(" + typ.CName + " *)" + fill + "(&(" + typ.CName + "){0}, " + view + "))"
+}
+
+// textFillChecked spells an inline value of type typ holding the view's text,
+// trapping with the fixed message when the view exceeds the destination
+// capacity. Text coercion's capacity-checked arm is a lowering rather than a
+// method, so the shared hex_text_fill_checked helper has no registry record and
+// is spelled here.
+func textFillChecked(typ compilerTypes.Type, view, checkedMessage string) string {
 	return "(*(" + typ.CName + " *)hex_text_fill_checked(&(" + typ.CName + "){0}, " + strconv.FormatUint(typ.InlineString.Capacity, 10) + ", " + view + ", " + strconv.Quote(checkedMessage) + "))"
+}
+
+// textFillSymbol resolves the shared fill helper's recorded symbol, which the
+// widen method record owns.
+func textFillSymbol() (string, error) {
+	return builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeInlineString), "widen", "")
 }
 
 func validateTextExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
@@ -568,7 +582,16 @@ func renderTextExpression(node checker.Expression, state *expressionValidation) 
 				return "", unknownExpressionDiagnostic("text coercion names an unknown bounded destination: " + node.Name)
 			}
 		}
-		return textFill(node.ResultType, view, message), nil
+		if message == "" {
+			// The source always fits, so the shared unchecked fill helper is
+			// used; its record is the widen method's.
+			fill, fillErr := textFillSymbol()
+			if fillErr != nil {
+				return "", fillErr
+			}
+			return textFill(node.ResultType, view, fill), nil
+		}
+		return textFillChecked(node.ResultType, view, message), nil
 	case checker.StringInterpolateExpression:
 		return renderStringInterpolate(node, state)
 	}
@@ -599,7 +622,11 @@ func renderTextMethod(node checker.Expression, state *expressionValidation) (str
 		if heapErr != nil {
 			return "", heapErr
 		}
-		return "hex_string_free(" + heap + ", " + receiver + ")", nil
+		symbol, symbolErr := builtinMethodCallSymbol(specdata.ExactOwner(specdata.TypeString), "free", "")
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + heap + ", " + receiver + ")", nil
 	}
 	// bytes(), slice(), and the cursor constructors must point into the
 	// receiver itself.
@@ -608,25 +635,56 @@ func renderTextMethod(node checker.Expression, state *expressionValidation) (str
 	if viewErr != nil {
 		return "", viewErr
 	}
+	// The heap handle and the inline String<N> each carry a record for the
+	// operations they share, so the receiver's form selects the owner whose
+	// record names the emitted symbol.
+	owner := specdata.ExactOwner(specdata.TypeString)
+	if compilerTypes.IsInlineString(node.OperandType) {
+		owner = specdata.ConstructorOwner(specdata.TypeInlineString)
+	}
 	switch node.Name {
 	case "length":
 		return "(" + view + ").length", nil
 	case "rune_length":
 		// Counting scalars steps the utf8proc adapter the validator uses, so
 		// it is O(n) and never allocation-free text construction.
-		return "hex_text_rune_length(" + view + ")", nil
+		symbol, symbolErr := builtinMethodCallSymbol(owner, "rune_length", "")
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + view + ")", nil
 	case "grapheme_length":
 		// Counting clusters steps the utf8proc break-state helper, which must
 		// see every adjacent scalar pair in order.
-		return "hex_text_grapheme_length(" + view + ")", nil
+		symbol, symbolErr := builtinMethodCallSymbol(owner, "grapheme_length", "")
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + view + ")", nil
 	case "byte_cursor":
-		return "hex_text_byte_cursor(" + view + ")", nil
+		symbol, symbolErr := builtinMethodCallSymbol(owner, "byte_cursor", "")
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + view + ")", nil
 	case "rune_cursor":
-		return "hex_text_rune_cursor(" + view + ")", nil
+		symbol, symbolErr := builtinMethodCallSymbol(owner, "rune_cursor", "")
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + view + ")", nil
 	case "grapheme_cursor":
-		return "hex_text_grapheme_cursor(" + view + ")", nil
+		symbol, symbolErr := builtinMethodCallSymbol(owner, "grapheme_cursor", "")
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + view + ")", nil
 	case "bytes":
-		return "hex_text_bytes(" + view + ")", nil
+		symbol, symbolErr := builtinMethodCallSymbol(owner, "bytes", "")
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + view + ")", nil
 	case "slice":
 		start, startErr := renderOperandWithState(node.Arguments[0], state)
 		if startErr != nil {
@@ -636,15 +694,27 @@ func renderTextMethod(node checker.Expression, state *expressionValidation) (str
 		if endErr != nil {
 			return "", endErr
 		}
-		return "hex_text_slice(" + view + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
+		symbol, symbolErr := builtinMethodCallSymbol(owner, "slice", "")
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + view + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
 	case "copy":
 		heap, heapErr := renderOperandWithState(node.Arguments[0], state)
 		if heapErr != nil {
 			return "", heapErr
 		}
-		return "hex_string_make(" + heap + ", " + view + ")", nil
+		symbol, symbolErr := builtinMethodCallSymbol(owner, "copy", "")
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + heap + ", " + view + ")", nil
 	case "widen":
-		return textFill(node.ResultType, view, ""), nil
+		symbol, symbolErr := builtinMethodCallSymbol(owner, "widen", "")
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return textFill(node.ResultType, view, symbol), nil
 	case "concat":
 		heap, heapErr := renderOperandWithState(node.Arguments[0], state)
 		if heapErr != nil {
@@ -654,13 +724,21 @@ func renderTextMethod(node checker.Expression, state *expressionValidation) (str
 		if otherErr != nil {
 			return "", otherErr
 		}
-		return fmt.Sprintf("hex_string_concat_%s(%s, %s, %s, %d, %d)", streamAdapterSuffix(node.ResultType), heap, view, other, node.SourceLine, node.SourceColumn), nil
+		symbol, symbolErr := builtinMethodCallSymbol(owner, "concat", streamAdapterSuffix(node.ResultType))
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return fmt.Sprintf("%s(%s, %s, %s, %d, %d)", symbol, heap, view, other, node.SourceLine, node.SourceColumn), nil
 	case "casefold":
 		heap, heapErr := renderOperandWithState(node.Arguments[0], state)
 		if heapErr != nil {
 			return "", heapErr
 		}
-		return fmt.Sprintf("hex_string_casefold_%s(%s, %s, %d, %d)", streamAdapterSuffix(node.ResultType), heap, view, node.SourceLine, node.SourceColumn), nil
+		symbol, symbolErr := builtinMethodCallSymbol(owner, "casefold", streamAdapterSuffix(node.ResultType))
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return fmt.Sprintf("%s(%s, %s, %d, %d)", symbol, heap, view, node.SourceLine, node.SourceColumn), nil
 	case "normalize":
 		heap, heapErr := renderOperandWithState(node.Arguments[0], state)
 		if heapErr != nil {
@@ -670,7 +748,11 @@ func renderTextMethod(node checker.Expression, state *expressionValidation) (str
 		if formErr != nil {
 			return "", formErr
 		}
-		return fmt.Sprintf("hex_string_normalize_%s(%s, %s, (%s).tag, %d, %d)", streamAdapterSuffix(node.ResultType), heap, view, form, node.SourceLine, node.SourceColumn), nil
+		symbol, symbolErr := builtinMethodCallSymbol(owner, "normalize", streamAdapterSuffix(node.ResultType))
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return fmt.Sprintf("%s(%s, %s, (%s).tag, %d, %d)", symbol, heap, view, form, node.SourceLine, node.SourceColumn), nil
 	}
 	return "", unknownExpressionDiagnostic("unknown string method")
 }
@@ -1120,6 +1202,10 @@ func writeTextInlineHelpers(result *strings.Builder, state *generatedTextState, 
 		if err != nil {
 			return err
 		}
+		fill, fillErr := textFillSymbol()
+		if fillErr != nil {
+			return fillErr
+		}
 		if err := renderInto(result, "module.h", "inline_from_bytes_adapter", inlineTextAdapterModel{
 			Suffix:   streamAdapterSuffix(union),
 			CName:    union.CName,
@@ -1128,7 +1214,8 @@ func writeTextInlineHelpers(result *strings.Builder, state *generatedTextState, 
 			Invalid:  invalid,
 			Tag:      tag,
 			Field:    field,
-			Fill:     textFill(destination, "hex_text_view(bytes)", ""),
+			// The adapter fills through the shared helper's recorded symbol.
+			Fill: textFill(destination, "hex_text_view(bytes)", fill),
 		}); err != nil {
 			return err
 		}

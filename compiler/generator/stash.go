@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"hexal/compiler/checker"
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -70,8 +71,12 @@ func writeStashHelpers(result *strings.Builder, state *stashHelpers) error {
 		}); err != nil {
 			return err
 		}
+		allocateName, allocateErr := stashAllocateHelper(element)
+		if allocateErr != nil {
+			return allocateErr
+		}
 		if err := renderInto(result, "module.h", "stash_allocate_helper", stashHelperModel{
-			Name:     stashAllocateHelper(element),
+			Name:     allocateName,
 			Spelling: spelling,
 		}); err != nil {
 			return err
@@ -80,12 +85,17 @@ func writeStashHelpers(result *strings.Builder, state *stashHelpers) error {
 	return nil
 }
 
+// stashNewHelper names one Stash<T> constructor wrapper. The registry records
+// no constructor runtime symbol, so the name stays literal here; it is a
+// distinct symbol from the packages/stash.h-owned type-erased hex_stash_new.
 func stashNewHelper(element compilerTypes.Type) string {
 	return "hex_stash_new_" + element.CName
 }
 
-func stashAllocateHelper(element compilerTypes.Type) string {
-	return "hex_stash_alloc_" + element.CName
+// stashAllocateHelper names one Stash<T>.allocate wrapper through the recorded
+// Stash.allocate symbol, with the element's C name as the suffix.
+func stashAllocateHelper(element compilerTypes.Type) (string, error) {
+	return builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeStash), "allocate", element.CName)
 }
 
 func renderStashConstructor(node checker.Expression, state *expressionValidation) (string, error) {
@@ -112,11 +122,23 @@ func renderStashMethod(node checker.Expression, state *expressionValidation) (st
 		if err != nil {
 			return "", err
 		}
-		return stashAllocateHelper(node.Element) + "(" + receiver + ", " + initial + ")", nil
+		symbol, symbolErr := stashAllocateHelper(node.Element)
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + receiver + ", " + initial + ")", nil
 	case "reset":
-		return "hex_stash_reset(" + receiver + ")", nil
+		symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeStash), "reset", "")
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + receiver + ")", nil
 	case "destroy":
-		return "hex_stash_destroy(" + receiver + ")", nil
+		symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeStash), "destroy", "")
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + receiver + ")", nil
 	default:
 		return "", unknownExpressionDiagnostic("unknown stash method " + node.Name)
 	}
