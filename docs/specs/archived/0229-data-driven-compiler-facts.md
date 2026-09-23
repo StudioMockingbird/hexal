@@ -1,14 +1,20 @@
 # RFC 0229: Data-Driven Compiler Facts
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Partially implemented. Slices 0-4 of the implementation plan have
-  landed: `compiler/specdata` holds records for runtime components and
-  dependencies, target facts, core-library modules, type constructors, and
-  methods, with `Validate()` and the conformance guards enforced. The registry
-  is not yet the sole authority — the repository-wide duplicate-owner audit
-  recorded in `docs/status.md` names each consumer that still owns a migrated
-  fact, and the Validation section holds only when those close. RFC 0230 is
-  closed, so this is no longer blocked on it.
+- Status: Closed; implemented. Slices 0-4 landed and every Validation bullet
+  holds. `compiler/specdata` holds validated records for runtime components and
+  dependencies, target facts, core-library modules, type constructors, methods,
+  error kinds, C scalar mappings, widening, operators, and conversions, with
+  the conformance guards enforced and a cross-domain integrity pass rejecting
+  missing references, cycles, symbol collisions, and incomplete ABI records.
+  The repository-wide duplicate-owner audit that closed each surviving second
+  authority is recorded in git: the dispatch switches, the component metadata,
+  the capacity-derived Error C names, the position model, the union equality
+  helper, and the runtime-symbol composers all read the registry now. Facts
+  that no consumer can read without moving wording or behavior are resolved out
+  of the migration scope with their reasons recorded at the owning code, and
+  symbols with no record at all are documented as literals at their sites
+  rather than given records nothing would read.
 - Created: 2026-09-21
 - Scope: make compiler-owned language and runtime facts declarative, typed,
   centrally registered, validated, and reusable across checking, generation,
