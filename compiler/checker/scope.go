@@ -2,6 +2,7 @@ package checker
 
 import (
 	"fmt"
+	"maps"
 
 	"hexal/compiler/corelib"
 	"hexal/compiler/lexer"
@@ -228,30 +229,25 @@ func newFlowState() *flowState {
 }
 
 func (state *flowState) clone() *flowState {
-	cloned := newFlowState()
-	for id, fact := range state.facts {
-		cloned.facts[id] = fact
+	cloned := &flowState{
+		facts:           maps.Clone(state.facts),
+		tracked:         maps.Clone(state.tracked),
+		released:        cloneReleased(state.released),
+		provenance:      maps.Clone(state.provenance),
+		releasedSources: maps.Clone(state.releasedSources),
+		stringOrigins:   maps.Clone(state.stringOrigins),
+		stringPlaces:    maps.Clone(state.stringPlaces),
 	}
-	for id := range state.tracked {
-		cloned.tracked[id] = true
-	}
-	for id, versions := range state.released {
-		cloned.released[id] = make(map[uint64]bool, len(versions))
-		for version := range versions {
-			cloned.released[id][version] = true
-		}
-	}
-	for id, source := range state.provenance {
-		cloned.provenance[id] = source
-	}
-	for id := range state.releasedSources {
-		cloned.releasedSources[id] = true
-	}
-	for id, set := range state.stringOrigins {
-		cloned.stringOrigins[id] = set
-	}
-	for key, set := range state.stringPlaces {
-		cloned.stringPlaces[key] = set
+	return cloned
+}
+
+// cloneReleased deep-copies the nested released table. The outer clone must
+// not share inner maps: a branch marking a version freed through the clone
+// would otherwise corrupt every sibling branch that shares that inner map.
+func cloneReleased(released map[BindingID]map[uint64]bool) map[BindingID]map[uint64]bool {
+	cloned := make(map[BindingID]map[uint64]bool, len(released))
+	for id, versions := range released {
+		cloned[id] = maps.Clone(versions)
 	}
 	return cloned
 }

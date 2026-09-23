@@ -8,7 +8,8 @@ package checker
 // statements are checked.
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 
 	"hexal/compiler/parser"
 )
@@ -449,7 +450,7 @@ func inheritEnvironment(envDependent *bool, captures *[]Capture, callees map[str
 			*captures = append(*captures, Capture{Name: captureName, Binding: bound.id, Type: bound.typ, Mutable: bound.mutable})
 		}
 	}
-	sort.SliceStable(*captures, func(i, j int) bool {
-		return (*captures)[i].Binding < (*captures)[j].Binding
+	slices.SortStableFunc(*captures, func(left, right Capture) int {
+		return cmp.Compare(left.Binding, right.Binding)
 	})
 }

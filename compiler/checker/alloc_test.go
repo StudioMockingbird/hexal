@@ -144,6 +144,21 @@ func TestCheckDeferredExpressionChecksVolatilePointeeKinds(t *testing.T) {
 	}
 }
 
+func TestFlowStateCloneProducesIndependentReleasedInnerMaps(t *testing.T) {
+	state := newFlowState()
+	const binding = BindingID(1)
+	state.trackFreed(binding)
+	state.markFreedVersion(binding, 1)
+	cloned := state.clone()
+	cloned.markFreedVersion(binding, 2)
+	if !cloned.released[binding][1] {
+		t.Fatal("clone lost the released version recorded before cloning")
+	}
+	if state.released[binding][2] {
+		t.Fatal("clone shares released inner maps with the original state")
+	}
+}
+
 func TestCheckHeapFreeRejectsDeferredFreeAfterExplicitFree(t *testing.T) {
 	requireDiagnostic(t, "let h: Heap = Heap() let p: Ptr<mut Int32> = h.allocate<Int32>(0) defer h.free(p) h.free(p)", "free releases storage already released on every path to this point")
 }

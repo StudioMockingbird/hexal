@@ -12,9 +12,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"hexal/internal/backend"
@@ -252,11 +253,7 @@ func effectiveEnvironment(inherited []string, overrides []environmentOverride) [
 	for _, override := range overrides {
 		byKey[hostEnvironmentKey(override.Name)] = entry{name: override.Name, value: override.Value}
 	}
-	keys := make([]string, 0, len(byKey))
-	for key := range byKey {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
+	keys := slices.Sorted(maps.Keys(byKey))
 	environment := make([]string, 0, len(keys))
 	for _, key := range keys {
 		current := byKey[key]

@@ -8,9 +8,11 @@ package driver
 // lowers.
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 
 	"hexal/compiler"
@@ -703,11 +705,7 @@ type macroRecord struct {
 // record, or an unrepresentable type is omitted whole. Names are assigned
 // here, after declarations, and the result is sorted for deterministic output.
 func (importer *importer) macroConstants() []macroRecord {
-	names := make([]string, 0, len(importer.macroTypes))
-	for name := range importer.macroTypes {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(importer.macroTypes))
 	constants := make([]macroRecord, 0, len(names))
 	for _, name := range names {
 		qualType := importer.macroTypes[name]
@@ -886,7 +884,7 @@ func (importer *importer) emit() string {
 
 	if len(exported) > 0 {
 		exported = dedupeByName(exported, func(name string) string { return name })
-		sort.Strings(exported)
+		slices.Sort(exported)
 		body.WriteString("\nexport\n")
 		for _, name := range exported {
 			fmt.Fprintf(&body, "    %s,\n", name)
@@ -901,20 +899,20 @@ func (importer *importer) emit() string {
 // redeclaration is not selected by traversal order: the first occurrence wins
 // and the rest are dropped.
 func (importer *importer) coalesceRedeclarations() {
-	sort.SliceStable(importer.typedefs, func(i, j int) bool {
-		return declarationOrder(importer.typedefs[i].line, importer.typedefs[i].cName, importer.typedefs[j].line, importer.typedefs[j].cName)
+	slices.SortStableFunc(importer.typedefs, func(left, right *typedefRecord) int {
+		return declarationOrder(left.line, left.cName, right.line, right.cName)
 	})
-	sort.SliceStable(importer.records, func(i, j int) bool {
-		return declarationOrder(importer.records[i].line, importer.records[i].tag+" "+importer.records[i].cName, importer.records[j].line, importer.records[j].tag+" "+importer.records[j].cName)
+	slices.SortStableFunc(importer.records, func(left, right *recordRecord) int {
+		return declarationOrder(left.line, left.tag+" "+left.cName, right.line, right.tag+" "+right.cName)
 	})
-	sort.SliceStable(importer.enums, func(i, j int) bool {
-		return declarationOrder(importer.enums[i].line, importer.enums[i].cName, importer.enums[j].line, importer.enums[j].cName)
+	slices.SortStableFunc(importer.enums, func(left, right *enumRecord) int {
+		return declarationOrder(left.line, left.cName, right.line, right.cName)
 	})
-	sort.SliceStable(importer.functions, func(i, j int) bool {
-		return declarationOrder(importer.functions[i].line, importer.functions[i].cName, importer.functions[j].line, importer.functions[j].cName)
+	slices.SortStableFunc(importer.functions, func(left, right *functionRecord) int {
+		return declarationOrder(left.line, left.cName, right.line, right.cName)
 	})
-	sort.SliceStable(importer.globals, func(i, j int) bool {
-		return declarationOrder(importer.globals[i].line, importer.globals[i].cName, importer.globals[j].line, importer.globals[j].cName)
+	slices.SortStableFunc(importer.globals, func(left, right *globalRecord) int {
+		return declarationOrder(left.line, left.cName, right.line, right.cName)
 	})
 	importer.typedefs = dedupeByName(importer.typedefs, func(record *typedefRecord) string { return record.cName })
 	importer.records = dedupeByName(importer.records, func(record *recordRecord) string { return record.tag + " " + record.cName })
@@ -939,11 +937,11 @@ func (importer *importer) coalesceRedeclarations() {
 
 // declarationOrder orders two otherwise independent declarations by source
 // location, then exact C name.
-func declarationOrder(leftLine int, leftName string, rightLine int, rightName string) bool {
+func declarationOrder(leftLine int, leftName string, rightLine int, rightName string) int {
 	if leftLine != rightLine {
-		return leftLine < rightLine
+		return cmp.Compare(leftLine, rightLine)
 	}
-	return leftName < rightName
+	return strings.Compare(leftName, rightName)
 }
 
 // dedupeByName keeps the first item for each key, preserving order.
