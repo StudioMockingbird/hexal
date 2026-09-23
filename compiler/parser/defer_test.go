@@ -8,7 +8,7 @@ import (
 )
 
 func TestLexDeferKeyword(t *testing.T) {
-	tokens, err := lexer.Lex("defer cleanup()")
+	tokens, err := lexer.Lex("test.hex", "defer cleanup()")
 	if err != nil {
 		t.Fatal(err)
 	}

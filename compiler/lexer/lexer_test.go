@@ -3,10 +3,19 @@ package lexer
 import (
 	"strings"
 	"testing"
+
+	"hexal/internal/span"
 )
 
+// sameToken compares the legacy fields a token carries at the migration
+// boundary. Span identity and file key are asserted separately by
+// TestLexTokenSpans, which pins exact byte offsets.
+func sameToken(got, want Token) bool {
+	return got.Kind == want.Kind && got.Lexeme == want.Lexeme && got.Line == want.Line && got.Column == want.Column
+}
+
 func TestLexDeclaration(t *testing.T) {
-	tokens, err := Lex("let x: Int32 = 13")
+	tokens, err := Lex("test.hex", "let x: Int32 = 13")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -25,14 +34,14 @@ func TestLexDeclaration(t *testing.T) {
 		t.Fatalf("Lex returned %d tokens, want %d", len(tokens), len(want))
 	}
 	for index := range want {
-		if tokens[index] != want[index] {
+		if !sameToken(tokens[index], want[index]) {
 			t.Fatalf("token %d = %#v, want %#v", index, tokens[index], want[index])
 		}
 	}
 }
 
 func TestLexRejectsUnexpectedCharacter(t *testing.T) {
-	_, err := Lex("x: Int32 := $")
+	_, err := Lex("test.hex", "x: Int32 := $")
 	if err == nil {
 		t.Fatal("Lex accepted an unexpected character")
 	}
@@ -42,7 +51,7 @@ func TestLexRejectsUnexpectedCharacter(t *testing.T) {
 }
 
 func TestLexBooleanKeywordsAndIdentifiers(t *testing.T) {
-	tokens, err := Lex("true false trueValue")
+	tokens, err := Lex("test.hex", "true false trueValue")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -57,14 +66,14 @@ func TestLexBooleanKeywordsAndIdentifiers(t *testing.T) {
 		t.Fatalf("Lex returned %d tokens, want %d", len(tokens), len(want))
 	}
 	for index := range want {
-		if tokens[index] != want[index] {
+		if !sameToken(tokens[index], want[index]) {
 			t.Fatalf("token %d = %#v, want %#v", index, tokens[index], want[index])
 		}
 	}
 }
 
 func TestLexNilPipeAndProtectedTypeIdentifiers(t *testing.T) {
-	tokens, err := Lex("nil | Nil Unknown nilValue")
+	tokens, err := Lex("test.hex", "nil | Nil Unknown nilValue")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -92,7 +101,7 @@ func TestLexNilPipeAndProtectedTypeIdentifiers(t *testing.T) {
 }
 
 func TestLexIsAsReservedWord(t *testing.T) {
-	tokens, err := Lex("value is Int32 | Nil")
+	tokens, err := Lex("test.hex", "value is Int32 | Nil")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -105,7 +114,7 @@ func TestLexIsAsReservedWord(t *testing.T) {
 }
 
 func TestLexCoreOperatorsAndMaximalMunch(t *testing.T) {
-	tokens, err := Lex("a!=b==c<=d>=e+f*g/h%i!() and or android")
+	tokens, err := Lex("test.hex", "a!=b==c<=d>=e+f*g/h%i!() and or android")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -156,7 +165,7 @@ func TestTokenKindStringForCoreOperators(t *testing.T) {
 }
 
 func TestLexOperatorLocationsCommentsAndNestedPointers(t *testing.T) {
-	tokens, err := Lex("!= ! == = <= < >= >\nPtr<Ptr<Int32>>\n-- comment\nand or")
+	tokens, err := Lex("test.hex", "!= ! == = <= < >= >\nPtr<Ptr<Int32>>\n-- comment\nand or")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -184,14 +193,14 @@ func TestLexOperatorLocationsCommentsAndNestedPointers(t *testing.T) {
 		t.Fatalf("Lex returned %d tokens, want %d", len(tokens), len(want))
 	}
 	for index := range want {
-		if tokens[index] != want[index] {
+		if !sameToken(tokens[index], want[index]) {
 			t.Fatalf("token %d = %#v, want %#v", index, tokens[index], want[index])
 		}
 	}
 }
 
 func TestLexRejectsLeadingUnderscoreIdentifier(t *testing.T) {
-	_, err := Lex("_player: Int32 := 1")
+	_, err := Lex("test.hex", "_player: Int32 := 1")
 	if err == nil {
 		t.Fatal("Lex accepted an identifier beginning with an underscore")
 	}
@@ -201,7 +210,7 @@ func TestLexRejectsLeadingUnderscoreIdentifier(t *testing.T) {
 }
 
 func TestLexRejectsDigitStartIdentifier(t *testing.T) {
-	_, err := Lex("2player: Int32 = 2")
+	_, err := Lex("test.hex", "2player: Int32 = 2")
 	if err == nil {
 		t.Fatal("Lex accepted an identifier beginning with a digit")
 	}
@@ -211,7 +220,7 @@ func TestLexRejectsDigitStartIdentifier(t *testing.T) {
 }
 
 func TestLexAcceptsUnderscoreAfterLetter(t *testing.T) {
-	tokens, err := Lex("player_2")
+	tokens, err := Lex("test.hex", "player_2")
 	if err != nil {
 		t.Fatalf("Lex rejected an underscore after the leading letter: %v", err)
 	}
@@ -221,7 +230,7 @@ func TestLexAcceptsUnderscoreAfterLetter(t *testing.T) {
 }
 
 func TestLexPointerKeywordsAndProperties(t *testing.T) {
-	tokens, err := Lex("@ mut Ptr<Int32>.value")
+	tokens, err := Lex("test.hex", "@ mut Ptr<Int32>.value")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -241,14 +250,14 @@ func TestLexPointerKeywordsAndProperties(t *testing.T) {
 		t.Fatalf("Lex returned %d tokens, want %d", len(tokens), len(want))
 	}
 	for index := range want {
-		if tokens[index] != want[index] {
+		if !sameToken(tokens[index], want[index]) {
 			t.Fatalf("token %d = %#v, want %#v", index, tokens[index], want[index])
 		}
 	}
 }
 
 func TestLexTypeKeywordAndPtrIdentifier(t *testing.T) {
-	tokens, err := Lex("type Coordinate is Ptr<Int32>")
+	tokens, err := Lex("test.hex", "type Coordinate is Ptr<Int32>")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -267,7 +276,7 @@ func TestLexTypeKeywordAndPtrIdentifier(t *testing.T) {
 }
 
 func TestLexStructDelimiters(t *testing.T) {
-	tokens, err := Lex("type Point is struct mut x: Int32, y: Int32, end")
+	tokens, err := Lex("test.hex", "type Point is struct mut x: Int32, y: Int32, end")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -287,7 +296,7 @@ func TestLexStructDelimiters(t *testing.T) {
 }
 
 func TestLexMinusAndAllIntegerBases(t *testing.T) {
-	tokens, err := Lex("- 0xFF 0b1010_0101 0o755 1_000 3.14 7e3")
+	tokens, err := Lex("test.hex", "- 0xFF 0b1010_0101 0o755 1_000 3.14 7e3")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -303,7 +312,7 @@ func TestLexMinusAndAllIntegerBases(t *testing.T) {
 }
 
 func TestLexHexadecimalInteger(t *testing.T) {
-	tokens, err := Lex("let mask: Int32 = 0xFF")
+	tokens, err := Lex("test.hex", "let mask: Int32 = 0xFF")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -318,7 +327,7 @@ func TestLexHexadecimalInteger(t *testing.T) {
 
 func TestLexRejectsMalformedHexadecimalInteger(t *testing.T) {
 	for _, source := range []string{"x: Int32 := 0x", "x: Int32 := 0xG", "x: Int32 := 0x12G"} {
-		_, err := Lex(source)
+		_, err := Lex("test.hex", source)
 		if err == nil {
 			t.Fatalf("Lex accepted malformed hexadecimal literal in %q", source)
 		}
@@ -328,7 +337,7 @@ func TestLexRejectsMalformedHexadecimalInteger(t *testing.T) {
 		}
 	}
 
-	_, err := Lex("x: Int32 := 0XFF")
+	_, err := Lex("test.hex", "x: Int32 := 0XFF")
 	if err == nil {
 		t.Fatal("Lex accepted an uppercase hexadecimal prefix")
 	}
@@ -339,7 +348,7 @@ func TestLexRejectsMalformedHexadecimalInteger(t *testing.T) {
 
 func TestLexSkipsSingleLineAndDocumentationComments(t *testing.T) {
 	source := "--- declare the counter\nlet x: Int32 = 13 -- initialize\nx = 14 -- eof"
-	tokens, err := Lex(source)
+	tokens, err := Lex("test.hex", source)
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -347,34 +356,34 @@ func TestLexSkipsSingleLineAndDocumentationComments(t *testing.T) {
 	if len(tokens) != 10 {
 		t.Fatalf("Lex returned %d tokens, want 10", len(tokens))
 	}
-	if got, want := tokens[0], (Token{Kind: Let, Lexeme: "let", Line: 2, Column: 1}); got != want {
+	if got, want := tokens[0], (Token{Kind: Let, Lexeme: "let", Line: 2, Column: 1}); !sameToken(got, want) {
 		t.Fatalf("first token = %#v, want %#v", got, want)
 	}
-	if got, want := tokens[1], (Token{Kind: Identifier, Lexeme: "x", Line: 2, Column: 5}); got != want {
+	if got, want := tokens[1], (Token{Kind: Identifier, Lexeme: "x", Line: 2, Column: 5}); !sameToken(got, want) {
 		t.Fatalf("declaration name token = %#v, want %#v", got, want)
 	}
-	if got, want := tokens[6], (Token{Kind: Identifier, Lexeme: "x", Line: 3, Column: 1}); got != want {
+	if got, want := tokens[6], (Token{Kind: Identifier, Lexeme: "x", Line: 3, Column: 1}); !sameToken(got, want) {
 		t.Fatalf("second statement token = %#v, want %#v", got, want)
 	}
 }
 
 func TestLexSkipsMultilineCommentAndTracksLocation(t *testing.T) {
 	source := "x: Int32 --[ comment\n   across lines ]-- = 13"
-	tokens, err := Lex(source)
+	tokens, err := Lex("test.hex", source)
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
 
-	if got, want := tokens[3], (Token{Kind: Equal, Lexeme: "=", Line: 2, Column: 21}); got != want {
+	if got, want := tokens[3], (Token{Kind: Equal, Lexeme: "=", Line: 2, Column: 21}); !sameToken(got, want) {
 		t.Fatalf("equal token = %#v, want %#v", got, want)
 	}
-	if got, want := tokens[4], (Token{Kind: Integer, Lexeme: "13", Line: 2, Column: 23}); got != want {
+	if got, want := tokens[4], (Token{Kind: Integer, Lexeme: "13", Line: 2, Column: 23}); !sameToken(got, want) {
 		t.Fatalf("integer token = %#v, want %#v", got, want)
 	}
 }
 
 func TestLexRejectsUnterminatedMultilineComment(t *testing.T) {
-	_, err := Lex("x: Int32 := --[ missing close")
+	_, err := Lex("test.hex", "x: Int32 := --[ missing close")
 	if err == nil {
 		t.Fatal("Lex accepted an unterminated multiline comment")
 	}
@@ -384,7 +393,7 @@ func TestLexRejectsUnterminatedMultilineComment(t *testing.T) {
 }
 
 func TestLexByteAndNumericLiterals(t *testing.T) {
-	tokens, err := Lex("b'A' 1_000 3.14 6.02e23")
+	tokens, err := Lex("test.hex", "b'A' 1_000 3.14 6.02e23")
 	if err != nil || len(tokens) != 5 {
 		t.Fatalf("Lex returned tokens=%#v err=%v, want one Byte literal, numeric tokens, and EOF", tokens, err)
 	}
@@ -397,7 +406,7 @@ func TestLexByteAndNumericLiterals(t *testing.T) {
 }
 
 func TestLexRuneLiteral(t *testing.T) {
-	tokens, err := Lex("'a' '\\u{41}' '\\u{1F600}'")
+	tokens, err := Lex("test.hex", "'a' '\\u{41}' '\\u{1F600}'")
 	if err != nil || len(tokens) != 4 {
 		t.Fatalf("Lex returned tokens=%#v err=%v, want three Rune literals and EOF", tokens, err)
 	}
@@ -416,14 +425,14 @@ func TestLexRuneLiteral(t *testing.T) {
 // multi-scalar body, a surrogate escape, and an unterminated body all fail.
 func TestLexRejectsInvalidRuneForms(t *testing.T) {
 	for _, source := range []string{"'ab'", "'\\u{D800}'", "'unterminated"} {
-		if _, err := Lex(source); err == nil {
+		if _, err := Lex("test.hex", source); err == nil {
 			t.Fatalf("Lex(%q) accepted an invalid Rune literal", source)
 		}
 	}
 }
 
 func TestLexByteLiteralsAndStringEscapes(t *testing.T) {
-	tokens, err := Lex("b'a' b'\\x41' \"h\u00e9llo \\u{1F600}\"")
+	tokens, err := Lex("test.hex", "b'a' b'\\x41' \"h\u00e9llo \\u{1F600}\"")
 	if err != nil || len(tokens) != 4 {
 		t.Fatalf("Lex returned tokens=%#v err=%v, want two byte literals, a string literal, and EOF", tokens, err)
 	}
@@ -434,7 +443,7 @@ func TestLexByteLiteralsAndStringEscapes(t *testing.T) {
 
 func TestLexRejectsInvalidByteForms(t *testing.T) {
 	for _, source := range []string{"b'13'", "b'\\13'", "b'\\0xFF'", "b'\\xF'", "b'\\xFFF'", "b'é'", "b'\\u{41}'", "b'ab'"} {
-		_, err := Lex(source)
+		_, err := Lex("test.hex", source)
 		if err == nil || !strings.Contains(err.Error(), "Byte literal") && !strings.Contains(err.Error(), "escape") {
 			t.Fatalf("Lex(%q) error = %v, want a Byte literal diagnostic", source, err)
 		}
@@ -442,7 +451,7 @@ func TestLexRejectsInvalidByteForms(t *testing.T) {
 }
 
 func TestLexFunctionKeywords(t *testing.T) {
-	tokens, err := Lex("fun struct union method\nend return self")
+	tokens, err := Lex("test.hex", "fun struct union method\nend return self")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -461,7 +470,7 @@ func TestLexFunctionKeywords(t *testing.T) {
 		t.Fatalf("Lex returned %d tokens, want %d", len(tokens), len(want))
 	}
 	for index := range want {
-		if tokens[index] != want[index] {
+		if !sameToken(tokens[index], want[index]) {
 			t.Fatalf("token %d = %#v, want %#v", index, tokens[index], want[index])
 		}
 	}
@@ -485,7 +494,7 @@ func TestTokenKindStringForFunctionKeywords(t *testing.T) {
 }
 
 func TestLexControlFlowKeywords(t *testing.T) {
-	tokens, err := Lex("if elseif else while\nbreak continue")
+	tokens, err := Lex("test.hex", "if elseif else while\nbreak continue")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -503,7 +512,7 @@ func TestLexControlFlowKeywords(t *testing.T) {
 		t.Fatalf("Lex returned %d tokens, want %d", len(tokens), len(want))
 	}
 	for index := range want {
-		if tokens[index] != want[index] {
+		if !sameToken(tokens[index], want[index]) {
 			t.Fatalf("token %d = %#v, want %#v", index, tokens[index], want[index])
 		}
 	}
@@ -527,7 +536,7 @@ func TestTokenKindStringForControlFlowKeywords(t *testing.T) {
 
 func TestLexIdentifiersContainingFunctionKeywords(t *testing.T) {
 	source := "fundamental ending returns implementation selfish myself"
-	tokens, err := Lex(source)
+	tokens, err := Lex("test.hex", source)
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -544,7 +553,7 @@ func TestLexIdentifiersContainingFunctionKeywords(t *testing.T) {
 }
 
 func TestLexFunctionKeywordsFollowedByPunctuation(t *testing.T) {
-	tokens, err := Lex("end)\nself.x")
+	tokens, err := Lex("test.hex", "end)\nself.x")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -561,7 +570,7 @@ func TestLexFunctionKeywordsFollowedByPunctuation(t *testing.T) {
 		t.Fatalf("Lex returned %d tokens, want %d", len(tokens), len(want))
 	}
 	for index := range want {
-		if tokens[index] != want[index] {
+		if !sameToken(tokens[index], want[index]) {
 			t.Fatalf("token %d = %#v, want %#v", index, tokens[index], want[index])
 		}
 	}
@@ -576,7 +585,7 @@ func TestLexRejectsRawNewlinesInStringLiteral(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := Lex(tc.source)
+			_, err := Lex("test.hex", tc.source)
 			if err == nil || !strings.Contains(err.Error(), "raw newline") {
 				t.Fatalf("want raw-newline diagnostic; got %v", err)
 			}
@@ -586,7 +595,7 @@ func TestLexRejectsRawNewlinesInStringLiteral(t *testing.T) {
 
 func TestLexStringEscapedNewlinesRemainValid(t *testing.T) {
 	for _, source := range []string{"\"a\\nb\"", "\"a\\rb\""} {
-		tokens, err := Lex(source)
+		tokens, err := Lex("test.hex", source)
 		if err != nil {
 			t.Fatalf("escaped newline rejected: %v", err)
 		}
@@ -597,7 +606,7 @@ func TestLexStringEscapedNewlinesRemainValid(t *testing.T) {
 }
 
 func TestLexRawNewlineRecoveryKeepsSourcePositions(t *testing.T) {
-	tokens, err := Lex("\"a\nb\" x: Int32 := 1")
+	tokens, err := Lex("test.hex", "\"a\nb\" x: Int32 := 1")
 	if err == nil || !strings.Contains(err.Error(), "raw newline") {
 		t.Fatalf("want raw-newline diagnostic; got %v", err)
 	}
@@ -607,7 +616,7 @@ func TestLexRawNewlineRecoveryKeepsSourcePositions(t *testing.T) {
 }
 
 func TestLexClosedMultilineStringReportsOneDiagnostic(t *testing.T) {
-	_, err := Lex("\"a\nb\nc\"")
+	_, err := Lex("test.hex", "\"a\nb\nc\"")
 	if err == nil {
 		t.Fatal("want a diagnostic")
 	}
@@ -620,7 +629,7 @@ func TestLexClosedMultilineStringReportsOneDiagnostic(t *testing.T) {
 // `:=` and `: =` lex identically.
 func TestLexColonAndEqualAreSeparateTokens(t *testing.T) {
 	for _, source := range []string{"x := 13", "x : = 13"} {
-		tokens, err := Lex(source)
+		tokens, err := Lex("test.hex", source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
 		}
@@ -631,6 +640,64 @@ func TestLexColonAndEqualAreSeparateTokens(t *testing.T) {
 		for index, kind := range wantKinds {
 			if tokens[index].Kind != kind {
 				t.Fatalf("Lex(%q) token %d kind = %v, want %v", source, index, tokens[index].Kind, kind)
+			}
+		}
+	}
+}
+
+// A token's Span is its exact half-open byte range in its logical file. The
+// EOF token is zero-width at the end offset, the insertion point a diagnostic
+// at end of input reports.
+func TestLexTokenSpans(t *testing.T) {
+	const file = "spans.hex"
+	source := "let x: Int32 = 13"
+	tokens, err := Lex(file, source)
+	if err != nil {
+		t.Fatalf("Lex returned an error: %v", err)
+	}
+
+	want := []span.Span{
+		{File: file, Start: 0, End: 3},   // let
+		{File: file, Start: 4, End: 5},   // x
+		{File: file, Start: 5, End: 6},   // :
+		{File: file, Start: 7, End: 12},  // Int32
+		{File: file, Start: 13, End: 14}, // =
+		{File: file, Start: 15, End: 17}, // 13
+		{File: file, Start: 17, End: 17}, // EOF
+	}
+	if len(tokens) != len(want) {
+		t.Fatalf("Lex returned %d tokens, want %d", len(tokens), len(want))
+	}
+	for index := range want {
+		if tokens[index].Span != want[index] {
+			t.Errorf("token %d span = %+v, want %+v", index, tokens[index].Span, want[index])
+		}
+	}
+}
+
+// The retained Line and Column are the span's start under the table
+// convention. This pins the agreement at a single line, across a multiline
+// comment, across multibyte Unicode, and for a lone carriage return.
+func TestLexRetainedLocationsMatchSpanPositions(t *testing.T) {
+	const file = "positions.hex"
+	sources := []string{
+		"let x: Int32 = 13",
+		"x: Int32 --[ comment\n   across lines ]-- = 13",
+		"\"\u00e9\" x",
+		"a\rb",
+	}
+	for _, source := range sources {
+		tokens, err := Lex(file, source)
+		if err != nil {
+			t.Fatalf("Lex(%q) returned an error: %v", source, err)
+		}
+		table := span.NewTable()
+		table.Add(file, source)
+		for index, token := range tokens {
+			got := table.Position(token.Span)
+			if got.Line != token.Line || got.Column != token.Column {
+				t.Errorf("Lex(%q) token %d (%v) span position = %+v, retained line/column = %d:%d",
+					source, index, token.Kind, got, token.Line, token.Column)
 			}
 		}
 	}

@@ -486,7 +486,7 @@ func (s *reachState) visit(canonical string) error {
 			return diagnostic
 		}
 	}
-	tokens, lexErr := lexer.Lex(text)
+	tokens, lexErr := lexer.Lex(key, text)
 	if lexErr != nil {
 		return stampModule(mergeDiagnostics(lexErr, nil), key)
 	}

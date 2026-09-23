@@ -11,7 +11,7 @@ import (
 )
 
 func TestParseDeclaration(t *testing.T) {
-	tokens, err := lexer.Lex("let x: Int32 = 13")
+	tokens, err := lexer.Lex("test.hex", "let x: Int32 = 13")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestParseDeclaration(t *testing.T) {
 }
 
 func TestParseRejectsTrailingTokens(t *testing.T) {
-	tokens, err := lexer.Lex("let x: Int32 = 13 y")
+	tokens, err := lexer.Lex("test.hex", "let x: Int32 = 13 y")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -56,7 +56,7 @@ func TestParseRejectsTrailingTokens(t *testing.T) {
 }
 
 func TestParseBooleanLiteral(t *testing.T) {
-	tokens, err := lexer.Lex("let enabled: Bool = true")
+	tokens, err := lexer.Lex("test.hex", "let enabled: Bool = true")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestParseBooleanLiteral(t *testing.T) {
 }
 
 func TestParseHexadecimalIntegerLiteral(t *testing.T) {
-	tokens, err := lexer.Lex("let mask: Int32 = 0xFF")
+	tokens, err := lexer.Lex("test.hex", "let mask: Int32 = 0xFF")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestParseHexadecimalIntegerLiteral(t *testing.T) {
 }
 
 func TestParsePointerExpressions(t *testing.T) {
-	tokens, err := lexer.Lex("let mut x: Int32 = 13 let p: Ptr<Int32> = @x let y: Int32 = ^p")
+	tokens, err := lexer.Lex("test.hex", "let mut x: Int32 = 13 let p: Ptr<Int32> = @x let y: Int32 = ^p")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestParsePointerExpressions(t *testing.T) {
 }
 
 func TestParseConstructorCallPreservesArgumentOrder(t *testing.T) {
-	tokens, err := lexer.Lex("type Point is struct x: Int32, y: Int32, end let point: Point = Point(y = 2, x = 1,).x")
+	tokens, err := lexer.Lex("test.hex", "type Point is struct x: Int32, y: Int32, end let point: Point = Point(y = 2, x = 1,).x")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestParseConstructorCallPreservesArgumentOrder(t *testing.T) {
 }
 
 func TestParseDeclarationStoresKeyword(t *testing.T) {
-	tokens, err := lexer.Lex("let typed: Int32 = 1 let inferred = typed")
+	tokens, err := lexer.Lex("test.hex", "let typed: Int32 = 1 let inferred = typed")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestParseDeclarationDiagnostics(t *testing.T) {
 		{"let x: Int32", "[Syntax Error] expected '=' in a 'let' declaration at 1:13"},
 		{"x: Int32 = 5", "[Syntax Error] declarations require 'let' at 1:1"},
 	} {
-		tokens, err := lexer.Lex(testCase.source)
+		tokens, err := lexer.Lex("test.hex", testCase.source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", testCase.source, err)
 		}
@@ -200,7 +200,7 @@ func TestParseDeclarationDiagnostics(t *testing.T) {
 }
 
 func TestParseRejectsMutInConstructorCall(t *testing.T) {
-	tokens, err := lexer.Lex("let point: Point = Point(mut x = 1)")
+	tokens, err := lexer.Lex("test.hex", "let point: Point = Point(mut x = 1)")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestParseRejectsMutInConstructorCall(t *testing.T) {
 }
 
 func TestParseGeneralDottedMemberNames(t *testing.T) {
-	tokens, err := lexer.Lex("let x: Int32 = point.foo.bar point.addr = x")
+	tokens, err := lexer.Lex("test.hex", "let x: Int32 = point.foo.bar point.addr = x")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestParseRejectsExpressionSideMut(t *testing.T) {
 		{"let x: Int32 = mut y", 16},
 		{"let p: Ptr<Int32> = mut x", 21},
 	} {
-		tokens, err := lexer.Lex(testCase.source)
+		tokens, err := lexer.Lex("test.hex", testCase.source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", testCase.source, err)
 		}
@@ -260,7 +260,7 @@ func TestParseRejectsExpressionSideMut(t *testing.T) {
 }
 
 func TestParsePointerExpressionDoesNotRemoveBuiltInMismatchHandling(t *testing.T) {
-	tokens, err := lexer.Lex("let x: Int32 = true")
+	tokens, err := lexer.Lex("test.hex", "let x: Int32 = true")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestParsePointerExpressionDoesNotRemoveBuiltInMismatchHandling(t *testing.T
 }
 
 func TestParseAcceptsGeneralDottedProperty(t *testing.T) {
-	tokens, err := lexer.Lex("let x: Int32 = 13 let y: Int32 = x.foo")
+	tokens, err := lexer.Lex("test.hex", "let x: Int32 = 13 let y: Int32 = x.foo")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestParseAcceptsGeneralDottedProperty(t *testing.T) {
 }
 
 func TestParseRejectsMissingDottedMemberName(t *testing.T) {
-	tokens, err := lexer.Lex("let x: Int32 = point.")
+	tokens, err := lexer.Lex("test.hex", "let x: Int32 = point.")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestParseRejectsMissingDottedMemberName(t *testing.T) {
 }
 
 func TestParseReportsExpectedDeclaredTypeValue(t *testing.T) {
-	tokens, err := lexer.Lex("let x: Int32 = ")
+	tokens, err := lexer.Lex("test.hex", "let x: Int32 = ")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestParseReportsExpectedDeclaredTypeValue(t *testing.T) {
 
 func TestParseRejectsLiteralForWrongDeclaredType(t *testing.T) {
 	for _, source := range []string{"let x: Int32 = true", "let flag: Bool = 1"} {
-		tokens, err := lexer.Lex(source)
+		tokens, err := lexer.Lex("test.hex", source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
 		}
@@ -324,7 +324,7 @@ func TestParseRejectsLiteralForWrongDeclaredType(t *testing.T) {
 }
 
 func TestParseMultipleStatements(t *testing.T) {
-	tokens, err := lexer.Lex("let x: Int32 = 13 x = 14 let flag: Bool = true flag = false")
+	tokens, err := lexer.Lex("test.hex", "let x: Int32 = 13 x = 14 let flag: Bool = true flag = false")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -351,7 +351,7 @@ func TestParseMultipleStatements(t *testing.T) {
 }
 
 func TestParseRecoversAtNextStatement(t *testing.T) {
-	tokens, err := lexer.Lex("let x: Int32 = 13 y let z: Int32 = 14")
+	tokens, err := lexer.Lex("test.hex", "let x: Int32 = 13 y let z: Int32 = 14")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -372,7 +372,7 @@ func TestParseRecoversAtNextStatement(t *testing.T) {
 }
 
 func TestParseRecoversAtDottedAssignment(t *testing.T) {
-	tokens, err := lexer.Lex("let x: Int32 = 13 invalid let z: Int32 = 14 point.foo = 15")
+	tokens, err := lexer.Lex("test.hex", "let x: Int32 = 13 invalid let z: Int32 = 14 point.foo = 15")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -394,7 +394,7 @@ func TestParseRecoversAtDottedAssignment(t *testing.T) {
 }
 
 func TestSynchronizeAdvancesWhenNoTokensWereConsumed(t *testing.T) {
-	tokens, err := lexer.Lex("type")
+	tokens, err := lexer.Lex("test.hex", "type")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -409,7 +409,7 @@ func TestSynchronizeAdvancesWhenNoTokensWereConsumed(t *testing.T) {
 func TestParseReturnsDiagnosticsForRepeatedStatementKeywords(t *testing.T) {
 	for _, source := range []string{"type type", "mut mut"} {
 		t.Run(source, func(t *testing.T) {
-			tokens, err := lexer.Lex(source)
+			tokens, err := lexer.Lex("test.hex", source)
 			if err != nil {
 				t.Fatalf("Lex(%q) returned an error: %v", source, err)
 			}
@@ -447,7 +447,7 @@ func TestParseRejectsImportAfterTopLevelItem(t *testing.T) {
 		{"executable statement", "let x: Int32 = 1\nimport\n    a from \"./a\"\nend\n", 2},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			tokens, err := lexer.Lex(testCase.source)
+			tokens, err := lexer.Lex("test.hex", testCase.source)
 			if err != nil {
 				t.Fatalf("Lex(%q) returned an error: %v", testCase.source, err)
 			}
@@ -506,7 +506,7 @@ func TestParseModuleReferenceForms(t *testing.T) {
 		{"import\n    X from std.for\nend\n", "expected a standard-library module component after '.'", 2, 16},
 		{"import\n    X from\n        std.io\nend\n", "module reference must begin on the same line as 'from'", 3, 9},
 	} {
-		tokens, err := lexer.Lex(testCase.source)
+		tokens, err := lexer.Lex("test.hex", testCase.source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", testCase.source, err)
 		}
@@ -547,7 +547,7 @@ func TestParseRecoversAfterConsumedMalformedStatement(t *testing.T) {
 		{name: "assignment", source: "broken value = 1", wantName: "value", wantAssign: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			tokens, err := lexer.Lex(testCase.source)
+			tokens, err := lexer.Lex("test.hex", testCase.source)
 			if err != nil {
 				t.Fatalf("Lex(%q) returned an error: %v", testCase.source, err)
 			}
@@ -575,7 +575,7 @@ func TestParseRecoversAfterConsumedMalformedStatement(t *testing.T) {
 }
 
 func TestParseRecoveryPreservesNestedBlockDelimiters(t *testing.T) {
-	tokens, err := lexer.Lex("if true then while false do else end end let recovered: Int32 = 1")
+	tokens, err := lexer.Lex("test.hex", "if true then while false do else end end let recovered: Int32 = 1")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -600,7 +600,7 @@ func TestParseRecoveryPreservesNestedBlockDelimiters(t *testing.T) {
 }
 
 func TestParseRecoveryKeepsInvalidDelimiterInsideWhile(t *testing.T) {
-	tokens, err := lexer.Lex("if true then while false do else let sibling: Int32 = 1 end let after: Int32 = 2 end")
+	tokens, err := lexer.Lex("test.hex", "if true then while false do else let sibling: Int32 = 1 end let after: Int32 = 2 end")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -635,7 +635,7 @@ func TestParseRecoveryKeepsInvalidDelimiterInsideWhile(t *testing.T) {
 }
 
 func TestParseRecoveryKeepsValidReturnSibling(t *testing.T) {
-	tokens, err := lexer.Lex("fun choose(): Int32 do if true then broken return 1 else return 2 end end")
+	tokens, err := lexer.Lex("test.hex", "fun choose(): Int32 do if true then broken return 1 else return 2 end end")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -665,7 +665,7 @@ func TestParseRecoveryReportsMissingEndAfterMalformedStatement(t *testing.T) {
 }
 
 func TestParseRecoveryKeepsSelfAssignmentSibling(t *testing.T) {
-	tokens, err := lexer.Lex("if true then broken self.value = 1 end")
+	tokens, err := lexer.Lex("test.hex", "if true then broken self.value = 1 end")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -692,7 +692,7 @@ func TestParseRecoveryKeepsSelfAssignmentSibling(t *testing.T) {
 }
 
 func TestParseRecoveryKeepsSiblingInsideMalformedNestedLoop(t *testing.T) {
-	tokens, err := lexer.Lex("fun keep() do while true do else let value: Int32 = 1 end let after: Int32 = 2 end")
+	tokens, err := lexer.Lex("test.hex", "fun keep() do while true do else let value: Int32 = 1 end let after: Int32 = 2 end")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -717,7 +717,7 @@ func TestParseRecoveryKeepsSiblingInsideMalformedNestedLoop(t *testing.T) {
 }
 
 func TestParseRecoveryKeepsDottedCallSibling(t *testing.T) {
-	tokens, err := lexer.Lex("if true then broken point.step(1) end")
+	tokens, err := lexer.Lex("test.hex", "if true then broken point.step(1) end")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -905,7 +905,7 @@ func TestParseRejectsMalformedOperatorsAndGrouping(t *testing.T) {
 		"let x: Int32 = (1 + 2",
 		"let x: Int32 = 1 * / 2",
 	} {
-		tokens, err := lexer.Lex(source)
+		tokens, err := lexer.Lex("test.hex", source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
 		}
@@ -917,7 +917,7 @@ func TestParseRejectsMalformedOperatorsAndGrouping(t *testing.T) {
 
 func TestParseReservesLogicalKeywords(t *testing.T) {
 	for _, source := range []string{"let and: Bool = true", "let or: Bool = false"} {
-		tokens, err := lexer.Lex(source)
+		tokens, err := lexer.Lex("test.hex", source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
 		}
@@ -929,7 +929,7 @@ func TestParseReservesLogicalKeywords(t *testing.T) {
 
 func TestParseAddressRemainsPlaceOnly(t *testing.T) {
 	for _, source := range []string{"let p: Ptr<Int32> = @42", "let p: Ptr<Int32> = @nil"} {
-		tokens, err := lexer.Lex(source)
+		tokens, err := lexer.Lex("test.hex", source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
 		}
@@ -948,7 +948,7 @@ func TestParseAddressRejectsCalls(t *testing.T) {
 		{"let p: Ptr<Int32> = @f()", "[Syntax Error] a call's ( must follow its callee on the same line at 1:23"},
 		{"let p: Ptr<Int32> = @value.compute()", "[Syntax Error] a call's ( must follow its callee on the same line at 1:35"},
 	} {
-		tokens, err := lexer.Lex(testCase.source)
+		tokens, err := lexer.Lex("test.hex", testCase.source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", testCase.source, err)
 		}
@@ -961,7 +961,7 @@ func TestParseAddressRejectsCalls(t *testing.T) {
 
 func parseInitializer(t *testing.T, source string) Expression {
 	t.Helper()
-	tokens, err := lexer.Lex(source)
+	tokens, err := lexer.Lex("test.hex", source)
 	if err != nil {
 		t.Fatalf("Lex(%q) returned an error: %v", source, err)
 	}
@@ -977,7 +977,7 @@ func parseInitializer(t *testing.T, source string) Expression {
 
 func parseOneItem(t *testing.T, source string) TopLevelItem {
 	t.Helper()
-	tokens, err := lexer.Lex(source)
+	tokens, err := lexer.Lex("test.hex", source)
 	if err != nil {
 		t.Fatalf("Lex(%q) returned an error: %v", source, err)
 	}
@@ -993,7 +993,7 @@ func parseOneItem(t *testing.T, source string) TopLevelItem {
 
 func parseError(t *testing.T, source string) string {
 	t.Helper()
-	tokens, err := lexer.Lex(source)
+	tokens, err := lexer.Lex("test.hex", source)
 	if err != nil {
 		t.Fatalf("Lex(%q) returned an error: %v", source, err)
 	}
@@ -1376,7 +1376,7 @@ func TestParseFunctionDiagnostics(t *testing.T) {
 // defers the entry-versus-import decision.
 func TestParseModuleLevelReturn(t *testing.T) {
 	for _, source := range []string{"return", "return 1"} {
-		tokens, err := lexer.Lex(source)
+		tokens, err := lexer.Lex("test.hex", source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
 		}

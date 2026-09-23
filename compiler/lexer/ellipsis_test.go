@@ -5,7 +5,7 @@ import "testing"
 // `...` lexes as one Ellipsis token by longest match; `.` member selection is
 // unchanged, and `..` is still two Dot tokens.
 func TestLexEllipsisByLongestMatch(t *testing.T) {
-	tokens, err := Lex("a.b a... a..b")
+	tokens, err := Lex("test.hex", "a.b a... a..b")
 	if err != nil {
 		t.Fatal(err)
 	}

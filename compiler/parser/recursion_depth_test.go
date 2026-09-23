@@ -45,7 +45,7 @@ func nestedIfBlocks(depth int) string {
 // mustParseOK fails the test if source does not parse cleanly.
 func mustParseOK(t *testing.T, source string) {
 	t.Helper()
-	tokens, err := lexer.Lex(source)
+	tokens, err := lexer.Lex("test.hex", source)
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}

@@ -76,7 +76,7 @@ func parseDiagnostics(err error) []compilerTypes.Diagnostic {
 func FuzzLex(f *testing.F) {
 	addSourceSeeds(f)
 	f.Fuzz(func(t *testing.T, source string) {
-		tokens, err := lexer.Lex(source)
+		tokens, err := lexer.Lex("test.hex", source)
 		if err != nil {
 			return
 		}
@@ -97,7 +97,7 @@ func FuzzLex(f *testing.F) {
 func FuzzParse(f *testing.F) {
 	addSourceSeeds(f)
 	f.Fuzz(func(t *testing.T, source string) {
-		tokens, err := lexer.Lex(source)
+		tokens, err := lexer.Lex("test.hex", source)
 		if err != nil {
 			return
 		}

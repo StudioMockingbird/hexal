@@ -44,7 +44,7 @@ func TestParseAllUnitADTShorthand(t *testing.T) {
 }
 
 func TestParseADTRejectsMutablePayloadField(t *testing.T) {
-	tokens, err := lexer.Lex("type Shape is union | Circle as mut r: Int32 end | Square as a: Int32 end end")
+	tokens, err := lexer.Lex("test.hex", "type Shape is union | Circle as mut r: Int32 end | Square as a: Int32 end end")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestParseADTRejectsMutablePayloadField(t *testing.T) {
 }
 
 func TestParseADTRequiresVariantAfterPipe(t *testing.T) {
-	tokens, err := lexer.Lex("type Shape is union | | Square as a: Int32 end end")
+	tokens, err := lexer.Lex("test.hex", "type Shape is union | | Square as a: Int32 end end")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestParseADTRequiresVariantAfterPipe(t *testing.T) {
 // The obsolete `type Name = ...` header is rejected with the exact migration
 // diagnostic naming the new form.
 func TestParseTypeObsoleteEqualsHeaderIsRejected(t *testing.T) {
-	tokens, err := lexer.Lex("type Shape = Int32")
+	tokens, err := lexer.Lex("test.hex", "type Shape = Int32")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestParseTypeObsoleteEqualsHeaderIsRejected(t *testing.T) {
 // The obsolete `type Name as ... end` header is rejected with the exact
 // migration diagnostic naming the new form.
 func TestParseADTObsoleteAsHeaderIsRejected(t *testing.T) {
-	tokens, err := lexer.Lex("type Shape as | Circle { r: Int32 } | Square { a: Int32 } end")
+	tokens, err := lexer.Lex("test.hex", "type Shape as | Circle { r: Int32 } | Square { a: Int32 } end")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestParseADTObsoleteAsHeaderIsRejected(t *testing.T) {
 // Legacy brace payload syntax after an ADT variant is rejected with the exact
 // migration diagnostic.
 func TestParseADTObsoleteBracePayloadIsRejected(t *testing.T) {
-	tokens, err := lexer.Lex("type Shape is union | Circle { r: Int32 } end")
+	tokens, err := lexer.Lex("test.hex", "type Shape is union | Circle { r: Int32 } end")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestParseADTObsoleteBracePayloadIsRejected(t *testing.T) {
 
 // A missing 'end' is rejected with the exact unterminated-block diagnostic.
 func TestParseADTMissingEndIsRejected(t *testing.T) {
-	tokens, err := lexer.Lex("type Shape is union | Circle as r: Int32 end")
+	tokens, err := lexer.Lex("test.hex", "type Shape is union | Circle as r: Int32 end")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestParseEmptyStruct(t *testing.T) {
 }
 
 func TestParseQualifiedVariantConstructor(t *testing.T) {
-	tokens, err := lexer.Lex("let shape: Shape = Shape.Circle(r = 10)")
+	tokens, err := lexer.Lex("test.hex", "let shape: Shape = Shape.Circle(r = 10)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +157,7 @@ func TestParseQualifiedVariantConstructor(t *testing.T) {
 }
 
 func TestParseQualifiedUnitVariantValue(t *testing.T) {
-	tokens, err := lexer.Lex("let heading: Direction = Direction.North")
+	tokens, err := lexer.Lex("test.hex", "let heading: Direction = Direction.North")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestParseQualifiedUnitVariantValue(t *testing.T) {
 }
 
 func TestParseValueModeMatch(t *testing.T) {
-	tokens, err := lexer.Lex("let label: Int32 = match ready\n| true then 1\n| false then 0\nend")
+	tokens, err := lexer.Lex("test.hex", "let label: Int32 = match ready\n| true then 1\n| false then 0\nend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestParseValueModeMatch(t *testing.T) {
 }
 
 func TestParseTypeModeMatch(t *testing.T) {
-	tokens, err := lexer.Lex("let area: Int32 = match shape is\n| Shape.Circle then 1\n| Shape.Square then 2\nend")
+	tokens, err := lexer.Lex("test.hex", "let area: Int32 = match shape is\n| Shape.Circle then 1\n| Shape.Square then 2\nend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestParseTypeModeMatch(t *testing.T) {
 }
 
 func TestParseGenericVariantMatchStaysClassified(t *testing.T) {
-	tokens, err := lexer.Lex("let area: Int32 = match result is\n| Result<Int32, Bool>.Ok then 1\n| Result<Int32, Bool>.Err then 0\nend")
+	tokens, err := lexer.Lex("test.hex", "let area: Int32 = match result is\n| Result<Int32, Bool>.Ok then 1\n| Result<Int32, Bool>.Err then 0\nend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +231,7 @@ func TestParseGenericVariantMatchStaysClassified(t *testing.T) {
 }
 
 func TestParseMatchScrutineeWithIsRequiresParens(t *testing.T) {
-	tokens, err := lexer.Lex("let label: Int32 = match (value is Int32)\n| true then 1\n| false then 0\nend")
+	tokens, err := lexer.Lex("test.hex", "let label: Int32 = match (value is Int32)\n| true then 1\n| false then 0\nend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestParseMatchScrutineeWithIsRequiresParens(t *testing.T) {
 }
 
 func TestParseMatchParenthesizedPipeIsBitwiseOr(t *testing.T) {
-	tokens, err := lexer.Lex("let r: Int32 = match (mask | flag)\n| true then 1\n| false then 0\nend")
+	tokens, err := lexer.Lex("test.hex", "let r: Int32 = match (mask | flag)\n| true then 1\n| false then 0\nend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestParseMatchParenthesizedPipeIsBitwiseOr(t *testing.T) {
 }
 
 func TestParseMatchScrutineeAndOrExpressions(t *testing.T) {
-	tokens, err := lexer.Lex("let r: Int32 = match ready and enabled\n| true then 1\n| false then 0\nend")
+	tokens, err := lexer.Lex("test.hex", "let r: Int32 = match ready and enabled\n| true then 1\n| false then 0\nend")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +279,7 @@ func TestParseMatchScrutineeAndOrExpressions(t *testing.T) {
 
 func TestParseNestedMatchOwnsItsBoundary(t *testing.T) {
 	source := "let r: Int32 = match x is\n| Int32 then match y\n    | true then 1\n    | false then 0\n    end\n| else then 0\nend\n"
-	tokens, err := lexer.Lex(source)
+	tokens, err := lexer.Lex("test.hex", source)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -47,7 +47,7 @@ func TestParseNestedGenericTypeExpression(t *testing.T) {
 }
 
 func TestParseGenericTypeExpressionRequiresArgument(t *testing.T) {
-	tokens, err := lexer.Lex("let box: Box<> = value")
+	tokens, err := lexer.Lex("test.hex", "let box: Box<> = value")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestParseGenericMethodDeclaration(t *testing.T) {
 }
 
 func TestParseGenericCallSuffix(t *testing.T) {
-	tokens, err := lexer.Lex("let result: Int64 = identity<Int64>(42)")
+	tokens, err := lexer.Lex("test.hex", "let result: Int64 = identity<Int64>(42)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestParseGenericCallSuffix(t *testing.T) {
 }
 
 func TestParseGenericMethodCallSuffix(t *testing.T) {
-	tokens, err := lexer.Lex("box.same<Bool>(other)")
+	tokens, err := lexer.Lex("test.hex", "box.same<Bool>(other)")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestParseGenericMethodCallSuffix(t *testing.T) {
 }
 
 func TestParseRelationalLessIsNotGenericSuffix(t *testing.T) {
-	tokens, err := lexer.Lex("let flag: Bool = left < right")
+	tokens, err := lexer.Lex("test.hex", "let flag: Bool = left < right")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestParseRelationalLessIsNotGenericSuffix(t *testing.T) {
 }
 
 func TestParseGenericConstructorCall(t *testing.T) {
-	tokens, err := lexer.Lex("let box: Box<Int32> = Box<Int32>(value = 42)")
+	tokens, err := lexer.Lex("test.hex", "let box: Box<Int32> = Box<Int32>(value = 42)")
 	if err != nil {
 		t.Fatal(err)
 	}
