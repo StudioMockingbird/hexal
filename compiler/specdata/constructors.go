@@ -363,5 +363,5 @@ func validateConstructors() error {
 			return fmt.Errorf("specdata/constructors: %q names both a concrete type and a constructor", id)
 		}
 	}
-	return validateMethods()
+	return validateMethods(methods)
 }
