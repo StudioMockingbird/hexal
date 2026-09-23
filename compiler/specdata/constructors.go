@@ -204,6 +204,11 @@ type TypeConstructorSpec struct {
 	SourceName string
 	Params     []ParamKind
 	Facts      ConstructorFacts
+	// Constructible marks a constructor the language writes as a bare
+	// Name(...) call and the checker's canonical-constructor dispatch accepts.
+	// A constructor reachable only through another syntax (an Array literal, a
+	// Slice bridge, spawn, an inline-string conversion) leaves it false.
+	Constructible bool
 }
 
 // typeConstructors is the registry. It is unexported so no importer can rewrite
@@ -228,16 +233,18 @@ var typeConstructors = []TypeConstructorSpec{
 		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, FreeMode: FreeNone, Comparable: ComparisonEquality, Component: ComponentSlice},
 	},
 	{
-		ID:         TypeList,
-		SourceName: "List",
-		Params:     []ParamKind{ParamType},
-		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentList},
+		ID:            TypeList,
+		SourceName:    "List",
+		Params:        []ParamKind{ParamType},
+		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentList},
+		Constructible: true,
 	},
 	{
-		ID:         TypeDict,
-		SourceName: "Dict",
-		Params:     []ParamKind{ParamType, ParamType},
-		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentDict},
+		ID:            TypeDict,
+		SourceName:    "Dict",
+		Params:        []ParamKind{ParamType, ParamType},
+		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentDict},
+		Constructible: true,
 	},
 	{
 		ID:         TypeTask,
@@ -246,28 +253,32 @@ var typeConstructors = []TypeConstructorSpec{
 		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeNone, Comparable: ComparisonNone, Component: ComponentConcurrency},
 	},
 	{
-		ID:         TypeChannel,
-		SourceName: "Channel",
-		Params:     []ParamKind{ParamType},
-		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentConcurrency},
+		ID:            TypeChannel,
+		SourceName:    "Channel",
+		Params:        []ParamKind{ParamType},
+		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentConcurrency},
+		Constructible: true,
 	},
 	{
-		ID:         TypeAtomic,
-		SourceName: "Atomic",
-		Params:     []ParamKind{ParamType},
-		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyUnavailable, FreeMode: FreeNone, Comparable: ComparisonNone, Component: ComponentConcurrency},
+		ID:            TypeAtomic,
+		SourceName:    "Atomic",
+		Params:        []ParamKind{ParamType},
+		Facts:         ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyUnavailable, FreeMode: FreeNone, Comparable: ComparisonNone, Component: ComponentConcurrency},
+		Constructible: true,
 	},
 	{
-		ID:         TypeStash,
-		SourceName: "Stash",
-		Params:     []ParamKind{ParamType},
-		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentStash},
+		ID:            TypeStash,
+		SourceName:    "Stash",
+		Params:        []ParamKind{ParamType},
+		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentStash},
+		Constructible: true,
 	},
 	{
-		ID:         TypePool,
-		SourceName: "Pool",
-		Params:     []ParamKind{ParamType},
-		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentPool},
+		ID:            TypePool,
+		SourceName:    "Pool",
+		Params:        []ParamKind{ParamType},
+		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparable: ComparisonNone, Component: ComponentPool},
+		Constructible: true,
 	},
 }
 
@@ -319,11 +330,38 @@ func isConstructorTypeID(id TypeID) bool {
 	return false
 }
 
+// bareConstructibleConcrete lists the concrete compiler-owned types whose
+// canonical construction is the bare Name(...) call the checker dispatches even
+// though they are complete values, not parameterized constructors. The
+// parameterized constructors carry the same fact on their own record.
+var bareConstructibleConcrete = []TypeID{TypeHeap, TypeMutex, TypeError}
+
+// BareConstructible reports whether name is a compiler-owned canonical
+// constructor written as a bare Name(...) call. It spans both the parameterized
+// constructors, whose record carries the fact, and the concrete types above,
+// which have no constructor record. The checker's bare-constructor dispatch
+// reads this instead of restating the set, so removing a record removes that
+// construction form from accepted programs.
+func BareConstructible(name string) bool {
+	for _, spec := range typeConstructors {
+		if spec.SourceName == name {
+			return spec.Constructible
+		}
+	}
+	for _, id := range bareConstructibleConcrete {
+		if string(id) == name {
+			return true
+		}
+	}
+	return false
+}
+
 // validateConstructors checks the type-constructor registry, then delegates to
 // the method registry, because a method's parameter references are meaningful
 // only against the constructor it names.
 func validateConstructors() error {
 	seen := make(map[TypeID]bool, len(typeConstructors))
+	names := make(map[string]bool, len(typeConstructors))
 	for _, spec := range typeConstructors {
 		if spec.ID == "" {
 			return fmt.Errorf("specdata/constructors: constructor has an empty id")
@@ -335,6 +373,12 @@ func validateConstructors() error {
 		if spec.SourceName == "" {
 			return fmt.Errorf("specdata/constructors: constructor %q has an empty source name", spec.ID)
 		}
+		// BareConstructible resolves a source name to one record, so a
+		// repeated name would silently shadow the later constructor.
+		if names[spec.SourceName] {
+			return fmt.Errorf("specdata/constructors: source name %q is declared twice", spec.SourceName)
+		}
+		names[spec.SourceName] = true
 		for index, param := range spec.Params {
 			if param != ParamType && param != ParamInteger {
 				return fmt.Errorf("specdata/constructors: constructor %q parameter %d has unknown kind", spec.ID, index)

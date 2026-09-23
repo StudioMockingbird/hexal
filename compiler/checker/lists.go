@@ -61,6 +61,10 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 	name := callee.Property.Lexeme
 	listType := receiver.typ
 	element := listType.List.Element
+	if !hasBuiltinMethod(listType, name) {
+		diagnostic := typeErrorAt(callee.Property, listType.Name+" has no method "+name)
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	}
 	switch name {
 	case "length":
 		if len(call.Arguments) != 0 {
@@ -139,10 +143,9 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		}
 		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
 	default:
-		diagnostic := typeErrorAt(callee.Property, listType.Name+" has no method "+name)
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		return unexpectedBuiltinMethod(listType, callee.Property)
 	}
-	return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "unsupported list operation"))}
+	return unexpectedBuiltinMethod(listType, callee.Property)
 }
 
 // listElementArgument checks one push or set value against the element type.

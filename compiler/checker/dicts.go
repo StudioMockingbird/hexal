@@ -74,6 +74,10 @@ func checkDictMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 	dictType := receiver.typ
 	keyType := dictType.Dict.Key
 	valueType := dictType.Dict.Value
+	if !hasBuiltinMethod(dictType, name) {
+		diagnostic := typeErrorAt(callee.Property, dictType.Name+" has no method "+name)
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	}
 	switch name {
 	case "length":
 		// Entry count is not an ordering, so reporting it exposes nothing
@@ -158,8 +162,7 @@ func checkDictMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
 	default:
-		diagnostic := typeErrorAt(callee.Property, dictType.Name+" has no method "+name)
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		return unexpectedBuiltinMethod(dictType, callee.Property)
 	}
 }
 

@@ -6,8 +6,30 @@ import (
 	"strings"
 
 	"hexal/compiler/checker"
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
+
+// builtinMethodRecord resolves one recorded built-in method for lowering. It is
+// a variable so a test can prove the lowering reads the registry: corrupting a
+// recorded symbol must move the emitted C.
+var builtinMethodRecord = specdata.Method
+
+// builtinMethodCallSymbol resolves one recorded built-in method's emitted C
+// symbol and expands its per-specialization suffix. The registry owns the
+// symbol fact; the lowering switch still owns the call's argument shape. A
+// missing record or an empty symbol is a compiler defect, because the checker
+// admits only methods the registry declares.
+func builtinMethodCallSymbol(owner specdata.TypePattern, name, suffix string) (string, error) {
+	method, ok := builtinMethodRecord(owner, name)
+	if !ok || method.RuntimeSymbol == "" {
+		return "", unknownExpressionDiagnostic("built-in method " + name + " has no recorded runtime symbol")
+	}
+	// The registry writes the generator's own %s placeholder exactly where
+	// the generator writes a suffix, so this is a literal substitution, never
+	// a format string: a recorded symbol may contain other percent signs.
+	return strings.ReplaceAll(method.RuntimeSymbol, "%s", suffix), nil
+}
 
 // generatedArrayState records the array types that need struct and element
 // accessor definitions, in deterministic order.
@@ -484,6 +506,10 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 				return "", receiverErr
 			}
 			suffix := listSuffix(node.OperandType)
+			symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeList), node.Name, suffix)
+			if symbolErr != nil {
+				return "", symbolErr
+			}
 			switch node.Name {
 			case "push":
 				if len(node.Arguments) != 1 {
@@ -493,11 +519,11 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 				if valueErr != nil {
 					return "", valueErr
 				}
-				return "hex_list_push_" + suffix + "(" + receiver + ", " + value + ")", nil
+				return symbol + "(" + receiver + ", " + value + ")", nil
 			case "clear":
-				return "hex_list_clear_" + suffix + "(" + receiver + ")", nil
+				return symbol + "(" + receiver + ")", nil
 			case "pop":
-				return "hex_list_pop_" + suffix + "(" + receiver + ")", nil
+				return symbol + "(" + receiver + ")", nil
 			}
 		case "free":
 			if node.Operand == nil || len(node.Arguments) != 1 {
@@ -540,7 +566,11 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 				if valueErr != nil {
 					return "", valueErr
 				}
-				return "hex_dict_insert_" + suffix + "(" + receiver + ", " + key + ", " + value + ")", nil
+				symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeDict), "insert", suffix)
+				if symbolErr != nil {
+					return "", symbolErr
+				}
+				return symbol + "(" + receiver + ", " + key + ", " + value + ")", nil
 			case "get", "remove":
 				if len(node.Arguments) != 1 {
 					return "", unknownExpressionDiagnostic("dictionary lookup without a checked key")
@@ -549,7 +579,11 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 				if keyErr != nil {
 					return "", keyErr
 				}
-				return "hex_dict_" + node.Name + "_" + suffix + "(" + receiver + ", " + key + ")", nil
+				symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeDict), node.Name, suffix)
+				if symbolErr != nil {
+					return "", symbolErr
+				}
+				return symbol + "(" + receiver + ", " + key + ")", nil
 			case "find":
 				return renderDictFindExpression(node, state)
 			case "contains":
@@ -560,7 +594,11 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 				if keyErr != nil {
 					return "", keyErr
 				}
-				return "hex_dict_contains_" + suffix + "(" + receiver + ", " + key + ")", nil
+				symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeDict), "contains", suffix)
+				if symbolErr != nil {
+					return "", symbolErr
+				}
+				return symbol + "(" + receiver + ", " + key + ")", nil
 			}
 		}
 		return "", unknownExpressionDiagnostic("unknown collection method")

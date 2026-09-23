@@ -7,8 +7,68 @@ import (
 	"hexal/compiler/corelib"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
+
+// builtinMethod resolves one compiler-owned built-in method record by owner and
+// name. It is a variable rather than a direct call so a test can prove each
+// family dispatch is registry-driven: replacing the lookup with an empty
+// registry must turn an accepted built-in call into that family's own
+// no-method diagnostic.
+var builtinMethod = specdata.Method
+
+// builtinOwner names the registry owner pattern for a receiver whose methods
+// are recorded, reporting false for a receiver the registry does not describe.
+// It is the one place the checker maps an interned receiver back onto the
+// registry's primitive identifier space.
+func builtinOwner(typ compilerTypes.Type) (specdata.TypePattern, bool) {
+	switch {
+	case typ.Array != nil:
+		return specdata.ConstructorOwner(specdata.TypeArray), true
+	case typ.Slice != nil:
+		return specdata.ConstructorOwner(specdata.TypeSlice), true
+	case typ.List != nil:
+		return specdata.ConstructorOwner(specdata.TypeList), true
+	case typ.Dict != nil:
+		return specdata.ConstructorOwner(specdata.TypeDict), true
+	case typ.Task != nil:
+		return specdata.ConstructorOwner(specdata.TypeTask), true
+	case typ.Channel != nil:
+		return specdata.ConstructorOwner(specdata.TypeChannel), true
+	case typ.Atomic != nil:
+		return specdata.ConstructorOwner(specdata.TypeAtomic), true
+	case typ.Stash != nil:
+		return specdata.ConstructorOwner(specdata.TypeStash), true
+	case typ.Pool != nil:
+		return specdata.ConstructorOwner(specdata.TypePool), true
+	case compilerTypes.IsString(typ):
+		return specdata.ExactOwner(specdata.TypeString), true
+	case compilerTypes.IsMutex(typ):
+		return specdata.ExactOwner(specdata.TypeMutex), true
+	}
+	return specdata.TypePattern{}, false
+}
+
+// hasBuiltinMethod reports whether the registry declares name on the receiver's
+// recorded owner. A receiver the registry does not describe reports false, so
+// no family admits a method the registry does not declare.
+func hasBuiltinMethod(typ compilerTypes.Type, name string) bool {
+	owner, ok := builtinOwner(typ)
+	if !ok {
+		return false
+	}
+	_, known := builtinMethod(owner, name)
+	return known
+}
+
+// unexpectedBuiltinMethod reports a record the dispatch has no explicit case
+// for. A method the registry declares must lower somewhere; reaching this is a
+// compiler defect, not a user error, so it fails closed as an Unknown Error.
+func unexpectedBuiltinMethod(typ compilerTypes.Type, token lexer.Token) checkedExpression {
+	diagnostic := unknownAt(token, "built-in method "+token.Lexeme+" on "+typ.Name+" has a registry record but no checker dispatch")
+	return checkedExpression{token: token, diagnostic: &diagnostic}
+}
 
 // MethodDeclaration is a checked `method` declaration. Object is the nominal struct
 // the method is associated with; SelfType is that struct and is the type of

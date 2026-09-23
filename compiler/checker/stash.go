@@ -55,6 +55,9 @@ func checkStashMethodCall(call parser.CallExpression, callee parser.PropertyExpr
 	if diagnostic := checkHandleNotDestroyed(receiver.source, callee.Property, ctx.names.flow); diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
+	if !hasBuiltinMethod(stashType, name) {
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Stash has no method "+name+"; use allocate, reset, or destroy"))}
+	}
 	switch name {
 	case "allocate":
 		if len(call.TypeArguments) != 0 {
@@ -98,6 +101,6 @@ func checkStashMethodCall(call parser.CallExpression, callee parser.PropertyExpr
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
 	default:
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Stash has no method "+name+"; use allocate, reset, or destroy"))}
+		return unexpectedBuiltinMethod(stashType, callee.Property)
 	}
 }
