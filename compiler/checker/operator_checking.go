@@ -306,6 +306,38 @@ func checkNullTest(operator Operator, left, right checkedExpression, token lexer
 	return &checkedExpression{source: source, typ: compilerTypes.Bool, token: token}
 }
 
+// Constant folding classifies every constant operation under one invariant:
+// go/constant computes the exact value; Hexal decides what the result type
+// permits and what to call the failure. Direct computes through go/constant,
+// wrapped computes through go/constant and then reduces to a fixed-width
+// Hexal result, and Hexal-owned computes outside go/constant because the
+// value, rule, or diagnostic is a language fact the width-free engine cannot
+// express. One row per constant operation:
+//
+//	direct         integer literal parse and normalization (MakeFromLiteral)
+//	direct         unary negation of an exact numeric constant (UnaryOp)
+//	direct         integer arithmetic + - * / % (BinaryOp with truncated division)
+//	direct         bitwise & ^ | and ~ (BinaryOp over a width-derived mask)
+//	direct         shifts (Shift), beside Hexal's own shift-count range check
+//	direct         widened mixed-type arithmetic at the selected common type
+//	direct         integer equality and ordering (Compare)
+//	direct         Boolean equality (Compare) and Boolean constant reads (BoolVal)
+//	direct         exact-to-inexact float conversion and rounding (ToFloat, Float32Val, Float64Val)
+//	direct         float-to-int truncation of exact rationals (truncateTowardZero)
+//	direct         converted-integer range comparison (Compare against Hexal bounds)
+//	direct         sign checks (Sign)
+//	wrapped        arithmetic and bitwise result reduction (wrapIntegerConstant)
+//	wrapped        signed conversion reinterpretation (reduceSigned)
+//	wrapped        signed minimum divided by -1, quotient and remainder
+//	Hexal-owned    target widths and signed/unsigned bounds (integerBounds, constantIntegerRange)
+//	Hexal-owned    shift-count range validation: go/constant Shift takes a uint count
+//	Hexal-owned    float32/float64 arithmetic, comparison, and negation: IEEE rounding at the target width plus signed zero and NaN live in the checked bits, and go/constant represents none of them
+//	Hexal-owned    float literal rounding and infinity rejection
+//	Hexal-owned    lossless common-type selection for mixed operands
+//	Hexal-owned    slice range validation and Pool/Channel capacity positivity
+//	Hexal-owned    Boolean connective folds (!, &&, ||): the fold classifies operands by Hexal truthiness, whose domain includes Nil, eos, and always-true typed constants that carry no Boolean value
+//	Hexal-owned    truthiness of non-Bool types, nil and eos singleton equality
+//	Hexal-owned    every diagnostic and its position, including division by zero and out-of-range rejection
 func foldUnary(operator Operator, operand checkedExpression, operandType, resultType compilerTypes.Type, token lexer.Token, evaluate bool) checkedExpression {
 	runtime := operationUnaryResult(operator, operand, operandType, resultType, token)
 	if !evaluate || operand.source.Kind != ConstantOperand {
@@ -708,13 +740,13 @@ func compareConstantOperands(operator Operator, left, right Operand, typ compile
 		if left.Constant == nil || right.Constant == nil || left.Constant.Kind() != constant.Bool || right.Constant.Kind() != constant.Bool {
 			return false, false
 		}
-		leftValue := constant.BoolVal(left.Constant)
-		rightValue := constant.BoolVal(right.Constant)
+		// Ordered tokens panic on Boolean operands, so equality is the only
+		// comparison class that reaches constant.Compare here.
 		switch operator {
 		case EqualOperator:
-			return leftValue == rightValue, true
+			return constant.Compare(left.Constant, gotoken.EQL, right.Constant), true
 		case NotEqualOperator:
-			return leftValue != rightValue, true
+			return constant.Compare(left.Constant, gotoken.NEQ, right.Constant), true
 		default:
 			return false, false
 		}
