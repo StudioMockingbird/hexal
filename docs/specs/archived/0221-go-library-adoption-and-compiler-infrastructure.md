@@ -1,11 +1,17 @@
 # RFC 0221: Go Library Adoption and Compiler Infrastructure
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Open Discussion; no open questions remain. Tracks 1, 2, and 6 are
-  implementation ready and independent of the rest of the refactoring arc;
-  Track 3 is ready and touches only the module resolver; Track 4 (source
-  spans) is ready in design but RFC 0230 sequences it last. Track 5 is
-  withdrawn to deferred RFC 0232
+- Status: Closed; implemented. Every track landed. Track 1 adopted the
+  collection utilities across the checker and driver; Track 2 produced the
+  constant-operation classification and moved the one direct operation that was
+  not already on `go/constant`; Track 3 extracted the module graph utility with
+  its focused tests and no filesystem, process, or parsing work; Track 6
+  replaced the hand-rolled timestamp, Clang version, HTTP method, and directory
+  walking code with the standard library. Track 4 completed in three steps: the
+  span package beside `config` and `specdata`, lexer tokens and parser nodes
+  carrying spans, and finally the checker and generator deriving every location
+  from a compilation-owned span table, so no struct carries `SourceLine` or
+  `SourceColumn` independently. Track 5 is withdrawn to deferred RFC 0232
 - Created: 2026-09-19
 - Scope: reduce compiler-owned utility code by adopting suitable Go standard
   library packages, isolate module traversal behind a small internal graph
