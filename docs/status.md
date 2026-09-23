@@ -102,33 +102,6 @@ Facts confirmed to have exactly one consumer are not listed.
   ordering. Step: have the dependency aggregation read the component records,
   or mark the field reserved.
 
-- **Numeric widening and the operator and conversion matrices have no records
-  ([0229](specs/0229-data-driven-compiler-facts.md)).** The owners are
-  `compiler/types/widening.go:8-41` (`losslessWideningTargets`,
-  `wideningRank`), `compiler/checker/operator_checking.go:962`
-  (`operatorAllowsType`), and `compiler/checker/conversions.go:113`
-  (`conversionPairValid`); `compiler/specdata` declares no `OperatorSpec` or
-  `ConversionSpec`. Step: land the records and have the checker read them, or
-  record the deferral explicitly.
-
-- **Error-kind payload and header relationships have no record, and the C
-  template hard-codes the capacities
-  ([0229](specs/0229-data-driven-compiler-facts.md)).**
-  `compiler/types/error_kind.go:12-124` owns the variant list, the display
-  headers, and the `Other` payload; `compiler/config/config.go:65-66` owns the
-  128/256 capacities, which `compiler/types/collections.go:158-160` turn into
-  `hex_string_128`/`hex_string_256`; `compiler/generator/packages/error.h:13,
-  25,32,60` spells those C names literally. Step: land an `ErrorKindSpec` and
-  render the capacity-derived type name, or delete the config indirection.
-
-- **Generated-C layout facts have no records
-  ([0229](specs/0229-data-driven-compiler-facts.md)).** `size_of` and
-  `align_of` lower to C `sizeof`/`alignof`
-  (`compiler/checker/layout.go:19-40`), and declaration text lives in the
-  `compiler/generator/packages/*.h` templates; there is no `LayoutSpec`. Step:
-  run the layout experiment Settled question 4 describes and adopt records
-  only where the record-versus-template comparison is favourable.
-
 - **Stable runtime message ownership has no records
   ([0229](specs/0229-data-driven-compiler-facts.md)).** Every runtime trap text
   lives where it is emitted, e.g. `compiler/generator/packages/error.h:35,69`;
