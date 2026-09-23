@@ -152,17 +152,6 @@ const (
 	CopyUnavailable
 )
 
-// FreeMode classifies whether a specialization owns storage a caller releases.
-type FreeMode uint8
-
-const (
-	// FreeNone releases nothing.
-	FreeNone FreeMode = iota
-	// FreeOwned owns storage released through free, or through Stash/Pool
-	// reset and destroy in place of free.
-	FreeOwned
-)
-
 // ComparisonForm classifies how a compiler-owned type's equality is decided.
 // It is a form, not a per-type verdict, because equality is structural: a
 // List<T> is equality-comparable exactly when T is, so one enum value per
@@ -248,10 +237,8 @@ func (mask PositionMask) Allows(position uint8) bool {
 type ConstructorFacts struct {
 	Representation Representation
 	CopyMode       CopyMode
-	FreeMode       FreeMode
 	Comparison     ComparisonForm
 	Ordered        bool
-	Hashable       bool
 	Managed        bool
 	Positions      PositionMask
 	Component      ComponentID
@@ -320,66 +307,66 @@ var typeConstructors = []TypeConstructorSpec{
 		ID:         TypeArray,
 		SourceName: "Array",
 		Params:     []ParamKind{ParamType, ParamInteger},
-		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, FreeMode: FreeNone, Comparison: ComparisonStructural, Positions: StorableEverywhere, Component: ComponentArray},
+		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, Comparison: ComparisonStructural, Positions: StorableEverywhere, Component: ComponentArray},
 	},
 	{
 		ID:         TypeInlineString,
 		SourceName: "String",
 		Params:     []ParamKind{ParamInteger},
-		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, FreeMode: FreeNone, Comparison: ComparisonAlways, Ordered: true, Hashable: true, Positions: StorableEverywhere, Component: ComponentString},
+		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, Comparison: ComparisonAlways, Ordered: true, Positions: StorableEverywhere, Component: ComponentString},
 	},
 	{
 		ID:         TypeSlice,
 		SourceName: "Slice",
 		Params:     []ParamKind{ParamType},
-		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, FreeMode: FreeNone, Comparison: ComparisonStructural, Managed: true, Positions: StorableEverywhere, Component: ComponentSlice},
+		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, Comparison: ComparisonStructural, Managed: true, Positions: StorableEverywhere, Component: ComponentSlice},
 	},
 	{
 		ID:            TypeList,
 		SourceName:    "List",
 		Params:        []ParamKind{ParamType},
-		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparison: ComparisonStructural, Managed: true, Positions: StorableEverywhere, Component: ComponentList},
+		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, Comparison: ComparisonStructural, Managed: true, Positions: StorableEverywhere, Component: ComponentList},
 		Constructible: true,
 	},
 	{
 		ID:            TypeDict,
 		SourceName:    "Dict",
 		Params:        []ParamKind{ParamType, ParamType},
-		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparison: ComparisonNever, Managed: true, Positions: StorableEverywhere, Component: ComponentDict},
+		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, Comparison: ComparisonNever, Managed: true, Positions: StorableEverywhere, Component: ComponentDict},
 		Constructible: true,
 	},
 	{
 		ID:         TypeTask,
 		SourceName: "Task",
 		Params:     []ParamKind{ParamType},
-		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeNone, Comparison: ComparisonNever, Positions: StorableEverywhere, Component: ComponentConcurrency},
+		Facts:      ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, Comparison: ComparisonNever, Positions: StorableEverywhere, Component: ComponentConcurrency},
 	},
 	{
 		ID:            TypeChannel,
 		SourceName:    "Channel",
 		Params:        []ParamKind{ParamType},
-		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparison: ComparisonNever, Positions: StorableEverywhere, Component: ComponentConcurrency},
+		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, Comparison: ComparisonNever, Positions: StorableEverywhere, Component: ComponentConcurrency},
 		Constructible: true,
 	},
 	{
 		ID:            TypeAtomic,
 		SourceName:    "Atomic",
 		Params:        []ParamKind{ParamType},
-		Facts:         ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyUnavailable, FreeMode: FreeNone, Comparison: ComparisonNever, Positions: StorableConstructionOnly, Component: ComponentConcurrency},
+		Facts:         ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyUnavailable, Comparison: ComparisonNever, Positions: StorableConstructionOnly, Component: ComponentConcurrency},
 		Constructible: true,
 	},
 	{
 		ID:            TypeStash,
 		SourceName:    "Stash",
 		Params:        []ParamKind{ParamType},
-		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparison: ComparisonNever, Positions: StorableEverywhere, Component: ComponentStash},
+		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, Comparison: ComparisonNever, Positions: StorableEverywhere, Component: ComponentStash},
 		Constructible: true,
 	},
 	{
 		ID:            TypePool,
 		SourceName:    "Pool",
 		Params:        []ParamKind{ParamType},
-		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, FreeMode: FreeOwned, Comparison: ComparisonNever, Positions: StorableEverywhere, Component: ComponentPool},
+		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, Comparison: ComparisonNever, Positions: StorableEverywhere, Component: ComponentPool},
 		Constructible: true,
 	},
 }
@@ -522,9 +509,6 @@ func validateConstructors() error {
 		}
 		if spec.Facts.CopyMode != CopyValue && spec.Facts.CopyMode != CopyShallow && spec.Facts.CopyMode != CopyUnavailable {
 			return fmt.Errorf("specdata/constructors: constructor %q has unknown copy mode", spec.ID)
-		}
-		if spec.Facts.FreeMode != FreeNone && spec.Facts.FreeMode != FreeOwned {
-			return fmt.Errorf("specdata/constructors: constructor %q has unknown free mode", spec.ID)
 		}
 		if spec.Facts.Comparison != ComparisonNever && spec.Facts.Comparison != ComparisonAlways && spec.Facts.Comparison != ComparisonStructural {
 			return fmt.Errorf("specdata/constructors: constructor %q has unknown comparison form", spec.ID)

@@ -37,19 +37,15 @@ Facts confirmed to have exactly one consumer are not listed.
   `hex_string_normalize_%s`, `hex_string_concat_%s`). Step: have those sites
   read the record's `RuntimeSymbol`, so the symbol has one owner everywhere.
 
-- **The comparison fact has a second owner in the generator, and three facts
-  still have no consumer ([0229](specs/0229-data-driven-compiler-facts.md)).**
-  The position model, the pointee rule, equality, and ordering now read the type
-  records, with an enumeration over every compiler-owned type and every position
-  proved identical before and after. What remains: the generator's union-member
+- **The comparison fact has a second owner in the generator
+  ([0229](specs/0229-data-driven-compiler-facts.md)).** The position model, the
+  pointee rule, equality, and ordering read the type records, with an
+  enumeration over every compiler-owned type and every position proved
+  identical before and after. What remains: the generator's union-member
   equality (`compiler/generator/unions.go`) still restates the recursive
-  comparison fact; `FreeMode` and `Hashable` are recorded but read by nothing,
-  because free eligibility is enforced per family in the method checkers and
-  dict-key eligibility is a concrete rule; and concrete representation and copy
-  facts -- for example the heap `String` -- are unrecorded while nothing
-  consumes them. Step: have the generator's union check read the record, and
-  either give `FreeMode` and `Hashable` a consumer or state that ownership and
-  hashing are not this record's facts.
+  comparison fact, and concrete representation and copy facts -- for example
+  the heap `String` -- are unrecorded while nothing consumes them. Step: have
+  the generator's union check read the record.
 
 ## Deferred ideas
 

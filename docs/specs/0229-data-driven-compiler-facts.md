@@ -258,8 +258,10 @@ The record drives facts such as:
 - canonical name and C spelling;
 - inline versus handle representation;
 - shallow versus value copying;
-- ownership and `free` eligibility;
-- equality, ordering, and hashing eligibility;
+- equality, ordering, and managed-ness eligibility, as the position model and
+  the checker read them. Free eligibility is the `free` method's own signature
+  record and hashing eligibility is the position mask's key bit, so neither is
+  repeated here;
 - runtime-component demand; and
 - foreign ABI visibility.
 
