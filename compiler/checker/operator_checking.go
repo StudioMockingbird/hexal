@@ -315,28 +315,37 @@ func checkNullTest(operator Operator, left, right checkedExpression, token lexer
 // express. One row per constant operation:
 //
 //	direct         integer literal parse and normalization (MakeFromLiteral)
+//	direct         float literal parse (MakeFromLiteral)
 //	direct         unary negation of an exact numeric constant (UnaryOp)
 //	direct         integer arithmetic + - * / % (BinaryOp with truncated division)
 //	direct         bitwise & ^ | and ~ (BinaryOp over a width-derived mask)
 //	direct         shifts (Shift), beside Hexal's own shift-count range check
 //	direct         widened mixed-type arithmetic at the selected common type
 //	direct         integer equality and ordering (Compare)
+//	direct         Boolean literal construction (MakeBool)
 //	direct         Boolean equality (Compare) and Boolean constant reads (BoolVal)
 //	direct         exact-to-inexact float conversion and rounding (ToFloat, Float32Val, Float64Val)
+//	direct         whole-value integer conversion (ToInt)
 //	direct         float-to-int truncation of exact rationals (truncateTowardZero)
 //	direct         converted-integer range comparison (Compare against Hexal bounds)
 //	direct         sign checks (Sign)
+//	direct         integer reads feeding a Hexal range or capacity rule (Int64Val, Uint64Val)
 //	wrapped        arithmetic and bitwise result reduction (wrapIntegerConstant)
 //	wrapped        signed conversion reinterpretation (reduceSigned)
 //	wrapped        signed minimum divided by -1, quotient and remainder
 //	Hexal-owned    target widths and signed/unsigned bounds (integerBounds, constantIntegerRange)
 //	Hexal-owned    shift-count range validation: go/constant Shift takes a uint count
 //	Hexal-owned    float32/float64 arithmetic, comparison, and negation: IEEE rounding at the target width plus signed zero and NaN live in the checked bits, and go/constant represents none of them
+//	Hexal-owned    non-finite float results kept as MakeUnknown (NaN, infinity)
 //	Hexal-owned    float literal rounding and infinity rejection
+//	Hexal-owned    float value reconstruction from checked bits (MakeFloat64, UnaryOp)
 //	Hexal-owned    lossless common-type selection for mixed operands
+//	Hexal-owned    literal contextual typing and radix metadata
 //	Hexal-owned    slice range validation and Pool/Channel capacity positivity
+//	Hexal-owned    conversion source/destination eligibility (conversionPairValid)
 //	Hexal-owned    Boolean connective folds (!, &&, ||): the fold classifies operands by Hexal truthiness, whose domain includes Nil, eos, and always-true typed constants that carry no Boolean value
 //	Hexal-owned    truthiness of non-Bool types, nil and eos singleton equality
+//	Hexal-owned    starvation literal-true propagation for while-loop reachability
 //	Hexal-owned    every diagnostic and its position, including division by zero and out-of-range rejection
 func foldUnary(operator Operator, operand checkedExpression, operandType, resultType compilerTypes.Type, token lexer.Token, evaluate bool) checkedExpression {
 	runtime := operationUnaryResult(operator, operand, operandType, resultType, token)
