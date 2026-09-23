@@ -171,7 +171,9 @@ func sliceAtHelper(slice compilerTypes.Type) string {
 }
 
 // sliceSliceHelper selects the read or writable re-slice helper for one
-// reachable slice type.
+// reachable slice type. Slice.slice's record deliberately carries no
+// RuntimeSymbol: the emitted symbol follows the receiver's access mode, so it
+// is composed from the receiver's C name here.
 func sliceSliceHelper(slice compilerTypes.Type) string {
 	if slice.Slice.Writable {
 		return "hex_mut_slice_slice_" + strings.TrimPrefix(slice.CName, "hex_mut_slice_")
@@ -629,16 +631,29 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 		if node.OperandType.Slice != nil {
 			return sliceSliceHelper(node.OperandType) + "(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
 		}
+		// A List or Array re-slice dispatches the recorded slice or
+		// mut_slice method; the registry owns the emitted symbol and the
+		// receiver type supplies the per-specialization suffix.
 		if node.OperandType.List != nil {
+			operation := "slice"
 			if node.ResultType.Slice != nil && node.ResultType.Slice.Writable {
-				return "hex_list_mut_slice_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
+				operation = "mut_slice"
 			}
-			return "hex_list_slice_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
+			symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeList), operation, listSuffix(node.OperandType))
+			if symbolErr != nil {
+				return "", symbolErr
+			}
+			return symbol + "(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
 		}
+		operation := "slice"
 		if node.ResultType.Slice != nil && node.ResultType.Slice.Writable {
-			return "hex_array_mut_slice_" + arrayAccessorSuffix(node.OperandType) + "(&" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
+			operation = "mut_slice"
 		}
-		return "hex_array_slice_" + arrayAccessorSuffix(node.OperandType) + "(&" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
+		symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeArray), operation, arrayAccessorSuffix(node.OperandType))
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(&" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
 	}
 	return "", unknownExpressionDiagnostic("unsupported collection expression")
 }

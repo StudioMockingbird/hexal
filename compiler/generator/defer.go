@@ -288,7 +288,11 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		}
 		// The captures hold the receiver (the owning handle) first and the
 		// heap second; the helper takes them in the opposite order.
-		return "hex_string_free(" + arguments[1] + ", " + arguments[0] + ")", nil
+		symbol, symbolErr := builtinMethodCallSymbol(specdata.ExactOwner(specdata.TypeString), "free", "")
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + arguments[1] + ", " + arguments[0] + ")", nil
 	case checker.CollectionMethodCallExpression:
 		if node.Name != "free" || node.OperandType.List == nil && node.OperandType.Dict == nil || len(arguments) != 2 {
 			return "", unknownExpressionDiagnostic("deferred collection free without captured arguments")
@@ -391,11 +395,23 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			if len(arguments) != 2 {
 				return "", unknownExpressionDiagnostic("deferred stash allocate without captured arguments")
 			}
-			return stashAllocateHelper(node.Element) + "(" + arguments[0] + ", " + arguments[1] + ")", nil
+			symbol, symbolErr := stashAllocateHelper(node.Element)
+			if symbolErr != nil {
+				return "", symbolErr
+			}
+			return symbol + "(" + arguments[0] + ", " + arguments[1] + ")", nil
 		case "reset":
-			return "hex_stash_reset(" + arguments[0] + ")", nil
+			symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeStash), "reset", "")
+			if symbolErr != nil {
+				return "", symbolErr
+			}
+			return symbol + "(" + arguments[0] + ")", nil
 		case "destroy":
-			return "hex_stash_destroy(" + arguments[0] + ")", nil
+			symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeStash), "destroy", "")
+			if symbolErr != nil {
+				return "", symbolErr
+			}
+			return symbol + "(" + arguments[0] + ")", nil
 		}
 		return "", unknownExpressionDiagnostic("deferred stash method without a captured receiver")
 	case checker.PoolMethodCallExpression:
@@ -407,14 +423,26 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			if len(arguments) != 2 {
 				return "", unknownExpressionDiagnostic("deferred pool allocate without captured arguments")
 			}
-			return poolAllocHelper(node.OperandType) + "(" + arguments[0] + ", " + arguments[1] + ")", nil
+			symbol, symbolErr := poolAllocHelper(node.OperandType)
+			if symbolErr != nil {
+				return "", symbolErr
+			}
+			return symbol + "(" + arguments[0] + ", " + arguments[1] + ")", nil
 		case "free":
 			if len(arguments) != 2 {
 				return "", unknownExpressionDiagnostic("deferred pool free without captured arguments")
 			}
-			return poolFreeHelper(node.OperandType) + "(" + arguments[0] + ", " + arguments[1] + ")", nil
+			symbol, symbolErr := poolFreeHelper(node.OperandType)
+			if symbolErr != nil {
+				return "", symbolErr
+			}
+			return symbol + "(" + arguments[0] + ", " + arguments[1] + ")", nil
 		case "destroy":
-			return poolDestroyHelper(node.OperandType) + "(" + arguments[0] + ")", nil
+			symbol, symbolErr := poolDestroyHelper(node.OperandType)
+			if symbolErr != nil {
+				return "", symbolErr
+			}
+			return symbol + "(" + arguments[0] + ")", nil
 		}
 		return "", unknownExpressionDiagnostic("deferred pool method without a captured receiver")
 	default:

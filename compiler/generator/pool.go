@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"hexal/compiler/checker"
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -45,10 +46,24 @@ func poolSuffix(pool compilerTypes.Type) string {
 	return strings.TrimPrefix(pool.CName, "hex_pool_")
 }
 
-func poolNewHelper(pool compilerTypes.Type) string     { return "hex_pool_new_" + poolSuffix(pool) }
-func poolAllocHelper(pool compilerTypes.Type) string   { return "hex_pool_alloc_" + poolSuffix(pool) }
-func poolFreeHelper(pool compilerTypes.Type) string    { return "hex_pool_free_" + poolSuffix(pool) }
-func poolDestroyHelper(pool compilerTypes.Type) string { return "hex_pool_destroy_" + poolSuffix(pool) }
+// poolNewHelper names one Pool<T> constructor wrapper. The registry records no
+// constructor runtime symbol, so the name stays literal here; the definition
+// lives in packages/pool.h.
+func poolNewHelper(pool compilerTypes.Type) string { return "hex_pool_new_" + poolSuffix(pool) }
+
+// poolAllocHelper, poolFreeHelper, and poolDestroyHelper name the typed Pool<T>
+// operations through their recorded symbols, with the pool's C-name suffix.
+func poolAllocHelper(pool compilerTypes.Type) (string, error) {
+	return builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypePool), "allocate", poolSuffix(pool))
+}
+
+func poolFreeHelper(pool compilerTypes.Type) (string, error) {
+	return builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypePool), "free", poolSuffix(pool))
+}
+
+func poolDestroyHelper(pool compilerTypes.Type) (string, error) {
+	return builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypePool), "destroy", poolSuffix(pool))
+}
 
 func renderPoolConstructor(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.OperandType.Pool == nil || len(node.Arguments) != 1 {
@@ -78,7 +93,11 @@ func renderPoolMethod(node checker.Expression, state *expressionValidation) (str
 		if err != nil {
 			return "", err
 		}
-		return poolAllocHelper(node.OperandType) + "(" + receiver + ", " + initial + ")", nil
+		symbol, symbolErr := poolAllocHelper(node.OperandType)
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + receiver + ", " + initial + ")", nil
 	case "free":
 		if len(node.Arguments) != 1 {
 			return "", unknownExpressionDiagnostic("pool free has invalid checked metadata")
@@ -87,9 +106,17 @@ func renderPoolMethod(node checker.Expression, state *expressionValidation) (str
 		if err != nil {
 			return "", err
 		}
-		return poolFreeHelper(node.OperandType) + "(" + receiver + ", " + pointer + ")", nil
+		symbol, symbolErr := poolFreeHelper(node.OperandType)
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + receiver + ", " + pointer + ")", nil
 	case "destroy":
-		return poolDestroyHelper(node.OperandType) + "(" + receiver + ")", nil
+		symbol, symbolErr := poolDestroyHelper(node.OperandType)
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + receiver + ")", nil
 	default:
 		return "", unknownExpressionDiagnostic("unknown pool method " + node.Name)
 	}
