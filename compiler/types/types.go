@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"hexal/compiler/config"
+	"hexal/compiler/span"
 )
 
 // ScalarKind enumerates the scalar types Hexal supports. ScalarNone is the
@@ -204,7 +205,20 @@ type Diagnostic struct {
 	// knows which module it was checking, so a message can never claim the
 	// wrong module. It is empty only for a diagnostic about the compilation
 	// as a whole, such as a missing entrypoint.
-	Module  string
+	Module string
+	// Span is the authoritative source range this diagnostic points at: the
+	// logical file key and byte offsets the compilation supplied. It is the
+	// zero Span for a diagnostic whose construction site records no span,
+	// such as a whole-compilation failure. A zero-width Span (Start == End)
+	// is an insertion point between two tokens, the shape a missing-token
+	// diagnostic and an EOF diagnostic share.
+	//
+	// Line and Column are the same start position in the legacy integer form
+	// the renderer still consumes during migration; a token's Line and Column
+	// are the location the lexer derived beside its span, so the two are not
+	// computed independently at a construction site that has the token. The
+	// offset-to-line/column convention itself lives in compiler/span.
+	Span    span.Span
 	Line    int
 	Column  int
 	Message string
@@ -264,7 +278,11 @@ func (diagnostics Diagnostics) Error() string {
 	return strings.Join(messages, "\n")
 }
 
-// NewDiagnostic builds one structured diagnostic for a source location.
+// NewDiagnostic builds one structured diagnostic that has no source span: a
+// whole-compilation failure, a project-configuration failure, or another
+// condition no logical source file owns. A diagnostic anchored to a token sets
+// Span and the token's derived Line and Column, so its source identity is the
+// span.
 func NewDiagnostic(category ErrorCategory, stage string, line, column int, message string) Diagnostic {
 	return Diagnostic{Category: category, Stage: stage, Line: line, Column: column, Message: message}
 }

@@ -6,6 +6,7 @@ import (
 
 	"hexal/compiler/config"
 	"hexal/compiler/lexer"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -20,6 +21,10 @@ type Parser struct {
 	// pendingGreater carries the second half of a `>>` token split into two
 	// generic closers while parsing nested type arguments.
 	pendingGreater bool
+	// pendingGreaterToken is the `>>` token the split came from; the second
+	// synthetic `>` is that token's second byte, so a split never invents a
+	// location.
+	pendingGreaterToken lexer.Token
 	// matchBoundary suspends the `|` (and, for a scrutinee, `is`) operator at
 	// match-expression depth zero so an unparenthesized `|` starts the next
 	// arm and an unparenthesized `is` selects type mode. Parenthesized
@@ -416,7 +421,14 @@ func (parser *Parser) check(kind lexer.TokenKind) bool {
 func (parser *Parser) consume(kind lexer.TokenKind, expected string) (lexer.Token, error) {
 	if kind == lexer.Greater && parser.pendingGreater {
 		parser.pendingGreater = false
-		return lexer.Token{Kind: lexer.Greater, Lexeme: ">", Line: parser.peek().Line, Column: parser.peek().Column}, nil
+		start := parser.pendingGreaterToken.Span.Start + 1
+		return lexer.Token{
+			Kind:   lexer.Greater,
+			Lexeme: ">",
+			Span:   span.Span{File: parser.pendingGreaterToken.Span.File, Start: start, End: start + 1},
+			Line:   parser.pendingGreaterToken.Line,
+			Column: parser.pendingGreaterToken.Column + 1,
+		}, nil
 	}
 	if parser.check(kind) {
 		return parser.advance(), nil
@@ -689,7 +701,14 @@ func (parser *Parser) errorAtCurrent(message string) error {
 }
 
 func (parser *Parser) errorAt(token lexer.Token, message string) error {
-	return compilerTypes.NewDiagnostic(compilerTypes.SyntaxError, "parser", token.Line, token.Column, message)
+	return compilerTypes.Diagnostic{
+		Category: compilerTypes.SyntaxError,
+		Stage:    "parser",
+		Span:     token.Span,
+		Line:     token.Line,
+		Column:   token.Column,
+		Message:  message,
+	}
 }
 
 // synchronize discards the invalid statement while preserving the next token

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"hexal/compiler/lexer"
+	"hexal/compiler/span"
 )
 
 // pushExpressionRegion starts a fresh binary-operator-kind region for one
@@ -662,7 +663,14 @@ func (parser *Parser) consumeGenericClose(expected string) (lexer.Token, error) 
 	if parser.check(lexer.ShiftRight) {
 		token := parser.advance()
 		parser.pendingGreater = true
-		return lexer.Token{Kind: lexer.Greater, Lexeme: ">", Line: token.Line, Column: token.Column}, nil
+		parser.pendingGreaterToken = token
+		return lexer.Token{
+			Kind:   lexer.Greater,
+			Lexeme: ">",
+			Span:   span.Span{File: token.Span.File, Start: token.Span.Start, End: token.Span.Start + 1},
+			Line:   token.Line,
+			Column: token.Column,
+		}, nil
 	}
 	return parser.consume(lexer.Greater, expected)
 }

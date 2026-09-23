@@ -1156,6 +1156,7 @@ func typeErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
 	return compilerTypes.Diagnostic{
 		Category: compilerTypes.TypeError,
 		Stage:    "checker",
+		Span:     token.Span,
 		Line:     token.Line,
 		Column:   token.Column,
 		Message:  message,
@@ -1204,6 +1205,7 @@ func nameErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
 	return compilerTypes.Diagnostic{
 		Category: compilerTypes.NameError,
 		Stage:    "checker",
+		Span:     token.Span,
 		Line:     token.Line,
 		Column:   token.Column,
 		Message:  message,
@@ -1214,6 +1216,7 @@ func moduleErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
 	return compilerTypes.Diagnostic{
 		Category: compilerTypes.ModuleError,
 		Stage:    "checker",
+		Span:     token.Span,
 		Line:     token.Line,
 		Column:   token.Column,
 		Message:  message,
@@ -1226,6 +1229,7 @@ func semanticErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic
 	return compilerTypes.Diagnostic{
 		Category: compilerTypes.SemanticError,
 		Stage:    "checker",
+		Span:     token.Span,
 		Line:     token.Line,
 		Column:   token.Column,
 		Message:  message,
@@ -1236,6 +1240,7 @@ func unknownAt(token lexer.Token, message string) compilerTypes.Diagnostic {
 	return compilerTypes.Diagnostic{
 		Category: compilerTypes.UnknownError,
 		Stage:    "checker",
+		Span:     token.Span,
 		Line:     token.Line,
 		Column:   token.Column,
 		Message:  message,
