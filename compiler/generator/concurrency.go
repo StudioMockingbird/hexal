@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"hexal/compiler/checker"
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -922,11 +923,12 @@ func renderTaskMethod(node checker.Expression, state *expressionValidation) (str
 		return "", err
 	}
 	switch node.Name {
-	case "join":
-		suffix := taskSuffix(node.OperandType)
-		return "hex_task_join_" + suffix + "(" + receiver + ")", nil
-	case "detach":
-		return "hex_task_detach(" + receiver + ")", nil
+	case "join", "detach":
+		symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeTask), node.Name, taskSuffix(node.OperandType))
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + receiver + ")", nil
 	}
 	return "", unknownExpressionDiagnostic("unknown task method " + node.Name)
 }
@@ -976,17 +978,41 @@ func renderChannelMethod(node checker.Expression, state *expressionValidation) (
 		if messageErr != nil {
 			return "", messageErr
 		}
-		return fmt.Sprintf("hex_chan_send_%s(%s, %s, %d, %d, &%s)", suffix, receiver, value, node.SourceLine, node.SourceColumn, message), nil
+		symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeChannel), "send", suffix)
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return fmt.Sprintf(symbol+"(%s, %s, %d, %d, &%s)", receiver, value, node.SourceLine, node.SourceColumn, message), nil
 	case "receive":
-		return "hex_chan_recv_" + suffix + "(" + receiver + ")", nil
+		symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeChannel), "receive", suffix)
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + receiver + ")", nil
 	case "close":
-		return "hex_chan_close(" + receiver + ")", nil
+		symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeChannel), "close", suffix)
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + receiver + ")", nil
 	case "length":
-		return "hex_chan_length(" + receiver + ")", nil
+		symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeChannel), "length", suffix)
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + receiver + ")", nil
 	case "capacity":
-		return "hex_chan_capacity(" + receiver + ")", nil
+		symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeChannel), "capacity", suffix)
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + receiver + ")", nil
 	case "is_closed":
-		return "hex_chan_is_closed(" + receiver + ")", nil
+		symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeChannel), "is_closed", suffix)
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + receiver + ")", nil
 	case "free":
 		if len(node.Arguments) != 1 {
 			return "", unknownExpressionDiagnostic("channel free without a checked heap")
@@ -995,7 +1021,11 @@ func renderChannelMethod(node checker.Expression, state *expressionValidation) (
 		if heapErr != nil {
 			return "", heapErr
 		}
-		return fmt.Sprintf("hex_chan_free_%s(%s, %s)", suffix, heap, receiver), nil
+		symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeChannel), "free", suffix)
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + heap + ", " + receiver + ")", nil
 	}
 	return "", unknownExpressionDiagnostic("unknown channel method " + node.Name)
 }
@@ -1026,10 +1056,12 @@ func renderMutexMethod(node checker.Expression, state *expressionValidation) (st
 		return "", err
 	}
 	switch node.Name {
-	case "lock":
-		return "hex_mutex_lock(" + receiver + ")", nil
-	case "unlock":
-		return "hex_mutex_unlock(" + receiver + ")", nil
+	case "lock", "unlock":
+		symbol, symbolErr := builtinMethodCallSymbol(specdata.ExactOwner(specdata.TypeMutex), node.Name, "")
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + receiver + ")", nil
 	case "free":
 		if len(node.Arguments) != 1 {
 			return "", unknownExpressionDiagnostic("mutex free without a checked heap")
@@ -1038,7 +1070,11 @@ func renderMutexMethod(node checker.Expression, state *expressionValidation) (st
 		if heapErr != nil {
 			return "", heapErr
 		}
-		return fmt.Sprintf("hex_mutex_free_hex_mutex(%s, %s)", heap, receiver), nil
+		symbol, symbolErr := builtinMethodCallSymbol(specdata.ExactOwner(specdata.TypeMutex), "free", "")
+		if symbolErr != nil {
+			return "", symbolErr
+		}
+		return symbol + "(" + heap + ", " + receiver + ")", nil
 	}
 	return "", unknownExpressionDiagnostic("unknown mutex method " + node.Name)
 }
@@ -1064,7 +1100,10 @@ func renderAtomicMethod(node checker.Expression, state *expressionValidation) (s
 	if err != nil {
 		return "", err
 	}
-	helper := "hex_atomic_" + atomicSuffix(node.OperandType) + "_" + node.Name
+	helper, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeAtomic), node.Name, atomicSuffix(node.OperandType))
+	if symbolErr != nil {
+		return "", symbolErr
+	}
 	switch node.Name {
 	case "load":
 		return helper + "(&(" + receiver + "))", nil

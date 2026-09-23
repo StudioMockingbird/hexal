@@ -64,6 +64,9 @@ func checkPoolMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 	if diagnostic := checkHandleNotDestroyed(receiver.source, callee.Property, ctx.names.flow); diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
+	if !hasBuiltinMethod(poolType, name) {
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Pool has no method "+name+"; use allocate, free, or destroy"))}
+	}
 	switch name {
 	case "allocate":
 		if len(call.TypeArguments) != 0 {
@@ -124,6 +127,6 @@ func checkPoolMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
 	default:
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Pool has no method "+name+"; use allocate, free, or destroy"))}
+		return unexpectedBuiltinMethod(poolType, callee.Property)
 	}
 }

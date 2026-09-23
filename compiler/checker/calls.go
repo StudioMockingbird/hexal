@@ -6,8 +6,14 @@ import (
 	"hexal/compiler/corelib"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
+
+// builtinConstructible resolves the bare-constructor set from the registry. It
+// is a variable so a test can prove the dispatch is registry-driven: clearing
+// it must drop a canonical constructor out of the accepted programs.
+var builtinConstructible = specdata.BareConstructible
 
 func checkCallStatement(call parser.CallExpression, ctx checkContext) (CallStatement, compilerTypes.Diagnostics) {
 	checked := checkCall(call, compilerTypes.Type{}, ctx)
@@ -565,8 +571,7 @@ func parameterArityDiagnostic(name string, parameters []FunctionParameter, got i
 // ordinary free-function lookup. Compiler-owned canonical constructors take
 // only positional arguments, exactly like an ordinary call.
 func checkBareConstructorCall(call parser.CallExpression, callee parser.VariableExpression, expectedType compilerTypes.Type, ctx checkContext) (checkedExpression, bool) {
-	switch callee.Name.Lexeme {
-	case "Heap", "Stash", "Pool", "List", "Dict", "Channel", "Mutex", "Atomic", "Error":
+	if builtinConstructible(callee.Name.Lexeme) {
 		if diagnostic := rejectNamedArguments(call); diagnostic != nil {
 			return checkedExpression{token: callee.Name, diagnostic: diagnostic}, true
 		}
@@ -587,8 +592,14 @@ func checkBareConstructorCall(call parser.CallExpression, callee parser.Variable
 			return checkMutexTypeCall(call, callee.Name, ctx), true
 		case "Atomic":
 			return checkAtomicTypeCall(call, callee.Name, ctx), true
-		default: // "Error"
+		case "Error":
 			return checkErrorNewCall(call, callee.Name, ctx), true
+		default:
+			// A name the registry marks constructible but this dispatch has
+			// no case for cannot lower; it is a compiler defect, not a user
+			// error, so it fails closed.
+			diagnostic := unknownAt(callee.Name, "built-in constructor "+callee.Name.Lexeme+" has a registry record but no checker dispatch")
+			return checkedExpression{token: callee.Name, diagnostic: &diagnostic}, true
 		}
 	}
 	if _, ok := ctx.typeEnvironment.Lookup(callee.Name.Lexeme); ok {

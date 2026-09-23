@@ -149,6 +149,9 @@ func checkTaskMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 	name := callee.Property.Lexeme
 	taskType := receiver.typ
 	resultType := taskType.Task.Result
+	if !hasBuiltinMethod(taskType, name) {
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Task has no method "+name+"; use join or detach"))}
+	}
 	switch name {
 	case "join":
 		if len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
@@ -165,7 +168,7 @@ func checkTaskMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
 	default:
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Task has no method "+name+"; use join or detach"))}
+		return unexpectedBuiltinMethod(taskType, callee.Property)
 	}
 }
 
@@ -208,6 +211,9 @@ func checkChannelMethodCall(call parser.CallExpression, callee parser.PropertyEx
 	name := callee.Property.Lexeme
 	channelType := receiver.typ
 	element := channelType.Channel.Element
+	if !hasBuiltinMethod(channelType, name) {
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Channel has no method "+name+"; use send, receive, close, length, capacity, is_closed, or free"))}
+	}
 	switch name {
 	case "send":
 		if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
@@ -268,7 +274,7 @@ func checkChannelMethodCall(call parser.CallExpression, callee parser.PropertyEx
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
 	default:
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Channel has no method "+name+"; use send, receive, close, length, capacity, is_closed, or free"))}
+		return unexpectedBuiltinMethod(channelType, callee.Property)
 	}
 }
 
@@ -293,6 +299,10 @@ func checkMutexTypeCall(call parser.CallExpression, callee lexer.Token, ctx chec
 // checkMutexMethodCall resolves Mutex handle methods.
 func checkMutexMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	name := callee.Property.Lexeme
+	mutexType := receiver.typ
+	if !hasBuiltinMethod(mutexType, name) {
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Mutex has no method "+name+"; use lock, unlock, or free"))}
+	}
 	switch name {
 	case "lock", "unlock":
 		if len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
@@ -316,7 +326,7 @@ func checkMutexMethodCall(call parser.CallExpression, callee parser.PropertyExpr
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
 	default:
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Mutex has no method "+name+"; use lock, unlock, or free"))}
+		return unexpectedBuiltinMethod(mutexType, callee.Property)
 	}
 }
 
@@ -347,9 +357,7 @@ func checkAtomicMethodCall(call parser.CallExpression, callee parser.PropertyExp
 	name := callee.Property.Lexeme
 	atomicType := receiver.typ
 	element := atomicType.Atomic.Element
-	switch name {
-	case "load", "store", "exchange", "fetch_add", "fetch_sub", "compare_exchange":
-	default:
+	if !hasBuiltinMethod(atomicType, name) {
 		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, fmt.Sprintf("%s has no method named %s", atomicType.Name, name)))}
 	}
 	argumentCount := 1

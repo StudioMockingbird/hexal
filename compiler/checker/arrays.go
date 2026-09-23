@@ -184,6 +184,17 @@ func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checke
 func checkCollectionMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
 	name := callee.Property.Lexeme
 	collectionType := receiver.typ
+	// Slice has no mut_slice: re-slicing preserves the receiver's access mode
+	// through slice. The registry does not declare it, and its rejection names
+	// the migration route, so it stays ahead of the registry gate.
+	if name == "mut_slice" && receiver.typ.Slice != nil {
+		diagnostic := typeErrorAt(callee.Property, "Slice has no method mut_slice; re-slicing preserves the receiver's access mode through slice")
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	}
+	if !hasBuiltinMethod(collectionType, name) {
+		diagnostic := typeErrorAt(callee.Property, collectionType.Name+" has no method "+name)
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	}
 	switch name {
 	case "length":
 		if len(call.Arguments) != 0 {
@@ -196,16 +207,11 @@ func checkCollectionMethodCall(call parser.CallExpression, callee parser.Propert
 	case "slice":
 		return checkSliceMethod(call, callee, receiver, ctx, false)
 	case "mut_slice":
-		if receiver.typ.Slice != nil {
-			diagnostic := typeErrorAt(callee.Property, "Slice has no method mut_slice; re-slicing preserves the receiver's access mode through slice")
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
-		}
 		return checkSliceMethod(call, callee, receiver, ctx, true)
 	case "pointer":
 		return checkSlicePointer(call, callee, receiver, ctx)
 	default:
-		diagnostic := typeErrorAt(callee.Property, collectionType.Name+" has no method "+name)
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		return unexpectedBuiltinMethod(collectionType, callee.Property)
 	}
 }
 
