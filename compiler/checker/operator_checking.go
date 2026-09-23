@@ -8,6 +8,7 @@ import (
 
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -1001,29 +1002,79 @@ func operatorFromToken(token lexer.Token) (Operator, bool) {
 }
 
 func operatorAllowsType(operator Operator, typ compilerTypes.Type) bool {
-	switch operator {
-	case AddOperator, SubtractOperator, MultiplyOperator, DivideOperator:
-		return compilerTypes.IsInteger(typ) || compilerTypes.IsFloat(typ)
-	case RemainderOperator:
-		return compilerTypes.IsInteger(typ)
-	case BitwiseAndOperator, BitwiseXorOperator, BitwiseOrOperator:
-		return isBitwiseEligible(typ)
-	case ShiftLeftOperator, ShiftRightOperator:
-		return isBitwiseEligible(typ)
-	case BitwiseNotOperator:
-		return isBitwiseEligible(typ)
-	case EqualOperator, NotEqualOperator:
-		return typ.ScalarKind != compilerTypes.ScalarNone
-	case LessOperator, LessEqualOperator, GreaterOperator, GreaterEqualOperator:
-		return compilerTypes.IsInteger(typ) || compilerTypes.IsFloat(typ)
-	case LogicalAndOperator, LogicalOrOperator, LogicalNotOperator:
-		// Any value-producing operand is allowed; truthiness is
-		// contextual, never a Bool requirement.
-		return true
-	case NegateOperator:
-		return compilerTypes.IsSignedInteger(typ) || compilerTypes.IsFloat(typ)
-	default:
+	id, ok := operatorIdentity(operator)
+	if !ok {
 		return false
+	}
+	spec, ok := specdata.Operator(id)
+	if !ok {
+		// A resolved operator must have a row; Validate rejects a registry
+		// that cannot answer its own keys, so a miss is a compiler defect.
+		panic("checker: operator " + string(id) + " has no specdata row")
+	}
+	if spec.AnyOperand {
+		return true
+	}
+	operand, ok := compilerTypes.SpecID(typ)
+	if !ok {
+		return false
+	}
+	for _, allowed := range spec.Operands {
+		if allowed == operand {
+			return true
+		}
+	}
+	return false
+}
+
+// operatorIdentity maps one resolved checker operator to its registry row. The
+// unset operator admits no operand, matching a default rejection.
+func operatorIdentity(operator Operator) (specdata.OperatorID, bool) {
+	switch operator {
+	case NegateOperator:
+		return specdata.OperatorNegate, true
+	case LogicalNotOperator:
+		return specdata.OperatorLogicalNot, true
+	case BitwiseNotOperator:
+		return specdata.OperatorBitwiseNot, true
+	case AddOperator:
+		return specdata.OperatorAdd, true
+	case SubtractOperator:
+		return specdata.OperatorSubtract, true
+	case MultiplyOperator:
+		return specdata.OperatorMultiply, true
+	case DivideOperator:
+		return specdata.OperatorDivide, true
+	case RemainderOperator:
+		return specdata.OperatorRemainder, true
+	case BitwiseAndOperator:
+		return specdata.OperatorBitwiseAnd, true
+	case BitwiseXorOperator:
+		return specdata.OperatorBitwiseXor, true
+	case BitwiseOrOperator:
+		return specdata.OperatorBitwiseOr, true
+	case ShiftLeftOperator:
+		return specdata.OperatorShiftLeft, true
+	case ShiftRightOperator:
+		return specdata.OperatorShiftRight, true
+	case EqualOperator:
+		return specdata.OperatorEqual, true
+	case NotEqualOperator:
+		return specdata.OperatorNotEqual, true
+	case LessOperator:
+		return specdata.OperatorLess, true
+	case LessEqualOperator:
+		return specdata.OperatorLessEqual, true
+	case GreaterOperator:
+		return specdata.OperatorGreater, true
+	case GreaterEqualOperator:
+		return specdata.OperatorGreaterEqual, true
+	case LogicalAndOperator:
+		return specdata.OperatorLogicalAnd, true
+	case LogicalOrOperator:
+		return specdata.OperatorLogicalOr, true
+	default:
+		return "", false
 	}
 }
 

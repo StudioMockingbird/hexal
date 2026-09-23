@@ -8,6 +8,7 @@ import (
 
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -108,25 +109,23 @@ func checkConversionCall(call parser.CallExpression, callee parser.PropertyExpre
 	return checkedExpression{source: sourceOperand, typ: target, token: callee.Property}
 }
 
-// conversionPairValid applies the source/destination conversion matrix.
-// Integer means the eight fixed-width integer types plus Size.
+// conversionPairValid applies the source/destination conversion matrix from
+// the registry. Integer means the fixed-width integer types, Rune, and Size.
+// A dependent conversion (one endpoint still a type parameter) stays valid
+// here and is rechecked once the closed specialization resolves; an identity
+// the registry does not name is outside the numeric matrix.
 func conversionPairValid(source, target compilerTypes.Type) bool {
 	if compilerTypes.ContainsTypeParameter(source) || compilerTypes.ContainsTypeParameter(target) {
 		// Dependent conversion: the closed specialization must resolve one
 		// eligible pair before generation.
 		return true
 	}
-	switch {
-	case compilerTypes.IsFloat(source) && compilerTypes.IsFloat(target):
-		return true
-	case compilerTypes.IsFloat(source) && compilerTypes.IsInteger(target):
-		return true
-	case compilerTypes.IsInteger(source) && compilerTypes.IsFloat(target):
-		return true
-	case compilerTypes.IsInteger(source) && compilerTypes.IsInteger(target):
-		return true
+	from, fromOK := compilerTypes.SpecID(source)
+	to, toOK := compilerTypes.SpecID(target)
+	if !fromOK || !toOK {
+		return false
 	}
-	return false
+	return specdata.Conversion(from, to)
 }
 
 // foldNumericConversion evaluates a constant conversion. It returns a folded
