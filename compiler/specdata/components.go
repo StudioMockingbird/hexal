@@ -69,14 +69,59 @@ type DependencySpec struct {
 	ID DependencyID
 }
 
+// HeaderCondition names one program-wide Go demand predicate that gates a
+// conditional standard-header contribution. The registry owns the condition
+// names and the headers they gate; the generator owns the predicate that
+// decides which conditions are active, so no predicate becomes data.
+type HeaderCondition string
+
+// The conditional header groups a component record can declare. Each is the
+// registry-side name of one explicit Go predicate at a generator demand site.
+const (
+	// HeaderConditionEqualityAborting gates <stdlib.h> for union and ADT
+	// equality helpers, whose exhaustive switch carries an abort() catch-all.
+	HeaderConditionEqualityAborting HeaderCondition = "equality-aborting"
+	// HeaderConditionConcurrencyAtomic gates <stdatomic.h> for the atomic
+	// handle typedefs; a scheduler-only program declares no atomic.
+	HeaderConditionConcurrencyAtomic HeaderCondition = "concurrency-atomic"
+	// HeaderConditionConversionFloat gates <math.h> for a checked conversion
+	// whose source is a float; integer-source conversions never classify.
+	HeaderConditionConversionFloat HeaderCondition = "conversion-float"
+	// HeaderConditionBitCast gates <string.h> for bit_cast's memcpy
+	// reinterpretation.
+	HeaderConditionBitCast HeaderCondition = "bit-cast"
+	// HeaderConditionCorelibPaths gates the checked size arithmetic,
+	// malloc/free, and memcpy/strlen of std/program's path and parallelism
+	// surface.
+	HeaderConditionCorelibPaths HeaderCondition = "corelib-paths"
+	// HeaderConditionCorelibArguments gates the malloc/free and memcpy of the
+	// std/program argument snapshot.
+	HeaderConditionCorelibArguments HeaderCondition = "corelib-arguments"
+	// HeaderConditionCorelibEntropy gates the malloc/free and memcpy of the
+	// std/entropy fill.
+	HeaderConditionCorelibEntropy HeaderCondition = "corelib-entropy"
+)
+
+// ConditionalHeaders is one named conditional standard-header contribution: a
+// HeaderCondition the generator decides, and the headers it gates.
+type ConditionalHeaders struct {
+	Condition HeaderCondition
+	Headers   []string
+}
+
 // ComponentSpec is the metadata of one runtime component: its identity, the
 // generated files it owns, the native dependencies its generated code can pull,
-// and the standard C headers that code needs. Demand is not a field here.
+// and the standard C headers the program-wide hexal.h must provide. RequiredCHeaders are the
+// unconditional contribution when the component is demanded; ConditionalHeaders
+// are the named sub-features the generator activates. A component whose own .c
+// includes a standard header directly contributes none. Demand is not a field
+// here.
 type ComponentSpec struct {
 	ID                  ComponentID
 	Files               []string
 	RuntimeDependencies []DependencyID
 	RequiredCHeaders    []string
+	ConditionalHeaders  []ConditionalHeaders
 }
 
 // dependencyRegistry declares every native runtime input exactly once.
@@ -90,9 +135,11 @@ var dependencyRegistry = []DependencySpec{
 // generator's demand order. RuntimeDependencies is the set the component's
 // generated code can pull, not a claim that every program selecting the
 // component pulls all of them; the builder plus the program-wide dependency
-// predicates decide that. RequiredCHeaders is the component's own standard-
-// header contribution; <stdio.h>/<stdlib.h> from the shared trap are recorded
-// on ComponentRuntime, and the C library's own headers are not listed.
+// predicates decide that. RequiredCHeaders is the component's unconditional
+// standard-header contribution, and ConditionalHeaders the named sub-features
+// the generator activates; <stdio.h>/<stdlib.h> from the shared trap are
+// recorded on ComponentRuntime, and the C library's own headers are not
+// listed.
 var componentRegistry = []ComponentSpec{
 	{
 		ID:                  ComponentRuntime,
@@ -158,7 +205,11 @@ var componentRegistry = []ComponentSpec{
 	{
 		ID:               ComponentNumeric,
 		Files:            []string{"hexal/numeric.h"},
-		RequiredCHeaders: []string{"stdint.h", "math.h"},
+		RequiredCHeaders: []string{"stdint.h"},
+		ConditionalHeaders: []ConditionalHeaders{
+			{Condition: HeaderConditionConversionFloat, Headers: []string{"math.h"}},
+			{Condition: HeaderConditionBitCast, Headers: []string{"string.h"}},
+		},
 	},
 	{
 		ID:               ComponentPrint,
@@ -168,7 +219,10 @@ var componentRegistry = []ComponentSpec{
 	{
 		ID:               ComponentEquality,
 		Files:            []string{"hexal/equality.h"},
-		RequiredCHeaders: []string{"stddef.h", "string.h", "stdlib.h"},
+		RequiredCHeaders: []string{"stddef.h", "string.h"},
+		ConditionalHeaders: []ConditionalHeaders{
+			{Condition: HeaderConditionEqualityAborting, Headers: []string{"stdlib.h"}},
+		},
 	},
 	{
 		ID:               ComponentIO,
@@ -179,7 +233,10 @@ var componentRegistry = []ComponentSpec{
 		ID:                  ComponentConcurrency,
 		Files:               []string{"hexal/concurrency.h", "hexal/concurrency.c"},
 		RuntimeDependencies: []DependencyID{DependencyLibuv},
-		RequiredCHeaders:    []string{"stdckdint.h", "stddef.h", "stdint.h", "stdlib.h", "stdatomic.h"},
+		RequiredCHeaders:    []string{"stdckdint.h", "stddef.h", "stdint.h", "stdlib.h"},
+		ConditionalHeaders: []ConditionalHeaders{
+			{Condition: HeaderConditionConcurrencyAtomic, Headers: []string{"stdatomic.h"}},
+		},
 	},
 	{
 		ID:                  ComponentEvent,
@@ -193,10 +250,13 @@ var componentRegistry = []ComponentSpec{
 		RequiredCHeaders:    []string{"stdint.h"},
 	},
 	{
+		// handle.c self-includes <string.h> and <uv.h>, so the component
+		// contributes no standard header to hexal.h; declaring one would emit
+		// it for a type-only Process/Signal program that never uses the
+		// registry's memcpy.
 		ID:                  ComponentHandle,
 		Files:               []string{"hexal/handle.h", "hexal/handle.c"},
 		RuntimeDependencies: []DependencyID{DependencyLibuv},
-		RequiredCHeaders:    []string{"string.h"},
 	},
 	{
 		ID:                  ComponentFile,
@@ -232,13 +292,20 @@ var componentRegistry = []ComponentSpec{
 		ID:                  ComponentProgram,
 		Files:               []string{"hexal/program.h", "hexal/program.c"},
 		RuntimeDependencies: []DependencyID{DependencyLibuv, DependencyUtf8proc},
-		RequiredCHeaders:    []string{"stdckdint.h", "stddef.h", "stdint.h", "stdlib.h", "string.h"},
+		RequiredCHeaders:    []string{"stddef.h", "stdint.h"},
+		ConditionalHeaders: []ConditionalHeaders{
+			{Condition: HeaderConditionCorelibPaths, Headers: []string{"stdckdint.h", "stdlib.h", "string.h"}},
+			{Condition: HeaderConditionCorelibArguments, Headers: []string{"stdlib.h", "string.h"}},
+		},
 	},
 	{
 		ID:                  ComponentEntropy,
 		Files:               []string{"hexal/entropy.h", "hexal/entropy.c"},
 		RuntimeDependencies: []DependencyID{DependencyLibuv},
-		RequiredCHeaders:    []string{"stddef.h", "stdint.h", "stdlib.h", "string.h"},
+		RequiredCHeaders:    []string{"stddef.h", "stdint.h"},
+		ConditionalHeaders: []ConditionalHeaders{
+			{Condition: HeaderConditionCorelibEntropy, Headers: []string{"stdlib.h", "string.h"}},
+		},
 	},
 }
 
@@ -294,13 +361,34 @@ func cloneComponentSpec(component ComponentSpec) ComponentSpec {
 	clone.Files = append([]string(nil), component.Files...)
 	clone.RuntimeDependencies = append([]DependencyID(nil), component.RuntimeDependencies...)
 	clone.RequiredCHeaders = append([]string(nil), component.RequiredCHeaders...)
+	clone.ConditionalHeaders = make([]ConditionalHeaders, len(component.ConditionalHeaders))
+	for index, group := range component.ConditionalHeaders {
+		clone.ConditionalHeaders[index] = ConditionalHeaders{
+			Condition: group.Condition,
+			Headers:   append([]string(nil), group.Headers...),
+		}
+	}
 	return clone
+}
+
+// knownHeaderCondition reports whether condition is one of the registry's
+// declared header conditions.
+func knownHeaderCondition(condition HeaderCondition) bool {
+	switch condition {
+	case HeaderConditionEqualityAborting, HeaderConditionConcurrencyAtomic,
+		HeaderConditionConversionFloat, HeaderConditionBitCast,
+		HeaderConditionCorelibPaths, HeaderConditionCorelibArguments,
+		HeaderConditionCorelibEntropy:
+		return true
+	}
+	return false
 }
 
 // validateComponents reports the first inconsistency in the component and
 // dependency registries: an empty or repeated identity, a file claimed by two
 // components, a dependency no record declares, a dependency no component
-// references, or a repeated dependency or header inside one record.
+// references, a repeated dependency or header inside one record, or an unknown
+// or repeated header condition.
 func validateComponents() error {
 	ids := make(map[ComponentID]bool, len(componentRegistry))
 	owners := make(map[string]ComponentID)
@@ -345,6 +433,35 @@ func validateComponents() error {
 				return fmt.Errorf("duplicate header %s", header)
 			}
 			seenHeaders[header] = true
+		}
+		seenConditions := make(map[HeaderCondition]bool, len(component.ConditionalHeaders))
+		for _, group := range component.ConditionalHeaders {
+			if !knownHeaderCondition(group.Condition) {
+				return fmt.Errorf("unknown condition %s", string(component.ID)+":"+string(group.Condition))
+			}
+			if seenConditions[group.Condition] {
+				return fmt.Errorf("repeat condition %s", string(component.ID)+":"+string(group.Condition))
+			}
+			seenConditions[group.Condition] = true
+			if len(group.Headers) == 0 {
+				return fmt.Errorf("empty condition %s", string(component.ID)+":"+string(group.Condition))
+			}
+			groupHeaders := make(map[string]bool, len(group.Headers))
+			for _, header := range group.Headers {
+				if header == "" {
+					return fmt.Errorf("empty header %s", string(component.ID)+":"+string(group.Condition))
+				}
+				if groupHeaders[header] {
+					return fmt.Errorf("repeat header %s", header)
+				}
+				groupHeaders[header] = true
+				// A header may appear in more than one conditional group
+				// because a program activates several at once and the set is
+				// a union; only the unconditional set may not repeat it.
+				if seenHeaders[header] {
+					return fmt.Errorf("duplicate header %s", header)
+				}
+			}
 		}
 	}
 	seenIDs := make(map[DependencyID]bool, len(dependencyRegistry))

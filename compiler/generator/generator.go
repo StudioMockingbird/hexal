@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"hexal/compiler/checker"
-	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -112,15 +111,13 @@ func GenerateCheckedWithMetadata(graph *checker.ModuleGraph, programs map[string
 	if tagErr := merged.tags.settled(); tagErr != nil {
 		return GenerationResult{}, tagErr
 	}
-	dependencies := make([]string, 0, 2)
-	if merged.heapState.selected() {
-		dependencies = append(dependencies, string(specdata.DependencyMimalloc))
+	selected, selectionErr := selectedComponentIDs(components)
+	if selectionErr != nil {
+		return GenerationResult{}, selectionErr
 	}
-	if libuvSelected(merged) {
-		dependencies = append(dependencies, string(specdata.DependencyLibuv))
-	}
-	if utf8procSelected(merged) {
-		dependencies = append(dependencies, string(specdata.DependencyUtf8proc))
+	dependencies, dependencyErr := selectedRuntimeDependencies(selected, merged)
+	if dependencyErr != nil {
+		return GenerationResult{}, dependencyErr
 	}
 	return GenerationResult{Files: files, Dependencies: dependencies}, nil
 }
