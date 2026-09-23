@@ -532,9 +532,18 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 	var diagnostics []compilerTypes.Diagnostic
 	ch := source[index]
 	switch {
-	case ch == ' ' || ch == '\t' || ch == '\r':
+	case ch == ' ' || ch == '\t':
 		index++
 		column++
+	case ch == '\r':
+		// A carriage return is a line break, and a CRLF is one break: the
+		// following line feed is consumed with it so it cannot count twice.
+		index++
+		if index < len(source) && source[index] == '\n' {
+			index++
+		}
+		line++
+		column = 1
 	case ch == '\n':
 		index++
 		line++
@@ -551,6 +560,15 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 					column += 3
 					closed = true
 					break
+				}
+				if source[index] == '\r' {
+					index++
+					if index < len(source) && source[index] == '\n' {
+						index++
+					}
+					line++
+					column = 1
+					continue
 				}
 				if source[index] == '\n' {
 					index++
@@ -936,6 +954,16 @@ func skipToClosingQuote(source string, index, line, column int) (int, int, int) 
 		if character == '\n' {
 			line++
 			column = 1
+			continue
+		}
+		if character == '\r' {
+			// A CRLF is one break: consume the paired LF so it is not
+			// counted a second time.
+			if index < len(source) && source[index] == '\n' {
+				index++
+			}
+			line++
+			column = 1
 		}
 	}
 	return index, line, column
@@ -1110,7 +1138,9 @@ func scanQuotedBody(source string, start, line, column int) (int, bool) {
 			closed = true
 			break
 		}
-		if character == '\n' {
+		if character == '\n' || character == '\r' {
+			// A line break ends the single-line literal body; a CRLF shares
+			// one break and is handled by the enclosing scanner.
 			break
 		}
 	}
@@ -1157,11 +1187,9 @@ func scanRawString(source string, start, line, column, hashCount int) (Token, in
 		character := source[index]
 		switch character {
 		case '\r':
-			// The retained counter advances the line on a lone CR here, while
-			// the canonical offset convention counts only LF. A token after a
-			// raw string containing a bare CR therefore has a Line the table
-			// would place on the preceding line. The span is the authoritative
-			// location; the counter is the legacy value the parser still reads.
+			// A carriage return is a line break; a CRLF is one break, so the
+			// paired LF is consumed here. This is the same break set the
+			// offset-to-line convention in compiler/span applies.
 			index++
 			if index < len(source) && source[index] == '\n' {
 				index++

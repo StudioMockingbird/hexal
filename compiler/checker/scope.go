@@ -6,8 +6,20 @@ import (
 
 	"hexal/compiler/corelib"
 	"hexal/compiler/lexer"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
+
+// tokenAt builds the diagnostic token for a span. A nil table, which only a
+// lone module checked outside Compile has, resolves to the zero position and
+// so renders as no location rather than inventing one.
+func tokenAt(table *span.Table, s span.Span) lexer.Token {
+	position := span.Position{}
+	if table != nil {
+		position = table.Position(s)
+	}
+	return lexer.Token{Span: s, Line: position.Line, Column: position.Column}
+}
 
 // bindingKind separates storage from a declared function and from an import
 // alias. A function name is not a place: it can be read as a Fun<...> value
@@ -38,11 +50,15 @@ const (
 // intentionally hidden from function bodies; control-flow frames chain to
 // their enclosing frame so branch declarations do not escape their block.
 type scope struct {
-	module       map[string]binding
-	local        map[string]binding // nil only at module level
-	parent       *scope
-	moduleID     string // the enclosing module's canonical identity
-	logicalKey   string // the enclosing module's source-map filename
+	module     map[string]binding
+	local      map[string]binding // nil only at module level
+	parent     *scope
+	moduleID   string // the enclosing module's canonical identity
+	logicalKey string // the enclosing module's source-map filename
+	// table resolves a carried span to the line and column a diagnostic
+	// renders. It is the compilation's one table, shared by reference with
+	// every child scope, and nil for a lone module checked outside Compile.
+	table        *span.Table
 	owner        string // enclosing function or method name, for diagnostics
 	result       *compilerTypes.Type
 	resultUse    *compilerTypes.TypeUse
@@ -166,7 +182,7 @@ func markEntryCaptures(checked *Program) {
 
 // moduleScope builds the root frame of one module. Import aliases are read
 // from the registry through importTarget; the scope keeps no copy of its own.
-func moduleScope(moduleID string, logicalKey string, registry *ModuleRegistry) *scope {
+func moduleScope(moduleID string, logicalKey string, registry *ModuleRegistry, table *span.Table) *scope {
 	next := BindingID(0)
 	generics := newGenericTable()
 	if registry != nil {
@@ -175,7 +191,7 @@ func moduleScope(moduleID string, logicalKey string, registry *ModuleRegistry) *
 		generics.registry = registry
 		generics.moduleID = moduleID
 	}
-	return &scope{module: make(map[string]binding), moduleID: moduleID, logicalKey: logicalKey, methods: newMethodTable(), nextID: &next, flow: newFlowState(), generics: generics, registry: registry}
+	return &scope{module: make(map[string]binding), moduleID: moduleID, logicalKey: logicalKey, table: table, methods: newMethodTable(), nextID: &next, flow: newFlowState(), generics: generics, registry: registry}
 }
 
 // flowFact records the branch-local treatment of one binding. Narrowing and
@@ -1083,6 +1099,7 @@ func (names *scope) closureRootScope(owner string, captureAllowed bool) *scope {
 		registry:         names.registry,
 		moduleID:         names.moduleID,
 		logicalKey:       names.logicalKey,
+		table:            names.table,
 		closureRoot:      true,
 		envDependent:     names.envDependent,
 		envCaptures:      names.envCaptures,
@@ -1112,6 +1129,7 @@ func (names *scope) child() *scope {
 		registry:         names.registry,
 		moduleID:         names.moduleID,
 		logicalKey:       names.logicalKey,
+		table:            names.table,
 		unsafeDepth:      names.unsafeDepth,
 		capture:          names.capture,
 		envDependent:     names.envDependent,

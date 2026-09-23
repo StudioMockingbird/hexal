@@ -79,13 +79,12 @@ func checkRuneTypeCall(call parser.CallExpression, callee lexer.Token, ctx check
 		return *failure
 	}
 	node := Expression{
-		Kind:         RuneMethodCallExpression,
-		Name:         "from",
-		Arguments:    []Operand{value.source},
-		OperandType:  compilerTypes.Rune,
-		ResultType:   union,
-		SourceLine:   callee.Line,
-		SourceColumn: callee.Column,
+		Kind:        RuneMethodCallExpression,
+		Name:        "from",
+		Arguments:   []Operand{value.source},
+		OperandType: compilerTypes.Rune,
+		ResultType:  union,
+		Span:        callee.Span,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: union, Name: "from", Node: node}
 	return checkedExpression{source: source, typ: union, token: callee}

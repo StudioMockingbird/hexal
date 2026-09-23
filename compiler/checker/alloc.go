@@ -6,6 +6,7 @@ import (
 
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -15,7 +16,7 @@ import (
 func checkDeferStatement(statement parser.DeferStatement, ctx checkContext) (DeferStatement, compilerTypes.Diagnostics) {
 	ctx.names.cleanupDepth++
 	defer func() { ctx.names.cleanupDepth-- }()
-	action := DeferredAction{SourceLine: statement.Keyword.Line, SourceColumn: statement.Keyword.Column}
+	action := DeferredAction{Span: statement.Keyword.Span}
 	var source Operand
 	if call, isCall := statement.Expression.(parser.CallExpression); isCall {
 		checked := checkCall(call, compilerTypes.Type{}, ctx)
@@ -36,10 +37,9 @@ func checkDeferStatement(statement parser.DeferStatement, ctx checkContext) (Def
 	}
 	ctx.names.defers = append(ctx.names.defers, action)
 	return DeferStatement{
-		Expression:   source,
-		Action:       action,
-		SourceLine:   statement.Keyword.Line,
-		SourceColumn: statement.Keyword.Column,
+		Expression: source,
+		Action:     action,
+		Span:       statement.Keyword.Span,
 	}, nil
 }
 
@@ -297,7 +297,7 @@ func validateDeferredActions(names *scope, normal bool) compilerTypes.Diagnostic
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	seen := make(map[diagnosticKey]bool)
 	appendUnique := func(actions []DeferredAction, state *flowState) {
-		for _, diagnostic := range validateDeferredActionsInState(actions, state) {
+		for _, diagnostic := range validateDeferredActionsInState(actions, state, names.table) {
 			key := diagnosticKey{line: diagnostic.Line, column: diagnostic.Column, message: diagnostic.Message}
 			if seen[key] {
 				continue
@@ -315,14 +315,14 @@ func validateDeferredActions(names *scope, normal bool) compilerTypes.Diagnostic
 	return diagnostics
 }
 
-func validateDeferredActionsInState(actions []DeferredAction, state *flowState) compilerTypes.Diagnostics {
+func validateDeferredActionsInState(actions []DeferredAction, state *flowState, table *span.Table) compilerTypes.Diagnostics {
 	if state == nil {
 		return nil
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	for index := len(actions) - 1; index >= 0; index-- {
 		action := actions[index]
-		token := lexer.Token{Line: action.SourceLine, Column: action.SourceColumn}
+		token := tokenAt(table, action.Span)
 		if action.IsCall {
 			if action.Call == nil {
 				continue

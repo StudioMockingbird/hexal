@@ -28,12 +28,11 @@ func checkIOTypeCall(call parser.CallExpression, token parser.VariableExpression
 		return checkedExpression{token: token.Name, diagnostic: diagnosticAt(unknownAt(token.Name, "could not construct the IO | Error result union"))}
 	}
 	node := Expression{
-		Kind:         StreamConstructorExpression,
-		Name:         name,
-		OperandType:  compilerTypes.IOType,
-		ResultType:   resultUnion,
-		SourceLine:   property.Line,
-		SourceColumn: property.Column,
+		Kind:        StreamConstructorExpression,
+		Name:        name,
+		OperandType: compilerTypes.IOType,
+		ResultType:  resultUnion,
+		Span:        property.Span,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: resultUnion, Name: name, Node: node}
 	return checkedExpression{source: source, typ: resultUnion, token: property}

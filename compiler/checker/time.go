@@ -63,8 +63,7 @@ func checkTimeTypeCall(call parser.CallExpression, variable parser.VariableExpre
 			return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property, "could not construct the WallTime | Error result union"))}
 		}
 		checked := timeNode("wall_now", nil, compilerTypes.WallTimeType, result, property)
-		checked.source.Node.SourceLine = property.Line
-		checked.source.Node.SourceColumn = property.Column
+		checked.source.Node.Span = property.Span
 		return checked
 	}
 }

@@ -119,7 +119,7 @@ func checkSpawnExpression(expression parser.SpawnExpression, ctx checkContext) c
 		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "Task result type must be complete and shallow-copyable"))}
 	}
 	spawnError := ctx.typeEnvironment.UnionType([]compilerTypes.Type{task, compilerTypes.ErrorType})
-	node := Expression{Kind: SpawnExpression, Operand: &checked.source.Node, OperandType: task, ResultType: spawnError, Element: resultType, SourceLine: expression.Keyword.Line, SourceColumn: expression.Keyword.Column}
+	node := Expression{Kind: SpawnExpression, Operand: &checked.source.Node, OperandType: task, ResultType: spawnError, Element: resultType, Span: expression.Keyword.Span}
 	source := Operand{Kind: ExpressionOperand, Type: spawnError, Name: "spawn", Node: node}
 	return checkedExpression{source: source, typ: spawnError, token: expression.Keyword}
 }
@@ -201,7 +201,7 @@ func checkChannelTypeCall(call parser.CallExpression, callee lexer.Token, ctx ch
 		}
 	}
 	result := ctx.typeEnvironment.UnionType([]compilerTypes.Type{channelUse.Type, compilerTypes.ErrorType})
-	node := Expression{Kind: ChannelConstructorExpression, Operand: &capacity.source.Node, Arguments: []Operand{heap.source, capacity.source}, OperandType: channelUse.Type, ResultType: result, Element: channelUse.Type.Channel.Element, SourceLine: callee.Line, SourceColumn: callee.Column}
+	node := Expression{Kind: ChannelConstructorExpression, Operand: &capacity.source.Node, Arguments: []Operand{heap.source, capacity.source}, OperandType: channelUse.Type, ResultType: result, Element: channelUse.Type.Channel.Element, Span: callee.Span}
 	source := Operand{Kind: ExpressionOperand, Type: result, Name: "new", Node: node}
 	return checkedExpression{source: source, typ: result, token: callee}
 }
@@ -227,7 +227,7 @@ func checkChannelMethodCall(call parser.CallExpression, callee parser.PropertyEx
 			return checkedExpression{token: value.token, diagnostic: diagnosticAt(typeErrorAt(value.token, fmt.Sprintf("Channel send requires %s; got %s", element.Name, value.typ.Name)))}
 		}
 		result := ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType})
-		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{value.source}, OperandType: channelType, ResultType: result, Element: element, SourceLine: callee.Property.Line, SourceColumn: callee.Property.Column}
+		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{value.source}, OperandType: channelType, ResultType: result, Element: element, Span: callee.Property.Span}
 		source := Operand{Kind: ExpressionOperand, Type: result, Name: name, Node: node}
 		return checkedExpression{source: source, typ: result, token: callee.Property}
 	case "receive":
@@ -291,7 +291,7 @@ func checkMutexTypeCall(call parser.CallExpression, callee lexer.Token, ctx chec
 		return checkedExpression{token: heap.token, diagnostic: diagnosticAt(typeErrorAt(heap.token, "Mutex.new requires a Heap allocator; got "+heap.typ.Name))}
 	}
 	result := ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.MutexType, compilerTypes.ErrorType})
-	node := Expression{Kind: MutexConstructorExpression, Arguments: []Operand{heap.source}, OperandType: compilerTypes.MutexType, ResultType: result, SourceLine: callee.Line, SourceColumn: callee.Column}
+	node := Expression{Kind: MutexConstructorExpression, Arguments: []Operand{heap.source}, OperandType: compilerTypes.MutexType, ResultType: result, Span: callee.Span}
 	source := Operand{Kind: ExpressionOperand, Type: result, Name: "new", Node: node}
 	return checkedExpression{source: source, typ: result, token: callee}
 }

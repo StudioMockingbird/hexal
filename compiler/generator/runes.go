@@ -76,7 +76,7 @@ func validateRuneMethod(node checker.Expression, expected *compilerTypes.Type, s
 			return unknownExpressionDiagnostic("rune category has invalid checked metadata")
 		}
 	case "from":
-		if node.Operand != nil || len(node.Arguments) != 1 || node.SourceLine == 0 || !textFailureResult(node.ResultType, compilerTypes.Rune) {
+		if node.Operand != nil || len(node.Arguments) != 1 || state.line(node.Span) == 0 || !textFailureResult(node.ResultType, compilerTypes.Rune) {
 			return unknownExpressionDiagnostic("Rune.from has invalid checked metadata")
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
@@ -102,7 +102,7 @@ func renderRuneMethod(node checker.Expression, state *expressionValidation) (str
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("hex_rune_from_%s(%s, %d, %d)", streamAdapterSuffix(node.ResultType), value, node.SourceLine, node.SourceColumn), nil
+		return fmt.Sprintf("hex_rune_from_%s(%s, %d, %d)", streamAdapterSuffix(node.ResultType), value, state.line(node.Span), state.column(node.Span)), nil
 	}
 	if node.Operand == nil {
 		return "", unknownExpressionDiagnostic("rune method without a checked receiver")

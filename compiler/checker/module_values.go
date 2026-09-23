@@ -63,13 +63,12 @@ func checkModuleConstant(declaration parser.Declaration, moduleID string, ctx ch
 		return ModuleValueDeclaration{}, compilerTypes.Diagnostics{moduleConstantInitializerDiagnostic(declaration.Name)}
 	}
 	return ModuleValueDeclaration{
-		Name:         declaration.Name.Lexeme,
-		Binding:      ctx.names.newBindingID(),
-		Type:         checked.typ,
-		TypeUse:      checked.use,
-		Source:       checked.source,
-		SourceLine:   declaration.Name.Line,
-		SourceColumn: declaration.Name.Column,
+		Name:    declaration.Name.Lexeme,
+		Binding: ctx.names.newBindingID(),
+		Type:    checked.typ,
+		TypeUse: checked.use,
+		Source:  checked.source,
+		Span:    declaration.Name.Span,
 	}, nil
 }
 

@@ -86,12 +86,11 @@ func checkCorelibCall(target string, function corelib.Function, call parser.Call
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	node := Expression{
-		Kind:         CorelibCallExpression,
-		Name:         function.Runtime,
-		Arguments:    arguments,
-		ResultType:   resultType,
-		SourceLine:   property.Line,
-		SourceColumn: property.Column,
+		Kind:       CorelibCallExpression,
+		Name:       function.Runtime,
+		Arguments:  arguments,
+		ResultType: resultType,
+		Span:       property.Span,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: resultType, Name: function.Runtime, Node: node}
 	return checkedExpression{source: source, typ: resultType, token: property}

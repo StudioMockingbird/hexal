@@ -192,13 +192,12 @@ func checkHeapFromBytes(call parser.CallExpression, callee lexer.Token, ctx chec
 		return *failure
 	}
 	node := Expression{
-		Kind:         StringFromBytesExpression,
-		Operand:      &heap.source.Node,
-		Arguments:    []Operand{view.source},
-		OperandType:  compilerTypes.Heap,
-		ResultType:   union,
-		SourceLine:   callee.Line,
-		SourceColumn: callee.Column,
+		Kind:        StringFromBytesExpression,
+		Operand:     &heap.source.Node,
+		Arguments:   []Operand{view.source},
+		OperandType: compilerTypes.Heap,
+		ResultType:  union,
+		Span:        callee.Span,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: union, Name: "from_bytes", Node: node}
 	return checkedExpression{source: source, typ: union, token: callee}
@@ -232,13 +231,12 @@ func checkHeapFromRunes(call parser.CallExpression, callee lexer.Token, ctx chec
 		return *failure
 	}
 	node := Expression{
-		Kind:         StringFromRunesExpression,
-		Operand:      &heap.source.Node,
-		Arguments:    []Operand{runes.source},
-		OperandType:  compilerTypes.Heap,
-		ResultType:   union,
-		SourceLine:   callee.Line,
-		SourceColumn: callee.Column,
+		Kind:        StringFromRunesExpression,
+		Operand:     &heap.source.Node,
+		Arguments:   []Operand{runes.source},
+		OperandType: compilerTypes.Heap,
+		ResultType:  union,
+		Span:        callee.Span,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: union, Name: "from_runes", Node: node}
 	return checkedExpression{source: source, typ: union, token: callee}
@@ -295,8 +293,7 @@ func checkInlineStringTypeCall(call parser.CallExpression, callee lexer.Token, n
 		OperandType:           destination,
 		ResultType:            union,
 		InterpolationSegments: segments,
-		SourceLine:            callee.Line,
-		SourceColumn:          callee.Column,
+		Span:                  callee.Span,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: union, Name: name, Node: node}
 	return checkedExpression{source: source, typ: union, token: callee}
@@ -530,8 +527,7 @@ func checkTextMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 			return *failure
 		}
 		result := textMethodNode(name, receiver, []Operand{heap.source}, union, property)
-		result.source.Node.SourceLine = property.Line
-		result.source.Node.SourceColumn = property.Column
+		result.source.Node.Span = property.Span
 		return result
 	case "normalize":
 		if len(call.Arguments) != 2 {
@@ -553,8 +549,7 @@ func checkTextMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 			return *failure
 		}
 		result := textMethodNode(name, receiver, []Operand{heap.source, form.source}, union, property)
-		result.source.Node.SourceLine = property.Line
-		result.source.Node.SourceColumn = property.Column
+		result.source.Node.Span = property.Span
 		return result
 	case "concat":
 		if len(call.Arguments) != 2 {
@@ -573,8 +568,7 @@ func checkTextMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 			return *failure
 		}
 		result := textMethodNode(name, receiver, []Operand{heap.source, other.source}, union, property)
-		result.source.Node.SourceLine = property.Line
-		result.source.Node.SourceColumn = property.Column
+		result.source.Node.Span = property.Span
 		return result
 	case "widen":
 		if !inline {

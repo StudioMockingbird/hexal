@@ -4,6 +4,7 @@ import (
 	"go/constant"
 
 	"hexal/compiler/lexer"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -532,11 +533,10 @@ type Expression struct {
 	// RootKind classifies an address node's root for the pointer return
 	// check: no root, a foreign region, or the bindings in ViewRoots.
 	RootKind ViewRootKind
-	// SourceLine and SourceColumn name the source site of compiler-built
-	// runtime failures: the Error constructed when a spawn, Channel, or
-	// Mutex operation fails. Zero for all other kinds.
-	SourceLine   int
-	SourceColumn int
+	// Span names the source site of compiler-built runtime failures: the
+	// Error constructed when a spawn, Channel, or Mutex operation fails. The
+	// zero span for all other kinds.
+	Span span.Span
 	// Module is the canonical module id of a FunctionReferenceExpression
 	// resolved through an import alias; empty for every
 	// local reference.
@@ -600,8 +600,7 @@ type FunctionLiteral struct {
 	// at check time from the shared BindingID counter, in the hex_fun_<ordinal>
 	// stream.
 	HelperOrdinal BindingID
-	SourceLine    int
-	SourceColumn  int
+	Span          span.Span
 }
 
 // ViewRootKind classifies the root of an address-taking expression for the

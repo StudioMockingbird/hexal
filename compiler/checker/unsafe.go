@@ -19,10 +19,9 @@ func checkUnsafeStatement(statement parser.UnsafeStatement, ctx checkContext, lo
 		ctx.names.recordChildReturnFlows(bodyScope.returnFlows)
 	}
 	return UnsafeStatement{
-		Body:         body,
-		BodyDefers:   append([]DeferredAction(nil), bodyScope.defers...),
-		SourceLine:   statement.Keyword.Line,
-		SourceColumn: statement.Keyword.Column,
+		Body:       body,
+		BodyDefers: append([]DeferredAction(nil), bodyScope.defers...),
+		Span:       statement.Keyword.Span,
 	}, diagnostics
 }
 

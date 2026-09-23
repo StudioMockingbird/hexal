@@ -145,7 +145,7 @@ func renderCorelibCallExpression(node checker.Expression, state *expressionValid
 		}
 		arguments = append(arguments, rendered)
 	}
-	arguments = append(arguments, fmt.Sprintf("%d, %d", node.SourceLine, node.SourceColumn))
+	arguments = append(arguments, fmt.Sprintf("%d, %d", state.line(node.Span), state.column(node.Span)))
 	return fmt.Sprintf("%s_%s(%s)", node.Name, streamAdapterSuffix(node.ResultType), strings.Join(arguments, ", ")), nil
 }
 

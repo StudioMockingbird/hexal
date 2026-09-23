@@ -1170,6 +1170,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		owner:          owner,
 		filename:       logicalKey,
 		moduleID:       canonicalID,
+		table:          config.SourceTable,
 	}
 	if err := writeModuleValueDefinitions(&moduleBody, program.ModuleValues, owner, moduleValueRenderState); err != nil {
 		return "", "", err
@@ -1200,6 +1201,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		tags:         merged.tags,
 		envFunctions: entryEnvironmentFunctions(program),
 		envMethods:   entryEnvironmentMethods(program),
+		table:        config.SourceTable,
 	}
 	// Local named function and anonymous literal helpers get one shared
 	// module-local ordinal stream. Their prototypes are emitted first, so an
@@ -1275,6 +1277,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		owner:          owner,
 		filename:       logicalKey,
 		moduleID:       canonicalID,
+		table:          config.SourceTable,
 		envFunctions:   entryEnvironmentFunctions(program),
 		envMethods:     entryEnvironmentMethods(program),
 	}

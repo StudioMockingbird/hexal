@@ -38,13 +38,12 @@ func checkFileTypeCall(call parser.CallExpression, variable parser.VariableExpre
 		return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property, "could not construct the File | Error result union"))}
 	}
 	node := Expression{
-		Kind:         StreamConstructorExpression,
-		Name:         "open",
-		Arguments:    arguments,
-		OperandType:  compilerTypes.FileType,
-		ResultType:   resultUnion,
-		SourceLine:   property.Line,
-		SourceColumn: property.Column,
+		Kind:        StreamConstructorExpression,
+		Name:        "open",
+		Arguments:   arguments,
+		OperandType: compilerTypes.FileType,
+		ResultType:  resultUnion,
+		Span:        property.Span,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: resultUnion, Name: "open", Node: node}
 	return checkedExpression{source: source, typ: resultUnion, token: property}
@@ -104,14 +103,13 @@ func checkFileMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(unknownAt(callee.Property, "could not construct the "+name+" result union"))}
 	}
 	node := Expression{
-		Kind:         StreamMethodCallExpression,
-		Name:         name,
-		Operand:      &receiver.source.Node,
-		Arguments:    arguments,
-		OperandType:  compilerTypes.FileType,
-		ResultType:   resultUnion,
-		SourceLine:   callee.Property.Line,
-		SourceColumn: callee.Property.Column,
+		Kind:        StreamMethodCallExpression,
+		Name:        name,
+		Operand:     &receiver.source.Node,
+		Arguments:   arguments,
+		OperandType: compilerTypes.FileType,
+		ResultType:  resultUnion,
+		Span:        callee.Property.Span,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: resultUnion, Name: name, Node: node}
 	checked := checkedExpression{source: source, typ: resultUnion, token: callee.Property}

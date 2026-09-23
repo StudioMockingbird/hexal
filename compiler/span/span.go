@@ -3,12 +3,15 @@
 // to 1-based line and column. A file key is a logical source key, never a host
 // path, and the package performs no filesystem access.
 //
-// The one line and column convention, implemented by Table.Position:
+// The one line and column convention, implemented by Table.Position. It is
+// C's translation phase one, the same break set the lexer's counters apply:
 //
-//   - Lines are separated by a single line feed byte (0x0A) and are numbered
-//     from 1. A carriage return is an ordinary byte; it begins a new line only
-//     when a line feed follows it. Because no UTF-8 continuation byte
-//     (0x80-0xBF) can be a line feed, scanning bytes for line starts is safe
+//   - A line ends at a line feed (0x0A), a carriage return (0x0D), or a
+//     carriage-return/line-feed pair; each is exactly one break and lines are
+//     numbered from 1. A lone carriage return therefore ends a line, which is
+//     why the lexer's raw-string, interpreted-string, whitespace, and comment
+//     scanners share this break set. Because no UTF-8 continuation byte
+//     (0x80-0xBF) can be a break byte, scanning bytes for line starts is safe
 //     for UTF-8 text.
 //   - A column is the 1-based count of bytes from the start of its line, so
 //     ASCII text and multibyte Unicode advance it by their byte length. This
@@ -61,9 +64,16 @@ func NewTable() *Table {
 // source the compilation supplied last for that key.
 func (t *Table) Add(file, text string) {
 	// At least one line exists even for empty text, so Position is total.
-	starts := make([]int, 1, 1+strings.Count(text, "\n"))
+	starts := make([]int, 1, 1+strings.Count(text, "\n")+strings.Count(text, "\r"))
 	for index := 0; index < len(text); index++ {
-		if text[index] == '\n' {
+		switch text[index] {
+		case '\n':
+			starts = append(starts, index+1)
+		case '\r':
+			if index+1 < len(text) && text[index+1] == '\n' {
+				// CRLF is one break; the LF below records it.
+				continue
+			}
 			starts = append(starts, index+1)
 		}
 	}

@@ -7,6 +7,7 @@ import (
 	"hexal/compiler/corelib"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
+	"hexal/compiler/span"
 	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
@@ -75,18 +76,17 @@ func unexpectedBuiltinMethod(typ compilerTypes.Type, token lexer.Token) checkedE
 // the implicit `self` binding.
 // A method is not a value, so unlike a function it carries no Fun<...> type.
 type MethodDeclaration struct {
-	Name         string
-	Object       *compilerTypes.ObjectType
-	SelfType     compilerTypes.Type
-	SelfBinding  BindingID
-	Parameters   []FunctionParameter
-	Result       *compilerTypes.Type
-	ResultUse    *compilerTypes.TypeUse
-	Body         []Statement
-	Defers       []DeferredAction
-	SourceLine   int
-	SourceColumn int
-	Exported     bool // external linkage + prototype in this module's header
+	Name        string
+	Object      *compilerTypes.ObjectType
+	SelfType    compilerTypes.Type
+	SelfBinding BindingID
+	Parameters  []FunctionParameter
+	Result      *compilerTypes.Type
+	ResultUse   *compilerTypes.TypeUse
+	Body        []Statement
+	Defers      []DeferredAction
+	Span        span.Span
+	Exported    bool // external linkage + prototype in this module's header
 	// Captures and EnvDependent mirror FunctionDeclaration.
 	Captures      []Capture
 	EnvDependent  bool
@@ -262,9 +262,8 @@ func nonCallableMemberDiagnostic(token lexer.Token, member *compilerTypes.Object
 func collectMethodSignature(declaration parser.MethodDeclaration, ctx checkContext) (MethodDeclaration, compilerTypes.Diagnostics) {
 	name := declaration.Name.Lexeme
 	checked := MethodDeclaration{
-		Name:         name,
-		SourceLine:   declaration.Name.Line,
-		SourceColumn: declaration.Name.Column,
+		Name: name,
+		Span: declaration.Name.Span,
 		// Exported is stamped later by applyExportFlags; see the identical
 		// note on checkFunctionBody.
 	}
@@ -381,7 +380,7 @@ func checkMethodBody(declaration parser.MethodDeclaration, checked MethodDeclara
 		// No nested scope may shadow an import alias; a conflicting
 		// parameter is rejected like any other redeclaration.
 		if ctx.names.importAlias(parameters[index].Name) {
-			token := lexer.Token{Line: parameters[index].SourceLine, Column: parameters[index].SourceColumn, Lexeme: parameters[index].Name}
+			token := tokenAt(ctx.names.table, parameters[index].Span)
 			diagnostics = append(diagnostics, nameErrorAt(token, "import alias "+parameters[index].Name+" conflicts with an existing name"))
 			continue
 		}

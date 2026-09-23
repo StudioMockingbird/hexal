@@ -15,7 +15,7 @@ func checkADTDeclaration(declaration parser.TypeDeclaration, target parser.AdtDe
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	if len(target.Variants) < 2 {
 		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "ADT declarations require at least two variants"))
-		return TypeDeclaration{Name: name, SourceLine: declaration.Name.Line, SourceColumn: declaration.Name.Column}, diagnostics
+		return TypeDeclaration{Name: name, Span: declaration.Name.Span}, diagnostics
 	}
 	seen := make(map[string]bool, len(target.Variants))
 	for _, variant := range target.Variants {
@@ -26,7 +26,7 @@ func checkADTDeclaration(declaration parser.TypeDeclaration, target parser.AdtDe
 		seen[variant.Name.Lexeme] = true
 	}
 	if len(diagnostics) > 0 {
-		return TypeDeclaration{Name: name, SourceLine: declaration.Name.Line, SourceColumn: declaration.Name.Column}, diagnostics
+		return TypeDeclaration{Name: name, Span: declaration.Name.Span}, diagnostics
 	}
 
 	// Like object declarations, an ADT is stamped with the declaring
@@ -45,15 +45,14 @@ func checkADTDeclaration(declaration parser.TypeDeclaration, target parser.AdtDe
 	}
 	if len(diagnostics) > 0 {
 		ctx.typeEnvironment.AbandonADT(name)
-		return TypeDeclaration{Name: name, SourceLine: declaration.Name.Line, SourceColumn: declaration.Name.Column}, diagnostics
+		return TypeDeclaration{Name: name, Span: declaration.Name.Span}, diagnostics
 	}
 	completed := ctx.typeEnvironment.CompleteADT(name, variants)
 	return TypeDeclaration{
-		Name:         name,
-		Type:         completed,
-		TypeUse:      compilerTypes.NewTypeUse(completed),
-		SourceLine:   declaration.Name.Line,
-		SourceColumn: declaration.Name.Column,
+		Name:    name,
+		Type:    completed,
+		TypeUse: compilerTypes.NewTypeUse(completed),
+		Span:    declaration.Name.Span,
 	}, nil
 }
 

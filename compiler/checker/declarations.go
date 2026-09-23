@@ -48,7 +48,7 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, ctx checkContext, 
 
 	if len(declaration.Parameters) > 0 {
 		genericDiagnostics := registerGenericTypeDeclaration(declaration, ctx)
-		return TypeDeclaration{Name: name, SourceLine: declaration.Name.Line, SourceColumn: declaration.Name.Column}, append(diagnostics, genericDiagnostics...)
+		return TypeDeclaration{Name: name, Span: declaration.Name.Span}, append(diagnostics, genericDiagnostics...)
 	}
 
 	if adt, isADT := declaration.Target.(parser.AdtDefinitionExpression); isADT {
@@ -71,18 +71,17 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, ctx checkContext, 
 		if len(diagnostics) == 0 {
 			resolved := ctx.typeEnvironment.CompleteObject(name, members)
 			if !compilerTypes.Equal(resolved, beginResult) {
-				return TypeDeclaration{Name: name, SourceLine: declaration.Name.Line, SourceColumn: declaration.Name.Column}, compilerTypes.Diagnostics{{
+				return TypeDeclaration{Name: name, Span: declaration.Name.Span}, compilerTypes.Diagnostics{{
 					Category: compilerTypes.UnknownError,
 					Stage:    "checker",
 					Message:  "object identity mismatch after member resolution",
 				}}
 			}
 			return TypeDeclaration{
-				Name:         name,
-				Type:         resolved,
-				TypeUse:      compilerTypes.NewTypeUse(resolved),
-				SourceLine:   declaration.Name.Line,
-				SourceColumn: declaration.Name.Column,
+				Name:    name,
+				Type:    resolved,
+				TypeUse: compilerTypes.NewTypeUse(resolved),
+				Span:    declaration.Name.Span,
 			}, nil
 		}
 		if hadPreviousType {
@@ -94,7 +93,7 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, ctx checkContext, 
 		} else {
 			ctx.typeEnvironment.AbandonObject(name)
 		}
-		return TypeDeclaration{Name: name, SourceLine: declaration.Name.Line, SourceColumn: declaration.Name.Column}, diagnostics
+		return TypeDeclaration{Name: name, Span: declaration.Name.Span}, diagnostics
 	}
 
 	if containsTypeName(declaration.Target, name) {
@@ -103,18 +102,16 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, ctx checkContext, 
 		diagnostics = append(diagnostics, *diagnostic)
 	} else if len(diagnostics) == 0 {
 		return TypeDeclaration{
-			Name:         name,
-			Type:         resolvedUse.Type,
-			TypeUse:      resolvedUse,
-			SourceLine:   declaration.Name.Line,
-			SourceColumn: declaration.Name.Column,
+			Name:    name,
+			Type:    resolvedUse.Type,
+			TypeUse: resolvedUse,
+			Span:    declaration.Name.Span,
 		}, nil
 	}
 
 	return TypeDeclaration{
-		Name:         name,
-		SourceLine:   declaration.Name.Line,
-		SourceColumn: declaration.Name.Column,
+		Name: name,
+		Span: declaration.Name.Span,
 	}, diagnostics
 }
 
@@ -448,14 +445,13 @@ func checkDeclaration(declaration parser.Declaration, ctx checkContext, itemInde
 		seedStreamBindingFacts(ctx.names.flow, declaredBinding.id, declaredType, initializer.source)
 	}
 	return Declaration{
-		Name:         declaration.Name.Lexeme,
-		Binding:      declaredBinding.id,
-		Type:         declaredType,
-		TypeUse:      declaredUse,
-		Source:       initializer.source,
-		Mutable:      declaration.Mutable,
-		SourceLine:   declaration.Name.Line,
-		SourceColumn: declaration.Name.Column,
+		Name:    declaration.Name.Lexeme,
+		Binding: declaredBinding.id,
+		Type:    declaredType,
+		TypeUse: declaredUse,
+		Source:  initializer.source,
+		Mutable: declaration.Mutable,
+		Span:    declaration.Name.Span,
 	}, declaredBinding, diagnostics
 }
 
@@ -547,12 +543,11 @@ func checkAssignment(assignment parser.Assignment, ctx checkContext) (Assignment
 	}
 
 	return Assignment{
-		Name:         nameToken.Lexeme,
-		Target:       target.source,
-		Type:         targetType,
-		Source:       initializer.source,
-		SourceLine:   nameToken.Line,
-		SourceColumn: nameToken.Column,
+		Name:   nameToken.Lexeme,
+		Target: target.source,
+		Type:   targetType,
+		Source: initializer.source,
+		Span:   nameToken.Span,
 	}, diagnostics
 }
 

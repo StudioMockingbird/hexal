@@ -21,9 +21,8 @@ func checkCallStatement(call parser.CallExpression, ctx checkContext) (CallState
 		return CallStatement{}, diagnostics
 	}
 	return CallStatement{
-		Call:         checked.source,
-		SourceLine:   checked.token.Line,
-		SourceColumn: checked.token.Column,
+		Call: checked.source,
+		Span: checked.token.Span,
 	}, nil
 }
 
