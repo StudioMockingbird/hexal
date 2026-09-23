@@ -314,43 +314,13 @@ func unionSupportsEquality(union compilerTypes.Type) bool {
 	return true
 }
 
-// unionMemberEqualityAvailable mirrors the checker's recursive equality
-// eligibility for helper emission: the helper must only be generated when
-// every member's compare is valid C.
+// unionMemberEqualityAvailable reports whether every member's comparison is
+// valid C, so the helper is only generated when it is. It delegates to the
+// checker's rule instead of restating the recursion, so the eligibility fact
+// has one owner and cannot drift from the answer the checker accepted.
 func unionMemberEqualityAvailable(typ compilerTypes.Type) bool {
-	switch {
-	case typ.Object != nil:
-		for _, member := range typ.Object.Members {
-			if !unionMemberEqualityAvailable(member.Type) {
-				return false
-			}
-		}
-		return true
-	case typ.Adt != nil:
-		for _, variant := range typ.Adt.Variants {
-			for _, member := range variant.Payload {
-				if !unionMemberEqualityAvailable(member.Type) {
-					return false
-				}
-			}
-		}
-		return true
-	case typ.Union != nil:
-		return unionSupportsEquality(typ)
-	case typ.NullableBase != nil:
-		return unionMemberEqualityAvailable(*typ.NullableBase)
-	case typ.Array != nil:
-		return unionMemberEqualityAvailable(typ.Array.Element)
-	case typ.Slice != nil:
-		return unionMemberEqualityAvailable(typ.Slice.Element)
-	case typ.List != nil:
-		return unionMemberEqualityAvailable(typ.List.Element)
-	case typ.Element != nil, compilerTypes.IsText(typ),
-		compilerTypes.IsInteger(typ), compilerTypes.IsFloat(typ),
-		compilerTypes.Equal(typ, compilerTypes.Bool):
-		return true
-	}
-	return false
+	available, _ := checker.EqualityAvailable(typ)
+	return available
 }
 
 func writeUnionEquality(result *strings.Builder, union compilerTypes.Type, tags *tagRegistry) error {
