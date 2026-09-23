@@ -12,10 +12,11 @@ import (
 	"strings"
 
 	"hexal/compiler/checker"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
 
-func validateCheckedProgram(program checker.Program, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, stringState *literalRegistry) error {
+func validateCheckedProgram(program checker.Program, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, stringState *literalRegistry, table *span.Table) error {
 	typeState := &generatedTypeValidation{declaredObjects: errorDeclaredObjects(program)}
 	state := &expressionValidation{
 		variables:      make(map[string]generatedBinding),
@@ -26,6 +27,7 @@ func validateCheckedProgram(program checker.Program, functions map[string]compil
 		methods:        methods,
 		generatedTypes: typeState,
 		strings:        stringState,
+		table:          table,
 	}
 	state.pushScope()
 	for _, typeDeclaration := range program.TypeDeclarations {
@@ -40,12 +42,12 @@ func validateCheckedProgram(program checker.Program, functions map[string]compil
 		return err
 	}
 	for _, function := range program.SpecializedFunctions {
-		if err := validateFunctionDeclaration(function, typeState, functions, methods, stringState); err != nil {
+		if err := validateFunctionDeclaration(function, typeState, functions, methods, stringState, table); err != nil {
 			return err
 		}
 	}
 	for _, method := range program.SpecializedMethods {
-		if err := validateMethodDeclaration(method, typeState, functions, methods, stringState); err != nil {
+		if err := validateMethodDeclaration(method, typeState, functions, methods, stringState, table); err != nil {
 			return err
 		}
 	}
@@ -57,7 +59,7 @@ func validateCheckedProgram(program checker.Program, functions map[string]compil
 // shared literal registry: the preflight renders call statements to prove
 // them renderable, and a string-literal argument must resolve against the
 // same registry the emission pass uses.
-func validateFunctionDeclaration(declared checker.FunctionDeclaration, typeState *generatedTypeValidation, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, stringState *literalRegistry) error {
+func validateFunctionDeclaration(declared checker.FunctionDeclaration, typeState *generatedTypeValidation, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, stringState *literalRegistry, table *span.Table) error {
 	if !validSourceName(declared.Name) || declared.Type.Signature == nil || !validateGeneratedType(declared.Type, typeState, false) {
 		return unknownExpressionDiagnostic("unsupported checked specialized function")
 	}
@@ -70,6 +72,7 @@ func validateFunctionDeclaration(declared checker.FunctionDeclaration, typeState
 		methods:        methods,
 		generatedTypes: typeState,
 		strings:        stringState,
+		table:          table,
 	}
 	state.pushScope()
 	if declared.EnvDependent {
@@ -88,7 +91,7 @@ func validateFunctionDeclaration(declared checker.FunctionDeclaration, typeState
 // validateMethodDeclaration validates one concrete method declaration and its
 // body. stringState is the shared literal registry, threaded through for the
 // same reason as validateFunctionDeclaration.
-func validateMethodDeclaration(declared checker.MethodDeclaration, typeState *generatedTypeValidation, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, stringState *literalRegistry) error {
+func validateMethodDeclaration(declared checker.MethodDeclaration, typeState *generatedTypeValidation, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, stringState *literalRegistry, table *span.Table) error {
 	if declared.Object == nil || !validSourceName(declared.Name) || !validateGeneratedType(declared.SelfType, typeState, false) {
 		return unknownExpressionDiagnostic("unsupported checked specialized method")
 	}
@@ -101,6 +104,7 @@ func validateMethodDeclaration(declared checker.MethodDeclaration, typeState *ge
 		methods:        methods,
 		generatedTypes: typeState,
 		strings:        stringState,
+		table:          table,
 	}
 	state.pushScope()
 	if declared.EnvDependent {

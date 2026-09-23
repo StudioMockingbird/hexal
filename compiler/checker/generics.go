@@ -352,11 +352,10 @@ func specializeObjectType(open *openGenericType, arguments []compilerTypes.Type,
 	completed := typeEnvironment.CompleteObject(specializedName, members)
 	generics.objectSpecializations[key] = completed
 	generics.typeDeclarations = append(generics.typeDeclarations, TypeDeclaration{
-		Name:         compilerTypes.SanitizeIdentifier(specializedName),
-		Type:         completed,
-		TypeUse:      compilerTypes.NewTypeUse(completed),
-		SourceLine:   token.Line,
-		SourceColumn: token.Column,
+		Name:    compilerTypes.SanitizeIdentifier(specializedName),
+		Type:    completed,
+		TypeUse: compilerTypes.NewTypeUse(completed),
+		Span:    token.Span,
 	})
 	return completed, nil
 }
@@ -528,13 +527,12 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 		return FunctionDeclaration{}, &diagnostic
 	}
 	specialized := FunctionDeclaration{
-		Name:         specializeFunctionName(open.generatedStem(), arguments),
-		Parameters:   parameters,
-		Result:       result,
-		ResultUse:    resultUse,
-		Type:         functionType,
-		SourceLine:   open.Declaration.Name.Line,
-		SourceColumn: open.Declaration.Name.Column,
+		Name:       specializeFunctionName(open.generatedStem(), arguments),
+		Parameters: parameters,
+		Result:     result,
+		ResultUse:  resultUse,
+		Type:       functionType,
+		Span:       open.Declaration.Name.Span,
 	}
 	collection[key] = specialized
 	generics.active[key] = true
@@ -635,14 +633,13 @@ func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.Obj
 		methodName = specializeFunctionName(open.Name, methodArguments)
 	}
 	specialized := MethodDeclaration{
-		Name:         methodName,
-		Object:       receiverObject,
-		SelfType:     receiverType,
-		Parameters:   parameters,
-		Result:       result,
-		ResultUse:    resultUse,
-		SourceLine:   open.Declaration.Name.Line,
-		SourceColumn: open.Declaration.Name.Column,
+		Name:       methodName,
+		Object:     receiverObject,
+		SelfType:   receiverType,
+		Parameters: parameters,
+		Result:     result,
+		ResultUse:  resultUse,
+		Span:       open.Declaration.Name.Span,
 	}
 	collection[key] = specialized
 	generics.active[key] = true
@@ -1304,11 +1301,10 @@ func specializeADTType(open *openGenericType, arguments []compilerTypes.Type, to
 	generics.adtOpen[completed.Adt] = open
 	generics.adtArguments[completed.Adt] = append([]compilerTypes.Type(nil), arguments...)
 	generics.typeDeclarations = append(generics.typeDeclarations, TypeDeclaration{
-		Name:         compilerTypes.SanitizeIdentifier(specializedName),
-		Type:         completed,
-		TypeUse:      compilerTypes.NewTypeUse(completed),
-		SourceLine:   token.Line,
-		SourceColumn: token.Column,
+		Name:    compilerTypes.SanitizeIdentifier(specializedName),
+		Type:    completed,
+		TypeUse: compilerTypes.NewTypeUse(completed),
+		Span:    token.Span,
 	})
 	return completed, nil
 }

@@ -351,7 +351,7 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		}
 		return "", unknownExpressionDiagnostic("deferred task method without a captured receiver")
 	case checker.TimeExpression:
-		return timeCall(node, arguments)
+		return timeCall(node, arguments, state)
 	case checker.NetworkExpression:
 		// The checker admits only close as a deferred networking or
 		// process/IPC operation; the captured receiver feeds the
@@ -360,7 +360,7 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			return "", unknownExpressionDiagnostic("deferred network call without a captured receiver")
 		}
 		suffix := streamAdapterSuffix(node.ResultType)
-		site := fmt.Sprintf("%d, %d", node.SourceLine, node.SourceColumn)
+		site := fmt.Sprintf("%d, %d", state.line(node.Span), state.column(node.Span))
 		switch node.Name {
 		case "tcp_close":
 			if compilerTypes.IsTcpListener(node.OperandType) {
@@ -379,13 +379,13 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		// The checker admits only close as a deferred stream operation; the
 		// captured receiver feeds the module-owned result-union adapter.
 		if isFileNode(node) {
-			return fileMethodCall(node, arguments)
+			return fileMethodCall(node, arguments, state)
 		}
 		if node.Name != "close" || len(arguments) != 1 {
 			return "", unknownExpressionDiagnostic("deferred stream call without a captured stream")
 		}
 		return fmt.Sprintf("hex_io_close_%s(%s, %d, %d)",
-			streamAdapterSuffix(node.ResultType), arguments[0], node.SourceLine, node.SourceColumn), nil
+			streamAdapterSuffix(node.ResultType), arguments[0], state.line(node.Span), state.column(node.Span)), nil
 	case checker.StashMethodCallExpression:
 		if len(arguments) < 1 {
 			return "", unknownExpressionDiagnostic("deferred stash method without a captured receiver")

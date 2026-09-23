@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"hexal/compiler/checker"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -163,6 +164,17 @@ type definitionContext struct {
 	tags         *tagRegistry
 	envFunctions map[string]bool
 	envMethods   map[string]bool
+	table        *span.Table
+}
+
+// line resolves a carried span through the compilation's table; a nil table
+// yields line 0, which suppresses the #line directive as an unset line always
+// did.
+func (ctx definitionContext) line(s span.Span) int {
+	if ctx.table == nil {
+		return 0
+	}
+	return ctx.table.Position(s).Line
 }
 
 // writeFunctionDefinition emits one C function. The declared function and the
@@ -205,6 +217,7 @@ func (ctx definitionContext) writeFunctionDefinition(declared checker.FunctionDe
 		strings:        ctx.strings,
 		owner:          ctx.owner,
 		filename:       ctx.filename,
+		table:          ctx.table,
 		tags:           ctx.tags,
 	}
 	state.pushScope()
@@ -242,7 +255,7 @@ func (ctx definitionContext) writeFunctionDefinition(declared checker.FunctionDe
 		parameters = append(parameters, declaration(parameter.Type, name, false))
 	}
 
-	if err := writeLineDirective(ctx.body, declared.SourceLine, ctx.filename); err != nil {
+	if err := writeLineDirective(ctx.body, ctx.line(declared.Span), ctx.filename); err != nil {
 		return err
 	}
 	linkage := ""
@@ -299,6 +312,7 @@ func (ctx definitionContext) writeMethodDefinition(declared checker.MethodDeclar
 		strings:        ctx.strings,
 		owner:          ctx.owner,
 		filename:       ctx.filename,
+		table:          ctx.table,
 		tags:           ctx.tags,
 	}
 	state.pushScope()
@@ -329,7 +343,7 @@ func (ctx definitionContext) writeMethodDefinition(declared checker.MethodDeclar
 		parameters = append(parameters, declaration(parameter.Type, name, false))
 	}
 
-	if err := writeLineDirective(ctx.body, declared.SourceLine, ctx.filename); err != nil {
+	if err := writeLineDirective(ctx.body, ctx.line(declared.Span), ctx.filename); err != nil {
 		return err
 	}
 	linkage := "static "

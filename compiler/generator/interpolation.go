@@ -181,7 +181,7 @@ func hoistInlineInterpolate(node checker.Expression, body *strings.Builder, stat
 		return unknownExpressionDiagnostic("inline interpolation is missing its module file literal")
 	}
 	overflow, err := textErrorArm(node.ResultType, "ResourceExhausted", textMessageOverCapacity, state.strings.CName(fileHandle),
-		strconv.Itoa(node.SourceLine), strconv.Itoa(node.SourceColumn), state.strings, state.tags)
+		strconv.Itoa(state.line(node.Span)), strconv.Itoa(state.column(node.Span)), state.strings, state.tags)
 	if err != nil {
 		return err
 	}

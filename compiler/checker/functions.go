@@ -8,6 +8,7 @@ import (
 
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -15,16 +16,15 @@ import (
 // type its name produces in a value position; Result is nil when the function
 // returns no value.
 type FunctionDeclaration struct {
-	Name         string
-	Parameters   []FunctionParameter
-	Result       *compilerTypes.Type
-	ResultUse    *compilerTypes.TypeUse
-	Type         compilerTypes.Type
-	Body         []Statement
-	Defers       []DeferredAction
-	SourceLine   int
-	SourceColumn int
-	Exported     bool // external linkage + prototype in this module's header
+	Name       string
+	Parameters []FunctionParameter
+	Result     *compilerTypes.Type
+	ResultUse  *compilerTypes.TypeUse
+	Type       compilerTypes.Type
+	Body       []Statement
+	Defers     []DeferredAction
+	Span       span.Span
+	Exported   bool // external linkage + prototype in this module's header
 	// Captures are the entry-root bindings this function reads or writes by
 	// reference, in first-use order. EnvDependent is true when Captures is
 	// non-empty or the function calls an environment-dependent entry
@@ -42,14 +42,13 @@ func (FunctionDeclaration) statementNode() {}
 // while RestElement records the element type T the call boundary checks
 // against.
 type FunctionParameter struct {
-	Name         string
-	Binding      BindingID
-	Type         compilerTypes.Type
-	TypeUse      compilerTypes.TypeUse
-	Rest         bool
-	RestElement  compilerTypes.Type
-	SourceLine   int
-	SourceColumn int
+	Name        string
+	Binding     BindingID
+	Type        compilerTypes.Type
+	TypeUse     compilerTypes.TypeUse
+	Rest        bool
+	RestElement compilerTypes.Type
+	Span        span.Span
 	// CName is the exact C spelling a foreign signature records for this
 	// parameter, used for the one representation-preserving boundary cast.
 	// Empty for an ordinary parameter and for a foreign parameter whose C
@@ -128,13 +127,12 @@ func collectFunctionSignature(declaration parser.FunctionDeclaration, ctx checkC
 func checkFunctionBody(declaration parser.FunctionDeclaration, signature functionSignature, ctx checkContext, analyzeReturns bool) (FunctionDeclaration, compilerTypes.Diagnostics) {
 	name := declaration.Name.Lexeme
 	checked := FunctionDeclaration{
-		Name:         name,
-		Parameters:   signature.parameters,
-		Result:       signature.result,
-		ResultUse:    signature.resultUse,
-		Type:         signature.functionType,
-		SourceLine:   declaration.Name.Line,
-		SourceColumn: declaration.Name.Column,
+		Name:       name,
+		Parameters: signature.parameters,
+		Result:     signature.result,
+		ResultUse:  signature.resultUse,
+		Type:       signature.functionType,
+		Span:       declaration.Name.Span,
 		// Exported is stamped later by applyExportFlags: the trailing export
 		// block resolves against the checked interface this function only
 		// finishes building below, so it cannot be known yet here.
@@ -208,7 +206,7 @@ func bindParametersAndCheckBody(parameters []FunctionParameter, statements []par
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	for index := range parameters {
 		if enclosing.importAlias(parameters[index].Name) {
-			token := lexer.Token{Line: parameters[index].SourceLine, Column: parameters[index].SourceColumn, Lexeme: parameters[index].Name}
+			token := tokenAt(enclosing.table, parameters[index].Span)
 			diagnostics = append(diagnostics, nameErrorAt(token, "import alias "+parameters[index].Name+" conflicts with an existing name"))
 			continue
 		}
@@ -255,13 +253,12 @@ func checkParameters(written []parser.Parameter, typeEnvironment *compilerTypes.
 			}
 			seen[parameterName] = true
 			parameters = append(parameters, FunctionParameter{
-				Name:         parameterName,
-				Type:         sliceType,
-				TypeUse:      resolvedUse,
-				Rest:         true,
-				RestElement:  resolved,
-				SourceLine:   parameter.Name.Line,
-				SourceColumn: parameter.Name.Column,
+				Name:        parameterName,
+				Type:        sliceType,
+				TypeUse:     resolvedUse,
+				Rest:        true,
+				RestElement: resolved,
+				Span:        parameter.Name.Span,
 			})
 			continue
 		}
@@ -279,11 +276,10 @@ func checkParameters(written []parser.Parameter, typeEnvironment *compilerTypes.
 			continue
 		}
 		parameters = append(parameters, FunctionParameter{
-			Name:         parameterName,
-			Type:         resolved,
-			TypeUse:      resolvedUse,
-			SourceLine:   parameter.Name.Line,
-			SourceColumn: parameter.Name.Column,
+			Name:    parameterName,
+			Type:    resolved,
+			TypeUse: resolvedUse,
+			Span:    parameter.Name.Span,
 		})
 	}
 	return parameters, diagnostics

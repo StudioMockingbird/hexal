@@ -12,7 +12,7 @@ import (
 // address_parse and dns_resolve in network_render.go.
 func renderTerminalExpression(node checker.Expression, state *expressionValidation) (string, error) {
 	suffix := streamAdapterSuffix(node.ResultType)
-	site := fmt.Sprintf("%d, %d", node.SourceLine, node.SourceColumn)
+	site := fmt.Sprintf("%d, %d", state.line(node.Span), state.column(node.Span))
 	switch node.Name {
 	case "terminal_is_attached":
 		stream, err := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)

@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"hexal/compiler/checker"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -147,7 +148,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if !supportedGeneratedTypeWithState(statement.Type, state) {
 				return unknownExpressionDiagnostic("unsupported checked declaration type")
 			}
-			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+			if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 				return err
 			}
 			var name string
@@ -188,7 +189,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if !supportedGeneratedTypeWithState(statement.Type, state) || !supportedGeneratedTypeWithState(statement.Target.Type, state) {
 				return unknownExpressionDiagnostic("unsupported checked assignment type")
 			}
-			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+			if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 				return err
 			}
 			target, expressionErr := renderOperandWithState(statement.Target, state)
@@ -216,7 +217,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				return err
 			}
 		case checker.CallStatement:
-			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+			if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 				return err
 			}
 			if statement.Call.Node.Kind == checker.PrintExpression {
@@ -237,14 +238,14 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 		case checker.TryStatement:
 			// The try prologue already hoisted above; the success value is
 			// discarded, so the statement renders nothing.
-			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+			if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 				return err
 			}
 		case checker.ReturnStatement:
 			if !frame.inFunction {
 				return unknownExpressionDiagnostic("return outside a function body")
 			}
-			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+			if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 				return err
 			}
 			text, returnErr := renderReturnStatement(statement, frame.result, state, indent)
@@ -261,7 +262,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if frame.inFunction {
 				return unknownExpressionDiagnostic("root return inside a function body")
 			}
-			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+			if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 				return err
 			}
 			text, returnErr := renderRootReturnStatement(statement, state, indent)
@@ -276,7 +277,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if conditionErr != nil {
 				return conditionErr
 			}
-			if err := writeControlHeader(body, indent, "if", condition, statement.SourceLine, statement.ConditionLine, state.filename); err != nil {
+			if err := writeControlHeader(body, indent, "if", condition, state.line(statement.Span), state.line(statement.ConditionSpan), state.filename); err != nil {
 				return err
 			}
 			state.pushScope()
@@ -289,7 +290,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				if branchErr != nil {
 					return branchErr
 				}
-				if err := writeControlHeader(body, indent, "} else if", condition, branch.SourceLine, branch.ConditionLine, state.filename); err != nil {
+				if err := writeControlHeader(body, indent, "} else if", condition, state.line(branch.Span), state.line(branch.ConditionSpan), state.filename); err != nil {
 					return err
 				}
 				state.pushScope()
@@ -299,7 +300,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				state.popScope()
 			}
 			if statement.Else != nil {
-				if err := writeLineDirective(body, statement.ElseLine, state.filename); err != nil {
+				if err := writeLineDirective(body, state.line(statement.ElseSpan), state.filename); err != nil {
 					return err
 				}
 				if err := renderInto(body, "module.c", "else_open", indentModel{Indent: indent}); err != nil {
@@ -319,7 +320,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if conditionErr != nil {
 				return conditionErr
 			}
-			if err := writeControlHeader(body, indent, "while", condition, statement.SourceLine, statement.ConditionLine, state.filename); err != nil {
+			if err := writeControlHeader(body, indent, "while", condition, state.line(statement.Span), state.line(statement.ConditionSpan), state.filename); err != nil {
 				return err
 			}
 			state.pushScope()
@@ -355,7 +356,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if state.loopDepth == 0 {
 				return unknownExpressionDiagnostic("checked break outside a while loop")
 			}
-			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+			if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 				return err
 			}
 			if err := unwindToLoopDepth(body, state, indent, "false"); err != nil {
@@ -368,7 +369,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			if state.loopDepth == 0 {
 				return unknownExpressionDiagnostic("checked continue outside a while loop")
 			}
-			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+			if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 				return err
 			}
 			if err := unwindToLoopDepth(body, state, indent, "false"); err != nil {
@@ -378,7 +379,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				return err
 			}
 		case checker.DeferStatement:
-			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+			if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 				return err
 			}
 			if err := writeDeferStatement(body, statement, state, indent); err != nil {
@@ -387,10 +388,10 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 		case checker.ErrdeferStatement:
 			// errdefer registers exactly like defer; the Err flag decides at
 			// the exit edge whether the action runs.
-			if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+			if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 				return err
 			}
-			if err := writeDeferStatement(body, checker.DeferStatement{Expression: statement.Expression, Action: statement.Action, SourceLine: statement.SourceLine, SourceColumn: statement.SourceColumn}, state, indent); err != nil {
+			if err := writeDeferStatement(body, checker.DeferStatement{Expression: statement.Expression, Action: statement.Action, Span: statement.Span}, state, indent); err != nil {
 				return err
 			}
 		case checker.FunctionDeclaration:
@@ -714,10 +715,12 @@ type expressionValidation struct {
 	// owner is the encoded module owner of the module being generated;
 	// filename is its logical source key for #line directives; moduleID is
 	// the module's canonical identity, used to distinguish foreign method
-	// calls from local ones.
+	// calls from local ones. table resolves a checked node's carried span to
+	// the line and column #line directives and runtime failure sites embed.
 	owner    string
 	filename string
 	moduleID string
+	table    *span.Table
 	// envPointer is the current entry-environment pointer expression ("&env"
 	// in generated main, "env" inside an environment-dependent declaration),
 	// or empty when no environment exists. envFunctions names the
@@ -772,6 +775,19 @@ type generatedBinding struct {
 	typ     compilerTypes.Type
 	mutable bool
 }
+
+// position resolves one carried span through the compilation's source table.
+// A nil table yields the zero position, so a hand-built checked program with
+// no source keeps the historical 0:0 site and suppresses a #line directive.
+func (state *expressionValidation) position(s span.Span) span.Position {
+	if state == nil || state.table == nil {
+		return span.Position{}
+	}
+	return state.table.Position(s)
+}
+
+func (state *expressionValidation) line(s span.Span) int   { return state.position(s).Line }
+func (state *expressionValidation) column(s span.Span) int { return state.position(s).Column }
 
 func (state *expressionValidation) pushScope() {
 	state.activeScopes = append(state.activeScopes, make(map[checker.BindingID]bool))

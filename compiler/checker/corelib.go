@@ -86,12 +86,11 @@ func checkCorelibCall(target string, function corelib.Function, call parser.Call
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	node := Expression{
-		Kind:         CorelibCallExpression,
-		Name:         function.Runtime,
-		Arguments:    arguments,
-		ResultType:   resultType,
-		SourceLine:   property.Line,
-		SourceColumn: property.Column,
+		Kind:       CorelibCallExpression,
+		Name:       function.Runtime,
+		Arguments:  arguments,
+		ResultType: resultType,
+		Span:       property.Span,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: resultType, Name: function.Runtime, Node: node}
 	return checkedExpression{source: source, typ: resultType, token: property}
@@ -104,12 +103,15 @@ func checkCorelibCall(target string, function corelib.Function, call parser.Call
 func checkCorelibBuiltin(builtin string, call parser.CallExpression, alias parser.VariableExpression, property lexer.Token, ctx checkContext) checkedExpression {
 	rebased := func(operation string) parser.CallExpression {
 		callee, _ := call.Callee.(parser.PropertyExpression)
-		callee.Property = lexer.Token{Kind: property.Kind, Lexeme: operation, Line: property.Line, Column: property.Column}
+		// The rebased property keeps the caller's span: the core-library
+		// builtin is the same source construct under its former namespace, so
+		// the checked node's location is the call site's, not a zero span.
+		callee.Property = lexer.Token{Kind: property.Kind, Lexeme: operation, Line: property.Line, Column: property.Column, Span: property.Span}
 		call.Callee = callee
 		return call
 	}
 	namespace := func(name string) parser.VariableExpression {
-		return parser.VariableExpression{Name: lexer.Token{Kind: alias.Name.Kind, Lexeme: name, Line: alias.Name.Line, Column: alias.Name.Column}}
+		return parser.VariableExpression{Name: lexer.Token{Kind: alias.Name.Kind, Lexeme: name, Line: alias.Name.Line, Column: alias.Name.Column, Span: alias.Name.Span}}
 	}
 	switch builtin {
 	case "io_stdin", "io_stdout", "io_stderr":

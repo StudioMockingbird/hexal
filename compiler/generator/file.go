@@ -100,7 +100,7 @@ func renderFileOpen(node checker.Expression, state *expressionValidation) (strin
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("hex_file_open_%s(%s, %s, %d, %d)", streamAdapterSuffix(node.ResultType), path, mode, node.SourceLine, node.SourceColumn), nil
+	return fmt.Sprintf("hex_file_open_%s(%s, %s, %d, %d)", streamAdapterSuffix(node.ResultType), path, mode, state.line(node.Span), state.column(node.Span)), nil
 }
 
 // renderFileMethod renders one File operation through its per-module adapter.
@@ -117,22 +117,22 @@ func renderFileMethod(node checker.Expression, state *expressionValidation) (str
 		}
 		arguments = append(arguments, rendered)
 	}
-	return fileMethodCall(node, arguments)
+	return fileMethodCall(node, arguments, state)
 }
 
 // fileMethodCall spells one File operation over rendered operands, receiver
 // first; the deferred-close path shares it.
-func fileMethodCall(node checker.Expression, arguments []string) (string, error) {
+func fileMethodCall(node checker.Expression, arguments []string, state *expressionValidation) (string, error) {
 	want := map[string]int{"read": 3, "write": 2, "seek": 2, "flush": 1, "close": 1}[node.Name]
 	if want == 0 || len(arguments) != want {
 		return "", unknownExpressionDiagnostic("file operation has invalid rendered operands")
 	}
-	return fmt.Sprintf("hex_file_%s_%s(%s, %d, %d)", node.Name, streamAdapterSuffix(node.ResultType), strings.Join(arguments, ", "), node.SourceLine, node.SourceColumn), nil
+	return fmt.Sprintf("hex_file_%s_%s(%s, %d, %d)", node.Name, streamAdapterSuffix(node.ResultType), strings.Join(arguments, ", "), state.line(node.Span), state.column(node.Span)), nil
 }
 
 // validateFileConstructor checks File.open fail-closed.
 func validateFileConstructor(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
-	if node.Name != "open" || len(node.Arguments) != 2 || node.Operand != nil || node.SourceLine == 0 ||
+	if node.Name != "open" || len(node.Arguments) != 2 || node.Operand != nil || state.line(node.Span) == 0 ||
 		!compilerTypes.IsString(node.Arguments[0].Type) || !compilerTypes.IsFileMode(node.Arguments[1].Type) {
 		return unknownExpressionDiagnostic("file open has invalid checked metadata")
 	}
@@ -166,7 +166,7 @@ func validateFileMethodCall(node checker.Expression, expected *compilerTypes.Typ
 		return unknownExpressionDiagnostic("unknown file operation in checked metadata")
 	}
 	members := compilerTypes.UnionMembers(node.ResultType)
-	if node.Operand == nil || len(node.Arguments) != arguments || node.ResultType.Union == nil || members.Len() != len(contract) || node.SourceLine == 0 {
+	if node.Operand == nil || len(node.Arguments) != arguments || node.ResultType.Union == nil || members.Len() != len(contract) || state.line(node.Span) == 0 {
 		return unknownExpressionDiagnostic("file operation has invalid checked metadata")
 	}
 	for _, required := range contract {

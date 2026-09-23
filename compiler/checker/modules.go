@@ -13,6 +13,7 @@ import (
 
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -748,7 +749,7 @@ func privateToModuleDiagnostic(token lexer.Token, name, target string) compilerT
 // validated: private types used inside exported generic bodies stay out of
 // the walk until those bodies are compiled elsewhere, and interfaces
 // contain no code.
-func (registry *ModuleRegistry) checkExportedClosure(moduleID string, checked Program) compilerTypes.Diagnostics {
+func (registry *ModuleRegistry) checkExportedClosure(moduleID string, checked Program, table *span.Table) compilerTypes.Diagnostics {
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	entry := registry.modules[moduleID]
 	if entry == nil {
@@ -765,7 +766,7 @@ func (registry *ModuleRegistry) checkExportedClosure(moduleID string, checked Pr
 		seenObjects := make(map[*compilerTypes.ObjectType]bool)
 		seenADTs := make(map[*compilerTypes.AdtType]bool)
 		if private := registry.privateTypeInUse(declaration.TypeUse.Type, seenObjects, seenADTs); private != "" {
-			token := lexer.Token{Line: declaration.SourceLine, Column: declaration.SourceColumn, Lexeme: declaration.Name}
+			token := tokenAt(table, declaration.Span)
 			diagnostics = append(diagnostics, typeErrorAt(token, "exported function "+declaration.Name+" exposes private type "+private))
 		}
 	}
@@ -780,7 +781,7 @@ func (registry *ModuleRegistry) checkExportedClosure(moduleID string, checked Pr
 				continue
 			}
 			if private := registry.privateTypeInUse(declaration.Type, seenObjects, seenADTs); private != "" {
-				token := lexer.Token{Line: declaration.SourceLine, Column: declaration.SourceColumn, Lexeme: declaration.Name}
+				token := tokenAt(table, declaration.Span)
 				diagnostics = append(diagnostics, typeErrorAt(token, "exported function "+declaration.Name+" exposes private type "+private))
 			}
 		case MethodDeclaration:
@@ -799,7 +800,7 @@ func (registry *ModuleRegistry) checkExportedClosure(moduleID string, checked Pr
 				private = registry.privateTypeInUse(declaration.ResultUse.Type, seenObjects, seenADTs)
 			}
 			if private != "" {
-				token := lexer.Token{Line: declaration.SourceLine, Column: declaration.SourceColumn, Lexeme: declaration.Name}
+				token := tokenAt(table, declaration.Span)
 				diagnostics = append(diagnostics, typeErrorAt(token, "exported function "+declaration.Name+" exposes private type "+private))
 			}
 		}

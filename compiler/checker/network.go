@@ -249,14 +249,13 @@ func checkTcpConnectionMethodCall(call parser.CallExpression, callee parser.Prop
 
 func networkNode(name string, operand *Expression, arguments []Operand, operandType, resultType compilerTypes.Type, token lexer.Token) checkedExpression {
 	node := Expression{
-		Kind:         NetworkExpression,
-		Name:         name,
-		Operand:      operand,
-		Arguments:    arguments,
-		OperandType:  operandType,
-		ResultType:   resultType,
-		SourceLine:   token.Line,
-		SourceColumn: token.Column,
+		Kind:        NetworkExpression,
+		Name:        name,
+		Operand:     operand,
+		Arguments:   arguments,
+		OperandType: operandType,
+		ResultType:  resultType,
+		Span:        token.Span,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: resultType, Name: name, Node: node}
 	return checkedExpression{source: source, typ: resultType, token: token}

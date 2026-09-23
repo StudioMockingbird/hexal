@@ -3,7 +3,7 @@ package checker
 import (
 	"go/constant"
 
-	"hexal/compiler/lexer"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -17,8 +17,8 @@ import (
 
 // checkStarvation applies the must-yield rule to a checked program. It is a
 // no-op for programs that do not use any scheduler runtime feature.
-func checkStarvation(program Program) compilerTypes.Diagnostics {
-	scanner := &starvationScanner{byName: make(map[string][]Statement)}
+func checkStarvation(program Program, table *span.Table) compilerTypes.Diagnostics {
+	scanner := &starvationScanner{byName: make(map[string][]Statement), table: table}
 	scanner.scanRoot(program.Statements)
 	for _, declaration := range program.SpecializedFunctions {
 		scanner.byName[declaration.Name] = declaration.Body
@@ -44,6 +44,7 @@ type starvationScanner struct {
 	linked       bool
 	visited      map[string]bool
 	diagnostics  compilerTypes.Diagnostics
+	table        *span.Table
 }
 
 // scanRoot records scheduler linkage and spawn entries reachable from the
@@ -173,7 +174,7 @@ func (scanner *starvationScanner) diagnoseStatements(statements []Statement) {
 		switch statement := statement.(type) {
 		case WhileStatement:
 			if isLiteralTrue(statement.Condition, statement.ConditionKnown) && loopMayRepeatWithoutYield(statement.Body) {
-				token := lexer.Token{Line: statement.SourceLine, Column: statement.SourceColumn}
+				token := tokenAt(scanner.table, statement.Span)
 				scanner.diagnostics = append(scanner.diagnostics, semanticErrorAt(token, "while true loop must execute Task.yield() on every repeating path"))
 			}
 			scanner.diagnoseStatements(statement.Body)

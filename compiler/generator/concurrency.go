@@ -895,7 +895,7 @@ func renderSpawnExpression(node checker.Expression, state *expressionValidation)
 	errorMember, _ := spawnMembers.At(errorIndex)
 	return fmt.Sprintf("(%s ? (%s){ .tag = %s, .payload.%s = %s } : (%s){ .tag = %s, .payload.%s = hex_sched_error((hex_t_ErrorKind){ .tag = %s }, %d, %d, &%s) })",
 		taskTemp, union.CName, state.tags.unionMemberTag(taskMember), state.tags.unionPayloadField(taskMember), taskTemp,
-		union.CName, state.tags.unionMemberTag(errorMember), state.tags.unionPayloadField(errorMember), errorKindTag(state.tags, "ResourceExhausted"), node.SourceLine, node.SourceColumn, message), nil
+		union.CName, state.tags.unionMemberTag(errorMember), state.tags.unionPayloadField(errorMember), errorKindTag(state.tags, "ResourceExhausted"), state.line(node.Span), state.column(node.Span), message), nil
 }
 
 // errorMessageLiteral resolves one failure message literal registered during
@@ -952,7 +952,7 @@ func renderChannelConstructor(node checker.Expression, state *expressionValidati
 		return "", err
 	}
 	return fmt.Sprintf("hex_chan_new_%s(%s, (size_t)(%s), %d, %d, &%s)",
-		channelSuffix(node.OperandType), heap, capacity, node.SourceLine, node.SourceColumn, message), nil
+		channelSuffix(node.OperandType), heap, capacity, state.line(node.Span), state.column(node.Span), message), nil
 }
 
 // renderChannelMethod renders one Channel handle method call.
@@ -982,7 +982,7 @@ func renderChannelMethod(node checker.Expression, state *expressionValidation) (
 		if symbolErr != nil {
 			return "", symbolErr
 		}
-		return fmt.Sprintf(symbol+"(%s, %s, %d, %d, &%s)", receiver, value, node.SourceLine, node.SourceColumn, message), nil
+		return fmt.Sprintf(symbol+"(%s, %s, %d, %d, &%s)", receiver, value, state.line(node.Span), state.column(node.Span), message), nil
 	case "receive":
 		symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeChannel), "receive", suffix)
 		if symbolErr != nil {
@@ -1043,7 +1043,7 @@ func renderMutexConstructor(node checker.Expression, state *expressionValidation
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("hex_mutex_new_mutex(%s, %d, %d, &%s)", heap, node.SourceLine, node.SourceColumn, message), nil
+	return fmt.Sprintf("hex_mutex_new_mutex(%s, %d, %d, &%s)", heap, state.line(node.Span), state.column(node.Span), message), nil
 }
 
 // renderMutexMethod renders one Mutex handle method call.
@@ -1136,7 +1136,7 @@ func renderAtomicMethod(node checker.Expression, state *expressionValidation) (s
 func validateConcurrencyExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	switch node.Kind {
 	case checker.SpawnExpression:
-		if node.Operand == nil || node.OperandType.Task == nil || node.OperandType.Task.Result == (compilerTypes.Type{}) || node.ResultType.Union == nil || !compilerTypes.Equal(node.Element, node.OperandType.Task.Result) || node.SourceLine <= 0 {
+		if node.Operand == nil || node.OperandType.Task == nil || node.OperandType.Task.Result == (compilerTypes.Type{}) || node.ResultType.Union == nil || !compilerTypes.Equal(node.Element, node.OperandType.Task.Result) || state.line(node.Span) <= 0 {
 			return unknownExpressionDiagnostic("spawn expression has invalid checked metadata")
 		}
 		if unionMemberIndex(node.ResultType, node.OperandType) < 0 || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 {
@@ -1175,7 +1175,7 @@ func validateConcurrencyExpression(node checker.Expression, expected *compilerTy
 		}
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.ChannelConstructorExpression:
-		if node.OperandType.Channel == nil || len(node.Arguments) != 2 || !compilerTypes.Equal(node.Element, node.OperandType.Channel.Element) || node.ResultType.Union == nil || node.SourceLine <= 0 {
+		if node.OperandType.Channel == nil || len(node.Arguments) != 2 || !compilerTypes.Equal(node.Element, node.OperandType.Channel.Element) || node.ResultType.Union == nil || state.line(node.Span) <= 0 {
 			return unknownExpressionDiagnostic("channel constructor has invalid checked metadata")
 		}
 		if unionMemberIndex(node.ResultType, node.OperandType) < 0 || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 {
@@ -1194,7 +1194,7 @@ func validateConcurrencyExpression(node checker.Expression, expected *compilerTy
 		}
 		switch node.Name {
 		case "send":
-			if len(node.Arguments) != 1 || node.ResultType.Union == nil || unionMemberIndex(node.ResultType, compilerTypes.Nil) < 0 || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 || node.SourceLine <= 0 {
+			if len(node.Arguments) != 1 || node.ResultType.Union == nil || unionMemberIndex(node.ResultType, compilerTypes.Nil) < 0 || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 || state.line(node.Span) <= 0 {
 				return unknownExpressionDiagnostic("channel send has invalid checked metadata")
 			}
 		case "receive":
@@ -1233,7 +1233,7 @@ func validateConcurrencyExpression(node checker.Expression, expected *compilerTy
 		}
 		return nil
 	case checker.MutexConstructorExpression:
-		if len(node.Arguments) != 1 || !compilerTypes.IsMutex(node.OperandType) || node.ResultType.Union == nil || node.SourceLine <= 0 {
+		if len(node.Arguments) != 1 || !compilerTypes.IsMutex(node.OperandType) || node.ResultType.Union == nil || state.line(node.Span) <= 0 {
 			return unknownExpressionDiagnostic("mutex constructor has invalid checked metadata")
 		}
 		if unionMemberIndex(node.ResultType, compilerTypes.MutexType) < 0 || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 {

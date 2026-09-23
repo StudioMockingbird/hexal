@@ -6,6 +6,7 @@ import (
 
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -189,7 +190,7 @@ func checkErrdeferStatement(statement parser.ErrdeferStatement, ctx checkContext
 	}
 	ctx.names.cleanupDepth++
 	defer func() { ctx.names.cleanupDepth-- }()
-	action := DeferredAction{Err: true, SourceLine: statement.Keyword.Line, SourceColumn: statement.Keyword.Column}
+	action := DeferredAction{Err: true, Span: statement.Keyword.Span}
 	var source Operand
 	if call, isCall := statement.Expression.(parser.CallExpression); isCall {
 		checked := checkCall(call, compilerTypes.Type{}, ctx)
@@ -210,20 +211,18 @@ func checkErrdeferStatement(statement parser.ErrdeferStatement, ctx checkContext
 	}
 	ctx.names.defers = append(ctx.names.defers, action)
 	return ErrdeferStatement{
-		Expression:   source,
-		Action:       action,
-		SourceLine:   statement.Keyword.Line,
-		SourceColumn: statement.Keyword.Column,
+		Expression: source,
+		Action:     action,
+		Span:       statement.Keyword.Span,
 	}, nil
 }
 
 // ErrdeferStatement is the checked registration of one error-only cleanup
 // action.
 type ErrdeferStatement struct {
-	Expression   Operand
-	Action       DeferredAction
-	SourceLine   int
-	SourceColumn int
+	Expression Operand
+	Action     DeferredAction
+	Span       span.Span
 }
 
 func (ErrdeferStatement) statementNode() {}

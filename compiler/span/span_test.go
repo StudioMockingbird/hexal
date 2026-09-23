@@ -46,18 +46,24 @@ func TestPositionSingleLineAndEOF(t *testing.T) {
 	}
 }
 
-// A carriage return is an ordinary byte; only a line feed opens a line. A
-// CRLF therefore counts as one break.
+// A carriage return ends a line by itself, exactly like a line feed; a
+// carriage-return/line-feed pair is one break, not two.
 func TestPositionCarriageReturnConvention(t *testing.T) {
 	const file = "unit.hex"
 	table := NewTable()
 	table.Add(file, "a\rb\nc")
 
-	if got := table.Position(Span{File: file, Start: 2}); got != (Position{Line: 1, Column: 3}) {
-		t.Errorf("byte after a lone CR = %+v, want 1:3 (a CR is not a line break by itself)", got)
+	if got := table.Position(Span{File: file, Start: 2}); got != (Position{Line: 2, Column: 1}) {
+		t.Errorf("byte after a lone CR = %+v, want 2:1 (a CR ends a line)", got)
 	}
-	if got := table.Position(Span{File: file, Start: 4}); got != (Position{Line: 2, Column: 1}) {
-		t.Errorf("byte after the LF = %+v, want 2:1", got)
+	if got := table.Position(Span{File: file, Start: 4}); got != (Position{Line: 3, Column: 1}) {
+		t.Errorf("byte after the LF = %+v, want 3:1", got)
+	}
+
+	crlf := NewTable()
+	crlf.Add(file, "a\r\nb")
+	if got := crlf.Position(Span{File: file, Start: 3}); got != (Position{Line: 2, Column: 1}) {
+		t.Errorf("byte after CRLF = %+v, want 2:1 (a CRLF is one break)", got)
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
+	"hexal/compiler/span"
 	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
@@ -32,17 +33,16 @@ type ForeignHeader struct {
 // Fun<...> type its name produces in a value position; Result is nil when the
 // C function returns no value.
 type ForeignFunctionDeclaration struct {
-	Name         string
-	CName        string
-	Header       ForeignHeader
-	Parameters   []FunctionParameter
-	Result       *compilerTypes.Type
-	ResultUse    *compilerTypes.TypeUse
-	ResultCName  string
-	Type         compilerTypes.Type
-	SourceLine   int
-	SourceColumn int
-	Exported     bool
+	Name        string
+	CName       string
+	Header      ForeignHeader
+	Parameters  []FunctionParameter
+	Result      *compilerTypes.Type
+	ResultUse   *compilerTypes.TypeUse
+	ResultCName string
+	Type        compilerTypes.Type
+	Span        span.Span
+	Exported    bool
 }
 
 // ForeignConstantDeclaration is one checked foreign constant: a typed,
@@ -50,28 +50,26 @@ type ForeignFunctionDeclaration struct {
 // macro identifier. Its type is a scalar, a data pointer, or a complete
 // foreign record, and it is readable without unsafe.
 type ForeignConstantDeclaration struct {
-	Name         string
-	CName        string
-	Header       ForeignHeader
-	Type         compilerTypes.Type
-	TypeUse      compilerTypes.TypeUse
-	SourceLine   int
-	SourceColumn int
-	Exported     bool
+	Name     string
+	CName    string
+	Header   ForeignHeader
+	Type     compilerTypes.Type
+	TypeUse  compilerTypes.TypeUse
+	Span     span.Span
+	Exported bool
 }
 
 // ForeignGlobalDeclaration is one checked foreign global. Mutable renders reads
 // and writes; a fixed global permits reads only. Every access requires unsafe.
 type ForeignGlobalDeclaration struct {
-	Name         string
-	CName        string
-	Header       ForeignHeader
-	Type         compilerTypes.Type
-	TypeUse      compilerTypes.TypeUse
-	Mutable      bool
-	SourceLine   int
-	SourceColumn int
-	Exported     bool
+	Name     string
+	CName    string
+	Header   ForeignHeader
+	Type     compilerTypes.Type
+	TypeUse  compilerTypes.TypeUse
+	Mutable  bool
+	Span     span.Span
+	Exported bool
 }
 
 // ForeignRecordDeclaration is one declared foreign C record: complete or
@@ -79,14 +77,13 @@ type ForeignGlobalDeclaration struct {
 // identity, so the same C record reached through two headers is one Hexal
 // type.
 type ForeignRecordDeclaration struct {
-	Name         string
-	CName        string
-	Header       ForeignHeader
-	Type         compilerTypes.Type
-	TypeUse      compilerTypes.TypeUse
-	SourceLine   int
-	SourceColumn int
-	Exported     bool
+	Name     string
+	CName    string
+	Header   ForeignHeader
+	Type     compilerTypes.Type
+	TypeUse  compilerTypes.TypeUse
+	Span     span.Span
+	Exported bool
 }
 
 // checkForeignDeclarations checks every leading foreign block and publishes the
@@ -154,11 +151,10 @@ func checkForeignTypeDeclaration(declaration parser.ExternType, header ForeignHe
 		}
 		ctx.typeEnvironment.DeclareAlias(name, use.Type)
 		checked.TypeDeclarations = append(checked.TypeDeclarations, TypeDeclaration{
-			Name:         name,
-			Type:         use.Type,
-			TypeUse:      use,
-			SourceLine:   declaration.Name.Line,
-			SourceColumn: declaration.Name.Column,
+			Name:    name,
+			Type:    use.Type,
+			TypeUse: use,
+			Span:    declaration.Name.Span,
 		})
 		return
 	}
@@ -192,13 +188,12 @@ func checkForeignTypeDeclaration(declaration parser.ExternType, header ForeignHe
 	use := compilerTypes.NewTypeUse(record)
 	ctx.typeEnvironment.DeclareAlias(name, record)
 	checked.ForeignRecords = append(checked.ForeignRecords, ForeignRecordDeclaration{
-		Name:         name,
-		CName:        cName,
-		Header:       header,
-		Type:         record,
-		TypeUse:      use,
-		SourceLine:   declaration.Name.Line,
-		SourceColumn: declaration.Name.Column,
+		Name:    name,
+		CName:   cName,
+		Header:  header,
+		Type:    record,
+		TypeUse: use,
+		Span:    declaration.Name.Span,
 	})
 }
 
@@ -287,16 +282,15 @@ func checkForeignFunctionDeclaration(declaration parser.ExternFunction, header F
 		foreignResult:     resultCName,
 	}
 	checked.ForeignFunctions = append(checked.ForeignFunctions, ForeignFunctionDeclaration{
-		Name:         name,
-		CName:        cName,
-		Header:       header,
-		Parameters:   signature.parameters,
-		Result:       signature.result,
-		ResultUse:    signature.resultUse,
-		ResultCName:  resultCName,
-		Type:         signature.functionType,
-		SourceLine:   declaration.Name.Line,
-		SourceColumn: declaration.Name.Column,
+		Name:        name,
+		CName:       cName,
+		Header:      header,
+		Parameters:  signature.parameters,
+		Result:      signature.result,
+		ResultUse:   signature.resultUse,
+		ResultCName: resultCName,
+		Type:        signature.functionType,
+		Span:        declaration.Name.Span,
 	})
 }
 
@@ -338,13 +332,12 @@ func checkForeignConstantDeclaration(declaration parser.ExternConstant, header F
 	cSymbols[cName] = "constant"
 	ctx.names.module[name] = binding{typ: use.Type, use: use, kind: foreignConstantBinding, foreignCName: cName, foreignHeader: header}
 	checked.ForeignConstants = append(checked.ForeignConstants, ForeignConstantDeclaration{
-		Name:         name,
-		CName:        cName,
-		Header:       header,
-		Type:         use.Type,
-		TypeUse:      use,
-		SourceLine:   declaration.Name.Line,
-		SourceColumn: declaration.Name.Column,
+		Name:    name,
+		CName:   cName,
+		Header:  header,
+		Type:    use.Type,
+		TypeUse: use,
+		Span:    declaration.Name.Span,
 	})
 }
 
@@ -413,14 +406,13 @@ func checkForeignGlobalDeclaration(declaration parser.ExternGlobal, header Forei
 	cSymbols[cName] = "global"
 	ctx.names.module[name] = binding{typ: use.Type, use: use, kind: foreignGlobalBinding, mutable: declaration.Mutable, foreignCName: cName, foreignHeader: header}
 	checked.ForeignGlobals = append(checked.ForeignGlobals, ForeignGlobalDeclaration{
-		Name:         name,
-		CName:        cName,
-		Header:       header,
-		Type:         use.Type,
-		TypeUse:      use,
-		Mutable:      declaration.Mutable,
-		SourceLine:   declaration.Name.Line,
-		SourceColumn: declaration.Name.Column,
+		Name:    name,
+		CName:   cName,
+		Header:  header,
+		Type:    use.Type,
+		TypeUse: use,
+		Mutable: declaration.Mutable,
+		Span:    declaration.Name.Span,
 	})
 }
 

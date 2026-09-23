@@ -5,6 +5,7 @@ import (
 
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -139,12 +140,12 @@ func checkStatement(statement parser.Statement, ctx checkContext, loopDepth int)
 		if loopDepth == 0 {
 			return BreakStatement{}, binding{}, false, compilerTypes.Diagnostics{typeErrorAt(statement.Keyword, "break is only valid inside a loop")}
 		}
-		return BreakStatement{SourceLine: statement.Keyword.Line, SourceColumn: statement.Keyword.Column}, binding{}, false, nil
+		return BreakStatement{Span: statement.Keyword.Span}, binding{}, false, nil
 	case parser.ContinueStatement:
 		if loopDepth == 0 {
 			return ContinueStatement{}, binding{}, false, compilerTypes.Diagnostics{typeErrorAt(statement.Keyword, "continue is only valid inside a loop")}
 		}
-		return ContinueStatement{SourceLine: statement.Keyword.Line, SourceColumn: statement.Keyword.Column}, binding{}, false, nil
+		return ContinueStatement{Span: statement.Keyword.Span}, binding{}, false, nil
 	case parser.DeferStatement:
 		checked, diagnostics := checkDeferStatement(statement, ctx)
 		return checked, binding{}, false, diagnostics
@@ -159,9 +160,8 @@ func checkStatement(statement parser.Statement, ctx checkContext, loopDepth int)
 			return nil, binding{}, false, diagnostics
 		}
 		return TryStatement{
-			Expression:   checkedTry.source,
-			SourceLine:   statement.Keyword.Line,
-			SourceColumn: statement.Keyword.Column,
+			Expression: checkedTry.source,
+			Span:       statement.Keyword.Span,
 		}, binding{}, false, nil
 	default:
 		// Exhaustive over parser.Statement today; a new statement form
@@ -234,18 +234,15 @@ func conditionNarrowing(condition Operand, state *flowState, typeEnvironment *co
 
 func checkIfStatement(statement parser.IfStatement, ctx checkContext, loopDepth int) (IfStatement, compilerTypes.Diagnostics) {
 	checked := IfStatement{
-		SourceLine:   statement.Keyword.Line,
-		SourceColumn: statement.Keyword.Column,
-		EndLine:      statement.End.Line,
-		EndColumn:    statement.End.Column,
-		ElseLine:     statement.ElseKeyword.Line,
+		Span:     statement.Keyword.Span,
+		EndSpan:  statement.End.Span,
+		ElseSpan: statement.ElseKeyword.Span,
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	condition, _, conditionToken, conditionDiagnostics := checkCondition(statement.Condition, ctx)
 	diagnostics = append(diagnostics, conditionDiagnostics...)
 	checked.Condition = condition
-	checked.ConditionLine = conditionToken.Line
-	checked.ConditionColumn = conditionToken.Column
+	checked.ConditionSpan = conditionToken.Span
 
 	// Each branch checks a clone of the pre-test flow carrying its own
 	// narrowing fact. Invalidations from a clean branch merge into the
@@ -318,12 +315,10 @@ func checkIfStatement(statement parser.IfStatement, ctx checkContext, loopDepth 
 			ctx.names.recordChildReturnFlows(branchScope.returnFlows)
 		}
 		checked.ElseIf = append(checked.ElseIf, IfBranch{
-			Condition:       branchCondition,
-			ConditionLine:   branchToken.Line,
-			ConditionColumn: branchToken.Column,
-			Body:            branchBody,
-			SourceLine:      branch.Keyword.Line,
-			SourceColumn:    branch.Keyword.Column,
+			Condition:     branchCondition,
+			ConditionSpan: branchToken.Span,
+			Body:          branchBody,
+			Span:          branch.Keyword.Span,
 		})
 		if len(branchDiagnostics) == 0 && !sequenceTerminates(branchBody) && branchState != nil {
 			continuing = append(continuing, branchState)
@@ -404,8 +399,7 @@ func statementTerminates(statement Statement) bool {
 // every binder is a fresh immutable binding in a fresh body scope.
 func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDepth int) (ForStatement, compilerTypes.Diagnostics) {
 	checked := ForStatement{
-		SourceLine:   statement.Keyword.Line,
-		SourceColumn: statement.Keyword.Column,
+		Span: statement.Keyword.Span,
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 
@@ -468,11 +462,10 @@ func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDept
 		bound := binding{typ: binderType, use: compilerTypes.NewTypeUse(binderType), loopBinder: true, id: ctx.names.newBindingID()}
 		bodyScope.local[binder.Name.Lexeme] = bound
 		checked.Binders = append(checked.Binders, ForBinder{
-			Name:         binder.Name.Lexeme,
-			Type:         binderType,
-			Binding:      bound.id,
-			SourceLine:   binder.Name.Line,
-			SourceColumn: binder.Name.Column,
+			Name:    binder.Name.Lexeme,
+			Type:    binderType,
+			Binding: bound.id,
+			Span:    binder.Name.Span,
 		})
 	}
 
@@ -492,7 +485,7 @@ func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDept
 	if len(bodyDiagnostics) == 0 && (source.typ.List != nil || source.typ.Dict != nil) {
 		if binding := baseBindingID(&source.source.Node); binding != 0 {
 			root := collectionRootForOperand(source.source, ctx.names, binding)
-			if mutationDiagnostics := checkForIterationMutations(binding, root, source.typ, body); len(mutationDiagnostics) > 0 {
+			if mutationDiagnostics := checkForIterationMutations(binding, root, source.typ, body, ctx.names.table); len(mutationDiagnostics) > 0 {
 				diagnostics = append(diagnostics, mutationDiagnostics...)
 				return checked, diagnostics
 			}
@@ -558,11 +551,12 @@ func forBinderTypes(source compilerTypes.Type, binders []lexer.Token) ([]compile
 // later version check would itself dereference freed storage. Other direct
 // structural mutations are rejected when they use the loop source binding;
 // copied-handle mutations remain defined by the generated version check.
-func checkForIterationMutations(sourceBinding, sourceRoot BindingID, collectionType compilerTypes.Type, body []Statement) compilerTypes.Diagnostics {
+func checkForIterationMutations(sourceBinding, sourceRoot BindingID, collectionType compilerTypes.Type, body []Statement, table *span.Table) compilerTypes.Diagnostics {
 	scanner := iterationMutationScanner{
 		sourceBinding:  sourceBinding,
 		sourceRoot:     sourceRoot,
 		collectionType: collectionType,
+		table:          table,
 	}
 	scanner.walkStatements(body)
 	return scanner.diagnostics
@@ -573,45 +567,46 @@ type iterationMutationScanner struct {
 	sourceRoot     BindingID
 	collectionType compilerTypes.Type
 	diagnostics    compilerTypes.Diagnostics
+	table          *span.Table
 }
 
-func (scanner *iterationMutationScanner) report(line, column int, message string) {
-	scanner.diagnostics = append(scanner.diagnostics, typeErrorAt(lexer.Token{Line: line, Column: column}, message))
+func (scanner *iterationMutationScanner) report(s span.Span, message string) {
+	scanner.diagnostics = append(scanner.diagnostics, typeErrorAt(tokenAt(scanner.table, s), message))
 }
 
 func (scanner *iterationMutationScanner) walkStatements(statements []Statement) {
 	for _, statement := range statements {
 		switch node := statement.(type) {
 		case Declaration:
-			scanner.walkOperand(node.Source, node.SourceLine, node.SourceColumn)
+			scanner.walkOperand(node.Source, node.Span)
 		case Assignment:
-			scanner.walkOperand(node.Target, node.SourceLine, node.SourceColumn)
-			scanner.walkOperand(node.Source, node.SourceLine, node.SourceColumn)
+			scanner.walkOperand(node.Target, node.Span)
+			scanner.walkOperand(node.Source, node.Span)
 		case CallStatement:
-			scanner.walkOperand(node.Call, node.SourceLine, node.SourceColumn)
+			scanner.walkOperand(node.Call, node.Span)
 		case ReturnStatement:
 			if node.Value != nil {
-				scanner.walkOperand(*node.Value, node.SourceLine, node.SourceColumn)
+				scanner.walkOperand(*node.Value, node.Span)
 			}
 		case TryStatement:
-			scanner.walkOperand(node.Expression, node.SourceLine, node.SourceColumn)
+			scanner.walkOperand(node.Expression, node.Span)
 		case DeferStatement:
-			scanner.walkOperand(node.Expression, node.SourceLine, node.SourceColumn)
+			scanner.walkOperand(node.Expression, node.Span)
 		case ErrdeferStatement:
-			scanner.walkOperand(node.Expression, node.SourceLine, node.SourceColumn)
+			scanner.walkOperand(node.Expression, node.Span)
 		case IfStatement:
-			scanner.walkOperand(node.Condition, node.ConditionLine, node.ConditionColumn)
+			scanner.walkOperand(node.Condition, node.ConditionSpan)
 			scanner.walkStatements(node.Then)
 			for _, branch := range node.ElseIf {
-				scanner.walkOperand(branch.Condition, branch.SourceLine, branch.SourceColumn)
+				scanner.walkOperand(branch.Condition, branch.Span)
 				scanner.walkStatements(branch.Body)
 			}
 			scanner.walkStatements(node.Else)
 		case WhileStatement:
-			scanner.walkOperand(node.Condition, node.ConditionLine, node.ConditionColumn)
+			scanner.walkOperand(node.Condition, node.ConditionSpan)
 			scanner.walkStatements(node.Body)
 		case ForStatement:
-			scanner.walkOperand(node.Source, node.SourceLine, node.SourceColumn)
+			scanner.walkOperand(node.Source, node.Span)
 			scanner.walkStatements(node.Body)
 		case UnsafeStatement:
 			scanner.walkStatements(node.Body)
@@ -623,16 +618,16 @@ func (scanner *iterationMutationScanner) walkStatements(statements []Statement) 
 	}
 }
 
-func (scanner *iterationMutationScanner) walkOperand(operand Operand, line, column int) {
-	scanner.walkExpression(&operand.Node, line, column)
+func (scanner *iterationMutationScanner) walkOperand(operand Operand, s span.Span) {
+	scanner.walkExpression(&operand.Node, s)
 	if operand.Object != nil {
 		for _, member := range operand.Object.Initializers {
-			scanner.walkOperand(member.Source, line, column)
+			scanner.walkOperand(member.Source, s)
 		}
 	}
 }
 
-func (scanner *iterationMutationScanner) walkExpression(node *Expression, line, column int) {
+func (scanner *iterationMutationScanner) walkExpression(node *Expression, s span.Span) {
 	if node == nil {
 		return
 	}
@@ -642,27 +637,27 @@ func (scanner *iterationMutationScanner) walkExpression(node *Expression, line, 
 		if receiverRoot == scanner.sourceRoot && node.OperandType == scanner.collectionType {
 			switch node.Name {
 			case "free":
-				scanner.report(line, column, "cannot free collection during iteration")
+				scanner.report(s, "cannot free collection during iteration")
 			case "push", "pop", "clear", "insert", "remove":
 				if baseBindingID(node.Operand) == scanner.sourceBinding {
-					scanner.report(line, column, "cannot mutate collection during iteration")
+					scanner.report(s, "cannot mutate collection during iteration")
 				}
 			}
 		}
 	case CallExpression, MethodCallExpression:
 		if scanner.callReceivesSource(node) {
-			scanner.report(line, column, "cannot pass traversed collection to call during iteration")
+			scanner.report(s, "cannot pass traversed collection to call during iteration")
 		}
 	}
 
-	scanner.walkExpression(node.Operand, line, column)
-	scanner.walkExpression(node.Left, line, column)
-	scanner.walkExpression(node.Right, line, column)
+	scanner.walkExpression(node.Operand, s)
+	scanner.walkExpression(node.Left, s)
+	scanner.walkExpression(node.Right, s)
 	for _, argument := range node.Arguments {
-		scanner.walkOperand(argument, line, column)
+		scanner.walkOperand(argument, s)
 	}
 	if node.Constant != nil {
-		scanner.walkOperand(*node.Constant, line, column)
+		scanner.walkOperand(*node.Constant, s)
 	}
 }
 
@@ -684,18 +679,15 @@ func (scanner *iterationMutationScanner) collectionOperand(node *Expression, typ
 
 func checkWhileStatement(statement parser.WhileStatement, ctx checkContext, loopDepth int) (WhileStatement, compilerTypes.Diagnostics) {
 	checked := WhileStatement{
-		SourceLine:   statement.Keyword.Line,
-		SourceColumn: statement.Keyword.Column,
-		EndLine:      statement.End.Line,
-		EndColumn:    statement.End.Column,
+		Span:    statement.Keyword.Span,
+		EndSpan: statement.End.Span,
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	condition, conditionKnown, conditionToken, conditionDiagnostics := checkCondition(statement.Condition, ctx)
 	diagnostics = append(diagnostics, conditionDiagnostics...)
 	checked.Condition = condition
 	checked.ConditionKnown = conditionKnown
-	checked.ConditionLine = conditionToken.Line
-	checked.ConditionColumn = conditionToken.Column
+	checked.ConditionSpan = conditionToken.Span
 
 	// The condition's narrowing holds for the body. The parent state is also
 	// a zero-iteration path, so a body free cannot become definite after the
@@ -739,7 +731,7 @@ func checkReturnStatement(statement parser.ReturnStatement, ctx checkContext) (S
 		}
 		return checkRootReturnStatement(statement, ctx)
 	}
-	checked := ReturnStatement{SourceLine: statement.Keyword.Line, SourceColumn: statement.Keyword.Column}
+	checked := ReturnStatement{Span: statement.Keyword.Span}
 	if statement.Value == nil {
 		if ctx.names.result != nil {
 			return checked, compilerTypes.Diagnostics{typeErrorAt(statement.Keyword,
@@ -791,7 +783,7 @@ func checkReturnStatement(statement parser.ReturnStatement, ctx checkContext) (S
 // a nil Value, mirroring a no-result function return); a valued return
 // requires exact UInt8 with no implicit conversion.
 func checkRootReturnStatement(statement parser.ReturnStatement, ctx checkContext) (RootReturnStatement, compilerTypes.Diagnostics) {
-	checked := RootReturnStatement{SourceLine: statement.Keyword.Line, SourceColumn: statement.Keyword.Column}
+	checked := RootReturnStatement{Span: statement.Keyword.Span}
 	if statement.Value == nil {
 		return checked, nil
 	}

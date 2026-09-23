@@ -19,7 +19,7 @@ import (
 // `continue` never skips the increment.
 func renderForStatement(body *strings.Builder, statement checker.ForStatement, state *expressionValidation, result *compilerTypes.Type, inFunction bool, indent string) error {
 	sourceType := statement.Source.Type
-	if err := writeLineDirective(body, statement.SourceLine, state.filename); err != nil {
+	if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 		return err
 	}
 
@@ -205,7 +205,7 @@ func renderForSequence(body *strings.Builder, statement checker.ForStatement, re
 			return err
 		}
 	}
-	if err := writeLineDirective(body, statement.Binders[0].SourceLine, state.filename); err != nil {
+	if err := writeLineDirective(body, state.line(statement.Binders[0].Span), state.filename); err != nil {
 		return err
 	}
 	valueBinder := statement.Binders[len(statement.Binders)-1]
@@ -259,7 +259,7 @@ func renderForText(body *strings.Builder, statement checker.ForStatement, render
 	if err := renderInto(body, "module.c", "for_index_open", forOpenModel{Indent: indent, Var: indexVariable, Limit: byteLength}); err != nil {
 		return err
 	}
-	if err := writeLineDirective(body, statement.Binders[0].SourceLine, state.filename); err != nil {
+	if err := writeLineDirective(body, state.line(statement.Binders[0].Span), state.filename); err != nil {
 		return err
 	}
 	valueBinder := statement.Binders[len(statement.Binders)-1]
@@ -323,7 +323,7 @@ func renderForRuneText(body *strings.Builder, statement checker.ForStatement, re
 	if err := renderInto(body, "module.c", "for_width_open", forOpenModel{Indent: indent, Var: offsetVariable, Limit: byteLength, Width: widthVariable}); err != nil {
 		return err
 	}
-	if err := writeLineDirective(body, statement.Binders[0].SourceLine, state.filename); err != nil {
+	if err := writeLineDirective(body, state.line(statement.Binders[0].Span), state.filename); err != nil {
 		return err
 	}
 	valueBinder := statement.Binders[len(statement.Binders)-1]
@@ -384,7 +384,7 @@ func renderForGraphemeText(body *strings.Builder, statement checker.ForStatement
 	if err := renderInto(body, "module.c", "grapheme_while_open", forStmtLineModel{Indent: indent, Name: cursorVariable}); err != nil {
 		return err
 	}
-	if err := writeLineDirective(body, statement.Binders[0].SourceLine, state.filename); err != nil {
+	if err := writeLineDirective(body, state.line(statement.Binders[0].Span), state.filename); err != nil {
 		return err
 	}
 	if len(statement.Binders) == 2 {
@@ -462,7 +462,7 @@ func renderForDict(body *strings.Builder, statement checker.ForStatement, render
 			return err
 		}
 	}
-	if err := writeLineDirective(body, statement.Binders[0].SourceLine, state.filename); err != nil {
+	if err := writeLineDirective(body, state.line(statement.Binders[0].Span), state.filename); err != nil {
 		return err
 	}
 	if hasIndex {

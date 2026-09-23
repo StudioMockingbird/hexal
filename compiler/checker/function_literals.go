@@ -50,8 +50,7 @@ func checkAnonymousFunctionLiteral(expression parser.AnonymousFunctionLiteral, c
 		Body:          statements,
 		Defers:        append([]DeferredAction(nil), body.defers...),
 		HelperOrdinal: ordinal,
-		SourceLine:    expression.FunKeyword.Line,
-		SourceColumn:  expression.FunKeyword.Column,
+		Span:          expression.FunKeyword.Span,
 	}
 	source := Operand{
 		Kind: ExpressionOperand,

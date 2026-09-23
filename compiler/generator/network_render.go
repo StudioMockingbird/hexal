@@ -20,7 +20,7 @@ func renderNetworkExpression(node checker.Expression, state *expressionValidatio
 		return renderTerminalExpression(node, state)
 	}
 	suffix := streamAdapterSuffix(node.ResultType)
-	site := fmt.Sprintf("%d, %d", node.SourceLine, node.SourceColumn)
+	site := fmt.Sprintf("%d, %d", state.line(node.Span), state.column(node.Span))
 	switch node.Name {
 	case "address_parse":
 		text, err := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)

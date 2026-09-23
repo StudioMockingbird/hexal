@@ -306,7 +306,7 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 				return unknownExpressionDiagnostic("text widen call has invalid checked metadata")
 			}
 		case "concat":
-			if len(node.Arguments) != 2 || node.SourceLine == 0 || !textFailureResult(node.ResultType, compilerTypes.StringType) {
+			if len(node.Arguments) != 2 || state.line(node.Span) == 0 || !textFailureResult(node.ResultType, compilerTypes.StringType) {
 				return unknownExpressionDiagnostic("string concat call has invalid checked metadata")
 			}
 			for _, argument := range node.Arguments {
@@ -315,7 +315,7 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 				}
 			}
 		case "casefold":
-			if len(node.Arguments) != 1 || node.SourceLine == 0 || !textFailureResult(node.ResultType, compilerTypes.StringType) {
+			if len(node.Arguments) != 1 || state.line(node.Span) == 0 || !textFailureResult(node.ResultType, compilerTypes.StringType) {
 				return unknownExpressionDiagnostic("string casefold call has invalid checked metadata")
 			}
 			for _, argument := range node.Arguments {
@@ -324,7 +324,7 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 				}
 			}
 		case "normalize":
-			if len(node.Arguments) != 2 || node.SourceLine == 0 || !textFailureResult(node.ResultType, compilerTypes.StringType) {
+			if len(node.Arguments) != 2 || state.line(node.Span) == 0 || !textFailureResult(node.ResultType, compilerTypes.StringType) {
 				return unknownExpressionDiagnostic("string normalize call has invalid checked metadata")
 			}
 			for _, argument := range node.Arguments {
@@ -350,7 +350,7 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 		}
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.StringFromBytesExpression:
-		if node.Operand == nil || len(node.Arguments) != 1 || node.SourceLine == 0 || !compilerTypes.IsHeap(node.OperandType) ||
+		if node.Operand == nil || len(node.Arguments) != 1 || state.line(node.Span) == 0 || !compilerTypes.IsHeap(node.OperandType) ||
 			!textFailureResult(node.ResultType, compilerTypes.StringType) || node.Arguments[0].Type.Slice == nil {
 			return unknownExpressionDiagnostic("String.from_bytes has invalid checked metadata")
 		}
@@ -362,7 +362,7 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
 	case checker.StringFromRunesExpression:
-		if node.Operand == nil || len(node.Arguments) != 1 || node.SourceLine == 0 || !compilerTypes.IsHeap(node.OperandType) ||
+		if node.Operand == nil || len(node.Arguments) != 1 || state.line(node.Span) == 0 || !compilerTypes.IsHeap(node.OperandType) ||
 			!textFailureResult(node.ResultType, compilerTypes.StringType) || node.Arguments[0].Type.Slice == nil ||
 			!compilerTypes.Equal(node.Arguments[0].Type.Slice.Element, compilerTypes.Rune) {
 			return unknownExpressionDiagnostic("String.from_runes has invalid checked metadata")
@@ -375,7 +375,7 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
 	case checker.InlineStringConstructExpression:
-		if !compilerTypes.IsInlineString(node.OperandType) || node.SourceLine == 0 || !textFailureResult(node.ResultType, node.OperandType) {
+		if !compilerTypes.IsInlineString(node.OperandType) || state.line(node.Span) == 0 || !textFailureResult(node.ResultType, node.OperandType) {
 			return unknownExpressionDiagnostic("inline string constructor has invalid checked metadata")
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
@@ -554,7 +554,7 @@ func renderTextExpression(node checker.Expression, state *expressionValidation) 
 		if viewErr != nil {
 			return "", viewErr
 		}
-		return fmt.Sprintf("hex_string_from_bytes_%s(%s, %s, %d, %d)", streamAdapterSuffix(node.ResultType), heap, bytes, node.SourceLine, node.SourceColumn), nil
+		return fmt.Sprintf("hex_string_from_bytes_%s(%s, %s, %d, %d)", streamAdapterSuffix(node.ResultType), heap, bytes, state.line(node.Span), state.column(node.Span)), nil
 	case checker.StringFromRunesExpression:
 		if node.Operand == nil || len(node.Arguments) != 1 {
 			return "", unknownExpressionDiagnostic("String.from_runes without checked operands")
@@ -567,7 +567,7 @@ func renderTextExpression(node checker.Expression, state *expressionValidation) 
 		if runesErr != nil {
 			return "", runesErr
 		}
-		return fmt.Sprintf("hex_string_from_runes_%s(%s, %s, %d, %d)", streamAdapterSuffix(node.ResultType), heap, runes, node.SourceLine, node.SourceColumn), nil
+		return fmt.Sprintf("hex_string_from_runes_%s(%s, %s, %d, %d)", streamAdapterSuffix(node.ResultType), heap, runes, state.line(node.Span), state.column(node.Span)), nil
 	case checker.InlineStringConstructExpression:
 		return renderInlineStringConstruct(node, state)
 	case checker.TextCoerceExpression:
@@ -728,7 +728,7 @@ func renderTextMethod(node checker.Expression, state *expressionValidation) (str
 		if symbolErr != nil {
 			return "", symbolErr
 		}
-		return fmt.Sprintf("%s(%s, %s, %s, %d, %d)", symbol, heap, view, other, node.SourceLine, node.SourceColumn), nil
+		return fmt.Sprintf("%s(%s, %s, %s, %d, %d)", symbol, heap, view, other, state.line(node.Span), state.column(node.Span)), nil
 	case "casefold":
 		heap, heapErr := renderOperandWithState(node.Arguments[0], state)
 		if heapErr != nil {
@@ -738,7 +738,7 @@ func renderTextMethod(node checker.Expression, state *expressionValidation) (str
 		if symbolErr != nil {
 			return "", symbolErr
 		}
-		return fmt.Sprintf("%s(%s, %s, %d, %d)", symbol, heap, view, node.SourceLine, node.SourceColumn), nil
+		return fmt.Sprintf("%s(%s, %s, %d, %d)", symbol, heap, view, state.line(node.Span), state.column(node.Span)), nil
 	case "normalize":
 		heap, heapErr := renderOperandWithState(node.Arguments[0], state)
 		if heapErr != nil {
@@ -752,7 +752,7 @@ func renderTextMethod(node checker.Expression, state *expressionValidation) (str
 		if symbolErr != nil {
 			return "", symbolErr
 		}
-		return fmt.Sprintf("%s(%s, %s, (%s).tag, %d, %d)", symbol, heap, view, form, node.SourceLine, node.SourceColumn), nil
+		return fmt.Sprintf("%s(%s, %s, (%s).tag, %d, %d)", symbol, heap, view, form, state.line(node.Span), state.column(node.Span)), nil
 	}
 	return "", unknownExpressionDiagnostic("unknown string method")
 }
@@ -770,7 +770,7 @@ func renderInlineStringConstruct(node checker.Expression, state *expressionValid
 			}
 			arguments[index] = rendered
 		}
-		return fmt.Sprintf("hex_text_%s_%s(%s, %d, %d)", node.Name, streamAdapterSuffix(node.ResultType), strings.Join(arguments, ", "), node.SourceLine, node.SourceColumn), nil
+		return fmt.Sprintf("hex_text_%s_%s(%s, %d, %d)", node.Name, streamAdapterSuffix(node.ResultType), strings.Join(arguments, ", "), state.line(node.Span), state.column(node.Span)), nil
 	case "interpolate":
 		return renderStringInterpolate(node, state)
 	}

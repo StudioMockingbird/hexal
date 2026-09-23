@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"hexal/compiler/config"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -22,6 +23,12 @@ type Config struct {
 	// implementation. The type lives in compiler/types so both the
 	// compiler and the generator name the same identities.
 	Target compilerTypes.TargetProfileID
+	// SourceTable resolves a checked node's carried span to the line and
+	// column a generated #line directive or runtime failure site embeds. It
+	// is compilation plumbing, not a user-facing setting: a zero Config
+	// resolves every position to 0:0, the same absence a hand-built checked
+	// program with no source always had.
+	SourceTable *span.Table
 }
 
 // targetIsWindows reports whether the selected profile is the qualified

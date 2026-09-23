@@ -16,6 +16,7 @@ import (
 	"hexal/compiler/generator"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 	"hexal/internal/graph"
 	"hexal/stdlib"
@@ -154,8 +155,14 @@ func compilePipeline(sources map[string]string, entrypoint string, project Proje
 		stats.TokenCount += node.TokenCount
 	}
 
+	// One table owns every logical source this compilation can render a
+	// location for. The checker resolves a diagnostic span and the generator
+	// resolves a #line or runtime failure span through it, so a location is
+	// always derived from the same text the lexer scanned.
+	table := sourceTable(sources)
+
 	started = time.Now()
-	checked, checkErr := checker.CheckModulesForTarget(graph, project.Target)
+	checked, checkErr := checker.CheckModulesForTarget(graph, project.Target, table)
 	stats.CheckDuration = time.Since(started)
 	if checkErr != nil {
 		return failureResult(checkErr, stats, compileStarted)
@@ -166,6 +173,7 @@ func compilePipeline(sources map[string]string, entrypoint string, project Proje
 		TaskStackReserve: project.TaskStackReserve,
 		TaskStackCommit:  project.TaskStackCommit,
 		Target:           project.Target,
+		SourceTable:      table,
 	})
 	stats.GenerateDuration = time.Since(started)
 	if generateErr != nil {
@@ -649,6 +657,23 @@ func stdlibSourcesByCanonical() map[string]string {
 		byCanonical[strings.TrimSuffix(strings.TrimPrefix(key, "stdlib/"), ".hex")] = text
 	}
 	return byCanonical
+}
+
+// sourceTable builds the compilation's one source table from every logical
+// source it can render a location for: each supplied source key, which already
+// includes the prepared C bindings the driver inserted under their reserved
+// keys, and every embedded source stdlib module under the same logical key the
+// resolver lexes it from. A span's File is one of these keys, never a host
+// path, so the table resolves a carried span without filesystem access.
+func sourceTable(sources map[string]string) *span.Table {
+	table := span.NewTable()
+	for key, text := range sources {
+		table.Add(key, text)
+	}
+	for canonical, text := range stdlibSourcesByCanonical() {
+		table.Add(stdlib.SourceKey(canonical), text)
+	}
+	return table
 }
 
 // sourceFor returns the source key and text of one canonical module: an

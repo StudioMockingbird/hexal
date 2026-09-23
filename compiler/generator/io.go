@@ -155,7 +155,7 @@ func renderStreamConstructor(node checker.Expression, state *expressionValidatio
 	}
 	switch node.Name {
 	case "stdin", "stdout", "stderr":
-		return fmt.Sprintf("hex_io_open_%s(%d, %d)", node.Name, node.SourceLine, node.SourceColumn), nil
+		return fmt.Sprintf("hex_io_open_%s(%d, %d)", node.Name, state.line(node.Span), state.column(node.Span)), nil
 	}
 	return "", unknownExpressionDiagnostic("unknown stream constructor " + node.Name)
 }
@@ -189,7 +189,7 @@ func renderStreamMethod(node checker.Expression, state *expressionValidation) (s
 	if err != nil {
 		return "", err
 	}
-	site := fmt.Sprintf("%d, %d", node.SourceLine, node.SourceColumn)
+	site := fmt.Sprintf("%d, %d", state.line(node.Span), state.column(node.Span))
 	suffix := streamAdapterSuffix(node.ResultType)
 	memory := isBytesReceiver(node)
 	prefix := "hex_io_"
@@ -281,7 +281,7 @@ func validateStreamConstructor(node checker.Expression, expected *compilerTypes.
 	default:
 		return unknownExpressionDiagnostic("unknown stream constructor in checked metadata")
 	}
-	if node.SourceLine == 0 || len(node.Arguments) != 0 || node.Operand != nil {
+	if state.line(node.Span) == 0 || len(node.Arguments) != 0 || node.Operand != nil {
 		return unknownExpressionDiagnostic("stream constructor carries incomplete metadata")
 	}
 	members := compilerTypes.UnionMembers(node.ResultType)

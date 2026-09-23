@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"hexal/compiler/checker"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -20,7 +21,7 @@ type localHelper struct {
 	body       []checker.Statement
 	defers     []checker.DeferredAction
 	typ        compilerTypes.Type
-	sourceLine int
+	sourceSpan span.Span
 	sourceName string
 }
 
@@ -57,7 +58,7 @@ func collectLocalHelpers(program checker.Program) ([]localHelper, error) {
 				body:       literal.Body,
 				defers:     literal.Defers,
 				typ:        literal.Type,
-				sourceLine: literal.SourceLine,
+				sourceSpan: literal.Span,
 				sourceName: "function literal",
 			})
 			return nil
@@ -153,6 +154,7 @@ func writeLocalHelperDefinitions(ctx definitionContext, helpers []localHelper) e
 			strings:        ctx.strings,
 			owner:          ctx.owner,
 			filename:       ctx.filename,
+			table:          ctx.table,
 			tags:           ctx.tags,
 		}
 		state.pushScope()
@@ -177,7 +179,7 @@ func writeLocalHelperDefinitions(ctx definitionContext, helpers []localHelper) e
 			}
 			parameters[index] = declaration(parameter.Type, name, false)
 		}
-		if err := writeLineDirective(ctx.body, helper.sourceLine, ctx.filename); err != nil {
+		if err := writeLineDirective(ctx.body, ctx.line(helper.sourceSpan), ctx.filename); err != nil {
 			return err
 		}
 		if err := renderInto(ctx.body, "module.h", "helper_open", helperSignatureModel{Result: resultSpelling, Name: localHelperCName(helper.ordinal), Params: parameterList(parameters)}); err != nil {

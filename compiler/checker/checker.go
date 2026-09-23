@@ -4,6 +4,7 @@ package checker
 import (
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -49,14 +50,13 @@ type Program struct {
 // executable local, valid only in the entrypoint). It is retained outside the
 // executable statement list exactly like TypeDeclaration.
 type ModuleValueDeclaration struct {
-	Name         string
-	Binding      BindingID
-	Type         compilerTypes.Type
-	TypeUse      compilerTypes.TypeUse
-	Source       Operand
-	Exported     bool // stamped later by applyExportFlags
-	SourceLine   int
-	SourceColumn int
+	Name     string
+	Binding  BindingID
+	Type     compilerTypes.Type
+	TypeUse  compilerTypes.TypeUse
+	Source   Operand
+	Exported bool // stamped later by applyExportFlags
+	Span     span.Span
 }
 
 // Statement is one generator-ready checked statement.
@@ -68,24 +68,22 @@ type Statement interface {
 // executable statement list so generation can ignore it without losing proof
 // that the declaration was resolved.
 type TypeDeclaration struct {
-	Name         string
-	Type         compilerTypes.Type
-	TypeUse      compilerTypes.TypeUse
-	SourceLine   int
-	SourceColumn int
+	Name    string
+	Type    compilerTypes.Type
+	TypeUse compilerTypes.TypeUse
+	Span    span.Span
 }
 
 // Declaration binds a name to a resolved type, binding mode, and checked
 // initializer.
 type Declaration struct {
-	Name         string
-	Binding      BindingID
-	Type         compilerTypes.Type
-	TypeUse      compilerTypes.TypeUse
-	Source       Operand
-	Mutable      bool
-	SourceLine   int
-	SourceColumn int
+	Name    string
+	Binding BindingID
+	Type    compilerTypes.Type
+	TypeUse compilerTypes.TypeUse
+	Source  Operand
+	Mutable bool
+	Span    span.Span
 	// Captured is true when an entry-module named function or method captures
 	// this root binding, so the generator lowers it as an entry-environment
 	// field rather than an automatic local.
@@ -105,12 +103,11 @@ func (Declaration) statementNode() {}
 
 // Assignment writes the checked source expression to a checked place.
 type Assignment struct {
-	Name         string
-	Target       Operand
-	Type         compilerTypes.Type
-	Source       Operand
-	SourceLine   int
-	SourceColumn int
+	Name   string
+	Target Operand
+	Type   compilerTypes.Type
+	Source Operand
+	Span   span.Span
 }
 
 func (Assignment) statementNode() {}
@@ -118,32 +115,27 @@ func (Assignment) statementNode() {}
 // IfStatement is the checked conditional chain. Conditions are complete Bool
 // operands and each body contains only checked statements in its own scope.
 type IfStatement struct {
-	Condition       Operand
-	ConditionLine   int
-	ConditionColumn int
-	Then            []Statement
-	ElseIf          []IfBranch
-	Else            []Statement
-	ElseLine        int
-	SourceLine      int
-	SourceColumn    int
-	EndLine         int
-	EndColumn       int
-	ThenDefers      []DeferredAction
-	ElseIfDefers    [][]DeferredAction
-	ElseDefers      []DeferredAction
+	Condition     Operand
+	ConditionSpan span.Span
+	Then          []Statement
+	ElseIf        []IfBranch
+	Else          []Statement
+	ElseSpan      span.Span
+	Span          span.Span
+	EndSpan       span.Span
+	ThenDefers    []DeferredAction
+	ElseIfDefers  [][]DeferredAction
+	ElseDefers    []DeferredAction
 }
 
 func (IfStatement) statementNode() {}
 
 // IfBranch is one checked elseif clause: its own condition and body.
 type IfBranch struct {
-	Condition       Operand
-	ConditionLine   int
-	ConditionColumn int
-	Body            []Statement
-	SourceLine      int
-	SourceColumn    int
+	Condition     Operand
+	ConditionSpan span.Span
+	Body          []Statement
+	Span          span.Span
 }
 
 // WhileStatement is a checked pre-test loop. Its body was checked with one
@@ -154,15 +146,12 @@ type WhileStatement struct {
 	// binding read used as the condition, so the constant-required
 	// while-true starvation diagnostic keeps working while the read itself
 	// stays in Condition. Nil for every other condition shape.
-	ConditionKnown  *Operand
-	ConditionLine   int
-	ConditionColumn int
-	Body            []Statement
-	SourceLine      int
-	SourceColumn    int
-	EndLine         int
-	EndColumn       int
-	BodyDefers      []DeferredAction
+	ConditionKnown *Operand
+	ConditionSpan  span.Span
+	Body           []Statement
+	Span           span.Span
+	EndSpan        span.Span
+	BodyDefers     []DeferredAction
 }
 
 func (WhileStatement) statementNode() {}
@@ -171,12 +160,11 @@ func (WhileStatement) statementNode() {}
 // Binders are fresh immutable names typed by the source; Source is evaluated
 // once before the loop and never re-evaluated.
 type ForStatement struct {
-	Binders      []ForBinder
-	Source       Operand
-	Body         []Statement
-	BodyDefers   []DeferredAction
-	SourceLine   int
-	SourceColumn int
+	Binders    []ForBinder
+	Source     Operand
+	Body       []Statement
+	BodyDefers []DeferredAction
+	Span       span.Span
 }
 
 func (ForStatement) statementNode() {}
@@ -184,18 +172,16 @@ func (ForStatement) statementNode() {}
 // ForBinder is one checked for-in binder: name plus resolved element, key,
 // value, or index type.
 type ForBinder struct {
-	Name         string
-	Type         compilerTypes.Type
-	Binding      BindingID
-	SourceLine   int
-	SourceColumn int
+	Name    string
+	Type    compilerTypes.Type
+	Binding BindingID
+	Span    span.Span
 }
 
 // BreakStatement leaves the innermost enclosing loop. It is valid only inside
 // a loop; the checker rejects one outside any loop depth.
 type BreakStatement struct {
-	SourceLine   int
-	SourceColumn int
+	Span span.Span
 }
 
 func (BreakStatement) statementNode() {}
@@ -204,8 +190,7 @@ func (BreakStatement) statementNode() {}
 // loop. It is valid only inside a loop; the checker rejects one outside any
 // loop depth.
 type ContinueStatement struct {
-	SourceLine   int
-	SourceColumn int
+	Span span.Span
 }
 
 func (ContinueStatement) statementNode() {}
@@ -217,10 +202,9 @@ type DeferredAction struct {
 	IsCall bool
 	Call   *Operand
 	Value  *Operand
-	// SourceLine and SourceColumn locate diagnostics emitted when the action
-	// is validated at scope exit rather than at registration.
-	SourceLine   int
-	SourceColumn int
+	// Span locates diagnostics emitted when the action is validated at
+	// scope exit rather than at registration.
+	Span span.Span
 	// TrackedFreeBinding and TrackedFreeVersion identify the tracked value
 	// (a Heap-allocated pointer, a Pool-allocated pointer, or a Stash/Pool
 	// handle) captured by a deferred Heap.free, Pool.free, Stash.destroy, or
@@ -234,10 +218,9 @@ type DeferredAction struct {
 
 // DeferStatement is the checked registration of one deferred action.
 type DeferStatement struct {
-	Expression   Operand
-	Action       DeferredAction
-	SourceLine   int
-	SourceColumn int
+	Expression Operand
+	Action     DeferredAction
+	Span       span.Span
 }
 
 func (DeferStatement) statementNode() {}
@@ -245,9 +228,8 @@ func (DeferStatement) statementNode() {}
 // ReturnStatement leaves the enclosing function. Value is nil for a bare
 // return, which only a no-return function accepts.
 type ReturnStatement struct {
-	Value        *Operand
-	SourceLine   int
-	SourceColumn int
+	Value *Operand
+	Span  span.Span
 }
 
 func (ReturnStatement) statementNode() {}
@@ -259,9 +241,8 @@ func (ReturnStatement) statementNode() {}
 // Value is nil for a bare return or entry-module fallthrough, both of which
 // record status zero.
 type RootReturnStatement struct {
-	Value        *Operand
-	SourceLine   int
-	SourceColumn int
+	Value *Operand
+	Span  span.Span
 }
 
 func (RootReturnStatement) statementNode() {}
@@ -269,9 +250,8 @@ func (RootReturnStatement) statementNode() {}
 // CallStatement is a call in statement position. It is the only place a
 // no-return call may appear.
 type CallStatement struct {
-	Call         Operand
-	SourceLine   int
-	SourceColumn int
+	Call Operand
+	Span span.Span
 }
 
 func (CallStatement) statementNode() {}
@@ -282,10 +262,9 @@ func (CallStatement) statementNode() {}
 // holds the actions registered inside the region, which run at its exit
 // exactly like any other block scope.
 type UnsafeStatement struct {
-	Body         []Statement
-	BodyDefers   []DeferredAction
-	SourceLine   int
-	SourceColumn int
+	Body       []Statement
+	BodyDefers []DeferredAction
+	Span       span.Span
 }
 
 func (UnsafeStatement) statementNode() {}
@@ -294,9 +273,8 @@ func (UnsafeStatement) statementNode() {}
 // checked Expression is a TryExpression carrying the propagation metadata;
 // the generator hoists its prologue and emits no value use.
 type TryStatement struct {
-	Expression   Operand
-	SourceLine   int
-	SourceColumn int
+	Expression Operand
+	Span       span.Span
 }
 
 func (TryStatement) statementNode() {}
@@ -362,7 +340,7 @@ func Check(program parser.Program) (Program, error) {
 // are target-dependent, so a compilation containing a foreign declaration
 // requires a qualified target and never falls back to host inference.
 func CheckForTarget(program parser.Program, target compilerTypes.TargetProfileID) (Program, error) {
-	checked, err := CheckModulesForTarget(SingleModuleGraph(program), target)
+	checked, err := CheckModulesForTarget(SingleModuleGraph(program), target, nil)
 	// The partially checked program is returned alongside diagnostics: clean
 	// statements survive failed ones, and later diagnostics cannot observe
 	// invalid declarations.
@@ -382,13 +360,15 @@ const (
 // consumer's lookup is total. Diagnostics are merged sorted by module order,
 // then line, then column.
 func CheckModules(graph *ModuleGraph) (map[string]Program, error) {
-	return CheckModulesForTarget(graph, "")
+	return CheckModulesForTarget(graph, "", nil)
 }
 
 // CheckModulesForTarget is CheckModules with an explicit target profile. The
 // target is read by every foreign declaration's ABI mapping; the checker never
-// inspects the host.
-func CheckModulesForTarget(graph *ModuleGraph, target compilerTypes.TargetProfileID) (map[string]Program, error) {
+// inspects the host. table is the compilation's source table; a nil table,
+// which only a direct caller without one has, resolves a carried span to no
+// location but never invents one.
+func CheckModulesForTarget(graph *ModuleGraph, target compilerTypes.TargetProfileID, table *span.Table) (map[string]Program, error) {
 	checked := make(map[string]Program, len(graph.Order))
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	registry := buildModuleRegistry(graph)
@@ -400,7 +380,7 @@ func CheckModulesForTarget(graph *ModuleGraph, target compilerTypes.TargetProfil
 	for _, moduleID := range graph.Order {
 		node := graph.Modules[moduleID]
 		key := node.LogicalKey
-		moduleChecked, moduleDiagnostics := checkModule(node.Program, moduleID, key, entrypointCanonical, registry, arena, target)
+		moduleChecked, moduleDiagnostics := checkModule(node.Program, moduleID, key, entrypointCanonical, registry, arena, target, table)
 		// One stamping point for the whole stage: module diagnostics are
 		// stamped here, where the module identity is known. checkModule
 		// receives the logical key only for Error.file provenance, never
@@ -428,7 +408,7 @@ func CheckModulesForTarget(graph *ModuleGraph, target compilerTypes.TargetProfil
 			// closure is validated, so importers see complete records and the
 			// walker can prove its own exports against the registry.
 			registry.registerExports(moduleID, exports, moduleChecked)
-			diagnostics = append(diagnostics, registry.checkExportedClosure(moduleID, moduleChecked).InModule(key)...)
+			diagnostics = append(diagnostics, registry.checkExportedClosure(moduleID, moduleChecked, table).InModule(key)...)
 		} else {
 			checked[key] = moduleChecked
 		}
@@ -483,13 +463,13 @@ func reserveNominalDefinitionNames(graph *ModuleGraph, arena *compilerTypes.Aren
 // canonical identity; logicalKey is its source-map filename; entrypointCanonical
 // is the root module's canonical identity, the only module allowed to execute
 // statements. registry carries the import aliases every module scope sees.
-func checkModule(program parser.Program, moduleID string, logicalKey string, entrypointCanonical string, registry *ModuleRegistry, arena *compilerTypes.Arena, target compilerTypes.TargetProfileID) (Program, compilerTypes.Diagnostics) {
+func checkModule(program parser.Program, moduleID string, logicalKey string, entrypointCanonical string, registry *ModuleRegistry, arena *compilerTypes.Arena, target compilerTypes.TargetProfileID, table *span.Table) (Program, compilerTypes.Diagnostics) {
 	checked := Program{
 		TypeDeclarations: make([]TypeDeclaration, 0),
 		Statements:       make([]Statement, 0, len(program.Statements)),
 	}
 	diagnostics := make(compilerTypes.Diagnostics, 0)
-	environment := moduleScope(moduleID, logicalKey, registry)
+	environment := moduleScope(moduleID, logicalKey, registry, table)
 	typeEnvironment := compilerTypes.NewCompilationEnvironment(arena, moduleID)
 	ctx := checkContext{names: environment, typeEnvironment: typeEnvironment}
 	if moduleID == entrypointCanonical {
@@ -813,9 +793,8 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 				continue
 			}
 			checked.Statements = append(checked.Statements, TryStatement{
-				Expression:   checkedTry.source,
-				SourceLine:   statement.Keyword.Line,
-				SourceColumn: statement.Keyword.Column,
+				Expression: checkedTry.source,
+				Span:       statement.Keyword.Span,
 			})
 		case parser.ReturnStatement:
 			checkedStatement, statementDiagnostics := checkReturnStatement(statement, ctx)
@@ -926,7 +905,7 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 	}
 	// The starvation rule runs only after the program checked clean, so its
 	// Semantic Errors are never mixed with earlier failures.
-	starvationDiagnostics := checkStarvation(checked)
+	starvationDiagnostics := checkStarvation(checked, table)
 	if len(starvationDiagnostics) > 0 {
 		return checked, starvationDiagnostics
 	}
@@ -960,7 +939,7 @@ func checkRootExecutable(item parser.TopLevelItem, ctx checkContext) (Statement,
 		if errs := initializerDiagnostics(checkedTry); len(errs) > 0 {
 			return nil, errs
 		}
-		return TryStatement{Expression: checkedTry.source, SourceLine: statement.Keyword.Line, SourceColumn: statement.Keyword.Column}, nil
+		return TryStatement{Expression: checkedTry.source, Span: statement.Keyword.Span}, nil
 	case parser.ReturnStatement:
 		return checkReturnStatement(statement, ctx)
 	case parser.IfStatement, parser.WhileStatement, parser.ForStatement, parser.UnsafeStatement, parser.BreakStatement, parser.ContinueStatement:

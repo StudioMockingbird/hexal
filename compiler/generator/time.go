@@ -90,12 +90,12 @@ func renderTimeExpression(node checker.Expression, state *expressionValidation) 
 		}
 		arguments = append(arguments, rendered)
 	}
-	return timeCall(node, arguments)
+	return timeCall(node, arguments, state)
 }
 
 // timeCall spells one time operation over already-rendered operands. The
 // deferred-cleanup path shares it with the ordinary render path.
-func timeCall(node checker.Expression, arguments []string) (string, error) {
+func timeCall(node checker.Expression, arguments []string, state *expressionValidation) (string, error) {
 	if arity, ok := timeOperationArity(node.Name); !ok || arity != len(arguments) {
 		return "", unknownExpressionDiagnostic("time operation has invalid rendered operands")
 	}
@@ -111,7 +111,7 @@ func timeCall(node checker.Expression, arguments []string) (string, error) {
 	case "duration_sub":
 		return "hex_duration_sub(" + arguments[0] + ", " + arguments[1] + ")", nil
 	case "wall_now":
-		return fmt.Sprintf("hex_wall_time_now_%s(%d, %d)", streamAdapterSuffix(node.ResultType), node.SourceLine, node.SourceColumn), nil
+		return fmt.Sprintf("hex_wall_time_now_%s(%d, %d)", streamAdapterSuffix(node.ResultType), state.line(node.Span), state.column(node.Span)), nil
 	case "wall_seconds":
 		return "(" + arguments[0] + ").seconds", nil
 	case "wall_nanosecond":
@@ -183,7 +183,7 @@ func validateTimeExpression(node checker.Expression, expected *compilerTypes.Typ
 		operandsOK, resultOK = sameOperands(compilerTypes.DurationType), node.ResultType == (compilerTypes.Type{})
 	case "wall_now":
 		members := compilerTypes.UnionMembers(node.ResultType)
-		operandsOK = compilerTypes.IsWallTime(operand) && node.SourceLine > 0
+		operandsOK = compilerTypes.IsWallTime(operand) && state.line(node.Span) > 0
 		resultOK = node.ResultType.Union != nil && members.Len() == 2 && unionHasMember(members, compilerTypes.WallTimeType) && unionHasMember(members, compilerTypes.ErrorType)
 	case "wall_seconds":
 		operandsOK, resultOK = sameOperands(compilerTypes.WallTimeType), compilerTypes.Equal(node.ResultType, compilerTypes.Int64)
