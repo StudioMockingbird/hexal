@@ -51,7 +51,7 @@ func TestRepeatedSameBinaryOperatorChainsParse(t *testing.T) {
 			continue
 		}
 		source := fmt.Sprintf("let result: Bool = a %s b %s c %s d", sample.lexeme, sample.lexeme, sample.lexeme)
-		tokens, err := lexer.Lex(source)
+		tokens, err := lexer.Lex("test.hex", source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
 		}
@@ -99,7 +99,7 @@ func TestMixedBinaryOperatorPairsAreRejected(t *testing.T) {
 				continue
 			}
 			source := fmt.Sprintf("let result: Bool = a %s %s %s %s", first.lexeme, first.rhs, second.lexeme, second.rhs)
-			tokens, err := lexer.Lex(source)
+			tokens, err := lexer.Lex("test.hex", source)
 			if err != nil {
 				t.Fatalf("Lex(%q) returned an error: %v", source, err)
 			}
@@ -155,7 +155,7 @@ func TestNestedExpressionRegionsIsolateOperatorKinds(t *testing.T) {
 		// independent of a mixed root region.
 		"let x: Point = Point(a = b + c, d = e * f) and flag",
 	} {
-		tokens, err := lexer.Lex(source)
+		tokens, err := lexer.Lex("test.hex", source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
 		}
@@ -169,7 +169,7 @@ func TestNestedExpressionRegionsIsolateOperatorKinds(t *testing.T) {
 // their operators conflict with each other or with the containing region.
 func TestMatchRegionsIsolateOperatorKinds(t *testing.T) {
 	source := "let result: Int32 = match flag and other\n| true then a + b\n| false then c * d\nend\n"
-	tokens, err := lexer.Lex(source)
+	tokens, err := lexer.Lex("test.hex", source)
 	if err != nil {
 		t.Fatalf("Lex(%q) returned an error: %v", source, err)
 	}
@@ -187,7 +187,7 @@ func TestTypeTestNestingAndUnionRightHandSide(t *testing.T) {
 		"let x: Bool = (value is Int32) and ready",
 		"let x: Bool = value is Int32 | String",
 	} {
-		tokens, err := lexer.Lex(source)
+		tokens, err := lexer.Lex("test.hex", source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
 		}
@@ -207,7 +207,7 @@ func TestParenthesesPermitEveryMixedOperatorPair(t *testing.T) {
 				continue
 			}
 			leftGrouped := fmt.Sprintf("let result: Bool = (a %s %s) %s %s", first.lexeme, first.rhs, second.lexeme, second.rhs)
-			tokens, err := lexer.Lex(leftGrouped)
+			tokens, err := lexer.Lex("test.hex", leftGrouped)
 			if err != nil {
 				t.Fatalf("Lex(%q) returned an error: %v", leftGrouped, err)
 			}
@@ -222,7 +222,7 @@ func TestParenthesesPermitEveryMixedOperatorPair(t *testing.T) {
 				continue
 			}
 			rightGrouped := fmt.Sprintf("let result: Bool = %s %s (a %s %s)", "b", second.lexeme, first.lexeme, first.rhs)
-			tokens, err = lexer.Lex(rightGrouped)
+			tokens, err = lexer.Lex("test.hex", rightGrouped)
 			if err != nil {
 				t.Fatalf("Lex(%q) returned an error: %v", rightGrouped, err)
 			}
@@ -241,7 +241,7 @@ func TestUnaryAndPostfixFormsMixFreelyWithOneBinaryKind(t *testing.T) {
 		"let ready: Bool = !left and !right",
 		"let total: Int32 = values[i].amount() + values[j].amount()",
 	} {
-		tokens, err := lexer.Lex(source)
+		tokens, err := lexer.Lex("test.hex", source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
 		}

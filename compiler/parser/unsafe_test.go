@@ -8,7 +8,7 @@ import (
 )
 
 func TestLexUnsafeKeyword(t *testing.T) {
-	tokens, err := lexer.Lex("unsafe do end")
+	tokens, err := lexer.Lex("test.hex", "unsafe do end")
 	if err != nil {
 		t.Fatal(err)
 	}

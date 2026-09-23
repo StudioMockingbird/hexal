@@ -39,7 +39,7 @@ func TestGenerateInt32Declaration(t *testing.T) {
 }
 
 func TestGenerateTaggedUnionDeclaration(t *testing.T) {
-	tokens, err := lexer.Lex("let value: Int32 | Float64 = 1")
+	tokens, err := lexer.Lex("test.hex", "let value: Int32 | Float64 = 1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestGenerateTaggedUnionDeclaration(t *testing.T) {
 }
 
 func TestDiscoverGeneratedUnionHelpers(t *testing.T) {
-	tokens, err := lexer.Lex("let value: Int32 | Float64 = 1")
+	tokens, err := lexer.Lex("test.hex", "let value: Int32 | Float64 = 1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestGenerateCheckedReportsInvariantBreakAsUnknownError(t *testing.T) {
 
 func checkedGeneratorSource(t *testing.T, source string) checker.Program {
 	t.Helper()
-	tokens, err := lexer.Lex(source)
+	tokens, err := lexer.Lex("test.hex", source)
 	if err != nil {
 		t.Fatal(err)
 	}

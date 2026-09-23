@@ -11,7 +11,7 @@ import (
 // parseMatchArms parses one match expression and returns its arms.
 func parseMatchArms(t *testing.T, source string) []MatchArm {
 	t.Helper()
-	tokens, err := lexer.Lex(source)
+	tokens, err := lexer.Lex("test.hex", source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestParseScalarMatchKeepsTypePatterns(t *testing.T) {
 // Float and string literal arms remain outside ScalarPattern.
 func TestParseScalarMatchRejectsFloatAndStringArms(t *testing.T) {
 	for _, arm := range []string{"| 1.5 then 1", `| "a" then 1`} {
-		tokens, err := lexer.Lex("let r: Int32 = match op\n" + arm + "\n| else then 0\nend")
+		tokens, err := lexer.Lex("test.hex", "let r: Int32 = match op\n"+arm+"\n| else then 0\nend")
 		if err != nil {
 			t.Fatal(err)
 		}

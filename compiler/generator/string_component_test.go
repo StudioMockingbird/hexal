@@ -168,7 +168,7 @@ func TestStringComponentSelectionIsModuleLocal(t *testing.T) {
 		"app.hex":  "import\n    Math from \"./math\"\nend\nlet result: Int32 = Math.compute()\n",
 		"math.hex": "fun compute(): Int32 do\n    let text: String = \"hello\"\n    return 1\nend\nexport\n    compute\nend\n",
 	} {
-		tokens, err := lexer.Lex(source)
+		tokens, err := lexer.Lex("test.hex", source)
 		if err != nil {
 			t.Fatalf("Lex(%q) error = %v", key, err)
 		}

@@ -298,7 +298,7 @@ func TestConcurrencyComponentSelectionIsModuleLocal(t *testing.T) {
 		"app.hex":  "import\n    Math from \"./math\"\nend\nlet result: Int32 | Error = Math.compute()\n",
 		"math.hex": "fun double(v: Int32): Int32 do\n    return v * 2\nend\nfun compute(): Int32 | Error do\n    let task: Task<Int32> = try spawn double(21)\n    return task.join()\nend\nexport\n    compute\nend\n",
 	} {
-		tokens, err := lexer.Lex(source)
+		tokens, err := lexer.Lex("test.hex", source)
 		if err != nil {
 			t.Fatalf("Lex(%q) error = %v", key, err)
 		}

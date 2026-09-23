@@ -53,7 +53,7 @@ func TestImportAliasConflictsWithExistingName(t *testing.T) {
 // first non-import top-level item and rejects any later import as a Syntax
 // Error, so the checker never sees a misplaced import.
 func TestImportsMustPrecedeAllOtherItems(t *testing.T) {
-	tokens, lexErr := lexer.Lex("let x: Int32 = 1\nimport\n    Math from \"./math\"\nend\n")
+	tokens, lexErr := lexer.Lex("test.hex", "let x: Int32 = 1\nimport\n    Math from \"./math\"\nend\n")
 	if lexErr != nil {
 		t.Fatalf("Lex returned an error: %v", lexErr)
 	}

@@ -10,7 +10,7 @@ import (
 )
 
 func TestParseNamedTypeExpression(t *testing.T) {
-	tokens, err := lexer.Lex("let x: Int32 = 13")
+	tokens, err := lexer.Lex("test.hex", "let x: Int32 = 13")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestParseGeneralUnionAcceptsAnyMemberOrder(t *testing.T) {
 
 func mustLex(t *testing.T, source string) []lexer.Token {
 	t.Helper()
-	tokens, err := lexer.Lex(source)
+	tokens, err := lexer.Lex("test.hex", source)
 	if err != nil {
 		t.Fatalf("Lex(%q) returned an error: %v", source, err)
 	}
@@ -138,7 +138,7 @@ func mustLex(t *testing.T, source string) []lexer.Token {
 }
 
 func TestParsePtrTypeExpressionIsRecursive(t *testing.T) {
-	tokens, err := lexer.Lex("let x: Ptr<Ptr<Int32>> = y")
+	tokens, err := lexer.Lex("test.hex", "let x: Ptr<Ptr<Int32>> = y")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -156,7 +156,7 @@ func TestParsePtrTypeExpressionIsRecursive(t *testing.T) {
 }
 
 func TestParseObjectTypeExpressionOnlyAfterTypeDeclaration(t *testing.T) {
-	tokens, err := lexer.Lex("type Point is struct mut x: Int32, y: Ptr<Int32>, end")
+	tokens, err := lexer.Lex("test.hex", "type Point is struct mut x: Int32, y: Ptr<Int32>, end")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestParseRejectsObjectTypeOutsideTypeDeclaration(t *testing.T) {
 		"type Box is Ptr<{ x: Int32 }>",
 		"type Box is Ptr<{ x: Int32 } | Nil>",
 	} {
-		tokens, err := lexer.Lex(source)
+		tokens, err := lexer.Lex("test.hex", source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
 		}
@@ -205,7 +205,7 @@ func TestParseRejectsMalformedPtrType(t *testing.T) {
 		"x: Ptr<let Int32 = y",
 		"let x: Ptr<> = y",
 	} {
-		tokens, err := lexer.Lex(source)
+		tokens, err := lexer.Lex("test.hex", source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
 		}
@@ -216,7 +216,7 @@ func TestParseRejectsMalformedPtrType(t *testing.T) {
 }
 
 func TestParseTypeDeclarationIsTopLevelItem(t *testing.T) {
-	tokens, err := lexer.Lex("type Coordinate is Ptr<Ptr<Int32>>")
+	tokens, err := lexer.Lex("test.hex", "type Coordinate is Ptr<Ptr<Int32>>")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -241,7 +241,7 @@ func TestParseTypeDeclarationIsTopLevelItem(t *testing.T) {
 }
 
 func TestParseMixedTopLevelItemsPreservesOrder(t *testing.T) {
-	tokens, err := lexer.Lex("type Coordinate is Int32 let x: Coordinate = 1")
+	tokens, err := lexer.Lex("test.hex", "type Coordinate is Int32 let x: Coordinate = 1")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -270,7 +270,7 @@ func TestParseMutPtrTypeExpression(t *testing.T) {
 		{"let x: Ptr<Ptr<mut Int32>> = y", false},
 		{"let x: Ptr<mut Ptr<Int32>> = y", true},
 	} {
-		tokens, err := lexer.Lex(testCase.source)
+		tokens, err := lexer.Lex("test.hex", testCase.source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", testCase.source, err)
 		}
@@ -289,7 +289,7 @@ func TestParseMutPtrTypeExpression(t *testing.T) {
 }
 
 func TestParseRejectsMutOutsidePtrAndSlice(t *testing.T) {
-	tokens, err := lexer.Lex("let x: mut Int32 = y")
+	tokens, err := lexer.Lex("test.hex", "let x: mut Int32 = y")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestParseSliceTypeExpression(t *testing.T) {
 		{"let x: Slice<Slice<Int32>> = y", false},
 		{"let x: Slice<mut Slice<mut Int32>> = y", true},
 	} {
-		tokens, err := lexer.Lex(testCase.source)
+		tokens, err := lexer.Lex("test.hex", testCase.source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", testCase.source, err)
 		}
@@ -328,7 +328,7 @@ func TestParseSliceTypeExpression(t *testing.T) {
 }
 
 func TestParseMutTypeArgumentPreservedForSliceBridge(t *testing.T) {
-	tokens, err := lexer.Lex("let v: Slice<Int32> = Slice<mut Int32>.empty()")
+	tokens, err := lexer.Lex("test.hex", "let v: Slice<Int32> = Slice<mut Int32>.empty()")
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestParseMutTypeArgumentPreservedForSliceBridge(t *testing.T) {
 
 func parseAnnotation(t *testing.T, source string) TypeExpression {
 	t.Helper()
-	tokens, err := lexer.Lex(source)
+	tokens, err := lexer.Lex("test.hex", source)
 	if err != nil {
 		t.Fatalf("Lex(%q) returned an error: %v", source, err)
 	}
@@ -418,7 +418,7 @@ func TestParseRejectsMalformedFunctionTypes(t *testing.T) {
 		"handler: Fun<(Int32)let  : Int32 = f",
 		"let handler: Fun(Int32) = f",
 	} {
-		tokens, err := lexer.Lex(source)
+		tokens, err := lexer.Lex("test.hex", source)
 		if err != nil {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
 		}

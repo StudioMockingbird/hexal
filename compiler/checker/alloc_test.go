@@ -286,7 +286,7 @@ func TestCheckDeferLoopBodyIterationScoped(t *testing.T) {
 }
 
 func TestCheckDeferRejectsDeclarationBody(t *testing.T) {
-	tokens, err := lexer.Lex("let h: Heap = Heap() defer let p: Int32 = 1")
+	tokens, err := lexer.Lex("test.hex", "let h: Heap = Heap() defer let p: Int32 = 1")
 	if err != nil {
 		t.Fatal(err)
 	}

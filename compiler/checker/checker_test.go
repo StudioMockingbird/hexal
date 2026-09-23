@@ -11,7 +11,7 @@ import (
 
 func parseProgram(t *testing.T, source string) parser.Program {
 	t.Helper()
-	tokens, err := lexer.Lex(source)
+	tokens, err := lexer.Lex("test.hex", source)
 	if err != nil {
 		t.Fatalf("Lex returned an error: %v", err)
 	}

@@ -9,6 +9,7 @@ import (
 
 	"hexal/compiler/config"
 	compilerTypes "hexal/compiler/types"
+	"hexal/internal/span"
 )
 
 // literalEscapeSet selects the escape grammar of one quoted literal form.
@@ -442,17 +443,37 @@ func (kind TokenKind) String() string {
 	}
 }
 
-// Token is one lexical unit and its 1-based source location.
+// Token is one lexical unit, the byte range it occupies in its logical source
+// file, and its 1-based source location. Span is the authoritative identity:
+// the offset-to-line/column convention lives in internal/span, and Line and
+// Column are the same start position in the legacy integer form the parser and
+// diagnostics still consume during migration.
 type Token struct {
 	Kind   TokenKind
 	Lexeme string
+	Span   span.Span
 	Line   int
 	Column int
 }
 
-// Lex tokenizes source. Numeric spelling remains in tokens; exact semantic
-// decoding belongs to the checker so no later phase trusts unchecked text.
-func Lex(source string) ([]Token, error) {
+// newToken builds one token whose span is [start, start+len(lexeme)). The file
+// key is stamped over the whole token slice by Lex once scanning finishes, so
+// helpers that build tokens need not carry it.
+func newToken(kind TokenKind, lexeme string, start, line, column int) Token {
+	return Token{
+		Kind:   kind,
+		Lexeme: lexeme,
+		Span:   span.Span{Start: start, End: start + len(lexeme)},
+		Line:   line,
+		Column: column,
+	}
+}
+
+// Lex tokenizes source, which belongs to the logical source key file. Numeric
+// spelling remains in tokens; exact semantic decoding belongs to the checker so
+// no later phase trusts unchecked text. file is a logical key, never a host
+// path, and names every token's span.
+func Lex(file, source string) ([]Token, error) {
 	tokens := make([]Token, 0)
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	line, column := 1, 1
@@ -470,7 +491,10 @@ func Lex(source string) ([]Token, error) {
 		index, line, column = newIndex, newLine, newColumn
 	}
 
-	tokens = append(tokens, Token{Kind: EOF, Line: line, Column: column})
+	tokens = append(tokens, newToken(EOF, "", len(source), line, column))
+	for index := range tokens {
+		tokens[index].Span.File = file
+	}
 	if len(diagnostics) > 0 {
 		return tokens, diagnostics
 	}
@@ -567,9 +591,9 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 		}
 		if _, message := DecodeLiteralBody(source[index:bodyEnd], ByteEscapes); message != "" {
 			diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, message))
-			tokens = append(tokens, Token{Kind: EOF, Line: line, Column: startColumn})
+			tokens = append(tokens, newToken(EOF, "", start, line, startColumn))
 		} else {
-			tokens = append(tokens, Token{Kind: ByteLiteral, Lexeme: source[start:end], Line: line, Column: startColumn})
+			tokens = append(tokens, newToken(ByteLiteral, source[start:end], start, line, startColumn))
 		}
 		column += end - index
 		index = end
@@ -590,9 +614,9 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 		}
 		if _, message := DecodeLiteralBody(source[index:bodyEnd], RuneEscapes); message != "" {
 			diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, message))
-			tokens = append(tokens, Token{Kind: EOF, Line: line, Column: startColumn})
+			tokens = append(tokens, newToken(EOF, "", start, line, startColumn))
 		} else {
-			tokens = append(tokens, Token{Kind: RuneLiteral, Lexeme: source[start:end], Line: line, Column: startColumn})
+			tokens = append(tokens, newToken(RuneLiteral, source[start:end], start, line, startColumn))
 		}
 		column += end - index
 		index = end
@@ -619,7 +643,7 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 		if !ok {
 			kind = Identifier
 		}
-		tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: startColumn})
+		tokens = append(tokens, newToken(kind, lexeme, start, line, startColumn))
 	case ch >= '0' && ch <= '9':
 		token, end, diagnostic := scanNumber(source, index, line, column)
 		if diagnostic != nil {
@@ -636,7 +660,7 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 		column += end - index
 		index = end
 	case ch == ':':
-		tokens = append(tokens, Token{Kind: Colon, Lexeme: ":", Line: line, Column: column})
+		tokens = append(tokens, newToken(Colon, ":", index, line, column))
 		index++
 		column++
 	case ch == '!':
@@ -644,7 +668,7 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 		if index+1 < len(source) && source[index+1] == '=' {
 			kind, lexeme = BangEqual, "!="
 		}
-		tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: column})
+		tokens = append(tokens, newToken(kind, lexeme, index, line, column))
 		index += len(lexeme)
 		column += len(lexeme)
 	case ch == '=':
@@ -652,7 +676,7 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 		if index+1 < len(source) && source[index+1] == '=' {
 			kind, lexeme = EqualEqual, "=="
 		}
-		tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: column})
+		tokens = append(tokens, newToken(kind, lexeme, index, line, column))
 		index += len(lexeme)
 		column += len(lexeme)
 	case ch == '<':
@@ -689,7 +713,7 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 			}
 			// Keep a recovery token even when the header is malformed so the
 			// parser can synchronize on a real token sequence.
-			tokens = append(tokens, Token{Kind: CHeaderLiteral, Lexeme: source[start:index], Line: line, Column: startColumn})
+			tokens = append(tokens, newToken(CHeaderLiteral, source[start:index], start, line, startColumn))
 			return tokens, diagnostics, index, line, column
 		}
 		kind, lexeme := Less, "<"
@@ -699,7 +723,7 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 			// Shift-left is one maximal-munch token.
 			kind, lexeme = ShiftLeft, "<<"
 		}
-		tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: column})
+		tokens = append(tokens, newToken(kind, lexeme, index, line, column))
 		index += len(lexeme)
 		column += len(lexeme)
 	case ch == '>':
@@ -711,47 +735,47 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 			// splits it into two generic closers when needed.
 			kind, lexeme = ShiftRight, ">>"
 		}
-		tokens = append(tokens, Token{Kind: kind, Lexeme: lexeme, Line: line, Column: column})
+		tokens = append(tokens, newToken(kind, lexeme, index, line, column))
 		index += len(lexeme)
 		column += len(lexeme)
 	case ch == '&':
-		tokens = append(tokens, Token{Kind: Amp, Lexeme: "&", Line: line, Column: column})
+		tokens = append(tokens, newToken(Amp, "&", index, line, column))
 		index++
 		column++
 	case ch == '@':
-		tokens = append(tokens, Token{Kind: At, Lexeme: "@", Line: line, Column: column})
+		tokens = append(tokens, newToken(At, "@", index, line, column))
 		index++
 		column++
 	case ch == '^':
-		tokens = append(tokens, Token{Kind: Caret, Lexeme: "^", Line: line, Column: column})
+		tokens = append(tokens, newToken(Caret, "^", index, line, column))
 		index++
 		column++
 	case ch == '~':
-		tokens = append(tokens, Token{Kind: Tilde, Lexeme: "~", Line: line, Column: column})
+		tokens = append(tokens, newToken(Tilde, "~", index, line, column))
 		index++
 		column++
 	case ch == '-':
-		tokens = append(tokens, Token{Kind: Minus, Lexeme: "-", Line: line, Column: column})
+		tokens = append(tokens, newToken(Minus, "-", index, line, column))
 		index++
 		column++
 	case ch == '+':
-		tokens = append(tokens, Token{Kind: Plus, Lexeme: "+", Line: line, Column: column})
+		tokens = append(tokens, newToken(Plus, "+", index, line, column))
 		index++
 		column++
 	case ch == '*':
-		tokens = append(tokens, Token{Kind: Star, Lexeme: "*", Line: line, Column: column})
+		tokens = append(tokens, newToken(Star, "*", index, line, column))
 		index++
 		column++
 	case ch == '/':
-		tokens = append(tokens, Token{Kind: Slash, Lexeme: "/", Line: line, Column: column})
+		tokens = append(tokens, newToken(Slash, "/", index, line, column))
 		index++
 		column++
 	case ch == '%':
-		tokens = append(tokens, Token{Kind: Percent, Lexeme: "%", Line: line, Column: column})
+		tokens = append(tokens, newToken(Percent, "%", index, line, column))
 		index++
 		column++
 	case ch == '|':
-		tokens = append(tokens, Token{Kind: Pipe, Lexeme: "|", Line: line, Column: column})
+		tokens = append(tokens, newToken(Pipe, "|", index, line, column))
 		index++
 		column++
 	case ch == '"':
@@ -791,7 +815,7 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 			if strings.ContainsRune(source[payloadStart:payloadEnd], '\\') {
 				diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "invalid C header literal"))
 			}
-			tokens = append(tokens, Token{Kind: CHeaderLiteral, Lexeme: source[start:index], Line: line, Column: startColumn})
+			tokens = append(tokens, newToken(CHeaderLiteral, source[start:index], start, line, startColumn))
 			return tokens, diagnostics, index, line, column
 		}
 		isModulePath := previous.Kind == Identifier && previous.Lexeme == "from" && previous.Line == line
@@ -830,7 +854,7 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 			}
 			// Keep a recovery token even when the path is malformed so
 			// the parser can synchronize on a real token sequence.
-			tokens = append(tokens, Token{Kind: ModulePathLiteral, Lexeme: source[start:index], Line: line, Column: startColumn})
+			tokens = append(tokens, newToken(ModulePathLiteral, source[start:index], start, line, startColumn))
 			return tokens, diagnostics, index, line, column
 		}
 		scanned, scannedDiagnostics, newIndex, newLine, newColumn := lexInterpretedString(source, index, line, column, depth)
@@ -838,42 +862,42 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 		diagnostics = append(diagnostics, scannedDiagnostics...)
 		index, line, column = newIndex, newLine, newColumn
 	case ch == '(':
-		tokens = append(tokens, Token{Kind: LeftParen, Lexeme: "(", Line: line, Column: column})
+		tokens = append(tokens, newToken(LeftParen, "(", index, line, column))
 		index++
 		column++
 	case ch == ')':
-		tokens = append(tokens, Token{Kind: RightParen, Lexeme: ")", Line: line, Column: column})
+		tokens = append(tokens, newToken(RightParen, ")", index, line, column))
 		index++
 		column++
 	case ch == '[':
-		tokens = append(tokens, Token{Kind: LeftBracket, Lexeme: "[", Line: line, Column: column})
+		tokens = append(tokens, newToken(LeftBracket, "[", index, line, column))
 		index++
 		column++
 	case ch == ']':
-		tokens = append(tokens, Token{Kind: RightBracket, Lexeme: "]", Line: line, Column: column})
+		tokens = append(tokens, newToken(RightBracket, "]", index, line, column))
 		index++
 		column++
 	case ch == '.':
 		// Longest match: `...` is one Ellipsis token, `.` remains Dot.
 		if index+2 < len(source) && source[index+1] == '.' && source[index+2] == '.' {
-			tokens = append(tokens, Token{Kind: Ellipsis, Lexeme: "...", Line: line, Column: column})
+			tokens = append(tokens, newToken(Ellipsis, "...", index, line, column))
 			index += 3
 			column += 3
 			break
 		}
-		tokens = append(tokens, Token{Kind: Dot, Lexeme: ".", Line: line, Column: column})
+		tokens = append(tokens, newToken(Dot, ".", index, line, column))
 		index++
 		column++
 	case ch == '{':
-		tokens = append(tokens, Token{Kind: LeftBrace, Lexeme: "{", Line: line, Column: column})
+		tokens = append(tokens, newToken(LeftBrace, "{", index, line, column))
 		index++
 		column++
 	case ch == '}':
-		tokens = append(tokens, Token{Kind: RightBrace, Lexeme: "}", Line: line, Column: column})
+		tokens = append(tokens, newToken(RightBrace, "}", index, line, column))
 		index++
 		column++
 	case ch == ',':
-		tokens = append(tokens, Token{Kind: Comma, Lexeme: ",", Line: line, Column: column})
+		tokens = append(tokens, newToken(Comma, ",", index, line, column))
 		index++
 		column++
 	default:
@@ -994,22 +1018,22 @@ func lexInterpretedString(source string, start, line, column, depth int) ([]Toke
 			// EOF before either terminator.
 			if !interpolating {
 				diagnostics = append(diagnostics, *literalDiagnostic(curLine, curColumn, "unterminated string literal"))
-				tokens = append(tokens, Token{Kind: StringLiteral, Lexeme: source[start:index], Line: line, Column: column})
+				tokens = append(tokens, newToken(StringLiteral, source[start:index], start, line, column))
 				return tokens, diagnostics, index, curLine, curColumn
 			}
 			diagnostics = append(diagnostics, *literalDiagnostic(curLine, curColumn, "unterminated string interpolation"))
-			tokens = append(tokens, Token{Kind: InterpText, Lexeme: source[segStart:index], Line: segLine, Column: segColumn})
+			tokens = append(tokens, newToken(InterpText, source[segStart:index], segStart, segLine, segColumn))
 			return tokens, diagnostics, index, curLine, curColumn
 		}
 
 		if terminatedByQuote {
 			text := source[segStart : index-1]
 			if !interpolating {
-				tokens = append(tokens, Token{Kind: StringLiteral, Lexeme: source[start:index], Line: line, Column: column})
+				tokens = append(tokens, newToken(StringLiteral, source[start:index], start, line, column))
 				return tokens, diagnostics, index, curLine, curColumn
 			}
-			tokens = append(tokens, Token{Kind: InterpText, Lexeme: text, Line: segLine, Column: segColumn})
-			tokens = append(tokens, Token{Kind: InterpStringEnd, Lexeme: "\"", Line: curLine, Column: curColumn - 1})
+			tokens = append(tokens, newToken(InterpText, text, segStart, segLine, segColumn))
+			tokens = append(tokens, newToken(InterpStringEnd, "\"", index-1, curLine, curColumn-1))
 			return tokens, diagnostics, index, curLine, curColumn
 		}
 
@@ -1019,11 +1043,11 @@ func lexInterpretedString(source string, start, line, column, depth int) ([]Toke
 		text := source[segStart:index]
 		if !interpolating {
 			interpolating = true
-			tokens = append(tokens, Token{Kind: InterpStringStart, Lexeme: "\"", Line: line, Column: column})
+			tokens = append(tokens, newToken(InterpStringStart, "\"", start, line, column))
 		}
-		tokens = append(tokens, Token{Kind: InterpText, Lexeme: text, Line: segLine, Column: segColumn})
+		tokens = append(tokens, newToken(InterpText, text, segStart, segLine, segColumn))
 		openLine, openColumn := curLine, curColumn
-		tokens = append(tokens, Token{Kind: InterpOpen, Lexeme: "{{", Line: openLine, Column: openColumn})
+		tokens = append(tokens, newToken(InterpOpen, "{{", index, openLine, openColumn))
 		index += 2
 		curColumn += 2
 
@@ -1032,7 +1056,7 @@ func lexInterpretedString(source string, start, line, column, depth int) ([]Toke
 		var previous Token
 		for index < len(source) {
 			if source[index] == '}' && index+1 < len(source) && source[index+1] == '}' && exprDepth == 0 {
-				tokens = append(tokens, Token{Kind: InterpClose, Lexeme: "}}", Line: curLine, Column: curColumn})
+				tokens = append(tokens, newToken(InterpClose, "}}", index, curLine, curColumn))
 				index += 2
 				curColumn += 2
 				closed = true
@@ -1127,12 +1151,17 @@ func scanRawString(source string, start, line, column, hashCount int) (Token, in
 			}
 			if closeHashes >= hashCount {
 				end := index + 1 + hashCount
-				return Token{Kind: RawStringLiteral, Lexeme: source[start:end], Line: line, Column: column}, end, curLine, curColumn + 1 + hashCount, nil
+				return newToken(RawStringLiteral, source[start:end], start, line, column), end, curLine, curColumn + 1 + hashCount, nil
 			}
 		}
 		character := source[index]
 		switch character {
 		case '\r':
+			// The retained counter advances the line on a lone CR here, while
+			// the canonical offset convention counts only LF. A token after a
+			// raw string containing a bare CR therefore has a Line the table
+			// would place on the preceding line. The span is the authoritative
+			// location; the counter is the legacy value the parser still reads.
 			index++
 			if index < len(source) && source[index] == '\n' {
 				index++
@@ -1148,7 +1177,7 @@ func scanRawString(source string, start, line, column, hashCount int) (Token, in
 			curColumn++
 		}
 	}
-	return Token{Kind: RawStringLiteral, Lexeme: source[start:index], Line: line, Column: column}, index, curLine, curColumn,
+	return newToken(RawStringLiteral, source[start:index], start, line, column), index, curLine, curColumn,
 		literalDiagnostic(line, column, "unterminated raw string literal")
 }
 
@@ -1178,7 +1207,7 @@ func scanNumber(source string, start, line, column int) (Token, int, *compilerTy
 				}
 				return Token{Kind: EOF}, end, literalDiagnostic(line, column, message)
 			}
-			return Token{Kind: kind, Lexeme: source[start:end], Line: line, Column: column}, end, nil
+			return newToken(kind, source[start:end], start, line, column), end, nil
 		}
 	}
 
@@ -1225,13 +1254,13 @@ func scanNumber(source string, start, line, column int) (Token, int, *compilerTy
 			end = consumeNumericTail(source, end)
 			return Token{Kind: EOF}, end, literalDiagnostic(line, column, "identifiers must begin with a letter")
 		}
-		return Token{Kind: DecimalFloat, Lexeme: source[start:end], Line: line, Column: column}, end, nil
+		return newToken(DecimalFloat, source[start:end], start, line, column), end, nil
 	}
 	if end < len(source) && isIdentifierPart(source[end]) {
 		end = consumeNumericTail(source, end)
 		return Token{Kind: EOF}, end, literalDiagnostic(line, column, "identifiers must begin with a letter")
 	}
-	return Token{Kind: Integer, Lexeme: source[start:end], Line: line, Column: column}, end, nil
+	return newToken(Integer, source[start:end], start, line, column), end, nil
 }
 
 func scanDecimalWhole(source string, start int) (int, bool, bool) {
