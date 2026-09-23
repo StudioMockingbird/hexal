@@ -34,8 +34,32 @@ Facts confirmed to have exactly one consumer are not listed.
   such as `compiler/checker/lists.go:64` and `compiler/checker/stash.go:58`;
   the generator repeats the same switches (e.g.
   `compiler/generator/arrays.go:267`,
-  `compiler/generator/concurrency.go:984`). Step: switch checker and generator
-  dispatch onto the records, or delete them as reserved.
+  `compiler/generator/concurrency.go:984`).
+
+  The switch is blocked on the record model, not on effort. The records omit
+  exactly the methods whose result is an applied constructor or a structural
+  union: `Array`/`Slice`/`List` `slice` and `mut_slice`, `Slice.pointer`,
+  `Channel.receive`, `Stash`/`Pool` `allocate`, `Pool.free`, `Dict.find`, and
+  `String.bytes`, `slice`, `concat`, `widen`, and `c_pointer`. `TypeRef` has no
+  kind for `Slice<T>`, for `T | EoS` or `Ptr<T> | Nil`, for a method type
+  argument such as `String<M>`, or for an `index: Integer` parameter, so
+  forcing the switch would drop those methods from accepted programs.
+
+  A second gap blocks the generator even for the complete families: the Go
+  `MethodSpec` (`compiler/specdata/methods.go:90-97`) carries only Owner, Name,
+  Parameters, Result, Failure, and Allocation, while the specification's own
+  `MethodSpec` also declares `RuntimeSymbol`, `Component`, and `Receiver`.
+  Lowering reads the symbol -- `compiler/generator/concurrency.go:979` emits
+  `hex_chan_send_%s` -- so there is no field to read. The bare-constructor name
+  sets do not overlap either: `checkBareConstructorCall`
+  (`compiler/checker/calls.go:567-603`) accepts `Error`, `Heap`, and `Mutex`,
+  which are concrete types rather than constructors, while `Array`, `Slice`,
+  `String`, and `Task` have records but require type arguments.
+
+  Step: extend the record model first -- a `TypeRef` for applied constructors
+  and unions, the `RuntimeSymbol`/`Component`/`Receiver` fields the
+  specification already declares, and a bare-constructor fact spanning concrete
+  types -- then switch the consumers.
 
 - **Type representation and copy facts are recorded but unconsumed
   ([0229](specs/0229-data-driven-compiler-facts.md)).** `ConstructorFacts`
@@ -43,8 +67,17 @@ Facts confirmed to have exactly one consumer are not listed.
   CopyMode, FreeMode, Comparable, and Hashable, but no non-test code reads it;
   the authoritative rules are the position model at
   `compiler/types/collections.go:283-384` (`Storable`, `Eligible`,
-  `ContainsAtomic`). Step: switch the position model onto the records, or
-  withdraw the fields.
+  `ContainsAtomic`). The switch is blocked on the record model, and one record
+  fact contradicts observed behavior: `List.Comparable` is `ComparisonNone`,
+  yet `EqualityAvailable(List<Int32>)` is true because equality is structural
+  on the element. `Slice.Representation` is `RepresentationValue`, yet
+  `Ptr<Slice<T>>` is rejected because `isManaged`
+  (`compiler/types/types.go:592-604`) classifies Slice by identity rather than
+  by Representation. `Storable` also special-cases `Fun`, `Nil`, `IO`, `Bytes`,
+  and `Unknown`, none of which has a constructor record, and `FreeMode` and
+  `Hashable` have no consumer at all. Step: record the concrete compiler-owned
+  types and the structural forms, and give eligibility a per-position fact or a
+  constructor identity on `Type`, then switch the consumers.
 
 - **Component `RequiredCHeaders` is recorded but unconsumed
   ([0229](specs/0229-data-driven-compiler-facts.md)).** The registry owns the
