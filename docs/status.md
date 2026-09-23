@@ -15,13 +15,6 @@ gets deleted.
 | --- | --- | --- | --- |
 | Prove end-to-end automatic import and static linking of an unmodified Raylib package | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) | High | Medium |
 
-### RFC 0229 migration follow-ups
-
-The repository-wide duplicate-owner audit RFC 0229's *Implementation
-readiness* requires, one entry per surviving second authority. Each names the
-file that still owns the fact and the step that would give the fact one owner.
-Facts confirmed to have exactly one consumer are not listed.
-
 ## Deferred ideas
 
 Open ideas under discussion live in `docs/specs/deferred/`, with a README
