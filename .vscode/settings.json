@@ -10,5 +10,6 @@
             "binaryArgs": []
         }
     ],
-    "cmake.sourceDirectory": "/wsl.localhost/openSUSE-Tumbleweed/home/rishav/hexal/modules/utf8proc"
+    "cmake.sourceDirectory": "/wsl.localhost/openSUSE-Tumbleweed/home/rishav/hexal/modules/utf8proc",
+    "cmake.ignoreCMakeListsMissing": true
 }

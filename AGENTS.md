@@ -357,7 +357,7 @@ its kind in the header:
 A spec's `Status:` header is the only completion record while it is active. A
 terminal status (Closed, Discarded, Superseded, or Rejected) means every
 current-behavior claim the spec makes has been verified against
-`docs/reference.md` and the tree; the spec then moves to `docs/specs/archive/`
+`docs/reference.md` and the tree; the spec then moves to `docs/specs/archived/`
 in that same change, unchanged from that point on — a Spec once closed is
 immutable, so do not edit an archived file even when the feature it describes
 is later updated. Numbers are permanent identifiers: never renumbered, never

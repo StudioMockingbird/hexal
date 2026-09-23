@@ -1,9 +1,12 @@
 # RFC 0235: StringBuilder
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation ready. The surface is settled and every surrounding
-  fact it depends on was probe-verified against the tree on 2026-09-22; no
-  upstream inputs, no open design questions
+- Status: **Open Discussion; deferred.** Two independent reviews on 2026-09-22
+  found a blocking design question — whether this needs to be a new builtin at
+  all — plus correctness gaps that would produce wrong generated C, and
+  several claims that do not hold against the current tree. The surface is not
+  settled. See Review findings at the end; the body above them is the original
+  proposal, retained unedited so the review can be read against it
 - Created: 2026-09-22
 - Updated: 2026-09-22
 - Origin: large text/HTML template assembly. Immutable-string concat in a
@@ -294,3 +297,282 @@ one-shot and multi-line template paths were probe-verified to work today
 (only loop assembly is quadratic, which is precisely what this closes), the
 three rejection messages are pinned from probe-verified `Heap` diagnostics,
 and no upstream, pack, or dependency work exists at all. Start at Phase 1.
+
+---
+
+# Review findings (2026-09-22)
+
+Two reviews, merged. Claims marked **probed** were run against
+`compiler.Compile` or read from the tree; the rest are reasoning from the
+spec's own text. Nothing above this line was edited.
+
+## A. The blocking question: must this be a new type?
+
+**`List<Byte>` is already most of `StringBuilder`.** Probed — this compiles
+today:
+
+```hexal
+let h: Heap = Heap()
+let mut b: List<Byte> = List<Byte>(h)
+b.push(b'<')
+b.push(b't')
+let view: Slice<Byte> = b.slice(0, b.length())
+let s: String | Error = String.from_bytes(h, view)
+b.free(h)
+```
+
+Mapping the proposed surface onto what exists:
+
+| RFC 0235 proposes | `List<Byte>` today |
+| --- | --- |
+| `StringBuilder(heap)` | `List<Byte>(heap)` |
+| `.length() -> Size` | `.length() -> Size` |
+| `.bytes() -> Slice<Byte>` | `.slice(0, len) -> Slice<Byte>` |
+| `.free(heap)` | `.free(heap)` |
+| `.push(from: Slice<Byte>)` | `.push(value: Byte)` — **one element only** |
+
+`List` already grows geometrically (`packages/list.h`: `ckd_mul(&next,
+list->capacity, 2)`), which is the amortized-growth contract this RFC presents
+as its contribution.
+
+**The entire gap is bulk append.** Probed: `push_all` and `extend` are both
+rejected with `List<UInt8> has no method push_all`.
+
+So the proportionate change may be one generic method —
+`List<T>.push_all(values: Slice<T>)` — which closes the same gap, serves every
+element type rather than bytes alone, and adds no type, constructor,
+diagnostics, reference section, or rejection arms.
+
+This is also what the neighbours do. **Zig has no StringBuilder**:
+`std.ArrayList(u8)` with `appendSlice` is the string builder, deliberately,
+because a byte buffer is a container of bytes rather than a distinct concept.
+Odin's `strings.Builder` exists but is a *library* type over `[dynamic]u8`,
+not a builtin. Adopting this RFC would make Hexal the only one of the three
+with a compiler-owned fundamental type for the job.
+
+Against the language goals: goal 2 (one obvious way) gains a second way, goal
+3 (small, clean surface) gains a builtin for a method's worth of capability,
+and the Simplify rule's second question — *"Does this already exist in the
+codebase? Reuse it; do not rewrite it."* — is never asked in Rejected choices,
+which considers `build()`, `reserve`, `clear`, overloads, and inline variants
+but never `List<Byte>`.
+
+**This must be answered before anything else in the spec matters.**
+
+## B. Correctness gaps that would produce wrong generated C
+
+These are the findings that make the spec unsafe to implement as written, not
+merely incomplete.
+
+1. **Self-append is permitted by the signature and undefined by the spec.**
+   `b.push(b.bytes())` typechecks under `push(from: Slice<Byte>)`. If the push
+   triggers growth, the source view is freed mid-operation; even without
+   growth, a naive `memcpy` of overlapping regions is undefined in C. Decide
+   whether self-append is supported, rejected, or defined — and if supported,
+   say how the source survives reallocation.
+
+2. **The aliasing promise requires shared mutable state, which is not
+   stated.** "Handle copies alias one buffer" means a copy must observe the
+   *new* pointer, length, and capacity after another copy grows the buffer.
+   That is only possible through a heap control record; a value struct holding
+   pointer/length/capacity would leave every copy stale after the first
+   growth. The RFC promises the behavior without specifying the representation
+   that makes it possible, and validates nothing about it.
+
+3. **`free` releasing "only the growth buffer" contradicts that record.** If
+   construction allocates a control record, `free` must release it too, or it
+   leaks on every builder. The two statements cannot both hold.
+
+4. **Allocator ownership is stated three different ways** — construction
+   "captures" a Heap, growth uses "the default Heap", `free(heap)` takes
+   another. Probed mitigation: the reference says *"There is exactly one
+   default allocator: Heap is a value token with no runtime state"*, so no
+   Heap can be the wrong Heap — but the spec should say that rather than leave
+   three phrasings to reconcile.
+
+5. **The lifetime rule contradicts the storability rule.** `bytes()` is said
+   to dangle "when the builder otherwise leaves scope", while the builder is
+   simultaneously valid as a function result, container value, and Task
+   argument. A local handle going out of scope cannot end the lifetime of an
+   explicitly-released shared allocation. View validity should be tied to
+   release and to reallocating mutation, not to scope.
+
+6. **`Slice<Byte>` read-only has a basis — cite it.** Probed: the reference
+   states *"`Slice<T>` permits element reads only. `Slice<mut T>` permits
+   element reads and writes."* So `bytes()` returning `Slice<Byte>` **is**
+   read-only by type. The promise is sound; the spec should point at the rule
+   instead of asserting the property.
+
+## C. Factual corrections
+
+7. **The motivating example does not compile.** The spec calls the quadratic
+   concat loop "probe-verified" as compiling. Probed, as written it is
+   rejected:
+
+   ```text
+   [Type Error] concat requires Slice<Byte>; got String
+   ```
+
+   Post-RFC 0224, `concat` takes `Slice<Byte>` and returns `String | Error`.
+   The corrected form — `try acc.concat(h, "<tr></tr>".bytes())` — does
+   compile, so the quadratic gap is real; but the evidence for it was not
+   re-verified after 0224 landed.
+
+8. **A leak checker does run in this repository's gate.** The spec says the
+   release claim rests "by inspection — no leak checker runs in this
+   repository's gate". Probed: `compiler/tests/c23validation/leak_test.go`
+   defines `TestC23SuiteLeak`, which rebuilds each leak-checked fixture with
+   `-fsanitize=leak` and requires a clean run. The builder's `free` behavior
+   can and should be leak-checked by adding its fixture to
+   `leakCheckedFixtures`. This makes the validation *stronger* than the spec
+   assumed.
+
+9. **"Follows the `List` template exactly" is contradicted three times.**
+   Probed: `List<Byte> == List<Byte>` is **accepted**. The RFC makes builders
+   non-comparable, non-orderable, and non-printable by citing the reference's
+   *"Functions, allocators, and Dicts have no equality"* list — which does not
+   contain `List`. A builder would be strictly less capable than the
+   `List<Byte>` it claims to copy, and the divergence is never justified.
+   `clear()` is rejected as unnecessary on the same grounds, yet `List.clear()`
+   exists and is probed working.
+
+10. **The three rejection messages do hold up.** Probed Heap diagnostics are
+    `allocator handles are not equality-comparable`, `ordering is unavailable
+    for Heap values`, and `print does not support Heap`. The proposed wording
+    matches that shape exactly. The Dict-key claim also holds: probed, the
+    existing message is `dictionary key type must be Int32 or String<N>`.
+
+## D. Contract imprecision
+
+11. **The complexity claim is wrong as stated.** A `push` of m bytes cannot be
+    "amortized O(1)"; it is at least O(m). The intended promise is amortized
+    O(m) per push and O(n) for n total bytes under a geometric capacity
+    policy.
+
+12. **"Consumed" is the wrong word for the input slice.** The described
+    behavior is borrowed for the call and copied before return — the caller
+    may free or reuse the source afterwards, which "consumed" denies.
+
+13. **An empty `bytes()` needs a C-level contract.** Specify the
+    pointer/length representation before the first push, so no zero-length
+    view passes an invalid or null pointer into a C operation.
+
+14. **`build()` was rejected against the wrong alternative.** The rejection
+    says it duplicates `String.from_bytes(heap, b.bytes())`, which validates
+    and **copies**. A finishing operation could validate and **transfer**
+    storage, avoiding a second full copy of a large document — materially
+    different peak memory, not a second spelling. Whether transfer fits
+    `String`'s representation is a real question; it was not asked.
+
+15. **`clear()` was rejected against the wrong cost.** "Free plus a fresh
+    constructor" discards capacity on every reset, which matters precisely for
+    the repeated-render case this RFC exists to serve. Deferring it is
+    defensible; calling it equivalent is not.
+
+16. **The streaming claim is overstated.** `write(b.bytes())` avoids
+    materializing a `String`, but the whole document is already in memory.
+    That is a contiguous-buffer write, not streaming during rendering, and no
+    Validation row exercises a sink at all.
+
+## E. Validation gaps
+
+Under this repository's rule that a Validation section is the exhaustive
+definition of done, these must be added before implementation if the behavior
+is required:
+
+17. No case where one handle copy grows the buffer and another observes the
+    new length and bytes — the aliasing promise is untested.
+18. No `b.push(b.bytes())` case, although the public signature permits it.
+19. `==` and `<` are covered; `!=` and the remaining ordering operators are
+    not.
+20. Function *result* storage is validated; function *parameter* storage is
+    claimed but not.
+21. The catalog snippet assembles "a small document from literal chunks",
+    which does not exercise the loop assembly that motivates the feature. A
+    repeated-row document with dynamic fields is the case that matters.
+22. Overflow and allocation-failure rows require exact traps but give no
+    deterministic way to reach either condition without enormous allocations.
+23. The growth-overflow trap is claimed to reuse `string allocation size
+    overflow`, but a `List`-backed buffer traps with `list capacity is not
+    representable` (`packages/list.h`). Whichever container backs the builder,
+    the trap inventory test requires every literal to carry a disposition, and
+    the accounting here is incomplete.
+24. "Each qualified pack" is not an executable target; name the gate or make
+    the row conditional.
+25. The dependency assertion mixes two ideas — a builder may require generated
+    string-component code while adding no runtime-pack dependency. Name which
+    list is meant.
+26. The public-header `#include` prohibition is an implementation constraint
+    with no user-visible behavior behind it, and may obstruct declaring the
+    type with valid C23 types.
+
+## F. Fit for the stated template goal
+
+The originating need is text and HTML template assembly. A byte buffer is the
+right *primitive* for that, but it is not the feature.
+
+**Bulk append gives the capability, not the syntax.** With `push_all` alone, a
+row is several calls with `.bytes()` on each, and the HTML is shredded across
+them:
+
+```hexal
+b.push_all("<tr><td>".bytes())
+b.push_all(row.name.bytes())
+b.push_all("</td></tr>".bytes())
+```
+
+What makes templates read as templates is interpolation with a buffer
+destination — the missing third target of a construct that already exists:
+
+```text
+String.interpolate(heap, template)   -> String              exists
+String<N>.interpolate(template)      -> String<N> | Error   exists
+List<Byte>.interpolate(template)     -> no value            the gap
+```
+
+The lowering is already the right lowering. `hoistStringInterpolate` plans
+each segment's byte source and length, checked-sums them, allocates once, and
+copies in source order; retargeting it to append into a buffer changes the
+destination, not the segment machinery. One constraint: `{{ expr }}` is
+currently *"a Type Error anywhere except exactly `String.interpolate`'s second
+argument"*, so a buffer target means widening that rule to a small closed set
+of receivers — deliberately, not incidentally.
+
+**HTML escaping is unaddressed and is not optional.** Interpolating user data
+into HTML without escaping is XSS, and it is silent — the code looks correct.
+Escaping is also context-dependent: text content, attribute values, URLs, and
+script content do not share one safe transformation. That decision belongs to
+a template spec, but it must be made before anything renders HTML.
+
+**This RFC should stop asserting that future renderers will target this
+builder.** Their output interface has not been designed; committing a concrete
+type as their sink before that is settled is the coupling this arc otherwise
+avoids.
+
+## G. One review claim that does not hold
+
+One review treated the tagged C23 suite as dormant, citing AGENTS.md, and
+concluded RFC 0125 must be a prerequisite. Probed: the suite is **live**.
+`compiler/tests/c23validation` declares fifteen exported test functions
+including `TestC23Suite`, `TestC23SuiteUBSan`, `TestC23SuiteLeak`, and
+`TestC23SnippetCatalogCompiles`. RFC 0125 is closed and archived.
+
+AGENTS.md's statement that "the c23 canaries are currently dormant — their
+entry points are named in lower camel case, so Go collects none of them" is
+stale and should be corrected separately; it is not this RFC's problem, but it
+misled a review and will mislead others.
+
+## What a revision would need
+
+1. Answer A: why `List<Byte>` plus `push_all` cannot supply this. If it can,
+   this RFC becomes that method.
+2. If a distinct type survives: settle the control-record representation,
+   self-append, allocator ownership, `free`'s scope, and view lifetime.
+3. Correct the cost claim, the "consumed" wording, and the motivating example.
+4. Justify each divergence from `List` — equality, ordering, print, `clear` —
+   or drop it.
+5. Reconsider `build()` as storage transfer rather than a second copy.
+6. Close the Validation gaps, including a leak-checked `free` fixture now that
+   the leak gate is known to exist.
+7. Leave template rendering, formatting, and escaping to a template spec, and
+   stop naming this type as their sink in advance.
