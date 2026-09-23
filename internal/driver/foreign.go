@@ -28,6 +28,13 @@ const defaultForeignDialect = "c17"
 
 // foreignDialects is the accepted -c-standard set. The driver passes the
 // spelling through to the selected Clang and fails if Clang rejects it.
+//
+// The set is driver-owned build policy, not a compiler fact, so it is not a
+// registry record: the registry holds compiler-owned language and runtime
+// facts, and the arc keeps toolchain qualification in this package for the same
+// reason. The migration inventory names "foreign dialect and required-header
+// policy tables" as one target; the required-header half is the component
+// registry's RequiredCHeaders, and the dialect half has its single owner here.
 var foreignDialects = map[string]bool{
 	"c89": true, "c99": true, "c11": true, "c17": true, "c23": true,
 	"gnu89": true, "gnu99": true, "gnu11": true, "gnu17": true, "gnu23": true,

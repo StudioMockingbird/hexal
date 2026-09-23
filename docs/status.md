@@ -121,14 +121,6 @@ Facts confirmed to have exactly one consumer are not listed.
   message identity and stability metadata, leaving wording with the phase that
   emits it.
 
-- **Foreign dialect policy is a driver-local table
-  ([0229](specs/0229-data-driven-compiler-facts.md)).**
-  `internal/driver/foreign.go:26,30` owns `defaultForeignDialect` and
-  `foreignDialects`, and no record exists for either. Step: decide the
-  boundary (a `config` default versus a driver capability set) and record the
-  accepted set once, or state explicitly that dialect policy is out of the
-  migration scope.
-
 ## Deferred ideas
 
 Open ideas under discussion live in `docs/specs/deferred/`, with a README
