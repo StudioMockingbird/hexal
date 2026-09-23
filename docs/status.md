@@ -68,13 +68,6 @@ Facts confirmed to have exactly one consumer are not listed.
   constructor, or an explicit statement that comparison is not this record's
   fact.
 
-- **Stable runtime message ownership has no records
-  ([0229](specs/0229-data-driven-compiler-facts.md)).** Every runtime trap text
-  lives where it is emitted, e.g. `compiler/generator/packages/error.h:35,69`;
-  `compiler/specdata` declares no `MessageID` or message record. Step: record
-  message identity and stability metadata, leaving wording with the phase that
-  emits it.
-
 ## Deferred ideas
 
 Open ideas under discussion live in `docs/specs/deferred/`, with a README

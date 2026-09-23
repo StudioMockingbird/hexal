@@ -3,12 +3,20 @@
 package c23validation
 
 // The trap inventory guard. It derives every distinct "[Runtime Error] ..."
-// literal the generator can emit from the production tree itself -- the
-// embedded package templates and the non-test Go source that renders inline
-// C -- and requires each one to carry exactly one disposition below. No
-// independent expected count exists: add a new trap anywhere in the
-// generator and this guard notices it on the next run, with no reconciling
-// edit required unless that trap needs its own new disposition.
+// literal the production tree can emit -- the embedded package templates, the
+// native runtime templates under compiler/corelib/runtime, and the non-test Go
+// source that renders inline C -- and requires each one to carry exactly one
+// disposition below. No independent expected count exists: add a new trap
+// anywhere in the scanned roots and this guard notices it on the next run, with
+// no reconciling edit required unless that trap needs its own new disposition.
+//
+// Runtime-message identity deliberately lives in this inventory and in each
+// emitting phase, not in a separate stable-runtime-message registry. Wording
+// stays with the phase that emits it: most literals are sentence-shaped and
+// would be rejected as stored diagnostic text, and without wording no record
+// could have a consumer. Because this ledger is the one authority on which
+// traps exist and how they are classified, a registry beside it would be a
+// second authority over the same fact.
 
 import (
 	"go/ast"
@@ -40,7 +48,7 @@ const (
 )
 
 // trapLedger is the disposition of every literal known at the time this
-// guard was written. trapInventoryRoot's derivation is authoritative: a
+// guard was written. deriveTrapLiterals is authoritative: a
 // literal this map names but the derivation no longer finds is not an
 // error (the trap may have been renamed or removed), but a derived literal
 // missing from this map fails TestTrapInventoryIsFullyClassified.
@@ -117,14 +125,15 @@ var trapLedger = map[string]trapDisposition{
 	// each is a defensive internal-consistency check, not a user-triggerable
 	// path, verified by inspection of the checker rule that makes the
 	// precondition always hold rather than by execution. ---
-	"network operation outside a Task":      {dispositionStructural, "checker/network.go's networkNode call sites are reachable only from checked expressions the checker routes exclusively through Task-selecting operations; the checker never emits one outside a Task context"},
-	"process operation outside a Task":      {dispositionStructural, "same as network operation outside a Task, for the Process/Pipe family"},
-	"signal operation outside a Task":       {dispositionStructural, "same as network operation outside a Task, for the Signals family"},
-	"invalid Task park phase during commit": {dispositionStructural, "hex_task_commit_park's own precondition (called only immediately after hex_task_begin_park sets the phase) makes the else-branch unreachable from any code this generator emits"},
-	"Task park phase changed during commit": {dispositionStructural, "the same commit-phase invariant as above: no code path re-enters commit for a phase a concurrent wake has already changed except through the one documented transition hex_task_wake performs"},
-	"invalid Task park phase during resume": {dispositionStructural, "hex_task_resume_commit's precondition mirrors hex_task_commit_park's; the else-branch requires a phase value no transition helper ever produces"},
-	"invalid ErrorKind tag":                 {dispositionStructural, "the ErrorKind switch in hex_error_kind_header/hex_equal_hex_t_ErrorKind is exhaustive over every tag the checker's own ErrorKind construction can produce; asserted in compiler/generator/error_component_test.go"},
-	"invalid Unicode scalar value":          {dispositionStructural, "string.c hex_string_from_runes's per-scalar guard: every call site routes through a module-local String.from_runes adapter that validates the whole slice first and returns | Error, so the core trap is a broken-invariant guard"},
+	"network operation outside a Task":         {dispositionStructural, "checker/network.go's networkNode call sites are reachable only from checked expressions the checker routes exclusively through Task-selecting operations; the checker never emits one outside a Task context"},
+	"process operation outside a Task":         {dispositionStructural, "same as network operation outside a Task, for the Process/Pipe family"},
+	"signal operation outside a Task":          {dispositionStructural, "same as network operation outside a Task, for the Signals family"},
+	"invalid Task park phase during commit":    {dispositionStructural, "hex_task_commit_park's own precondition (called only immediately after hex_task_begin_park sets the phase) makes the else-branch unreachable from any code this generator emits"},
+	"Task park phase changed during commit":    {dispositionStructural, "the same commit-phase invariant as above: no code path re-enters commit for a phase a concurrent wake has already changed except through the one documented transition hex_task_wake performs"},
+	"invalid Task park phase during resume":    {dispositionStructural, "hex_task_resume_commit's precondition mirrors hex_task_commit_park's; the else-branch requires a phase value no transition helper ever produces"},
+	"invalid ErrorKind tag":                    {dispositionStructural, "the ErrorKind switch in hex_error_kind_header/hex_equal_hex_t_ErrorKind is exhaustive over every tag the checker's own ErrorKind construction can produce; asserted in compiler/generator/error_component_test.go"},
+	"invalid Unicode scalar value":             {dispositionStructural, "string.c hex_string_from_runes's per-scalar guard: every call site routes through a module-local String.from_runes adapter that validates the whole slice first and returns | Error, so the core trap is a broken-invariant guard"},
+	"program arguments were never initialized": {dispositionStructural, "runtime/program.c hex_program_arguments's readiness guard: emission.go emits hex_program_arguments_init exactly once in the entry adapter before any module statement whenever arguments are reachable, and the checker marks arguments reachable only when a program calls Prog.arguments(), so the precondition hex_program_argv_ready always holds at the generated call site"},
 }
 
 // runtimeErrorPattern matches one complete "[Runtime Error] ..." literal up
@@ -143,35 +152,56 @@ func repoRoot(t *testing.T) string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
 }
 
-// deriveTrapLiterals scans every embedded package template
-// (compiler/generator/packages/*.c and *.h) and every non-test Go source
-// file directly under compiler/generator for a literal "[Runtime Error] ..."
-// string, returning the distinct set. Templates are read as plain text, not
-// Go, so a regular expression is the only option there; Go source is parsed
-// with go/parser so a matching substring inside an unrelated comment or a
-// _test.go fixture string (which asserts a trap, rather than emitting one)
-// is never mistaken for production trap-emitting code.
-func deriveTrapLiterals(t *testing.T) map[string]bool {
-	t.Helper()
-	root := repoRoot(t)
-	found := make(map[string]bool)
+// trapTemplateDirs are the directories whose embedded C templates and headers
+// carry runtime trap literals. compiler/corelib/runtime emits traps through the
+// same hex_runtime_trap entry point as generator/packages, so it is scanned by
+// the same rule; a literal there otherwise escapes classification.
+var trapTemplateDirs = []string{
+	filepath.Join("compiler", "generator", "packages"),
+	filepath.Join("compiler", "corelib", "runtime"),
+}
 
-	packageDir := filepath.Join(root, "compiler", "generator", "packages")
-	entries, err := os.ReadDir(packageDir)
+// scanTemplateDir derives every distinct "[Runtime Error] ..." literal from the
+// .c and .h files directly under dir. Templates are read as plain text, not Go,
+// so a regular expression is the only option.
+func scanTemplateDir(t *testing.T, dir string) map[string]bool {
+	t.Helper()
+	found := make(map[string]bool)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("cannot read %s: %v", packageDir, err)
+		t.Fatalf("cannot read %s: %v", dir, err)
 	}
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || !(strings.HasSuffix(name, ".c") || strings.HasSuffix(name, ".h")) {
 			continue
 		}
-		content, err := os.ReadFile(filepath.Join(packageDir, name))
+		content, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatalf("cannot read %s: %v", name, err)
 		}
 		for _, match := range runtimeErrorPattern.FindAllString(string(content), -1) {
 			found[strings.TrimSpace(match)] = true
+		}
+	}
+	return found
+}
+
+// deriveTrapLiterals scans every embedded template directory (the .c and .h
+// files named in trapTemplateDirs) and every non-test Go source file directly
+// under compiler/generator for a literal "[Runtime Error] ..." string, returning
+// the distinct set. Go source is parsed with go/parser so a matching substring
+// inside an unrelated comment or a _test.go fixture string (which asserts a
+// trap, rather than emitting one) is never mistaken for production
+// trap-emitting code.
+func deriveTrapLiterals(t *testing.T) map[string]bool {
+	t.Helper()
+	root := repoRoot(t)
+	found := make(map[string]bool)
+
+	for _, dir := range trapTemplateDirs {
+		for literal := range scanTemplateDir(t, filepath.Join(root, dir)) {
+			found[literal] = true
 		}
 	}
 
@@ -258,7 +288,13 @@ func TestTrapInventoryExecutableFixturesExist(t *testing.T) {
 // rejects an unclassified literal, rather than vacuously passing because its
 // regular expression or ledger lookup is broken. It runs the same check
 // TestTrapInventoryIsFullyClassified runs, against a synthetic derived set
-// carrying one literal no real trap uses.
+// carrying one literal no real trap uses. It then proves the template scanner
+// covers compiler/corelib/runtime -- the root added after a runtime literal
+// escaped classification -- so a future trap there reaches the guard: the real
+// runtime directory must yield at least one literal, deriveTrapLiterals must
+// include what it contributes, and a literal planted in a .c file of the same
+// shape must be derived and left unclassified. The planted file lives in a temp
+// directory so the proof mutates no tracked runtime file.
 func TestTrapInventoryGuardRejectsUnclassifiedLiteral(t *testing.T) {
 	const synthetic = "this literal is injected only to prove the guard rejects an unclassified trap"
 	derived := map[string]bool{"[Runtime Error] " + synthetic: true}
@@ -273,5 +309,29 @@ func TestTrapInventoryGuardRejectsUnclassifiedLiteral(t *testing.T) {
 	}
 	if len(unclassified) == 0 {
 		t.Fatal("guard failed to flag a synthetic unclassified literal: TestTrapInventoryIsFullyClassified would pass even with an unclassified production trap present")
+	}
+
+	runtimeDir := filepath.Join(repoRoot(t), "compiler", "corelib", "runtime")
+	runtimeLiterals := scanTemplateDir(t, runtimeDir)
+	if len(runtimeLiterals) == 0 {
+		t.Fatalf("template scanner derived no literals from %s; a future runtime trap would escape the guard", runtimeDir)
+	}
+	// The full derivation must include what the runtime directory contributes.
+	// This fails if compiler/corelib/runtime is dropped from trapTemplateDirs,
+	// so the guard cannot regress to ignoring the directory while this proof
+	// still passes on a direct scan.
+	full := deriveTrapLiterals(t)
+	for literal := range runtimeLiterals {
+		if !full[literal] {
+			t.Fatalf("deriveTrapLiterals dropped %q; compiler/corelib/runtime is not among trapTemplateDirs", literal)
+		}
+	}
+
+	plantedDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(plantedDir, "probe.c"), []byte(`hex_runtime_trap("[Runtime Error] `+synthetic+`\n");`), 0o600); err != nil {
+		t.Fatalf("cannot write planted probe: %v", err)
+	}
+	if !scanTemplateDir(t, plantedDir)["[Runtime Error] "+synthetic] {
+		t.Fatal("template scanner did not derive the planted runtime-shaped literal; an unclassified trap in compiler/corelib/runtime would pass the guard")
 	}
 }
