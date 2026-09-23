@@ -37,29 +37,19 @@ Facts confirmed to have exactly one consumer are not listed.
   `hex_string_normalize_%s`, `hex_string_concat_%s`). Step: have those sites
   read the record's `RuntimeSymbol`, so the symbol has one owner everywhere.
 
-- **Type representation and copy facts are recorded but unconsumed
-  ([0229](specs/0229-data-driven-compiler-facts.md)).** `ConstructorFacts`
-  (`compiler/specdata/constructors.go:180-272`) carries Representation,
-  CopyMode, FreeMode, Comparable, and Hashable, but no non-test code reads it;
-  the authoritative rules are the position model at
-  `compiler/types/collections.go:283-384` (`Storable`, `Eligible`,
-  `ContainsAtomic`). The switch is blocked on the record model, and one record
-  fact contradicts observed behavior: `List.Comparable` is `ComparisonNone`,
-  yet `EqualityAvailable(List<Int32>)` is true because equality is structural
-  on the element. `Slice.Representation` is `RepresentationValue`, yet
-  `Ptr<Slice<T>>` is rejected because `isManaged`
-  (`compiler/types/types.go:592-604`) classifies Slice by identity rather than
-  by Representation. `Storable` also special-cases `Fun`, `Nil`, `IO`, `Bytes`,
-  and `Unknown`, none of which has a constructor record, and `FreeMode` and
-  `Hashable` have no consumer at all, and the switch probe confirmed that a
-  single constructor-level comparison mode cannot express the comparison fact,
-  because equality is element-derived (`List<Dict<...>>` is not equal even
-  though `List<Int32>` is). Step: record the concrete compiler-owned types and
-  the structural forms, and give eligibility a per-position fact or a
-  constructor identity on `Type`, then switch the consumers. The comparison
-  fact additionally needs a derived form rather than one enum value per
-  constructor, or an explicit statement that comparison is not this record's
-  fact.
+- **The comparison fact has a second owner in the generator, and three facts
+  still have no consumer ([0229](specs/0229-data-driven-compiler-facts.md)).**
+  The position model, the pointee rule, equality, and ordering now read the type
+  records, with an enumeration over every compiler-owned type and every position
+  proved identical before and after. What remains: the generator's union-member
+  equality (`compiler/generator/unions.go`) still restates the recursive
+  comparison fact; `FreeMode` and `Hashable` are recorded but read by nothing,
+  because free eligibility is enforced per family in the method checkers and
+  dict-key eligibility is a concrete rule; and concrete representation and copy
+  facts -- for example the heap `String` -- are unrecorded while nothing
+  consumes them. Step: have the generator's union check read the record, and
+  either give `FreeMode` and `Hashable` a consumer or state that ownership and
+  hashing are not this record's facts.
 
 ## Deferred ideas
 
