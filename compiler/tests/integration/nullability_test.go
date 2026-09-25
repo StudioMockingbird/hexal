@@ -217,3 +217,36 @@ func TestSoleContinuingPathNarrowing(t *testing.T) {
 	assertCompiles(t, "fun f(): Int32 do\n    let mut maybe: Ptr<Int32> | Nil = nil\n    while true do\n        if maybe == nil then\n            break\n        end\n        return ^maybe\n    end\n    return 0\nend\n")
 	assertRejects(t, "fun f(): Int32 do\n    let mut maybe: Ptr<Int32> | Nil = nil\n    if maybe != nil then\n        print(^maybe)\n    end\n    return ^maybe\nend\n", "Ptr<Int32> | Nil may be Nil; narrow it before dereferencing")
 }
+
+// Narrowing survives a spawn of the narrowed binding and an ordinary call;
+// a writable @ of the same binding drops it, so a later dereference is
+// rejected until re-narrowed.
+func TestNarrowingSurvivesSpawnAndCallButNotAddressOf(t *testing.T) {
+	assertCompiles(t, `fun worker(p: Ptr<Int32>): Bool do
+    return true
+end
+fun use(p: Ptr<Int32>): Int32 do
+    return ^p
+end
+fun run(): Int32 | Error do
+    let mut value: Int32 = 1
+    let maybe: Ptr<Int32> | Nil = @value
+    if maybe != nil then
+        let task: Task<Bool> = try spawn worker(maybe)
+        task.join()
+        let read: Int32 = use(maybe)
+    end
+    return 0
+end
+`)
+	assertRejects(t, `fun run(): Int32 do
+    let mut value: Int32 = 1
+    let mut maybe: Ptr<Int32> | Nil = @value
+    if maybe != nil then
+        let slot: Ptr<mut Ptr<Int32> | Nil> = @maybe
+        let bad: Int32 = ^maybe
+    end
+    return 0
+end
+`, "Ptr<Int32> | Nil may be Nil; narrow it before dereferencing")
+}

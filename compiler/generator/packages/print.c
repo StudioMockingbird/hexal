@@ -70,7 +70,9 @@ void hex_print_text(hex_print_buffer *out, const uint8_t *data, size_t length) {
 
 #ifdef _WIN32
 
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 
 // hex_print_console_handle reports whether the current stdout handle is an

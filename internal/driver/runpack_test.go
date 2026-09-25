@@ -9,6 +9,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io/fs"
+	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -88,13 +90,76 @@ func validPackManifest() string {
 }
 
 func TestResolveProfile(t *testing.T) {
-	if _, err := resolveProfile(compilerTypes.TargetX86_64LinuxGNU); err != nil {
-		t.Fatalf("qualified profile rejected: %v", err)
+	for _, target := range []compilerTypes.TargetProfileID{
+		compilerTypes.TargetX86_64LinuxGNU,
+		compilerTypes.TargetX86_64WindowsGNU,
+	} {
+		profile, err := resolveProfile(target)
+		if err != nil {
+			t.Fatalf("qualified profile %s rejected: %v", target, err)
+		}
+		if profile.profile != target || profile.triple == "" || profile.packDir == "" {
+			t.Fatalf("profile for %s = %+v, want matching profile, a nonempty triple, and packDir", target, profile)
+		}
 	}
-	for _, target := range []string{"", "x86_64-windows-gnu", "x86_64-windows-gnu-ucrt", "aarch64-macos"} {
+	for _, target := range []string{"", "x86_64-windows-gnu", "aarch64-macos"} {
 		if _, err := resolveProfile(compilerTypes.TargetProfileID(target)); err == nil || !strings.Contains(err.Error(), "is not qualified for native builds in this release") {
 			t.Fatalf("profile %q = %v, want a not-qualified error", target, err)
 		}
+	}
+}
+
+func TestCheckHostPairsKnownTargets(t *testing.T) {
+	host := runtime.GOOS + "/" + runtime.GOARCH
+	known := map[compilerTypes.TargetProfileID]bool{
+		compilerTypes.TargetX86_64LinuxGNU:   true,
+		compilerTypes.TargetX86_64WindowsGNU: true,
+	}
+	for _, target := range []compilerTypes.TargetProfileID{
+		compilerTypes.TargetX86_64LinuxGNU,
+		compilerTypes.TargetX86_64WindowsGNU,
+	} {
+		err := checkHost(target)
+		if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
+			if target == compilerTypes.TargetX86_64LinuxGNU && err != nil {
+				t.Fatalf("linux/amd64 cannot build its own target: %v", err)
+			}
+			if target == compilerTypes.TargetX86_64WindowsGNU && (err == nil || !strings.Contains(err.Error(), "this release builds x86-64 Linux on linux/amd64 and x86-64 Windows on windows/amd64")) {
+				t.Fatalf("windows target on linux host = %v, want the pair-set diagnostic", err)
+			}
+		}
+		if runtime.GOOS == "windows" && runtime.GOARCH == "amd64" {
+			if target == compilerTypes.TargetX86_64WindowsGNU && err != nil {
+				t.Fatalf("windows/amd64 cannot build its own target: %v", err)
+			}
+			if target == compilerTypes.TargetX86_64LinuxGNU && (err == nil || !strings.Contains(err.Error(), "this release builds x86-64 Linux on linux/amd64 and x86-64 Windows on windows/amd64")) {
+				t.Fatalf("linux target on windows host = %v, want the pair-set diagnostic", err)
+			}
+		}
+		_ = known
+		_ = host
+	}
+	// An unknown target is not checkHost's failure; resolveProfile owns it.
+	if err := checkHost("aarch64-macos"); err != nil {
+		t.Fatalf("unknown target = %v, want nil", err)
+	}
+}
+
+func TestFeatureDefinesMatchTarget(t *testing.T) {
+	linux := featureDefines(compilerTypes.TargetX86_64LinuxGNU)
+	if len(linux) != 1 || linux[0] != "-D_POSIX_C_SOURCE=200809L" {
+		t.Fatalf("linux defines = %v", linux)
+	}
+	windows := featureDefines(compilerTypes.TargetX86_64WindowsGNU)
+	want := []string{
+		"-DWIN32_LEAN_AND_MEAN",
+		"-D_WIN32_WINNT=0x0A00",
+		"-D_CRT_DECLARE_NONSTDC_NAMES=0",
+		"-D_CRT_SECURE_NO_WARNINGS",
+		"-DUTF8PROC_STATIC",
+	}
+	if !reflect.DeepEqual(windows, want) {
+		t.Fatalf("windows defines = %v, want %v", windows, want)
 	}
 }
 

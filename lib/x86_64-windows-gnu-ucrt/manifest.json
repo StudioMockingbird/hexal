@@ -59,7 +59,7 @@
     "libuv_v1.52.1/include/uv/unix.h": "06ccd9e0f3f312b610a7e7a8ff16596988e02796e7a0c81a62e29d5f6abe4613",
     "libuv_v1.52.1/include/uv/version.h": "a859f2c21f7887d45b0372109ebc91759a6f8c408c7cbf2a12f9bbe579be403b",
     "libuv_v1.52.1/include/uv/win.h": "9ad5dd7d5d4d51981f40edfc65a53ab94e91f6a2e73f2bf897e0e697fd9e8233",
-    "libuv_v1.52.1/libuv.a": "06b935291a98551dab37264ef770b642dafc2f927bbecd464cece5ebdb5d9a03",
+    "libuv_v1.52.1/libuv.a": "ec5d328e445afb9cb7f8800214a9df699bc0c1b2cb78d4a047657d887303d027",
     "mimalloc_v3.5.1/LICENSE": "82ade5d7d9b029044b5fbbc326207fc47c2d44ee4dd71e8a559c36d728217de9",
     "mimalloc_v3.5.1/include/mimalloc-new-delete.h": "1bc31e20fb0340d9d071c69eaac2f07d0dfe4cdf95849ed8d91fb2bd7538d55b",
     "mimalloc_v3.5.1/include/mimalloc-override.h": "21fcf61c4443341ac6bf6ea528af31dc7267e8e3456fc64bfd07704503032175",
@@ -72,9 +72,9 @@
     "mimalloc_v3.5.1/include/mimalloc/prim.h": "1987e8e2eedc07bb181bf2a11a27bec80a5309c32cfa66a56900fb4cbb64b172",
     "mimalloc_v3.5.1/include/mimalloc/track.h": "e7d94cae6b36f92b934b76aa3d24854845710e798654bdd29cef90e13e0f161e",
     "mimalloc_v3.5.1/include/mimalloc/types.h": "9d6832d33cb9cf6971bd4c3218cb60af696abe775b64a7d8003d7ff56dd4d763",
-    "mimalloc_v3.5.1/mimalloc.a": "10af4abf7966f1ba45b7526b3342ac1d8298d4005c12fcba074d5b75ecc35661",
+    "mimalloc_v3.5.1/mimalloc.a": "ab6ed25b0a02bb5b0250484aae80cbcf6c38a4e293e6256f222614c72f722e9c",
     "utf8proc_v2.11.3/LICENSE.md": "3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256",
     "utf8proc_v2.11.3/include/utf8proc.h": "a4e498b7392c383cf3b22e662da21e0b48f1264806235d87b5d8bd166232f658",
-    "utf8proc_v2.11.3/utf8proc.a": "cccf77623c664d67aedb9113ce410c93c3effeeeb19b32d56a3e2a127822311c"
+    "utf8proc_v2.11.3/utf8proc.a": "b9517c1164c81ecdf10b728d19e19d87a99793b36418acd880b8a709ec820455"
   }
 }

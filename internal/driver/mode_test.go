@@ -78,36 +78,79 @@ func TestBuildRejectsUnknownModeAtConfiguration(t *testing.T) {
 
 // The exact option set of each mode is the whole surface this feature adds,
 // so it is pinned literally: a change to any entry must be a deliberate edit
-// here, never a drive-by.
+// here, never a drive-by. Linux debug carries the leak flag and the
+// non-recovering diagnostic policy; Windows debug replaces the recover flag
+// with trap mode so its link never needs a MinGW UBSan runtime; release is
+// byte-identical across lanes.
 func TestModeOptionsAreExact(t *testing.T) {
-	debug := Options(ModeDebug)
-	wantDebugCompile := []string{"-O0", "-g", "-ffp-contract=off", "-fsanitize=undefined", "-fno-sanitize-recover=all"}
+	debug := Options(ModeDebug, compilerTypes.TargetX86_64LinuxGNU)
+	wantDebugCompile := []string{"-O0", "-g", "-ffp-contract=off", "-fsanitize=undefined", "-fno-sanitize-recover=all", "-fsanitize=leak"}
 	if !reflect.DeepEqual(debug.Compile, wantDebugCompile) {
-		t.Fatalf("debug compile options = %v, want %v", debug.Compile, wantDebugCompile)
+		t.Fatalf("linux debug compile options = %v, want %v", debug.Compile, wantDebugCompile)
 	}
-	wantDebugLink := []string{"-fsanitize=undefined", "-fno-sanitize-recover=all"}
+	wantDebugLink := []string{"-fsanitize=undefined", "-fno-sanitize-recover=all", "-fsanitize=leak"}
 	if !reflect.DeepEqual(debug.Link, wantDebugLink) {
-		t.Fatalf("debug link options = %v, want %v", debug.Link, wantDebugLink)
+		t.Fatalf("linux debug link options = %v, want %v", debug.Link, wantDebugLink)
 	}
 
-	release := Options(ModeRelease)
+	windowsDebug := Options(ModeDebug, compilerTypes.TargetX86_64WindowsGNU)
+	wantWindowsDebugCompile := []string{"-O0", "-g", "-ffp-contract=off", "-fsanitize=undefined", "-fsanitize-trap=undefined"}
+	if !reflect.DeepEqual(windowsDebug.Compile, wantWindowsDebugCompile) {
+		t.Fatalf("windows debug compile options = %v, want %v", windowsDebug.Compile, wantWindowsDebugCompile)
+	}
+	wantWindowsDebugLink := []string{"-fsanitize=undefined", "-fsanitize-trap=undefined"}
+	if !reflect.DeepEqual(windowsDebug.Link, wantWindowsDebugLink) {
+		t.Fatalf("windows debug link options = %v, want %v", windowsDebug.Link, wantWindowsDebugLink)
+	}
+
+	releaseLinux := Options(ModeRelease, compilerTypes.TargetX86_64LinuxGNU)
+	releaseWindows := Options(ModeRelease, compilerTypes.TargetX86_64WindowsGNU)
+	if !reflect.DeepEqual(releaseLinux.Compile, releaseWindows.Compile) || !reflect.DeepEqual(releaseLinux.Link, releaseWindows.Link) {
+		t.Fatalf("release option sets differ across lanes: linux=%+v windows=%+v", releaseLinux, releaseWindows)
+	}
 	wantReleaseCompile := []string{"-O2", "-g0", "-ffp-contract=off", "-fno-sanitize=undefined", "-ffunction-sections", "-fdata-sections"}
-	if !reflect.DeepEqual(release.Compile, wantReleaseCompile) {
-		t.Fatalf("release compile options = %v, want %v", release.Compile, wantReleaseCompile)
+	if !reflect.DeepEqual(releaseLinux.Compile, wantReleaseCompile) {
+		t.Fatalf("release compile options = %v, want %v", releaseLinux.Compile, wantReleaseCompile)
 	}
 	wantReleaseLink := []string{"-s", "-Wl,--gc-sections"}
-	if !reflect.DeepEqual(release.Link, wantReleaseLink) {
-		t.Fatalf("release link options = %v, want %v", release.Link, wantReleaseLink)
+	if !reflect.DeepEqual(releaseLinux.Link, wantReleaseLink) {
+		t.Fatalf("release link options = %v, want %v", releaseLinux.Link, wantReleaseLink)
+	}
+}
+
+// Windows debug must never carry -fsanitize=address; the pack is built
+// without an ASan runtime and a MinGW link would fail.
+func TestWindowsDebugNeverCarriesAddressSanitizer(t *testing.T) {
+	for _, mode := range []BuildMode{ModeDebug, ModeRelease} {
+		options := Options(mode, compilerTypes.TargetX86_64WindowsGNU)
+		for _, option := range append(append([]string(nil), options.Compile...), options.Link...) {
+			if strings.Contains(option, "-fsanitize=address") {
+				t.Fatalf("%s windows options carry address sanitizer: %s", mode, option)
+			}
+		}
+	}
+}
+
+// An empty target is host-neutral and must not arm a leak flag: only a
+// qualified Linux profile selects LSan.
+func TestModeOptionsEmptyTargetCarriesNoLeakFlag(t *testing.T) {
+	options := Options(ModeDebug, "")
+	for _, list := range [][]string{options.Compile, options.Link} {
+		for _, option := range list {
+			if option == "-fsanitize=leak" {
+				t.Fatalf("empty target carries the leak flag: %v", list)
+			}
+		}
 	}
 }
 
 // Callers append their include and dependency options to what Options
 // returns, so a returned slice must never alias the table.
 func TestModeOptionsAreFreshCopies(t *testing.T) {
-	first := Options(ModeRelease)
+	first := Options(ModeRelease, compilerTypes.TargetX86_64LinuxGNU)
 	first.Compile[0] = "-O0"
 	first.Link[0] = "-g"
-	second := Options(ModeRelease)
+	second := Options(ModeRelease, compilerTypes.TargetX86_64LinuxGNU)
 	if second.Compile[0] != "-O2" || second.Link[0] != "-s" {
 		t.Fatalf("option table was mutated through a returned slice: %+v", second)
 	}
@@ -120,7 +163,7 @@ func identityInputs() (map[string]string, []compiler.RuntimeDependency, []string
 		"hexal/runtime.h": "int runtime(void);\n",
 	}
 	dependencies := []compiler.RuntimeDependency{compiler.RuntimeMimalloc}
-	return files, dependencies, Options(ModeDebug).Compile, Options(ModeDebug).Link
+	return files, dependencies, Options(ModeDebug, compilerTypes.TargetX86_64LinuxGNU).Compile, Options(ModeDebug, compilerTypes.TargetX86_64LinuxGNU).Link
 }
 
 var fullSHA256 = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -253,9 +296,9 @@ func TestVersionedBasenameCarriesTheIdentity(t *testing.T) {
 // enables the UBSan backstop and its non-recovering policy at both compile and
 // link; release drops the backstop and garbage-collects unused sections.
 func TestModeOptionTableMatchesTheContract(t *testing.T) {
-	debug := Options(ModeDebug)
+	debug := Options(ModeDebug, compilerTypes.TargetX86_64LinuxGNU)
 	debugJoined := strings.Join(append(append([]string{}, debug.Compile...), debug.Link...), " ")
-	for _, want := range []string{"-O0", "-g", "-ffp-contract=off", "-fsanitize=undefined", "-fno-sanitize-recover=all"} {
+	for _, want := range []string{"-O0", "-g", "-ffp-contract=off", "-fsanitize=undefined", "-fno-sanitize-recover=all", "-fsanitize=leak"} {
 		if !strings.Contains(debugJoined, want) {
 			t.Errorf("debug options lack %s: %v", want, debugJoined)
 		}
@@ -264,7 +307,7 @@ func TestModeOptionTableMatchesTheContract(t *testing.T) {
 		t.Errorf("debug options disable the sanitizer: %v", debugJoined)
 	}
 
-	release := Options(ModeRelease)
+	release := Options(ModeRelease, compilerTypes.TargetX86_64LinuxGNU)
 	releaseJoined := strings.Join(append(append([]string{}, release.Compile...), release.Link...), " ")
 	for _, absent := range []string{"-fsanitize=undefined", "-fno-sanitize-recover"} {
 		if strings.Contains(releaseJoined, absent) {
@@ -278,11 +321,19 @@ func TestModeOptionTableMatchesTheContract(t *testing.T) {
 	}
 }
 
-// Foreign C compilation never inherits the generated C sanitizer backstop.
+// Foreign C compilation never inherits the generated C sanitizer backstop or
+// the leak instrument: the filter drops every option containing "sanitize",
+// and the leak flag never reaches this path because it is appended only in
+// Options for a Linux profile.
 func TestForeignCompileOptionsDropSanitizers(t *testing.T) {
-	for _, option := range ForeignCompileOptions(ModeDebug) {
-		if strings.Contains(option, "sanitize") {
-			t.Fatalf("foreign options carry sanitizer option %q", option)
+	for _, mode := range []BuildMode{ModeDebug, ModeRelease} {
+		for _, option := range ForeignCompileOptions(mode) {
+			if strings.Contains(option, "sanitize") {
+				t.Fatalf("%s foreign options carry sanitizer option %q", mode, option)
+			}
+			if option == "-fsanitize=leak" {
+				t.Fatalf("%s foreign options carry the leak flag", mode)
+			}
 		}
 	}
 }

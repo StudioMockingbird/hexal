@@ -13,6 +13,8 @@ gets deleted.
 
 | Work | Spec | Effort | ROI |
 | --- | --- | --- | --- |
+| Make generator scope ownership fail closed and remove automatic root-scope repair | [0239](specs/0239-chibicc-review-findings.md) | Low | Medium |
+| Record measured compiler policy honestly and expose deterministic module export-interface fingerprints | [0244](specs/0244-measured-policy-and-export-interface-fingerprints.md) | Medium | High |
 | Prove end-to-end automatic import and static linking of an unmodified Raylib package | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) | High | Medium |
 
 ## Deferred ideas
@@ -123,9 +125,12 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   runnable fixture in `compiler/tests/c23validation` under the one required
   Clang** (`go test -tags c23 -run TestC23SuiteUBSan`), asserting the fixture's
   own expectation still holds and that no undefined behavior was reported. The
-  release gate fails if the selected Clang cannot link and execute the
-  sanitizer-instrumented probe; there is no GCC or Zig capability probe, skip,
-  marker, or alternate report path. The function-type-mismatch check
+  diagnostic-UBSan track is Linux-only: Clang ships no MinGW UBSan runtime, so
+  on Windows the track skips and Windows debug's UB backstop is trap mode
+  (exercised by the driver's own mode tests). On Linux the release gate fails
+  if the selected Clang cannot link and execute the sanitizer-instrumented
+  probe; there is no GCC or Zig capability probe, skip, marker, or alternate
+  report path. The function-type-mismatch check
   (`-fsanitize=function`) stays disabled: Hexal's Task entry points and libuv
   work-queue callbacks are intentionally type-erased (stored generically, cast
   back to their real signature before calling), the exact pattern that check
@@ -136,7 +141,8 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   category, including all of Hexal's own generated C, is still checked. ASan
   remains separately deferred under RFC 0185 because Task fibers lack sanitizer
   switch annotations. TSan is out of scope entirely; user-space fibers need
-  their own feasibility decision.
+  their own feasibility decision. LeakSanitizer (`TestC23SuiteLeak`) is
+  likewise Linux-only and skips on Windows, where no LSan runtime exists.
 - **Equality, print, and union widening/truthiness are now demand-driven; the
   four `-Wno-unused-*` suppressions in `compiler/tests/c23validation`'s Tier 1
   build stay in place, but for a different, disclosed reason than the one
@@ -168,7 +174,8 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   codegen change with no connection to this gap), so each remains, with its
   rationale in `c23_harness_test.go` corrected to name the real cause.
 - **The fixture and snippet catalog now also compiles, links, and runs under
-  the qualified `x86_64-linux-gnu` profile**, not only the host-neutral
+  the host's qualified profile** (`x86_64-linux-gnu` on linux/amd64,
+  `x86_64-windows-gnu-ucrt` on windows/amd64), not only the host-neutral
   `Project{}` every other tagged test uses. `Project{}` keeps both platform
   branches and lets the C compiler's own target macros select one at
   C-compile time; an explicit profile instead has the Hexal compiler select

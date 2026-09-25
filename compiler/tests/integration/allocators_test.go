@@ -105,6 +105,29 @@ func TestStashPoolRejections(t *testing.T) {
 			"Pool cannot be destroyed while a locally tracked slot is live",
 		},
 		{
+			"Pool destroy with aliased live slot rejected",
+			"type Node is struct value: Int32 end\n" +
+				"fun demo() do\n" +
+				"    let pool = Pool<Node>(4)\n" +
+				"    let node: Ptr<mut Node> = pool.allocate(Node(value = 1))\n" +
+				"    let alias: Ptr<mut Node> = node\n" +
+				"    pool.destroy()\n" +
+				"end",
+			"Pool cannot be destroyed while a locally tracked slot is live",
+		},
+		{
+			"use through alias after Stash reset rejected",
+			"type Node is struct value: Int32 end\n" +
+				"fun demo() do\n" +
+				"    let stash = Stash<Node>()\n" +
+				"    let node: Ptr<mut Node> = stash.allocate(Node(value = 1))\n" +
+				"    let alias: Ptr<mut Node> = node\n" +
+				"    stash.reset()\n" +
+				"    ^alias = 5\n" +
+				"end",
+			"released on every path",
+		},
+		{
 			"use after Stash destroy rejected",
 			"type Node is struct value: Int32 end\n" +
 				"fun demo() do\n" +
@@ -143,6 +166,16 @@ func TestStashPoolRejections(t *testing.T) {
 				"    let list = List<Node>(stash)\n" +
 				"end",
 			"List<T>.new requires a Heap",
+		},
+		{
+			"Stash free of a Heap allocation still rejected first",
+			"let h: Heap = Heap()\n" +
+				"fun demo() do\n" +
+				"    let stash = Stash<Int32>()\n" +
+				"    let p: Ptr<mut Int32> = h.allocate<Int32>(1)\n" +
+				"    stash.free(p)\n" +
+				"end",
+			"Stash allocations are released by reset or destroy",
 		},
 	}
 	for _, testCase := range cases {

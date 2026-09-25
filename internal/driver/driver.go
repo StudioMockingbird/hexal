@@ -109,8 +109,9 @@ type BuildOptions struct {
 	// CompilerPath is the exact installed Clang executable. It is required:
 	// the driver never searches PATH for a compiler.
 	CompilerPath string
-	// Target is the exact Hexal target-profile identity. It is required, and
-	// this release qualifies only x86_64-linux-gnu for native builds.
+	// Target is the exact Hexal target-profile identity. It is required;
+	// this release qualifies x86_64-linux-gnu and x86_64-windows-gnu-ucrt,
+	// each on its matching host.
 	Target compilerTypes.TargetProfileID
 	// CSources are foreign C translation units compiled separately and linked.
 	CSources []string
@@ -188,17 +189,18 @@ func Build(options BuildOptions) (BuildResult, error) {
 		return result, foreignFailure
 	}
 
-	// The host, target profile, and exact installed compiler are selected
-	// before source discovery. An unqualified host or profile, or an
-	// unacceptable compiler, fails here, not after compilation.
-	if err := checkHost(); err != nil {
-		return result, configurationFailure(err.Error())
-	}
+	// The target profile, host, and exact installed compiler are selected
+	// before source discovery. An unqualified profile, a host that cannot
+	// build that profile, or an unacceptable compiler fails here, not after
+	// compilation. resolveProfile runs first so an unknown target keeps its
+	// own diagnostic regardless of host.
 	profile, profileErr := resolveProfile(options.Target)
 	if profileErr != nil {
 		return result, configurationFailure(profileErr.Error())
 	}
-	_ = profile
+	if err := checkHost(options.Target); err != nil {
+		return result, configurationFailure(err.Error())
+	}
 	backend, backendErr := resolveBackend(options.CompilerPath)
 	if backendErr != nil {
 		return result, configurationFailure(backendErr.Error())
@@ -239,7 +241,12 @@ func Build(options BuildOptions) (BuildResult, error) {
 		for key, content := range sources {
 			compiledSources[key] = content
 		}
-		headerOpts := headerOptions{compileOptions: foreign.moduleCompileOptions(), target: string(options.Target)}
+		headerOpts := headerOptions{
+			compileOptions: foreign.moduleCompileOptions(),
+			target:         string(options.Target),
+			triple:         profile.triple,
+			featureDefines: featureDefines(options.Target),
+		}
 		prepared := make(map[string]bool, len(requests))
 		for _, request := range requests {
 			if prepared[compiler.CBindingKey(headerOpts.target, request)] {
@@ -268,7 +275,7 @@ func Build(options BuildOptions) (BuildResult, error) {
 
 	// The mode selects backend options here and nowhere else; the dependency
 	// include options are mode-independent by design.
-	selected := Options(mode)
+	selected := Options(mode, options.Target)
 
 	// Resolve the demanded runtime pack only when the program selects a
 	// runtime dependency. A dependency-free build never opens the embedded
@@ -362,11 +369,12 @@ func Build(options BuildOptions) (BuildResult, error) {
 
 	compileOptions := append(append([]string(nil), selected.Compile...), packIncludes...)
 	linkOptions := append([]string(nil), selected.Link...)
+	defines := featureDefines(options.Target)
 
-	if err := compileTranslationUnitsWithOptions(backend, staging, cFiles, compileOptions, foreign.moduleCompileOptions(), &result); err != nil {
+	if err := compileTranslationUnitsWithOptions(backend, staging, cFiles, compileOptions, foreign.moduleCompileOptions(), profile.triple, defines, &result); err != nil {
 		return result, err
 	}
-	foreignObjects, foreignFailure := compileForeignSources(backend, staging, foreign, mode, packIncludes, &result)
+	foreignObjects, foreignFailure := compileForeignSources(backend, staging, foreign, mode, packIncludes, profile.triple, &result)
 	if foreignFailure != nil {
 		return result, foreignFailure
 	}
@@ -388,7 +396,7 @@ func Build(options BuildOptions) (BuildResult, error) {
 	// executable and every published debug file untouched; the staging tree,
 	// including this link, is removed either way.
 	stagedExe := filepath.Join(staging, versionedBasename(output, identity)+exeSuffix())
-	if err := linkObjectsWithOptions(backend, staging, objects, linkOptions, stagedExe, &result); err != nil {
+	if err := linkObjectsWithOptions(backend, staging, profile.triple, objects, linkOptions, stagedExe, &result); err != nil {
 		return result, err
 	}
 	if err := publishExecutable(stagedExe, output); err != nil {
@@ -398,12 +406,18 @@ func Build(options BuildOptions) (BuildResult, error) {
 	return result, nil
 }
 
-// checkHost rejects every host outside the qualified scope before any tool
-// runs. This release links and runs its results, so the host running the
-// build is the only host a build may target: x86-64 Linux.
-func checkHost() error {
-	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
-		return fmt.Errorf("host %s/%s is not qualified; this release builds x86-64 Linux from installed Clang", runtime.GOOS, runtime.GOARCH)
+// checkHost rejects a target whose only qualified host is not the host
+// running the build. The diagnostic names the host and the full qualified
+// pair set rather than one release's single option. An unknown target is
+// resolveProfile's failure; checkHost only classifies known pairs.
+func checkHost(target compilerTypes.TargetProfileID) error {
+	required, known := qualifiedHosts[target]
+	if !known {
+		return nil
+	}
+	host := runtime.GOOS + "/" + runtime.GOARCH
+	if host != required {
+		return fmt.Errorf("host %s cannot build target %s; this release builds x86-64 Linux on linux/amd64 and x86-64 Windows on windows/amd64", host, target)
 	}
 	return nil
 }
@@ -431,13 +445,16 @@ func resolveBackend(compilerPath string) (*backend.Backend, error) {
 	return selected, nil
 }
 
-// executableFile reports whether path is a regular file this host can execute.
-// The qualified host is Linux, where an executable is a regular file with an
-// execute bit.
+// executableFile reports whether path is a regular file this host can
+// execute. Windows qualifies an executable by its extension (case-insensitive
+// .exe); every other qualified host uses the execute bit on a regular file.
 func executableFile(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil || !info.Mode().IsRegular() {
 		return false
+	}
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(filepath.Ext(path), ".exe")
 	}
 	return info.Mode()&0o111 != 0
 }
@@ -572,31 +589,25 @@ func cFilesToObjects(staging string, cFiles []string) []string {
 	return objects
 }
 
-// linuxFeatureDefines selects the POSIX feature-test level generated C needs
-// under strict C23 on glibc: without it, pthread_rwlock_t and struct addrinfo
-// are hidden by <pthread.h> and <netdb.h>, and the generated POSIX branches do
-// not compile. It is a build selection, not a generated-C rule: the emitted
-// source stays standard C23.
-var linuxFeatureDefines = []string{"-D_POSIX_C_SOURCE=200809L"}
-
 // compileTranslationUnitsWithOptions compiles every generated .c in
 // deterministic logical-key order: one backend invocation per translation
 // unit, each its own C-compilation stage record with separated streams. The
-// caller supplies the complete option list, mode options included. moduleOptions
-// carries the user include and define arguments and reaches only
-// generated module translation units (`modules/*.c`): compiler-owned runtime
-// components and bundled dependencies never see user options, and the
+// caller supplies the complete option list (mode options included), the
+// selected profile's Clang triple, and that profile's feature-test defines.
+// moduleOptions carries the user include and define arguments and reaches
+// only generated module translation units (`modules/*.c`): compiler-owned
+// runtime components and bundled dependencies never see user options, and the
 // compiler-owned staging include root precedes them so user input cannot
 // shadow hexal.h or a bundled component header.
-func compileTranslationUnitsWithOptions(backend *backend.Backend, staging string, cFiles, options, moduleOptions []string, result *BuildResult) error {
+func compileTranslationUnitsWithOptions(backend *backend.Backend, staging string, cFiles, options, moduleOptions []string, triple string, defines []string, result *BuildResult) error {
 	for _, source := range cFiles {
 		object := strings.TrimSuffix(source, ".c") + ".o"
-		compileOptions := append([]string{"-I", staging}, linuxFeatureDefines...)
+		compileOptions := append([]string{"-I", staging}, defines...)
 		compileOptions = append(compileOptions, options...)
 		if isModuleTranslationUnit(staging, source) {
 			compileOptions = append(compileOptions, moduleOptions...)
 		}
-		invocation, err := backend.CompileOne(qualifiedTriple, compileOptions, source, object)
+		invocation, err := backend.CompileOne(triple, compileOptions, source, object)
 		if err != nil {
 			return &BuildError{Stage: StageCompile, Message: fmt.Sprintf("cannot run backend: %v", err)}
 		}
@@ -636,8 +647,8 @@ func isModuleTranslationUnit(staging, source string) bool {
 // deterministic order into executable, which the caller places in staging so
 // a failed link can never disturb a published executable. The backend owns
 // linker selection; the driver records the exact command.
-func linkObjectsWithOptions(backend *backend.Backend, staging string, objects, options []string, executable string, result *BuildResult) error {
-	invocation, err := backend.LinkObjects(qualifiedTriple, objects, executable, options)
+func linkObjectsWithOptions(backend *backend.Backend, staging, triple string, objects, options []string, executable string, result *BuildResult) error {
+	invocation, err := backend.LinkObjects(triple, objects, executable, options)
 	if err != nil {
 		return &BuildError{Stage: StageLink, Message: fmt.Sprintf("cannot run backend: %v", err)}
 	}

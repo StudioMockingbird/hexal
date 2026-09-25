@@ -194,15 +194,32 @@ func moduleScope(moduleID string, logicalKey string, registry *ModuleRegistry, t
 	return &scope{module: make(map[string]binding), moduleID: moduleID, logicalKey: logicalKey, table: table, methods: newMethodTable(), nextID: &next, flow: newFlowState(), generics: generics, registry: registry}
 }
 
-// flowFact records the branch-local treatment of one binding. Narrowing and
-// freed facts survive only while the binding remains trackable; escape clears
-// both because a write through the escaped address can change the slot.
+// allocationID is one tracked allocation's opaque identity. Zero means none.
+// Every tracked binding maps to exactly one live identity; aliases share it,
+// reassignment mints a fresh one, and freedAlloc records which identities are
+// released on every path to this point.
+type allocationID uint64
+
+// allocatorKind records which allocator produced an allocation, keyed by
+// allocationID. Zero means unknown and never rejects a release.
+type allocatorKind uint8
+
+const (
+	unknownAllocator allocatorKind = iota
+	heapAllocator
+	stashAllocator
+	poolAllocator
+)
+
+// flowFact records the branch-local treatment of one binding. Narrowing facts
+// survive only while the binding remains trackable; escape clears them because
+// a write through the escaped address can change the slot. Cleanup state is
+// not stored here: it lives in flowState's allocation-identity maps so every
+// alias of one allocation observes the same freed decision.
 type flowFact struct {
 	typ        compilerTypes.Type // effective read type; zero Type when not narrowed
 	escaped    bool
 	variant    *compilerTypes.AdtVariant // active ADT variant when variant-narrowed
-	freed      bool                      // the tracked pointer's pointee was released on every path here
-	version    uint64                    // identity of the pointer value currently in the binding
 	capability uint8                     // compilerTypes.StreamCapability of an IO binding; zero is unknown
 }
 
@@ -215,8 +232,12 @@ type returnFlow struct {
 
 // flowState is the branch-local fact table for one function body or module
 // scope. tracked distinguishes a known cleanup state from an intentionally
-// unknown state after a copy or escape. released retains proven cleanup of
-// older pointer values so deferred captures survive later rebinding.
+// unknown state after a copy or escape. allocation maps each tracked binding
+// to the allocation it currently denotes; freedAlloc is monotone per path and
+// retains history for identities no binding still names, so deferred captures
+// survive later rebinding. nextAlloc is a shared mint counter: every clone and
+// adopt of one function's state shares the pointer so branch-local mints stay
+// globally unique within the function.
 // provenance records which List binding each Bytes stream borrows, and
 // releasedSources marks lists the local facts prove already freed.
 // stringOrigins records possible String storage origins per binding and
@@ -225,7 +246,10 @@ type returnFlow struct {
 type flowState struct {
 	facts           map[BindingID]flowFact
 	tracked         map[BindingID]bool
-	released        map[BindingID]map[uint64]bool
+	allocation      map[BindingID]allocationID
+	freedAlloc      map[allocationID]bool
+	allocatorKind   map[allocationID]allocatorKind
+	nextAlloc       *allocationID
 	provenance      map[BindingID]BindingID
 	releasedSources map[BindingID]bool
 	stringOrigins   map[BindingID]stringOriginSet
@@ -233,10 +257,14 @@ type flowState struct {
 }
 
 func newFlowState() *flowState {
+	counter := allocationID(0)
 	return &flowState{
 		facts:           make(map[BindingID]flowFact),
 		tracked:         make(map[BindingID]bool),
-		released:        make(map[BindingID]map[uint64]bool),
+		allocation:      make(map[BindingID]allocationID),
+		freedAlloc:      make(map[allocationID]bool),
+		allocatorKind:   make(map[allocationID]allocatorKind),
+		nextAlloc:       &counter,
 		provenance:      make(map[BindingID]BindingID),
 		releasedSources: make(map[BindingID]bool),
 		stringOrigins:   make(map[BindingID]stringOriginSet),
@@ -248,22 +276,14 @@ func (state *flowState) clone() *flowState {
 	cloned := &flowState{
 		facts:           maps.Clone(state.facts),
 		tracked:         maps.Clone(state.tracked),
-		released:        cloneReleased(state.released),
+		allocation:      maps.Clone(state.allocation),
+		freedAlloc:      maps.Clone(state.freedAlloc),
+		allocatorKind:   maps.Clone(state.allocatorKind),
+		nextAlloc:       state.nextAlloc,
 		provenance:      maps.Clone(state.provenance),
 		releasedSources: maps.Clone(state.releasedSources),
 		stringOrigins:   maps.Clone(state.stringOrigins),
 		stringPlaces:    maps.Clone(state.stringPlaces),
-	}
-	return cloned
-}
-
-// cloneReleased deep-copies the nested released table. The outer clone must
-// not share inner maps: a branch marking a version freed through the clone
-// would otherwise corrupt every sibling branch that shares that inner map.
-func cloneReleased(released map[BindingID]map[uint64]bool) map[BindingID]map[uint64]bool {
-	cloned := make(map[BindingID]map[uint64]bool, len(released))
-	for id, versions := range released {
-		cloned[id] = maps.Clone(versions)
 	}
 	return cloned
 }
@@ -273,11 +293,7 @@ func cloneReleased(released map[BindingID]map[uint64]bool) map[BindingID]map[uin
 func (state *flowState) withoutFreedChecks() *flowState {
 	cloned := state.clone()
 	cloned.tracked = make(map[BindingID]bool)
-	cloned.released = make(map[BindingID]map[uint64]bool)
-	for id, fact := range cloned.facts {
-		fact.freed = false
-		cloned.facts[id] = fact
-	}
+	cloned.freedAlloc = make(map[allocationID]bool)
 	return cloned
 }
 
@@ -405,7 +421,23 @@ func (state *flowState) invalidateNarrowing(id BindingID) {
 	}
 }
 
+// mintAllocationID returns the next fresh identity on the shared per-function
+// counter. Clones and adopts share the counter pointer so identities minted in
+// sibling branches never collide.
+func (state *flowState) mintAllocationID() allocationID {
+	if state.nextAlloc == nil {
+		zero := allocationID(0)
+		state.nextAlloc = &zero
+	}
+	*state.nextAlloc++
+	return *state.nextAlloc
+}
+
 // trackFreed starts cleanup tracking for a binding in the known-live state.
+// It is idempotent: a second call on an already-tracked binding keeps the
+// existing identity, which is what double-seeding a declaration does. A zero
+// fact entry is established so every tracked binding has one; the join merge
+// requires it.
 func (state *flowState) trackFreed(id BindingID) {
 	if state == nil || id == 0 {
 		return
@@ -413,37 +445,105 @@ func (state *flowState) trackFreed(id BindingID) {
 	if state.tracked == nil {
 		state.tracked = make(map[BindingID]bool)
 	}
-	state.tracked[id] = true
-	fact := state.facts[id]
-	if fact.version == 0 {
-		fact.version = state.nextFreedVersion(id, 0)
+	if state.tracked[id] {
+		return
 	}
-	fact.freed = false
-	state.facts[id] = fact
+	state.tracked[id] = true
+	if state.allocation == nil {
+		state.allocation = make(map[BindingID]allocationID)
+	}
+	state.allocation[id] = state.mintAllocationID()
+	if _, ok := state.facts[id]; !ok {
+		state.facts[id] = flowFact{}
+	}
 }
 
-// dropFreed abandons cleanup tracking without treating the binding's address
-// as escaped. Narrowing facts remain available to their existing consumers.
+// dropFreed abandons cleanup tracking for one binding without treating its
+// address as escaped. The identity mapping is removed but freedAlloc history
+// is retained: a deferred capture or another alias may still key on it.
 func (state *flowState) dropFreed(id BindingID) {
 	if state == nil {
 		return
 	}
 	delete(state.tracked, id)
-	delete(state.released, id)
-	if fact, ok := state.facts[id]; ok {
-		fact.freed = false
-		state.facts[id] = fact
-	}
+	delete(state.allocation, id)
 }
 
-// freed reports only a known released state. Missing tracking is deliberately
-// indistinguishable from a live value to diagnostics.
+// freed reports only a known released state through the binding's current
+// identity. Missing tracking is deliberately indistinguishable from a live
+// value to diagnostics.
 func (state *flowState) freed(id BindingID) bool {
 	if state == nil || !state.tracked[id] {
 		return false
 	}
-	fact, ok := state.facts[id]
-	return ok && fact.freed
+	alloc, ok := state.allocation[id]
+	if !ok || alloc == 0 {
+		return false
+	}
+	return state.freedAlloc[alloc]
+}
+
+// trackedAllocation returns the identity a currently tracked binding denotes,
+// for deferred-capture sites that must outlive later rebinding of the slot.
+func (state *flowState) trackedAllocation(id BindingID) (allocationID, bool) {
+	if state == nil || !state.tracked[id] {
+		return 0, false
+	}
+	alloc, ok := state.allocation[id]
+	return alloc, ok && alloc != 0
+}
+
+// aliasFreed maps target onto source's current identity when source is
+// tracked, forming a must-alias. When source is untracked the call is a no-op
+// and target keeps whatever identity it already has (typically a fresh mint
+// from trackFreed).
+func (state *flowState) aliasFreed(source, target BindingID) {
+	if state == nil || source == 0 || target == 0 || !state.tracked[source] {
+		return
+	}
+	alloc, ok := state.allocation[source]
+	if !ok || alloc == 0 {
+		return
+	}
+	if state.tracked == nil {
+		state.tracked = make(map[BindingID]bool)
+	}
+	if state.allocation == nil {
+		state.allocation = make(map[BindingID]allocationID)
+	}
+	state.tracked[target] = true
+	state.allocation[target] = alloc
+}
+
+// setAllocatorKind records which allocator produced the binding's current
+// identity. Unknown is the default and is never written; a kind is a
+// property of the allocation, so aliases that share the identity observe it.
+func (state *flowState) setAllocatorKind(id BindingID, kind allocatorKind) {
+	if state == nil || id == 0 || kind == unknownAllocator {
+		return
+	}
+	alloc, ok := state.allocation[id]
+	if !ok || alloc == 0 {
+		return
+	}
+	if state.allocatorKind == nil {
+		state.allocatorKind = make(map[allocationID]allocatorKind)
+	}
+	state.allocatorKind[alloc] = kind
+}
+
+// allocatorKindOf reports which allocator produced the binding's current
+// identity. Unknown covers untracked bindings, missing identities, and
+// never-classified allocations; every release site accepts unknown.
+func (state *flowState) allocatorKindOf(id BindingID) allocatorKind {
+	if state == nil || !state.tracked[id] {
+		return unknownAllocator
+	}
+	alloc, ok := state.allocation[id]
+	if !ok || alloc == 0 {
+		return unknownAllocator
+	}
+	return state.allocatorKind[alloc]
 }
 
 // capabilityOf reports the IO capability the local facts prove. Zero means
@@ -537,84 +637,54 @@ func (state *flowState) hasLiveTrackedAllocation(source BindingID) bool {
 	return false
 }
 
-func (state *flowState) trackedVersion(id BindingID) (uint64, bool) {
-	if state == nil || !state.tracked[id] {
-		return 0, false
-	}
-	fact, ok := state.facts[id]
-	return fact.version, ok && fact.version != 0
-}
-
-func (state *flowState) freedAt(id BindingID, version uint64) bool {
-	if state == nil || !state.tracked[id] || version == 0 {
-		return false
-	}
-	fact, ok := state.facts[id]
-	if ok && fact.version == version && fact.freed {
-		return true
-	}
-	return state.released[id][version]
-}
-
+// markFreed records the binding's current identity as released on every path
+// to this point. Every alias of that identity observes the mark.
 func (state *flowState) markFreed(id BindingID) {
 	if state == nil || !state.tracked[id] {
 		return
 	}
-	fact, ok := state.facts[id]
-	if !ok {
+	alloc, ok := state.allocation[id]
+	if !ok || alloc == 0 {
 		return
 	}
-	fact.freed = true
-	state.facts[id] = fact
-	if fact.version != 0 {
-		state.markFreedVersion(id, fact.version)
+	if state.freedAlloc == nil {
+		state.freedAlloc = make(map[allocationID]bool)
 	}
+	state.freedAlloc[alloc] = true
 }
 
-func (state *flowState) markFreedVersion(id BindingID, version uint64) {
-	if state == nil || !state.tracked[id] || version == 0 {
-		return
-	}
-	if fact, ok := state.facts[id]; !ok {
-		return
-	} else if fact.version == version {
-		fact.freed = true
-		state.facts[id] = fact
-	}
-	if state.released == nil {
-		state.released = make(map[BindingID]map[uint64]bool)
-	}
-	if state.released[id] == nil {
-		state.released[id] = make(map[uint64]bool)
-	}
-	state.released[id][version] = true
-}
-
+// clearFreed re-mints a fresh identity for a still-tracked binding, the
+// effect of rebinding its slot to a new value. The old identity's freedAlloc
+// history is retained for deferred captures that still name it.
 func (state *flowState) clearFreed(id BindingID) {
 	if state == nil || !state.tracked[id] {
 		return
 	}
-	fact := state.facts[id]
-	fact.version = state.nextFreedVersion(id, fact.version)
-	fact.freed = false
-	state.facts[id] = fact
+	if state.allocation == nil {
+		state.allocation = make(map[BindingID]allocationID)
+	}
+	state.allocation[id] = state.mintAllocationID()
 }
 
-func (state *flowState) nextFreedVersion(id BindingID, current uint64) uint64 {
-	next := current + 1
-	if next == 0 {
-		next = 1
+// markFreedAlloc marks a captured identity released, used by the deferred
+// validation path where the binding may since have been rebound or dropped.
+func (state *flowState) markFreedAlloc(alloc allocationID) {
+	if state == nil || alloc == 0 {
+		return
 	}
-	for version := range state.released[id] {
-		if version < next {
-			continue
-		}
-		next = version + 1
-		if next == 0 {
-			next = 1
-		}
+	if state.freedAlloc == nil {
+		state.freedAlloc = make(map[allocationID]bool)
 	}
-	return next
+	state.freedAlloc[alloc] = true
+}
+
+// freedAllocReport reports whether a captured identity is already proven
+// released on every path to this point.
+func (state *flowState) freedAllocReport(alloc allocationID) bool {
+	if state == nil || alloc == 0 {
+		return false
+	}
+	return state.freedAlloc[alloc]
 }
 
 // escape records that a writable address of the binding escaped. It clears
@@ -673,11 +743,14 @@ func (state *flowState) mergeBranches(branches ...*flowState) {
 			}
 		}
 	}
+	// Identity agreement: a binding keeps its mapping only when every
+	// continuing branch still tracks it and names the same identity;
+	// disagreement drops the binding to untracked. A nil branch fails the
+	// agreement.
 	for id := range parent.tracked {
 		allTracked := true
-		allFreed := true
-		commonVersion := uint64(0)
-		sameVersion := true
+		commonAlloc := allocationID(0)
+		sameAlloc := true
 		firstBranch := true
 		for _, branch := range branches {
 			if branch == nil || !branch.tracked[id] {
@@ -689,83 +762,67 @@ func (state *flowState) mergeBranches(branches ...*flowState) {
 				allTracked = false
 				break
 			}
-			if firstBranch {
-				commonVersion = fact.version
-				firstBranch = false
-			} else if fact.version != commonVersion {
-				sameVersion = false
+			alloc, ok := branch.allocation[id]
+			if !ok || alloc == 0 {
+				allTracked = false
+				break
 			}
-			if !branch.freed(id) {
-				allFreed = false
+			if firstBranch {
+				commonAlloc = alloc
+				firstBranch = false
+			} else if alloc != commonAlloc {
+				sameAlloc = false
 			}
 		}
-		if !allTracked {
+		if !allTracked || !sameAlloc || commonAlloc == 0 {
 			state.dropFreed(id)
 			continue
 		}
-		fact := state.facts[id]
-		if sameVersion && commonVersion != 0 {
-			fact.version = commonVersion
-		} else {
-			// A divergent current version cannot be assigned a historical
-			// identity, but it may still be definitely freed on every path.
-			fact.version = 0
+		if state.allocation == nil {
+			state.allocation = make(map[BindingID]allocationID)
 		}
-		fact.freed = allFreed
-		state.facts[id] = fact
+		state.tracked[id] = true
+		state.allocation[id] = commonAlloc
 	}
 
-	// Deferred actions may retain an older binding version after every branch
-	// reassigns the slot. Intersect the versions each continuing branch proves
-	// released; disagreement is an unknown state and stays accepted.
-	versions := make(map[BindingID]map[uint64]bool)
-	addVersions := func(branch *flowState) {
-		if branch == nil {
-			return
-		}
-		for id, released := range branch.released {
-			if versions[id] == nil {
-				versions[id] = make(map[uint64]bool)
-			}
-			for version := range released {
-				versions[id][version] = true
-			}
-		}
-		for id, fact := range branch.facts {
-			if branch.tracked[id] && fact.freed && fact.version != 0 {
-				if versions[id] == nil {
-					versions[id] = make(map[uint64]bool)
-				}
-				versions[id][fact.version] = true
-			}
-		}
-	}
-	addVersions(parent)
+	// freedAlloc is monotone history keyed by identity, not by binding.
+	// Branches are clones of this parent and already carry its history, so
+	// the merge is the intersection across branches alone: an identity stays
+	// released only when every continuing path proves it. A nil branch fails
+	// the intersection. Historical entries for dropped bindings survive,
+	// which is what lets a deferred capture still validate after every branch
+	// rebinds its slot.
+	mergedFreed := make(map[allocationID]bool)
+	firstSet := true
 	for _, branch := range branches {
-		addVersions(branch)
-	}
-	mergedReleased := make(map[BindingID]map[uint64]bool)
-	for id, candidates := range versions {
-		if !state.tracked[id] {
+		if branch == nil {
+			mergedFreed = make(map[allocationID]bool)
+			break
+		}
+		if firstSet {
+			for alloc, freed := range branch.freedAlloc {
+				if freed {
+					mergedFreed[alloc] = true
+				}
+			}
+			firstSet = false
 			continue
 		}
-		for version := range candidates {
-			allReleased := true
-			for _, branch := range branches {
-				if branch == nil || !branch.tracked[id] || !branch.freedAt(id, version) {
-					allReleased = false
-					break
-				}
-			}
-			if allReleased {
-				if mergedReleased[id] == nil {
-					mergedReleased[id] = make(map[uint64]bool)
-				}
-				mergedReleased[id][version] = true
+		for alloc := range mergedFreed {
+			if !branch.freedAlloc[alloc] {
+				delete(mergedFreed, alloc)
 			}
 		}
 	}
-	state.released = mergedReleased
+	if firstSet {
+		mergedFreed = make(map[allocationID]bool)
+	}
+	state.freedAlloc = mergedFreed
+
+	// Allocator kind is a property of the identity itself and is written once
+	// when the identity is minted; every branch that still names an identity
+	// agrees on its kind, so the parent's table needs no rewrite. Branch-local
+	// kinds for identities that did not survive the join stay unreachable.
 
 	// Stream facts merge conservatively in the same direction as freed: a
 	// capability survives only when every continuing branch proves it, a
@@ -885,13 +942,10 @@ func (state *flowState) adopt(branch *flowState) {
 	for id := range branch.tracked {
 		state.tracked[id] = true
 	}
-	state.released = make(map[BindingID]map[uint64]bool, len(branch.released))
-	for id, versions := range branch.released {
-		state.released[id] = make(map[uint64]bool, len(versions))
-		for version := range versions {
-			state.released[id][version] = true
-		}
-	}
+	state.allocation = maps.Clone(branch.allocation)
+	state.freedAlloc = maps.Clone(branch.freedAlloc)
+	state.allocatorKind = maps.Clone(branch.allocatorKind)
+	state.nextAlloc = branch.nextAlloc
 	state.provenance = make(map[BindingID]BindingID, len(branch.provenance))
 	for id, source := range branch.provenance {
 		state.provenance[id] = source

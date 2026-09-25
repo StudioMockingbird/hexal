@@ -418,9 +418,9 @@ func foreignObjectName(staging, source string, ordinal int) string {
 }
 
 // compileForeignSources compiles every supplied C source separately, in
-// occurrence order, using the selected dialect, target, and mode. The first
-// failure records its exact command and stops the build.
-func compileForeignSources(selected *backend.Backend, staging string, config foreignConfig, mode BuildMode, extraOptions []string, result *BuildResult) ([]string, *BuildError) {
+// occurrence order, using the selected dialect, mode, and Clang triple. The
+// first failure records its exact command and stops the build.
+func compileForeignSources(selected *backend.Backend, staging string, config foreignConfig, mode BuildMode, extraOptions []string, triple string, result *BuildResult) ([]string, *BuildError) {
 	objects := make([]string, 0, len(config.Sources))
 	if len(config.Sources) == 0 {
 		return objects, nil
@@ -432,7 +432,7 @@ func compileForeignSources(selected *backend.Backend, staging string, config for
 	options = append(options, config.moduleCompileOptions()...)
 	for ordinal, source := range config.Sources {
 		object := foreignObjectName(staging, source, ordinal)
-		invocation, err := selected.CompileOneDialect(qualifiedTriple, config.Standard, options, source, object)
+		invocation, err := selected.CompileOneDialect(triple, config.Standard, options, source, object)
 		if err != nil {
 			return nil, &BuildError{Stage: StageCompile, Message: fmt.Sprintf("cannot run backend: %v", err)}
 		}

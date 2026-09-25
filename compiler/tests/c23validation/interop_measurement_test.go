@@ -21,11 +21,15 @@ import (
 	"hexal/internal/driver"
 )
 
-const measurementTarget = compilerTypes.TargetX86_64LinuxGNU
+// measurementTarget is this host's qualified target profile; the driver
+// rejects a cross-host target, so measurements must run on the native lane.
+func measurementTarget() compilerTypes.TargetProfileID {
+	return hostTarget()
+}
 
 func generatedSize(t *testing.T, sources map[string]string, entrypoint string) int {
 	t.Helper()
-	result := compiler.Compile(sources, entrypoint, compiler.Project{Target: measurementTarget})
+	result := compiler.Compile(sources, entrypoint, compiler.Project{Target: measurementTarget()})
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("measurement program failed to compile: %v", result.Stderr)
 	}
@@ -85,7 +89,7 @@ func TestProgramAndEntropyMeasurements(t *testing.T) {
 				Root:         root,
 				Entrypoint:   "app.hex",
 				CompilerPath: clangToolchain(t).Command[0],
-				Target:       measurementTarget,
+				Target:       measurementTarget(),
 			})
 			if err != nil {
 				t.Fatalf("measurement build failed: %v", err)

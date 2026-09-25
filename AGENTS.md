@@ -288,19 +288,27 @@ without checking it against `reference.md` first.
   the spec archive. Together these files must verify the public compiler
   behavior end to end.
 - External C23 validation lives in `compiler/tests/c23validation/`
-  (`package c23validation`), gated by `//go:build c23`. RFC 0125 owns it. The
-  canaries there are currently dormant — their entry points are named in lower
-  camel case, so Go collects none of them — and giving them runnable names is
-  0125's job, not an incidental edit. Until 0125 lands, tagged runs type-check
-  the package and execute no tests and no external processes.
+  (`package c23validation`), gated by `//go:build c23`. Closed RFC 0125 owns it
+  and landed it: the package is live, not dormant. A tagged run resolves a C
+  toolchain, compiles generated C under it, executes the result, and asserts on
+  stdout, exit status, and trap text. Treat a tagged run as something that
+  starts external processes and takes real time, never as a type-check.
+  Lower-camel functions there are shared helpers (`buildGeneratedC`,
+  `runGeneratedC`, `trapGeneratedC`, `assertCompiles`), not disabled tests.
 - Ordinary tests never invoke an external tool — gcc, clang, or anything else.
   All ordinary tests are pure Go.
-- **A green suite does not mean the generated C is correct.** No test compiles
-  or executes generated C, and the c23 canaries are dormant, so `go test ./...`,
-  `go vet ./...`, and `go vet -tags c23` all pass on output that a C compiler
-  would reject, and on output that compiles and behaves wrongly. Known instances
-  are recorded under "Known coverage gaps" in `docs/status.md`; every one was
-  found by review or by hand, never by the suite.
+- **A green ordinary suite does not mean the generated C is correct.** No
+  ordinary test compiles or executes generated C, so `go test ./...` and
+  `go vet ./...` both pass on output that a C compiler would reject, and on
+  output that compiles and behaves wrongly. That is a property of the ordinary
+  suite by design, not a gap waiting to be closed: ordinary tests stay pure Go
+  and toolchain-free.
+
+  The tagged `c23` lane is where generated C is actually compiled and run, so a
+  claim that the generated C works is backed by a tagged run or by nothing.
+  `go vet -tags c23` only type-checks the package — it is not that evidence.
+  Known instances of the gap are recorded under "Known coverage gaps" in
+  `docs/status.md`.
 
   What follows for anything touching the generator: assert on the **text** of
   the emitted C — that a required declaration precedes its use, that a helper is

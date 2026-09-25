@@ -1,4 +1,12 @@
-# Linux native runtime libraries
+# Native runtime library build records
+
+This file is the build record for every checked-in runtime pack. Two exist:
+`x86_64-linux-gnu`, which the driver embeds and selects, and
+`x86_64-windows-gnu-ucrt`, which is complete and checked in but has no driver
+in this release. Each pack's record names the exact sources, toolchain, compile
+commands, sizes, and digests that produced its bytes.
+
+## Linux GNU pack
 
 These archives are the checked-in `x86_64-linux-gnu` runtime pack: the prebuilt
 static inputs the driver consumes instead of rebuilding libuv and mimalloc.
@@ -34,7 +42,7 @@ test, or a user build. The archives are produced once for the qualified target
 below and checked in; ordinary builds only materialize demanded entries from
 the embedded copy.
 
-## Build identity
+### Linux build identity
 
 - Hexal target profile: `x86_64-linux-gnu`
 - Clang toolchain target triple: `x86_64-linux-gnu`
@@ -51,7 +59,7 @@ default; an archive of non-PIC objects fails the link.
 The three archives must be rebuilt together if the target, libc baseline,
 toolchain, or optimization policy changes.
 
-## mimalloc_v3.5.1
+### Linux mimalloc_v3.5.1
 
 - Source: `modules/mimalloc` at commit
   `34fbd7e7cd4627424490afe19b20f8066bfc537d` (`v3.5.1`)
@@ -68,7 +76,7 @@ ar rcs mimalloc_v3.5.1/mimalloc.a mimalloc.o
 - Size: `348216` bytes
 - SHA-256: `18ae1e534ebfd4f83141526ca9bbb392aed919f0cc0d359448ee98441d336fb6`
 
-## libuv_v1.52.1
+### Linux libuv_v1.52.1
 
 - Source: `modules/libuv` at commit
   `1cfa32ff59c076ffb6ed735bbc8c18361558661f` (`v1.52.1`)
@@ -92,7 +100,7 @@ ar rcs libuv_v1.52.1/libuv.a <objects>
 - Size: `335006` bytes
 - SHA-256: `4c72c7508907d1bb72c8247f645fdf9ebe04cda81790080a390bf3117be676a1`
 
-## utf8proc_v2.11.3
+### Linux utf8proc_v2.11.3
 
 - Source: `modules/utf8proc` at commit
   `e5e799221b45bbb90f5fdc5c69b6b8dfbf017e78` (`v2.11.3`)
@@ -111,7 +119,7 @@ ar rcs utf8proc_v2.11.3/utf8proc.a utf8proc.o
 - Size: `352378` bytes
 - SHA-256: `a3ced9efe7b33d143abd353c85dbd1fc7a2fd94f1e0ab0273fe19742db70a4f6`
 
-## System libraries
+### Linux system libraries
 
 `manifest.json` declares `pthread`, `dl`, and `rt` on the libuv dependency, in
 that order, and none on mimalloc. They are the union the native combined probe
@@ -119,7 +127,7 @@ required; on glibc 2.44 all three resolve from the C library itself, so the
 declaration is retained as the target's portable link set rather than a
 measured necessity on this host.
 
-## Verification
+### Linux verification
 
 The combined probe compiles, links, and runs one program using all three
 archives:
@@ -140,24 +148,48 @@ It calls `mi_malloc`/`mi_free`, `uv_version`, and `utf8proc_version`, and exits
 0. `hexal doctor` performs the same combined-archive probe plus full manifest
 verification.
 
-## Windows GNU/UCRT utf8proc pack
+## Windows GNU/UCRT pack
 
-`lib/x86_64-windows-gnu-ucrt/utf8proc_v2.11.3/` contains the target-qualified
-utf8proc archive, public header, and upstream license. The Windows pack is
-checked in but is not embedded or selected by the current driver; this record
-qualifies the dependency payload independently of the driver-selection work.
+`lib/x86_64-windows-gnu-ucrt/` holds a complete three-archive pack: libuv,
+mimalloc, and utf8proc, each with its public headers and upstream licenses. It
+is checked in but is not embedded or selected by the current driver, which
+qualifies one Linux pair; these records qualify the dependency payloads
+independently of the driver-selection work.
 
-### Build identity
+All three archives were rebuilt from source with installed Clang on 2026-09-24
+and share one build identity. They previously did not: libuv and mimalloc were
+Zig 0.16.0 artifacts from the era of the Zig-powered Windows driver, and
+utf8proc was a later Clang 22.1.8 build, so the pack mixed two toolchains. RFC
+0217 removed Zig from the project, which left the Zig-built records describing a
+procedure nobody could re-run. Rebuilding retires that split; no Zig artifact
+remains in the pack.
+
+Every size and digest in this section was verified against the checked-in bytes
+after the rebuild, and every entry in `manifest.json` was re-verified in the
+same pass.
+
+### Windows build identity
 
 - Hexal target profile: `x86_64-windows-gnu-ucrt`
 - Clang toolchain target triple: `x86_64-w64-windows-gnu`
 - Host and probe environment: x86-64 Windows, MinGW-w64/UCRT
-- Producer compiler: Clang 22.1.8
-- Archiver: LLVM `llvm-ar` 22.1.8
-- Optimization: `-O2 -DNDEBUG -fPIC -DUTF8PROC_STATIC`
+- Producer compiler: Clang 23.1.2
+  (`llvm-project` `85ac560262434c9ccfc0c183ec22d4138ed647fb`)
+- Archiver: LLVM `llvm-ar` 23.1.2
+- Optimization: `-O2 -DNDEBUG`
+- CRT policy: dynamic UCRT system libraries; third-party code is archived
+  statically
 - CPU policy: target-portable x86-64; no `-march=native`
 
-### utf8proc_v2.11.3
+`-fPIC` is deliberately absent, unlike the Linux pack. Windows PE code is
+position-independent by construction and Clang treats the flag as unused for
+this target, so carrying it would record a flag that does nothing.
+
+The three archives must be rebuilt together if the target, CRT, toolchain, or
+optimization policy changes. Do not mix GNU/UCRT archives with MSVC/MSVCRT
+archives.
+
+### Windows utf8proc_v2.11.3
 
 - Source: `modules/utf8proc` at commit
   `e5e799221b45bbb90f5fdc5c69b6b8dfbf017e78` (`v2.11.3`)
@@ -172,23 +204,102 @@ qualifies the dependency payload independently of the driver-selection work.
 - Compile command:
 
 ```text
-clang --target=x86_64-w64-windows-gnu -std=c11 -O2 -DNDEBUG -fPIC -pthread \
+clang --target=x86_64-w64-windows-gnu -std=c11 -O2 -DNDEBUG \
   -DUTF8PROC_STATIC -I modules/utf8proc \
   -c modules/utf8proc/utf8proc.c -o utf8proc.o
 llvm-ar rcs utf8proc_v2.11.3/utf8proc.a utf8proc.o
 ```
 
-- Archive size: `349998` bytes
+- Archive size: `349994` bytes
 - Archive SHA-256:
-  `cccf77623c664d67aedb9113ce410c93c3effeeeb19b32d56a3e2a127822311c`
+  `b9517c1164c81ecdf10b728d19e19d87a99793b36418acd880b8a709ec820455`
 - Header SHA-256:
   `a4e498b7392c383cf3b22e662da21e0b48f1264806235d87b5d8bd166232f658`
 - License SHA-256:
   `3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256`
 
-The Windows qualification probe includes `utf8proc.h`, links the archive, and
-decodes U+1F600 with `utf8proc_iterate`; it exits 0 and prints `utf8proc-ok`.
+### Windows mimalloc_v3.5.1
 
-The existing libuv and mimalloc Windows artifacts remain the prior pack inputs;
-their requalification and driver embedding are separate from this utf8proc
-payload record.
+- Source: `modules/mimalloc` at commit
+  `34fbd7e7cd4627424490afe19b20f8066bfc537d` (`v3.5.1`)
+- Source file: `src/static.c`
+- Public headers: `mimalloc_v3.5.1/include/` (11 files, copied unchanged)
+- Compile command:
+
+```text
+clang --target=x86_64-w64-windows-gnu -std=c11 -O2 -DNDEBUG \
+  -DMI_BUILD_RELEASE -DMI_WIN_INIT_USE_RAW_DLLMAIN \
+  -I modules/mimalloc/include -c modules/mimalloc/src/static.c -o mimalloc.o
+llvm-ar rcs mimalloc_v3.5.1/mimalloc.a mimalloc.o
+```
+
+- Archive: `mimalloc_v3.5.1/mimalloc.a`
+- Size: `285880` bytes
+- SHA-256: `ab6ed25b0a02bb5b0250484aae80cbcf6c38a4e293e6256f222614c72f722e9c`
+
+### Windows libuv_v1.52.1
+
+- Source: `modules/libuv` at commit
+  `1cfa32ff59c076ffb6ed735bbc8c18361558661f` (`v1.52.1`)
+- C dialect: C11
+- Compile definitions: `WIN32_LEAN_AND_MEAN`, `_WIN32_WINNT=0x0A00`,
+  `_CRT_DECLARE_NONSTDC_NAMES=0`, `_CRT_SECURE_NO_WARNINGS`
+- Compile option: `-fno-strict-aliasing`
+- Source files: the 37 Windows sources listed in `modules/LIBUV.md`
+- Public headers: `libuv_v1.52.1/include/` (14 files, copied unchanged)
+- Compile command (once per source):
+
+```text
+clang --target=x86_64-w64-windows-gnu -std=c11 -O2 -DNDEBUG -fno-strict-aliasing \
+  -DWIN32_LEAN_AND_MEAN -D_WIN32_WINNT=0x0A00 \
+  -D_CRT_DECLARE_NONSTDC_NAMES=0 -D_CRT_SECURE_NO_WARNINGS \
+  -I modules/libuv/include -I modules/libuv/src -c <source> -o <object>
+llvm-ar rcs libuv_v1.52.1/libuv.a <objects>
+```
+
+- Archive: `libuv_v1.52.1/libuv.a`
+- Size: `354654` bytes
+- SHA-256: `ec5d328e445afb9cb7f8800214a9df699bc0c1b2cb78d4a047657d887303d027`
+
+Two upstream libuv sources emit const-qualifier warnings under this Clang
+(`uv-common.c` and `win/util.c`, around `cpu_info->model`). They are upstream
+code and are not patched; the build does not use `-Werror` for third-party
+sources.
+
+### Windows verification
+
+The combined probe compiles, links, and runs one program against all three
+archives, mirroring how a generated Hexal program consumes them:
+
+```text
+clang --target=x86_64-w64-windows-gnu -std=c11 -O2 probe.c -DUTF8PROC_STATIC \
+  -I modules/mimalloc/include -I modules/utf8proc -I modules/libuv/include \
+  libuv_v1.52.1/libuv.a mimalloc_v3.5.1/mimalloc.a utf8proc_v2.11.3/utf8proc.a \
+  -lpsapi -lshell32 -luser32 -ladvapi32 -lbcrypt -liphlpapi -luserenv \
+  -lws2_32 -ldbghelp -lole32 -o probe.exe
+```
+
+It calls `mi_malloc`/`mi_free`, hands libuv the mimalloc allocator with
+`uv_replace_allocator` exactly as the generated scheduler bootstrap does, runs
+a real loop through `uv_loop_init`/`uv_run`/`uv_loop_close`, exercises a
+Windows syscall path with `uv_exepath`, and decodes U+1F600 with
+`utf8proc_iterate`. It exits 0 and prints
+`pack-ok uv=1.52.1 mi=30501 utf8proc=2.11.3`, which also confirms each archive
+carries the pinned upstream version.
+
+Those ten system libraries are the Windows counterpart of the Linux pack's
+`pthread`, `dl`, and `rt`, and the driver must declare the same link set when
+the Windows lane is re-qualified.
+
+### Windows reproducibility
+
+All three archives were created with `llvm-ar rcs` from a clean object
+directory, by one script, in one pass. The exact source commits, toolchain,
+target, compile definitions, source lists, archive sizes, and digests above are
+the build record. Scratch objects, the build script, and the probe are not part
+of the repository.
+
+The three module sources were confirmed to be at their pinned commits before
+the build: `modules/libuv` at `1cfa32ff`, `modules/mimalloc` at `34fbd7e7`,
+`modules/utf8proc` at `e5e79922`. Headers and licenses were not regenerated,
+because the sources did not move; only the archives changed.

@@ -126,7 +126,7 @@ func TestForeignObjectAndArchiveLink(t *testing.T) {
 			source := filepath.Join(native, "adder.c")
 			staging := t.TempDir()
 			object := filepath.Join(staging, "adder.o")
-			compile, err := selected.CompileOneDialect(qualifiedTriple, "c17", []string{"-I", native}, source, object)
+			compile, err := selected.CompileOneDialect(hostQualifiedTriple(), "c17", []string{"-I", native}, source, object)
 			if err != nil || compile.ExitCode != 0 {
 				t.Fatalf("probe compile failed: %v\n%s", err, compile.Stderr)
 			}
@@ -456,7 +456,7 @@ func TestForeignLinkGroupOrder(t *testing.T) {
 	object := filepath.Join(staging, "stub.o")
 	stubSource := filepath.Join(staging, "stub.c")
 	writeCLIFileForDriver(t, staging, "stub.c", "int hexal_stub(void) { return 1; }\n")
-	compile, err := selected.CompileOneDialect(qualifiedTriple, "c17", nil, stubSource, object)
+	compile, err := selected.CompileOneDialect(hostQualifiedTriple(), "c17", nil, stubSource, object)
 	if err != nil || compile.ExitCode != 0 {
 		t.Fatalf("stub compile failed: %v\n%s", err, compile.Stderr)
 	}
@@ -515,7 +515,7 @@ func TestForeignLinkFailurePreservesExecutable(t *testing.T) {
 	object := filepath.Join(staging, "stub.o")
 	stubSource := filepath.Join(staging, "stub.c")
 	writeCLIFileForDriver(t, staging, "stub.c", "int hexal_stub(void) { return 1; }\n")
-	compile, err := selected.CompileOneDialect(qualifiedTriple, "c17", nil, stubSource, object)
+	compile, err := selected.CompileOneDialect(hostQualifiedTriple(), "c17", nil, stubSource, object)
 	if err != nil || compile.ExitCode != 0 {
 		t.Fatalf("stub compile failed: %v\n%s", err, compile.Stderr)
 	}

@@ -1,13 +1,10 @@
 # RFC 0165: Memory-Bug Diagnosis Without Ownership Semantics
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation ready. Phases 1 and 2 are fully specified against
-  named call sites, the Validation section is exhaustive, and no open question
-  blocks implementation — the remaining entries under Decisions and remaining
-  questions are settled decisions or explicitly out of scope. Phase 3
-  (interprocedural summaries) is optional and deliberately unscheduled. This is
-  no longer one of two candidate cleanup models: RFC 0110 and RFC 0149 are both
-  Blocked citing this RFC, so this is the cleanup story
+- Status: Closed; implemented 2026-09-24. Phases 1 and 2 landed with the
+  Validation suite green and `docs/reference.md`'s cleanup-misuse paragraph
+  synchronized. Phase 3 (interprocedural summaries) remains optional and
+  deliberately unscheduled. RFC 0110 and RFC 0149 stay Blocked citing this RFC
 - Created: 2026-09-10
 - Updated: 2026-09-20
 - Origin: an audit of eleven classical memory-bug classes against the shipped

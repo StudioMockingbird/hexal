@@ -98,14 +98,54 @@ var modeOptionTable = map[BuildMode]ModeOptions{
 	},
 }
 
-// Options returns mode's backend option set. The returned slices are fresh
-// copies: callers append their own include and dependency options to them.
-func Options(mode BuildMode) ModeOptions {
+// Options returns mode's backend option set for the given target profile.
+// Debug builds for a Linux profile add -fsanitize=leak beside the existing
+// undefined-behavior backstop; debug builds for every other profile replace
+// -fno-sanitize-recover=all with -fsanitize-trap=undefined so the link never
+// needs a MinGW UBSan runtime this release does not ship. Release and every
+// option set outside debug are identical across targets. The returned slices
+// are fresh copies: callers append their own include and dependency options
+// to them.
+func Options(mode BuildMode, target compilerTypes.TargetProfileID) ModeOptions {
 	table := modeOptionTable[mode]
-	return ModeOptions{
+	options := ModeOptions{
 		Compile: append([]string(nil), table.Compile...),
 		Link:    append([]string(nil), table.Link...),
 	}
+	if mode != ModeDebug {
+		return options
+	}
+	if isLinuxTarget(target) {
+		options.Compile = append(options.Compile, "-fsanitize=leak")
+		options.Link = append(options.Link, "-fsanitize=leak")
+		return options
+	}
+	options.Compile = replaceRecoverWithTrap(options.Compile)
+	options.Link = replaceRecoverWithTrap(options.Link)
+	return options
+}
+
+// replaceRecoverWithTrap substitutes -fno-sanitize-recover=all with
+// -fsanitize-trap=undefined in place. The recover flag only matters for the
+// diagnostic UBSan runtime; trap mode reports every UB as an immediate trap
+// and does not need it, while a link that keeps the recover flag on a non-
+// Linux lane looks for a runtime this release never bundles.
+func replaceRecoverWithTrap(options []string) []string {
+	replaced := append([]string(nil), options...)
+	for index, option := range replaced {
+		if option == "-fno-sanitize-recover=all" {
+			replaced[index] = "-fsanitize-trap=undefined"
+		}
+	}
+	return replaced
+}
+
+// isLinuxTarget reports whether the profile is a POSIX/Linux target. LSan
+// exists only on that lane, so the leak flag is gated here rather than by the
+// host check alone, which would re-arm a MinGW link failure when the Windows
+// driver returns.
+func isLinuxTarget(target compilerTypes.TargetProfileID) bool {
+	return strings.Contains(string(target), "linux")
 }
 
 // ForeignCompileOptions returns the mode's optimization and debug-information
@@ -169,7 +209,11 @@ func buildIdentity(mode BuildMode, backendIdentity string, files map[string]stri
 
 	write(version.String())
 	write(backendIdentity)
-	write(qualifiedTriple)
+	profileTriple := ""
+	if profile, profileErr := resolveProfile(target); profileErr == nil {
+		profileTriple = profile.triple
+	}
+	write(profileTriple)
 	write(string(target))
 	write(strconv.FormatUint(uint64(compilerConfig.RuntimeABIVersion), 10))
 	write(string(mode))

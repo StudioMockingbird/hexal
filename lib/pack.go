@@ -10,5 +10,5 @@ package lib
 
 import "embed"
 
-//go:embed x86_64-linux-gnu
+//go:embed x86_64-linux-gnu x86_64-windows-gnu-ucrt
 var runtimePacks embed.FS

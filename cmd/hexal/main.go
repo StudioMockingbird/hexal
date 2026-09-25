@@ -89,7 +89,8 @@ build forms:
 build options:
   -cc <path>            exact Clang executable path (required)
   -target <profile>     exact Hexal target profile (required; this release
-                        qualifies x86_64-linux-gnu)
+                        qualifies x86_64-linux-gnu on linux/amd64 and
+                        x86_64-windows-gnu-ucrt on windows/amd64)
   -mode <name>          debug or release (default: debug)
   -root <dir>           source root (project build default: current directory)
   -entry <key>          entrypoint logical key (required for a project build)

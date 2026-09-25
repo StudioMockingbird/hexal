@@ -17,7 +17,6 @@ import (
 	"testing"
 
 	"hexal/compiler"
-	compilerTypes "hexal/compiler/types"
 )
 
 // buildInMode builds one program under mode and returns the completed result.
@@ -85,7 +84,7 @@ func TestModeOptionsReachTheBackendExactly(t *testing.T) {
 			// pack include root must reach generated compiles.
 			writeSource(t, dir, "main.hex", "fun demo(h: Heap): Int32 do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(7)\n    return values[0]\nend\nprint(demo(Heap()))\n")
 			result := buildInMode(t, dir, mode)
-			options := Options(mode)
+			options := Options(mode, hostQualifiedTarget())
 
 			generated, dependencies, links, packIncludes := 0, 0, 0, 0
 			for _, command := range result.Commands {
@@ -138,8 +137,8 @@ func TestModeOptionsReachTheBackendExactly(t *testing.T) {
 func TestGeneratedCIsByteIdenticalAcrossModes(t *testing.T) {
 	requireBackend(t)
 	sources := map[string]string{"app.hex": "fun demo(h: Heap): Int32 do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(7)\n    return values[0]\nend\nprint(demo(Heap()))\n"}
-	first := compiler.Compile(sources, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU})
-	second := compiler.Compile(sources, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU})
+	first := compiler.Compile(sources, "app.hex", compiler.Project{Target: hostQualifiedTarget()})
+	second := compiler.Compile(sources, "app.hex", compiler.Project{Target: hostQualifiedTarget()})
 	if len(first.Files) != len(second.Files) || len(first.Files) == 0 {
 		t.Fatalf("artifact counts %d and %d", len(first.Files), len(second.Files))
 	}
@@ -150,8 +149,8 @@ func TestGeneratedCIsByteIdenticalAcrossModes(t *testing.T) {
 	}
 	// The identity encoder is what a mode change is allowed to move, and it
 	// must move for the same artifacts.
-	debug := buildIdentity(ModeDebug, "clang=test", first.Files, first.Dependencies, nil, nil, compilerTypes.TargetX86_64LinuxGNU, packInputs{}, nil)
-	release := buildIdentity(ModeRelease, "clang=test", first.Files, first.Dependencies, nil, nil, compilerTypes.TargetX86_64LinuxGNU, packInputs{}, nil)
+	debug := buildIdentity(ModeDebug, "clang=test", first.Files, first.Dependencies, nil, nil, hostQualifiedTarget(), packInputs{}, nil)
+	release := buildIdentity(ModeRelease, "clang=test", first.Files, first.Dependencies, nil, nil, hostQualifiedTarget(), packInputs{}, nil)
 	if debug == release {
 		t.Fatal("the build identity does not distinguish the modes")
 	}
@@ -264,8 +263,10 @@ func TestReleaseRemovesUnreferencedCode(t *testing.T) {
 
 // TestDebugUndefinedBehaviorProbeTerminates proves the backstop is armed and
 // non-recoverable under the exact debug options: a deliberate signed overflow
-// must terminate the process with a diagnostic rather than continue with a
-// wrapped value.
+// must terminate the process rather than continue with a wrapped value. On
+// Linux that terminates with a diagnostic; on Windows trap mode carries no
+// diagnostic runtime, so a non-zero exit with no "after" output is the whole
+// contract. The release companion proves the backstop is mode-scoped.
 func TestDebugUndefinedBehaviorProbeTerminates(t *testing.T) {
 	selected := requireBackend(t)
 	dir := t.TempDir()
@@ -283,13 +284,13 @@ func TestDebugUndefinedBehaviorProbeTerminates(t *testing.T) {
 		t.Fatal(err)
 	}
 	object := filepath.Join(dir, "undefined.o")
-	options := Options(ModeDebug)
-	compile, err := selected.CompileOne(qualifiedTriple, options.Compile, source, object)
+	options := Options(ModeDebug, hostQualifiedTarget())
+	compile, err := selected.CompileOne(hostQualifiedTriple(), options.Compile, source, object)
 	if err != nil || compile.ExitCode != 0 {
 		t.Fatalf("probe failed to compile: %v\n%s", err, compile.Stderr)
 	}
 	binary := filepath.Join(dir, "undefined"+exeSuffix())
-	link, err := selected.LinkObjects(qualifiedTriple, []string{object}, binary, options.Link)
+	link, err := selected.LinkObjects(hostQualifiedTriple(), []string{object}, binary, options.Link)
 	if err != nil || link.ExitCode != 0 {
 		t.Fatalf("probe failed to link: %v\n%s", err, link.Stderr)
 	}
@@ -304,8 +305,47 @@ func TestDebugUndefinedBehaviorProbeTerminates(t *testing.T) {
 	if strings.Contains(stdout.String(), "after") {
 		t.Fatalf("the probe continued past undefined behavior: %q", stdout.String())
 	}
-	if !strings.Contains(stderr.String(), "signed integer overflow") {
+	if isLinuxTarget(hostQualifiedTarget()) && !strings.Contains(stderr.String(), "signed integer overflow") {
 		t.Fatalf("the probe terminated without a diagnostic: %q", stderr.String())
+	}
+}
+
+// TestReleaseUndefinedBehaviorProbeCompletes proves the backstop is
+// mode-scoped: the same deliberate signed overflow completes under release and
+// prints "after", because release carries no sanitizer instrumentation.
+func TestReleaseUndefinedBehaviorProbeCompletes(t *testing.T) {
+	selected := requireBackend(t)
+	dir := t.TempDir()
+	source := filepath.Join(dir, "undefined_release.c")
+	const probe = "#include <stdio.h>\n" +
+		"int add(int left, int right) { return left + right; }\n" +
+		"int main(void) {\n" +
+		"    volatile int largest = 2147483647;\n" +
+		"    printf(\"before\\n\");\n" +
+		"    fflush(stdout);\n" +
+		"    printf(\"after %d\\n\", add((int)largest, 1));\n" +
+		"    return 0;\n" +
+		"}\n"
+	if err := os.WriteFile(source, []byte(probe), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	object := filepath.Join(dir, "undefined_release.o")
+	options := Options(ModeRelease, hostQualifiedTarget())
+	compile, err := selected.CompileOne(hostQualifiedTriple(), options.Compile, source, object)
+	if err != nil || compile.ExitCode != 0 {
+		t.Fatalf("probe failed to compile: %v\n%s", err, compile.Stderr)
+	}
+	binary := filepath.Join(dir, "undefined_release"+exeSuffix())
+	link, err := selected.LinkObjects(hostQualifiedTriple(), []string{object}, binary, options.Link)
+	if err != nil || link.ExitCode != 0 {
+		t.Fatalf("probe failed to link: %v\n%s", err, link.Stderr)
+	}
+	output, err := exec.Command(binary).CombinedOutput()
+	if err != nil {
+		t.Fatalf("the release probe failed: %v (output %q)", err, output)
+	}
+	if !strings.Contains(string(output), "after") {
+		t.Fatalf("the release probe did not continue past overflow: %q", output)
 	}
 }
 
@@ -318,7 +358,7 @@ func TestDoctorReportsABackendRejectingAModeOption(t *testing.T) {
 	modeOptionTable[rejected] = ModeOptions{Compile: []string{"-fhexal-no-such-option"}}
 	defer delete(modeOptionTable, rejected)
 
-	err := modeOptionProbe(selected, rejected)
+	err := modeOptionProbe(selected, rejected, hostQualifiedTarget(), hostQualifiedTriple())
 	if err == nil {
 		t.Fatal("the backend accepted an option that does not exist")
 	}
@@ -328,7 +368,7 @@ func TestDoctorReportsABackendRejectingAModeOption(t *testing.T) {
 
 	// Both real modes must pass the same probe on a host where builds work.
 	for _, mode := range []BuildMode{ModeDebug, ModeRelease} {
-		if err := modeOptionProbe(selected, mode); err != nil {
+		if err := modeOptionProbe(selected, mode, hostQualifiedTarget(), hostQualifiedTriple()); err != nil {
 			t.Errorf("the backend rejects a %s mode option: %v", mode, err)
 		}
 	}

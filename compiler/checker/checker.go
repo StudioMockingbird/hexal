@@ -205,12 +205,12 @@ type DeferredAction struct {
 	// Span locates diagnostics emitted when the action is validated at
 	// scope exit rather than at registration.
 	Span span.Span
-	// TrackedFreeBinding and TrackedFreeVersion identify the tracked value
-	// (a Heap-allocated pointer, a Pool-allocated pointer, or a Stash/Pool
-	// handle) captured by a deferred Heap.free, Pool.free, Stash.destroy, or
-	// Pool.destroy call across later rebinding of the same slot.
-	TrackedFreeBinding BindingID
-	TrackedFreeVersion uint64
+	// TrackedFreeAlloc identifies the allocation a deferred Heap.free,
+	// Pool.free, Stash.destroy, or Pool.destroy call targets, captured at
+	// registration so later rebinding of the same slot does not change which
+	// value the action validates against. Zero means the call's target was
+	// not a tracked binding at registration.
+	TrackedFreeAlloc allocationID
 	// Err marks an errdefer action: it runs only when the current
 	// function exits by returning Error.
 	Err bool

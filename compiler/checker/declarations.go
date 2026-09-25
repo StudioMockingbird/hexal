@@ -437,8 +437,7 @@ func checkDeclaration(declaration parser.Declaration, ctx checkContext, itemInde
 	if len(diagnostics) == 0 && ctx.names.flow != nil && trackablePointerBinding(declaredBinding) {
 		ctx.names.flow.trackFreed(declaredBinding.id)
 		if sourceBinding := directPointerBinding(initializer.source, declaredType); sourceBinding != 0 {
-			ctx.names.flow.dropFreed(sourceBinding)
-			ctx.names.flow.dropFreed(declaredBinding.id)
+			ctx.names.flow.aliasFreed(sourceBinding, declaredBinding.id)
 		}
 	}
 	if len(diagnostics) == 0 && ctx.names.flow != nil {
@@ -522,8 +521,7 @@ func checkAssignment(assignment parser.Assignment, ctx checkContext) (Assignment
 	if len(diagnostics) == 0 && ctx.names.flow != nil && targetBinding != 0 {
 		ctx.names.flow.invalidateNarrowing(targetBinding)
 		if sourceBinding := directPointerBinding(initializer.source, targetType); sourceBinding != 0 {
-			ctx.names.flow.dropFreed(sourceBinding)
-			ctx.names.flow.dropFreed(targetBinding)
+			ctx.names.flow.aliasFreed(sourceBinding, targetBinding)
 		} else {
 			ctx.names.flow.clearFreed(targetBinding)
 		}

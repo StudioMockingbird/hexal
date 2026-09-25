@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"hexal/compiler"
-	compilerTypes "hexal/compiler/types"
 )
 
 var fixtureCatalog = []fixture{
@@ -759,7 +758,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "text-bytes-run",
 		entrypoint: "app.hex",
-		project:    compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
+		project:    compiler.Project{Target: hostTarget()},
 		sources: map[string]string{"app.hex": "extern c from <string.h> do\n" +
 			"    fun c_strlen as \"strlen\"(text: Ptr<Byte> | Nil as \"const char *\"): Size as \"size_t\"\n" +
 			"end\n" +
@@ -2107,13 +2106,14 @@ var fixtureCatalog = []fixture{
 	},
 
 	// Handwritten C interoperability. Every foreign ABI fact is
-	// target-dependent, so each fixture selects the qualified Linux profile
-	// (LP64). They use standard headers only: the harness owns no include
-	// path or extra C source, and the C library supplies the implementation.
+	// target-dependent, so each fixture selects the host's qualified profile
+	// (LP64 on Linux, LLP64 on Windows). They use standard headers only: the
+	// harness owns no include path or extra C source, and the C library
+	// supplies the implementation.
 	{
 		name:       "foreign-scalars-compiles",
 		entrypoint: "app.hex",
-		project:    compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
+		project:    compiler.Project{Target: hostTarget()},
 		sources: map[string]string{"app.hex": "extern c from <stdlib.h> do\n" +
 			"    fun c_abs as \"abs\"(value: Int32 as \"int\"): Int32 as \"int\"\n" +
 			"end\n" +
@@ -2131,7 +2131,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "foreign-opaque-and-record-compiles",
 		entrypoint: "app.hex",
-		project:    compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
+		project:    compiler.Project{Target: hostTarget()},
 		sources: map[string]string{"app.hex": "extern c from <stdio.h> do\n" +
 			"    type File as \"FILE\" is opaque\n" +
 			"end\n" +
@@ -2160,7 +2160,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "foreign-constants-globals-compiles",
 		entrypoint: "app.hex",
-		project:    compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
+		project:    compiler.Project{Target: hostTarget()},
 		sources: map[string]string{"app.hex": "extern c from <limits.h> do\n" +
 			"    constant int_max as \"INT_MAX\": Int32\n" +
 			"end\n" +
@@ -2182,7 +2182,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "foreign-buffer-bridge-compiles",
 		entrypoint: "app.hex",
-		project:    compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
+		project:    compiler.Project{Target: hostTarget()},
 		sources: map[string]string{"app.hex": "extern c from <stdio.h> do\n" +
 			"    type File as \"FILE\" is opaque\n" +
 			"    fun c_fgets as \"fgets\"(buffer: Ptr<mut Byte> | Nil as \"char *\", count: Int32 as \"int\", stream: Ptr<mut File> | Nil as \"FILE *\"): Ptr<mut Byte> | Nil as \"char *\"\n" +
@@ -2202,7 +2202,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "foreign-call-runs",
 		entrypoint:  "app.hex",
-		project:     compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
+		project:     compiler.Project{Target: hostTarget()},
 		sources:     map[string]string{"app.hex": "extern c from <stdlib.h> do\n    fun c_abs as \"abs\"(value: Int32 as \"int\"): Int32 as \"int\"\nend\nfun demo(): Int32 do\n    unsafe do\n        return c_abs(-7)\n    end\nend\nprint(demo())\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "7"},
 	},
@@ -2211,7 +2211,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "foreign-header-only-compiles",
 		entrypoint: "app.hex",
-		project:    compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
+		project:    compiler.Project{Target: hostTarget()},
 		sources: map[string]string{"app.hex": "extern c from <stdckdint.h> do\n" +
 			"    fun c_check_add as \"ckd_add\"(result: Ptr<mut Int32>, left: Int32 as \"int\", right: Int32 as \"int\"): Bool\n" +
 			"end\n" +
@@ -2227,7 +2227,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "foreign-record-by-value-runs",
 		entrypoint: "app.hex",
-		project:    compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
+		project:    compiler.Project{Target: hostTarget()},
 		sources: map[string]string{"app.hex": "extern c from <stdlib.h> do\n" +
 			"    type DivT as \"div_t\" is struct\n" +
 			"        mut quot: Int32,\n" +
@@ -2252,7 +2252,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "rest-parameters-run",
 		entrypoint: "app.hex",
-		project:    compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
+		project:    compiler.Project{Target: hostTarget()},
 		sources: map[string]string{"app.hex": "fun sum(rest: Int32...): Int32 do\n    let mut total: Int32 = 0\n    for value in rest do\n        total = total + value\n    end\n    return total\nend\n" +
 			"fun first<T>(value: T, rest: T...): T do\n    return value\nend\n" +
 			"fun log(rest: Int32...) do\n    print(rest.length())\nend\n" +
@@ -2263,13 +2263,43 @@ var fixtureCatalog = []fixture{
 			"let outcome: Size | Error = demo()\nif outcome is Error then\n    print(\"spawn-error\")\nelse\n    print(outcome)\nend\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "2323"},
 	},
+	// One program that exercises heap allocation, a spawned Task, a stream
+	// write, and text transformation together, with one fixed stdout: the
+	// end-to-end shape a native build must reproduce byte-for-byte on every
+	// qualified lane for the same source.
+	{
+		name:       "e2e-heap-task-io-text-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "import\n  Io from std.io\nend\n" +
+			"fun emit(h: Heap): String | Error do\n" +
+			"    let base: String = \"hexal\".copy(h)\n" +
+			"    defer base.free(h)\n" +
+			"    return base.concat(h, \"-ok\".bytes())\n" +
+			"end\n" +
+			"fun run(): Nil | Error do\n" +
+			"    let h: Heap = Heap()\n" +
+			"    let stream: Io.IO = try Io.stdout()\n" +
+			"    let task: Task<String | Error> = try spawn emit(h)\n" +
+			"    let message: String | Error = task.join()\n" +
+			"    if message is Error then\n" +
+			"        return message\n" +
+			"    end\n" +
+			"    let text: String = message\n" +
+			"    defer text.free(h)\n" +
+			"    try stream.write(text.bytes())\n" +
+			"    try stream.write(\"\\n\".bytes())\n" +
+			"    return nil\n" +
+			"end\n" +
+			"run()\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "hexal-ok\n"},
+	},
 	// A library-shaped surface without the library: the same shape a real
 	// graphics binding has (opaque handle, open and close calls, a buffer
 	// call, a constant, and a readable foreign global) over standard headers.
 	{
 		name:       "foreign-library-shaped-compiles",
 		entrypoint: "app.hex",
-		project:    compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU},
+		project:    compiler.Project{Target: hostTarget()},
 		sources: map[string]string{"app.hex": "extern c from <stdio.h> do\n" +
 			"    type File as \"FILE\" is opaque\n" +
 			"    constant eof as \"EOF\": Int32\n" +

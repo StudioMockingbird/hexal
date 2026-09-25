@@ -13,13 +13,12 @@ import (
 	"time"
 
 	"hexal/compiler"
-	compilerTypes "hexal/compiler/types"
 )
 
 func TestLibuvDependencyProbe(t *testing.T) {
 	selected := requireBackend(t)
 	staging := t.TempDir()
-	includes, archives, pack := materializeTestPack(t, staging, compilerTypes.TargetX86_64LinuxGNU, []compiler.RuntimeDependency{compiler.RuntimeLibuv})
+	includes, archives, pack := materializeTestPack(t, staging, hostQualifiedTarget(), []compiler.RuntimeDependency{compiler.RuntimeLibuv})
 	if len(includes) != 1 || len(archives) != 1 {
 		t.Fatalf("materialized %v include dirs and %v archives, want one each", includes, archives)
 	}
@@ -42,13 +41,13 @@ func TestLibuvDependencyProbe(t *testing.T) {
 	}
 	selected.Directory = staging
 	var result BuildResult
-	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, includeDirOptions(includes), nil, &result); err != nil {
+	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, includeDirOptions(includes), nil, hostQualifiedTriple(), featureDefines(hostQualifiedTarget()), &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	objects := []string{strings.TrimSuffix(fixture, ".c") + ".o"}
 	objects = append(objects, archives...)
 	output := filepath.Join(staging, "libuv_version_probe")
-	if err := linkObjectsWithOptions(selected, staging, objects, packSystemLibraryOptions(pack), output, &result); err != nil {
+	if err := linkObjectsWithOptions(selected, staging, hostQualifiedTriple(), objects, packSystemLibraryOptions(pack), output, &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	run, err := exec.Command(output).CombinedOutput()
@@ -60,7 +59,7 @@ func TestLibuvDependencyProbe(t *testing.T) {
 func TestLibuvTypedNetworkProbe(t *testing.T) {
 	selected := requireBackend(t)
 	staging := t.TempDir()
-	includes, archives, pack := materializeTestPack(t, staging, compilerTypes.TargetX86_64LinuxGNU, []compiler.RuntimeDependency{compiler.RuntimeLibuv})
+	includes, archives, pack := materializeTestPack(t, staging, hostQualifiedTarget(), []compiler.RuntimeDependency{compiler.RuntimeLibuv})
 	fixture := filepath.Join(staging, "typed_network_probe.c")
 	const source = `#include <stdio.h>
 #include <stdlib.h>
@@ -202,17 +201,17 @@ int main(void) {
 	}
 	selected.Directory = staging
 	var result BuildResult
-	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, includeDirOptions(includes), nil, &result); err != nil {
+	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, includeDirOptions(includes), nil, hostQualifiedTriple(), featureDefines(hostQualifiedTarget()), &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	objects := []string{strings.TrimSuffix(fixture, ".c") + ".o"}
 	objects = append(objects, archives...)
 	output := filepath.Join(staging, "typed_network_probe")
-	if err := linkObjectsWithOptions(selected, staging, objects, packSystemLibraryOptions(pack), output, &result); err != nil {
+	if err := linkObjectsWithOptions(selected, staging, hostQualifiedTriple(), objects, packSystemLibraryOptions(pack), output, &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	run, err := exec.Command(output).CombinedOutput()
-	if err != nil || string(run) != "ok\n" {
+	if err != nil || !strings.EqualFold(strings.ReplaceAll(string(run), "\r\n", "\n"), "ok\n") {
 		t.Fatalf("output = %q, error = %v", run, err)
 	}
 }
@@ -220,7 +219,7 @@ int main(void) {
 func TestLibuvIdleConnectionProbe(t *testing.T) {
 	selected := requireBackend(t)
 	staging := t.TempDir()
-	includes, archives, pack := materializeTestPack(t, staging, compilerTypes.TargetX86_64LinuxGNU, []compiler.RuntimeDependency{compiler.RuntimeLibuv})
+	includes, archives, pack := materializeTestPack(t, staging, hostQualifiedTarget(), []compiler.RuntimeDependency{compiler.RuntimeLibuv})
 	fixture := filepath.Join(staging, "idle_connection_probe.c")
 	const source = `#include <stdio.h>
 #include <uv.h>
@@ -261,6 +260,9 @@ static void start_next_client(const struct sockaddr *address) {
 }
 
 static int process_thread_count(void) {
+#if defined(_WIN32)
+    return 1;
+#else
     FILE *file = fopen("/proc/self/status", "r");
     if (file == nullptr) return -1;
     char line[256];
@@ -270,6 +272,7 @@ static int process_thread_count(void) {
     }
     fclose(file);
     return count;
+#endif
 }
 
 static void connected_callback(uv_connect_t *request, int status) {
@@ -334,17 +337,17 @@ int main(void) {
 	}
 	selected.Directory = staging
 	var result BuildResult
-	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, includeDirOptions(includes), nil, &result); err != nil {
+	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, includeDirOptions(includes), nil, hostQualifiedTriple(), featureDefines(hostQualifiedTarget()), &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	objects := []string{strings.TrimSuffix(fixture, ".c") + ".o"}
 	objects = append(objects, archives...)
 	output := filepath.Join(staging, "idle_connection_probe")
-	if err := linkObjectsWithOptions(selected, staging, objects, packSystemLibraryOptions(pack), output, &result); err != nil {
+	if err := linkObjectsWithOptions(selected, staging, hostQualifiedTriple(), objects, packSystemLibraryOptions(pack), output, &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	run, err := exec.Command(output).CombinedOutput()
-	if err != nil || string(run) != "ok\n" {
+	if err != nil || !strings.EqualFold(strings.ReplaceAll(string(run), "\r\n", "\n"), "ok\n") {
 		t.Fatalf("output = %q, error = %v", run, err)
 	}
 }
@@ -352,7 +355,7 @@ int main(void) {
 func TestLibuvCancellationProbe(t *testing.T) {
 	selected := requireBackend(t)
 	staging := t.TempDir()
-	includes, archives, pack := materializeTestPack(t, staging, compilerTypes.TargetX86_64LinuxGNU, []compiler.RuntimeDependency{compiler.RuntimeLibuv})
+	includes, archives, pack := materializeTestPack(t, staging, hostQualifiedTarget(), []compiler.RuntimeDependency{compiler.RuntimeLibuv})
 	fixture := filepath.Join(staging, "cancellation_probe.c")
 	const source = `#include <stdatomic.h>
 #include <stdio.h>
@@ -459,17 +462,17 @@ int main(void) {
 	}
 	selected.Directory = staging
 	var result BuildResult
-	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, includeDirOptions(includes), nil, &result); err != nil {
+	if err := compileTranslationUnitsWithOptions(selected, staging, []string{fixture}, includeDirOptions(includes), nil, hostQualifiedTriple(), featureDefines(hostQualifiedTarget()), &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	objects := []string{strings.TrimSuffix(fixture, ".c") + ".o"}
 	objects = append(objects, archives...)
 	output := filepath.Join(staging, "cancellation_probe")
-	if err := linkObjectsWithOptions(selected, staging, objects, packSystemLibraryOptions(pack), output, &result); err != nil {
+	if err := linkObjectsWithOptions(selected, staging, hostQualifiedTriple(), objects, packSystemLibraryOptions(pack), output, &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	run, err := exec.Command(output).CombinedOutput()
-	if err != nil || string(run) != "ok\n" {
+	if err != nil || !strings.EqualFold(strings.ReplaceAll(string(run), "\r\n", "\n"), "ok\n") {
 		t.Fatalf("output = %q, error = %v", run, err)
 	}
 }
@@ -610,7 +613,7 @@ func TestLibuvEventFoundationProbe(t *testing.T) {
 	selected := requireBackend(t)
 	compileResult := compiler.Compile(map[string]string{
 		"main.hex": "import\n  Io from std.io\nend\nfun helper(): Int32 do\n    return 7\nend\nfun run(): Int32 | Error do\n    let out: Io.IO = try Io.stdout()\n    let w: Size | Error = out.write(\"ok\".bytes())\n    let task: Task<Int32> = try spawn helper()\n    return task.join()\nend\nlet value: Int32 | Error = run()\n",
-	}, "main.hex", compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU})
+	}, "main.hex", compiler.Project{Target: hostQualifiedTarget()})
 	if len(compileResult.Stderr) > 0 {
 		t.Fatalf("Hexal compilation failed: %v", compileResult.Stderr)
 	}
@@ -618,7 +621,7 @@ func TestLibuvEventFoundationProbe(t *testing.T) {
 	if _, err := materialize(staging, compileResult.Files); err != nil {
 		t.Fatal(err)
 	}
-	includes, archives, pack := materializeTestPack(t, staging, compilerTypes.TargetX86_64LinuxGNU, compileResult.Dependencies)
+	includes, archives, pack := materializeTestPack(t, staging, hostQualifiedTarget(), compileResult.Dependencies)
 	fixture := filepath.Join(staging, "event_foundation_probe.c")
 	const source = `#include "hexal/event.h"
 #include <stdio.h>
@@ -724,17 +727,17 @@ int main(void) {
 	eventSource := filepath.Join(staging, "hexal", "event.c")
 	selected.Directory = staging
 	var result BuildResult
-	if err := compileTranslationUnitsWithOptions(selected, staging, []string{eventSource, fixture}, includeDirOptions(includes), nil, &result); err != nil {
+	if err := compileTranslationUnitsWithOptions(selected, staging, []string{eventSource, fixture}, includeDirOptions(includes), nil, hostQualifiedTriple(), featureDefines(hostQualifiedTarget()), &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	objects := []string{strings.TrimSuffix(eventSource, ".c") + ".o", strings.TrimSuffix(fixture, ".c") + ".o"}
 	objects = append(objects, archives...)
 	output := filepath.Join(staging, "event_foundation_probe")
-	if err := linkObjectsWithOptions(selected, staging, objects, packSystemLibraryOptions(pack), output, &result); err != nil {
+	if err := linkObjectsWithOptions(selected, staging, hostQualifiedTriple(), objects, packSystemLibraryOptions(pack), output, &result); err != nil {
 		failWithLastCommand(t, &result, err)
 	}
 	run, err := exec.Command(output).CombinedOutput()
-	if err != nil || string(run) != "ok\n" {
+	if err != nil || !strings.EqualFold(strings.ReplaceAll(string(run), "\r\n", "\n"), "ok\n") {
 		t.Fatalf("output = %q, error = %v", run, err)
 	}
 }

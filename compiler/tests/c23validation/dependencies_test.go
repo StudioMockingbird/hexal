@@ -16,6 +16,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -23,9 +24,13 @@ import (
 	"hexal/lib"
 )
 
-// packDirName is the one target-profile pack this Linux harness consumes; it
-// matches compilerTypes.TargetX86_64LinuxGNU.
-const packDirName = "x86_64-linux-gnu"
+// packDirName is the target-profile pack this host's harness consumes.
+func packDirName() string {
+	if runtime.GOOS == "windows" {
+		return "x86_64-windows-gnu-ucrt"
+	}
+	return "x86_64-linux-gnu"
+}
 
 // packManifest mirrors the closed format-version-1 runtime manifest far
 // enough to locate each demanded dependency's headers, archive, and system
@@ -87,9 +92,9 @@ func buildDependencies(dependencies []compiler.RuntimeDependency, buildRoot stri
 // buildRoot and records the include, archive, and system-library options the
 // generated C and link need. Nothing is compiled.
 func materializeDependencies(entry *dependencyBuild, dependencies []compiler.RuntimeDependency, buildRoot, set string) error {
-	pack, err := fs.Sub(lib.RuntimePacks(), packDirName)
+	pack, err := fs.Sub(lib.RuntimePacks(), packDirName())
 	if err != nil {
-		return fmt.Errorf("open embedded runtime pack %s: %w", packDirName, err)
+		return fmt.Errorf("open embedded runtime pack %s: %w", packDirName(), err)
 	}
 	raw, err := fs.ReadFile(pack, "manifest.json")
 	if err != nil {
@@ -99,8 +104,8 @@ func materializeDependencies(entry *dependencyBuild, dependencies []compiler.Run
 	if err := json.Unmarshal(raw, &manifest); err != nil {
 		return fmt.Errorf("parse embedded runtime manifest: %w", err)
 	}
-	if manifest.TargetProfile != packDirName {
-		return fmt.Errorf("embedded runtime pack names target %q, want %q", manifest.TargetProfile, packDirName)
+	if manifest.TargetProfile != packDirName() {
+		return fmt.Errorf("embedded runtime pack names target %q, want %q", manifest.TargetProfile, packDirName())
 	}
 	demanded := make(map[string]bool, len(dependencies))
 	for _, dependency := range dependencies {

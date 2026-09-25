@@ -4,7 +4,9 @@
 
 #ifdef _WIN32
 
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 
 static_assert(sizeof(intptr_t) >= sizeof(void *), "HANDLE requires an intptr_t at least pointer width");

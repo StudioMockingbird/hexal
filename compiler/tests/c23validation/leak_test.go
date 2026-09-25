@@ -17,6 +17,7 @@ import (
 	"context"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -34,8 +35,13 @@ var leakCheckedFixtures = map[string]bool{
 var leakFlags = []string{"-fsanitize=leak"}
 
 // TestC23SuiteLeak rebuilds each leak-checked fixture with LeakSanitizer and
-// requires it to run clean: exact stdout, no report, zero exit.
+// requires it to run clean: exact stdout, no report, zero exit. LSan exists
+// only on the Linux lane; the Windows lane has no leak instrumentation, so
+// this track does not run there rather than failing on an unsupported flag.
 func TestC23SuiteLeak(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("LeakSanitizer does not exist for the Windows target")
+	}
 	buildRoot := t.TempDir()
 	clang := clangToolchain(t)
 	ran := 0

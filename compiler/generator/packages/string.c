@@ -1,8 +1,11 @@
 #include "hexal/string.h"
 {{if .NeedValidator}}
 // The private runtime owns the one Hexal adapter over utf8proc; no public
-// header names it. UTF8PROC_STATIC selects utf8proc's static declarations.
+// header names it. UTF8PROC_STATIC selects utf8proc's static declarations;
+// the guard tolerates the feature-test define the harness and driver also pass.
+#ifndef UTF8PROC_STATIC
 #define UTF8PROC_STATIC
+#endif
 #include <utf8proc.h>
 {{end}}
 {{range .Literals}}const uint8_t {{.Name}}_bytes[{{.ArraySize}}] = { {{- range .Payload}} {{.}},{{end}} 0 };

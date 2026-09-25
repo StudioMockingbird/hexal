@@ -20,14 +20,13 @@ import (
 	"testing"
 
 	"hexal/compiler"
-	compilerTypes "hexal/compiler/types"
 )
 
 func TestForeignTargetObjectLinksWithHexalObjects(t *testing.T) {
 	selected := requireBackend(t)
 	dir := t.TempDir()
 
-	compileResult := compiler.Compile(map[string]string{"main.hex": "print(1)\n"}, "main.hex", compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU})
+	compileResult := compiler.Compile(map[string]string{"main.hex": "print(1)\n"}, "main.hex", compiler.Project{Target: hostQualifiedTarget()})
 	if len(compileResult.Stderr) > 0 {
 		t.Fatalf("Hexal compilation failed: %v", compileResult.Stderr)
 	}
@@ -36,13 +35,13 @@ func TestForeignTargetObjectLinksWithHexalObjects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("materialize: %v", err)
 	}
-	includes, archives, pack := materializeTestPack(t, dir, compilerTypes.TargetX86_64LinuxGNU, compileResult.Dependencies)
+	includes, archives, pack := materializeTestPack(t, dir, hostQualifiedTarget(), compileResult.Dependencies)
 	selected.Directory = dir
-	options := Options(ModeDebug)
+	options := Options(ModeDebug, hostQualifiedTarget())
 	compileOptions := append(append([]string{}, options.Compile...), includeDirOptions(includes)...)
 	linkOptions := append(append([]string{}, options.Link...), packSystemLibraryOptions(pack)...)
 	var result BuildResult
-	if err := compileTranslationUnitsWithOptions(selected, dir, cFiles, compileOptions, nil, &result); err != nil {
+	if err := compileTranslationUnitsWithOptions(selected, dir, cFiles, compileOptions, nil, hostQualifiedTriple(), featureDefines(hostQualifiedTarget()), &result); err != nil {
 		t.Fatalf("compiling Hexal-generated C failed: %v", err)
 	}
 	objects := append(cFilesToObjects(dir, cFiles), archives...)
@@ -52,7 +51,7 @@ func TestForeignTargetObjectLinksWithHexalObjects(t *testing.T) {
 		t.Fatal(err)
 	}
 	probeObject := filepath.Join(dir, "mode-probe.o")
-	invocation, err := selected.CompileOne(qualifiedTriple, options.Compile, probeSource, probeObject)
+	invocation, err := selected.CompileOne(hostQualifiedTriple(), options.Compile, probeSource, probeObject)
 	if err != nil {
 		t.Fatalf("cannot run backend on foreign source: %v", err)
 	}
@@ -61,8 +60,8 @@ func TestForeignTargetObjectLinksWithHexalObjects(t *testing.T) {
 	}
 	objects = append(objects, probeObject)
 
-	binary := filepath.Join(dir, "combined")
-	if err := linkObjectsWithOptions(selected, dir, objects, linkOptions, binary, &result); err != nil {
+	binary := filepath.Join(dir, "combined"+exeSuffix())
+	if err := linkObjectsWithOptions(selected, dir, hostQualifiedTriple(), objects, linkOptions, binary, &result); err != nil {
 		t.Fatalf("linking Hexal objects with the foreign object failed: %v", err)
 	}
 

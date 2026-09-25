@@ -131,8 +131,16 @@ func resolveClang() (toolchain, error) {
 		Name:          "clang",
 		Command:       []string{path},
 		Version:       strings.TrimSpace(strings.SplitN(string(output), "\n", 2)[0]),
-		DefaultTarget: "x86_64-linux-gnu",
+		DefaultTarget: hostTriple(),
 	}, nil
+}
+
+// hostTriple is the Clang toolchain triple for this host's qualified target.
+func hostTriple() string {
+	if runtime.GOOS == "windows" {
+		return "x86_64-w64-windows-gnu"
+	}
+	return "x86_64-linux-gnu"
 }
 
 var (

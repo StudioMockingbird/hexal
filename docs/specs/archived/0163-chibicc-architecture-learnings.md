@@ -1,8 +1,19 @@
 # RFC 0163: chibicc Architecture Learnings Review
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion; not scheduled. Design state: Draft; review not started
+- Status: Closed, 2026-09-24. The review was carried out against pinned chibicc
+  revision `90d1f7f199cc55b13c7fdb5839d1409806633fdb` (branch `main`,
+  2020-12-07) by two independent passes, which agreed on every disposition they
+  shared. Every Validation item below passes. The findings are recorded in
+  **RFC 0239**, which supersedes the `.tmp/` spike reports this RFC asked for:
+  `.tmp/` is cleared between tasks, so a numbered spec is where a durable record
+  belongs. Twelve findings, one actionable — F1, the generator's scope
+  invariant, owned by RFC 0239 itself. No language, grammar, or code-generation
+  change landed under this RFC, as its Non-goals required
 - Created: 2026-09-10
+- Updated: 2026-09-24
+- Superseded by: RFC 0239 (chibicc Review Findings) for every finding and
+  disposition. This RFC is the request; RFC 0239 is the answer
 - Coordinates with: RFC 0039 (C interoperability — compiler core), RFC 0052
   (C compiler backend), `docs/reference.md`, `docs/status.md`
 
@@ -63,6 +74,7 @@ adjacent to Hexal's own C-interop and C-emission work.
   incremental development, as a comparison point for Hexal's own
   snippet-catalog/C23-validation approach.
 - Diagnostic reporting: source-span-accurate error messages.
+- Overall architecture, information flow. How create a compiler which is simple and elegant and maintanable.
 
 ## Deliverables
 
@@ -75,11 +87,44 @@ adjacent to Hexal's own C-interop and C-emission work.
 
 ## Validation
 
-This section is exhaustive.
+This section is exhaustive. Each item's outcome is recorded beside it, verified
+on 2026-09-24.
 
 - chibicc revision reviewed is pinned (commit/tag) and recorded in the report.
+  **Pass:** `90d1f7f199cc55b13c7fdb5839d1409806633fdb`, branch `main`,
+  2020-12-07, recorded in RFC 0239's header and reproducible by cloning.
 - Report covers each scope bullet with at least one cited observation.
+  **Pass:** all seven bullets are covered in RFC 0239 — preprocessor and lexer
+  (`chibicc.h:74-92`, `preprocess.c:15-23,647-672`), type layout and bitfields
+  (`parse.c:2686-2733`), parser structure and declarators
+  (`parse.c:114-131,681-705`), code generation
+  (`codegen.c:7,31-39,445,456,1568`), test-suite design (`test/arith.c:5`,
+  `test/common:5-12`, `test/driver.sh`), diagnostics (`tokenize.c:28-68`), and
+  overall architecture.
 - Every actionable learning has a disposition (adopt/adapt/reject) and, if
   adopted, a linked follow-up spec or `docs/status.md` entry.
+  **Pass:** twelve findings, each with a disposition. The single ADOPT — F1,
+  the generator's scope invariant — is owned by RFC 0239, which carries its
+  Validation and implementation plan. F2 names deferred RFC 0191, F7 names
+  `docs/status.md` and deferred RFC 0209.
 - No language or code-generation change lands under this spec.
-- `go test ./...` and `go vet ./...` pass.
+  **Pass:** nothing outside `docs/specs/` changed. F1 is specified, not
+  implemented.
+- `go test ./...` and `go vet ./...` pass. **Pass**, both clean on the tree at
+  closure.
+
+### Deliverable note
+
+Deliverable 1 asked for the spike report under `.tmp/`. Two were produced there
+by independent passes and both were consumed into RFC 0239. `.tmp/` is scratch
+and is cleared between tasks, so the durable record is the numbered spec rather
+than the scratch file — the deliverable is met in substance and relocated on
+purpose.
+
+### One item deliberately not opened
+
+F7 (linking reference-compiler-built objects into the test suite, as
+chibicc's `test/common` does) is dispositioned ADAPT with an open question, not
+accepted. No `docs/status.md` entry was added for it, because an entry there
+needs a spec to point at and this has none yet. The question is recorded in RFC
+0239 instead, which is where it can be answered.

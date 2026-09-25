@@ -71,8 +71,8 @@ func inspectRequest(selected *backend.Backend, staging string, request compiler.
 
 	// Clang preprocesses with the target-relevant interface configuration. It
 	// is the only stage that consumes the include roots and definitions.
-	preprocessArgs := []string{"--target=" + qualifiedTriple, "-std=c23"}
-	preprocessArgs = append(preprocessArgs, linuxFeatureDefines...)
+	preprocessArgs := []string{"--target=" + options.triple, "-std=c23"}
+	preprocessArgs = append(preprocessArgs, options.featureDefines...)
 	preprocessArgs = append(preprocessArgs, options.compileOptions...)
 	preprocessArgs = append(preprocessArgs, "-E", stagingSource, "-o", preprocessed)
 	preprocess, failure := runBounded(selected, staging, ctx, result, StageCompile, preprocessArgs)
@@ -85,7 +85,7 @@ func inspectRequest(selected *backend.Backend, staging string, request compiler.
 
 	// The same Clang parses the preprocessed text: no include roots or
 	// definitions, and the same target and C23 mode.
-	clangArgs := []string{"--target=" + qualifiedTriple, "-x", "c", "-std=c23", "-Xclang", "-ast-dump=json", "-fsyntax-only", preprocessed}
+	clangArgs := []string{"--target=" + options.triple, "-x", "c", "-std=c23", "-Xclang", "-ast-dump=json", "-fsyntax-only", preprocessed}
 	ast, failure := runExternalBounded(selected.Exe, staging, selected.Environment, selected.EnvironmentOverrides, ctx, result, StageCompile, clangArgs)
 	if failure != nil {
 		return preparedBinding{}, failure
@@ -128,8 +128,8 @@ func inspectRequest(selected *backend.Backend, staging string, request compiler.
 // probe expression for each candidate. Macros that are not value expressions
 // are simply absent from the result and are omitted by the normalizer.
 func objectMacroTypes(selected *backend.Backend, staging, stagingSource string, request compiler.CImportRequest, options headerOptions, ctx context.Context, result *BuildResult) (map[string]string, *BuildError) {
-	inventoryArgs := []string{"--target=" + qualifiedTriple, "-std=c23"}
-	inventoryArgs = append(inventoryArgs, linuxFeatureDefines...)
+	inventoryArgs := []string{"--target=" + options.triple, "-std=c23"}
+	inventoryArgs = append(inventoryArgs, options.featureDefines...)
 	inventoryArgs = append(inventoryArgs, options.compileOptions...)
 	inventoryArgs = append(inventoryArgs, "-E", "-dD", stagingSource)
 	inventory, failure := runBounded(selected, staging, ctx, result, StageCompile, inventoryArgs)
@@ -249,8 +249,8 @@ func probeMacroBatch(selected *backend.Backend, staging string, request compiler
 	if err := os.WriteFile(path, []byte(source.String()), 0o644); err != nil {
 		return nil, filesystemFailure(fmt.Sprintf("cannot write macro probe source: %v", err))
 	}
-	args := []string{"--target=" + qualifiedTriple, "-std=c23"}
-	args = append(args, linuxFeatureDefines...)
+	args := []string{"--target=" + options.triple, "-std=c23"}
+	args = append(args, options.featureDefines...)
 	args = append(args, options.compileOptions...)
 	args = append(args, "-Xclang", "-ast-dump=json", "-fsyntax-only", path)
 	ast, failure := runExternalBounded(selected.Exe, staging, selected.Environment, selected.EnvironmentOverrides, ctx, result, StageCompile, args)
@@ -299,11 +299,14 @@ func probeMacroBatch(selected *backend.Backend, staging string, request compiler
 // headerOptions carries the interface configuration every interface consumer
 // shares: the ordered include roots and definitions rendered as backend
 // arguments, the Hexal target profile identity the prepared binding key is
-// derived from, and the object-like macro types Clang proved (name to C
-// qualType) for the requested header.
+// derived from, the selected profile's Clang triple, that profile's
+// feature-test defines, and the object-like macro types Clang proved (name to
+// C qualType) for the requested header.
 type headerOptions struct {
 	compileOptions []string
 	target         string
+	triple         string
+	featureDefines []string
 	macroTypes     map[string]string
 }
 

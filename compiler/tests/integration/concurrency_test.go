@@ -779,3 +779,71 @@ func TestNoValueCommandsRejectedInValuePositions(t *testing.T) {
 		}
 	}
 }
+
+// Task and Channel boundaries preserve a pointer's local cleanup fact: a free
+// after spawn or send is still visible to a later dereference or free, and
+// detach changes no fact. An @ in a spawn argument escapes the binding, so a
+// later double free is accepted.
+func TestTaskAndChannelBoundariesPreservePointerCleanupFacts(t *testing.T) {
+	rejected := []struct {
+		source string
+		want   string
+	}{
+		{
+			source: `fun worker(p: Ptr<mut Int32>): Bool do
+    return true
+end
+fun run(h: Heap): Int32 | Error do
+    let p: Ptr<mut Int32> = h.allocate<Int32>(0)
+    let task: Task<Bool> = try spawn worker(p)
+    h.free(p)
+    let value: Int32 = ^p
+    return 0
+end
+`,
+			want: "this pointer's storage was released on every path to this point",
+		},
+		{
+			source: `fun run(h: Heap): Int32 | Error do
+    let channel: Channel<Ptr<mut Int32>> = try Channel<Ptr<mut Int32>>(h, 1)
+    let p: Ptr<mut Int32> = h.allocate<Int32>(0)
+    try channel.send(p)
+    h.free(p)
+    let value: Int32 = ^p
+    return 0
+end
+`,
+			want: "this pointer's storage was released on every path to this point",
+		},
+		{
+			source: `fun worker(p: Ptr<mut Int32>): Bool do
+    return true
+end
+fun run(h: Heap): Int32 | Error do
+    let p: Ptr<mut Int32> = h.allocate<Int32>(0)
+    let task: Task<Bool> = try spawn worker(p)
+    h.free(p)
+    task.detach()
+    h.free(p)
+    return 0
+end
+`,
+			want: "free releases storage already released on every path to this point",
+		},
+	}
+	for _, testCase := range rejected {
+		assertRejects(t, testCase.source, testCase.want)
+	}
+
+	assertCompiles(t, `fun worker(p: Ptr<mut Ptr<mut Int32>>): Bool do
+    return true
+end
+fun run(h: Heap): Int32 | Error do
+    let mut p: Ptr<mut Int32> = h.allocate<Int32>(0)
+    let task: Task<Bool> = try spawn worker(@p)
+    h.free(p)
+    h.free(p)
+    return 0
+end
+`)
+}

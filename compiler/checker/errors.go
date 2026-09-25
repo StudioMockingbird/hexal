@@ -17,6 +17,22 @@ func freeLocalStorageDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
 	return typeErrorAt(token, "free does not accept a pointer into this function's local storage")
 }
 
+func freeStashAllocatedDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
+	return typeErrorAt(token, "free does not accept a pointer allocated from a Stash")
+}
+
+func freePoolAllocatedDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
+	return typeErrorAt(token, "free does not accept a pointer allocated from a Pool")
+}
+
+func poolFreeHeapAllocatedDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
+	return typeErrorAt(token, "Pool free does not accept a pointer allocated from the Heap")
+}
+
+func poolFreeStashAllocatedDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
+	return typeErrorAt(token, "Pool free does not accept a pointer allocated from a Stash")
+}
+
 func doubleFreeDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
 	return typeErrorAt(token, "free releases storage already released on every path to this point")
 }

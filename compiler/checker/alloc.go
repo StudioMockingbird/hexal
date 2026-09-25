@@ -53,12 +53,12 @@ func checkExitTimeExpression(expression parser.Expression, ctx checkContext) che
 	return checkExpression(expression, expressionContext{inCleanup: true}, checkContext{names: checking, typeEnvironment: ctx.typeEnvironment})
 }
 
-// captureDeferredHeapFree captures the tracked binding+version a deferred
-// release call targets, at registration time, so a later rebinding of the
-// same slot before the deferred call fires does not change which value it
-// validates against. Four call shapes release a tracked value: Heap.free and
-// Pool.free target their pointer argument; Stash.destroy and Pool.destroy
-// target their own receiver.
+// captureDeferredHeapFree captures the tracked allocation a deferred release
+// call targets, at registration time, so a later rebinding of the same slot
+// before the deferred call fires does not change which value it validates
+// against. Four call shapes release a tracked value: Heap.free and Pool.free
+// target their pointer argument; Stash.destroy and Pool.destroy target their
+// own receiver.
 func captureDeferredHeapFree(action *DeferredAction, names *scope) {
 	if action == nil || !action.IsCall || action.Call == nil || names == nil || names.flow == nil {
 		return
@@ -75,12 +75,11 @@ func captureDeferredHeapFree(action *DeferredAction, names *scope) {
 		// receiver; a bare variable read of the handle itself is enough.
 		binding = target.Node.Binding
 	}
-	version, ok := names.flow.trackedVersion(binding)
+	alloc, ok := names.flow.trackedAllocation(binding)
 	if !ok {
 		return
 	}
-	action.TrackedFreeBinding = binding
-	action.TrackedFreeVersion = version
+	action.TrackedFreeAlloc = alloc
 }
 
 // trackedReleaseTarget identifies the operand one release call invalidates:
@@ -224,6 +223,14 @@ func checkHeapFree(call parser.CallExpression, callee parser.PropertyExpression,
 		diagnostic := freeLocalStorageDiagnostic(callee.Property)
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
+	switch ctx.names.flow.allocatorKindOf(value.source.Node.Binding) {
+	case stashAllocator:
+		diagnostic := freeStashAllocatedDiagnostic(callee.Property)
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	case poolAllocator:
+		diagnostic := freePoolAllocatedDiagnostic(callee.Property)
+		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	}
 	if ctx.names.cleanupDepth == 0 {
 		if diagnostic := checkTrackedHeapFree(value.source, callee.Property, ctx.names); diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
@@ -273,15 +280,19 @@ func checkHandleNotDestroyed(receiver Operand, token lexer.Token, state *flowSta
 	return &diagnostic
 }
 
-func checkTrackedHeapFreeVersion(token lexer.Token, state *flowState, binding BindingID, version uint64) *compilerTypes.Diagnostic {
-	if state == nil || binding == 0 || version == 0 || !state.tracked[binding] {
+// checkTrackedHeapFreeAlloc validates a deferred release against the
+// allocation captured at registration. The binding may since have been
+// rebound or dropped; only the identity matters. A second validation of the
+// same identity is a double free.
+func checkTrackedHeapFreeAlloc(token lexer.Token, state *flowState, alloc allocationID) *compilerTypes.Diagnostic {
+	if state == nil || alloc == 0 {
 		return nil
 	}
-	if state.freedAt(binding, version) {
+	if state.freedAllocReport(alloc) {
 		diagnostic := doubleFreeDiagnostic(token)
 		return &diagnostic
 	}
-	state.markFreedVersion(binding, version)
+	state.markFreedAlloc(alloc)
 	return nil
 }
 
@@ -332,8 +343,8 @@ func validateDeferredActionsInState(actions []DeferredAction, state *flowState, 
 				continue
 			}
 			var diagnostic *compilerTypes.Diagnostic
-			if action.TrackedFreeBinding != 0 && action.TrackedFreeVersion != 0 {
-				diagnostic = checkTrackedHeapFreeVersion(token, state, action.TrackedFreeBinding, action.TrackedFreeVersion)
+			if action.TrackedFreeAlloc != 0 {
+				diagnostic = checkTrackedHeapFreeAlloc(token, state, action.TrackedFreeAlloc)
 			} else {
 				diagnostic = checkTrackedHeapFreeInState(target, token, state)
 			}

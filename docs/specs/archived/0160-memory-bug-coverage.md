@@ -1,11 +1,15 @@
 # RFC 0160: Memory-Bug Coverage Without Ownership Semantics
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion (proposal); not scheduled. Items graduate
-  independently: checker items to focused checker RFCs, tooling items to
-  RFC 0158's vehicle, foreign-write items to RFC 0039
+- Status: Closed. Coordination inventory retired 2026-09-24; it was never an
+  implementation vehicle. Current-behavior rows carry the verification recorded
+  under Current verification boundary. Graduates stay with their named cars:
+  cross-allocator rejection is closed under RFC 0225, leak reporting is RFC
+  0158's Linux LSan gate, foreign-write hazards remain RFC 0039's, and
+  copy-propagated freed facts / loop-bound lint / fill-after-free never
+  graduated — they are not scheduled work under this number
 - Created: 2026-09-10
-- Updated: 2026-09-20
+- Updated: 2026-09-24
 - Depends on: nothing; this RFC records implemented behavior plus
   small deltas against it
 - Coordinates with: RFC 0155 (unsafe posture for the uninit escape), RFC

@@ -14,7 +14,9 @@
 
 #ifdef _WIN32
 
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 
 hex_terminal_attached_result hex_terminal_is_attached(hex_io stream) {

@@ -1052,8 +1052,8 @@ Heap.free<T>(pointer: Ptr<mut T>) -> no value
 - `h.free(ptr)` accepts `Ptr` in either mode, and releases an aligned allocation identically to an
   ordinary one; `free` takes no alignment argument. Every Heap value selects the same allocator, so
   no Heap can be the wrong Heap and none is compared. That is a statement about Heap identity only:
-  passing a Stash or Pool allocation to `h.free` is undefined behavior and is not currently
-  rejected.
+  a pointer the checker proves was allocated by a Stash or a Pool is rejected by `h.free`, and a
+  Heap- or Stash-allocated pointer is rejected by `Pool.free`.
 - Heap-backed library values — `String`, `List`, `Dict`, `Channel`, `Mutex` — receive their Heap
   explicitly; their allocation and cleanup never choose a hidden allocator.
 - Allocator-owning types are the exception, and are explicit about it: `Stash` and `Pool` construct
@@ -1066,12 +1066,14 @@ Heap.free<T>(pointer: Ptr<mut T>) -> no value
 - The shallow rule applies at every depth. Replacing/dropping the last handle may leak; freeing one
   alias dangles all others. No runtime metadata records allocation state, so a repeated or invalid
   release has no guaranteed diagnostic; only the compile-time rules below reject cleanup misuse.
-- Cleanup misuse is rejected at compile time wherever a local analysis decides it. Three are
+- Cleanup misuse is rejected at compile time wherever a local analysis decides it. Four are
   rejected: freeing a pointer traceable to `@`, freeing a local binding already freed on every
-  path to that point, and reading through one. Misuse requiring interprocedural, alias, or escape
-  analysis is never rejected — a pointer arriving as a parameter, read from a member or collection,
-  or copied to a second binding is not tracked, and leaks are not diagnosed. An undecided case is
-  always accepted.
+  path to that point, reading through one, and releasing a pointer through an allocator that
+  provably did not produce it (`Heap.free` of a Stash or Pool allocation; `Pool.free` of a Heap
+  or Stash allocation, or of a pointer from a different Pool). Misuse requiring interprocedural
+  analysis, or a pointer whose allocator or identity is unknown, is never rejected — a pointer
+  arriving as a parameter, read from a member or collection, or copied from a foreign source is
+  not classified, and leaks are not diagnosed. An undecided case is always accepted.
 
 ### `Stash<T>` and `Pool<T>`
 
@@ -1108,8 +1110,9 @@ Pool<T>.destroy() -> no value
   capacity. A constant zero capacity is rejected statically ("Pool capacity must be positive"); a
   dynamic zero capacity traps, as does exhaustion. `allocate` accepts exactly T; `free` accepts
   `Ptr` of exactly T in either mode and validates that the address names an aligned, currently live slot in
-  that exact Pool, trapping otherwise. A pointer directly traceable to another Pool is rejected
-  before generation; unknown provenance reaches the runtime address check.
+  that exact Pool, trapping otherwise. A pointer the checker proves came from a Heap or Stash is
+  rejected with the real source allocator's message; a pointer directly traceable to another Pool
+  is rejected before generation; unknown provenance reaches the runtime address check.
 - `destroy()` requires every Pool slot to have been freed first: a directly tracked live slot is
   rejected at compile time ("Pool cannot be destroyed while a locally tracked slot is live");
   otherwise a non-empty destroy traps at runtime. Pool release runs no cleanup for stored T; the
@@ -2369,6 +2372,33 @@ Ptr<mut T>.write_volatile(value: T) -> no value
   partially generated. Syntax failures, static-semantic failures (Name and Type Errors), Module
   Errors, dynamic traps, and Unknown Error are distinct externally visible classes. Unknown Error
   identifies an unclassifiable compiler inconsistency, not a source-program error.
+
+## Build modes
+
+- Two modes exist: `debug` and `release`. `-mode` selects one; an omitted or empty value defaults
+  to `debug`. An unrecognized value fails before compilation.
+- **Mode-independence:** generated C is byte-identical in both modes. No mode changes program
+  semantics, stdout, stderr, exit status, trap messages, or evaluation order. A mode selects how the
+  generated C is compiled, never what it is. Bounds, overflow, division, conversion, freed-state,
+  and handle checks are language semantics, so no mode may drop them.
+- The one documented exception: a mode may change the point at which a stack-overflow resource
+  limit is reached, because optimization changes stack-frame sizes. That is a resource limit, not a
+  semantic difference.
+- **Debug** keeps the program unoptimized with target-native debug information and a
+  non-recoverable undefined-behaviour backstop. The backstop stops the program at the point of the
+  fault; it is an instrument for finding generator defects, not a different language. Debug detects
+  undefined behaviour on every qualified lane. On the Linux lane the backstop uses the diagnostic
+  runtime (`-fsanitize=undefined -fno-sanitize-recover=all`) and reports which check failed and
+  where; on the Windows lane it uses trap mode
+  (`-fsanitize=undefined -fsanitize-trap=undefined`) because this release ships no MinGW UBSan
+  runtime, so the same faults halt with no diagnostic text. Debug on the Linux lane also carries
+  `-fsanitize=leak`: allocations still live at exit are reported on stderr with their allocation
+  stack traces, and the report does not change exit status — holding an allocation to process exit
+  is not an error in a language with explicit manual cleanup. `LSAN_OPTIONS` overrides that
+  default. The leak report is absent on lanes without LeakSanitizer and absent in release.
+- **Release** optimizes, emits no debug information, strips the executable, and discards unused
+  sections. It carries no sanitizer instrumentation.
+- Neither mode is a correctness contract: a program correct in one is correct in the other.
 
 ## Excluded features
 

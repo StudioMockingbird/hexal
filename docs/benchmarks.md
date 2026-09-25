@@ -88,10 +88,34 @@ The one-line view. `BenchmarkCorpus` is the only end-to-end aggregate, so its
 
 Debug versus release, measured for the driver's own generated executable
 output (not the Go-level compiler throughput the rest of this file tracks).
-`size` is the linked `.exe` in bytes; `generated_compile_ms`/`link_ms` are the
-one wall-clock backend invocation each stage took; `runtime_ms` is the best of
+`size` is the linked executable in bytes; build wall time covers the whole
+`hexal build` invocation (generate, compile, link); runtime is the best of
 five runs of the built program. Same append-only, dated-entry discipline as
 above.
+
+### 2026-09-24 — installed-Clang Windows backend re-qualified
+
+Go 1.26.4 windows/amd64, AMD Ryzen 5 7530U, Clang 23.1.2 MinGW-w64/UCRT
+backend, embedded `x86_64-windows-gnu-ucrt` pack. Replaces the 2026-09-15
+Zig-driven numbers above as the current Windows lane. Representative programs:
+`trivial` (one `print`), `collections` (a 200k-element `List<Int32>`
+push/iterate loop), `text` (20k `String` allocate/concat/free iterations).
+
+| Program | Mode | Size (bytes) | Build (ms) | Runtime (ms) |
+|---|---|---:|---:|---:|
+| trivial | debug | 332,288 | 1,877 | 11 |
+| trivial | release | 210,944 | 2,025 | 11 |
+| collections | debug | 342,528 | 1,920 | 16 |
+| collections | release | 211,456 | 1,968 | 17 |
+| text | debug | 688,128 | 2,368 | 19 |
+| text | release | 557,568 | 2,101 | 14 |
+
+Release executables are ~36–37% smaller at this program scale (the installed
+Clang/MinGW lane produces much smaller debug binaries than the retired Zig
+lane did, so the gap is narrower than the 2026-09-15 entry's ~73%). Build wall
+time is within noise between modes; runtime at this scale is dominated by
+process startup rather than `-O0` vs `-O2`. Neither observation is a target —
+see the ratio note at the top of this file.
 
 ### 2026-09-15 — RFC 0187 lands
 

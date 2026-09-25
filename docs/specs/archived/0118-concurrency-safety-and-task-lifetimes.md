@@ -1,12 +1,18 @@
 # RFC 0118: Task and Cross-Task Escape Boundaries
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion; rescoped to a regression-only RFC. The escape rule
-  it previously proposed is withdrawn: probing showed it would delete six
-  working diagnostics and that its narrowing variant is empty. What remains is
-  the analysis and the tests that keep it true. See Readiness
+- Status: Closed. Regression-only deliverable landed and verified 2026-09-24:
+  `TestTaskAndChannelBoundariesPreservePointerCleanupFacts`
+  (`compiler/tests/integration/concurrency_test.go`) covers spawn/send/detach
+  cleanup-fact survival and the `@`-escape counter-case;
+  `TestNarrowingSurvivesSpawnAndCallButNotAddressOf`
+  (`compiler/tests/integration/nullability_test.go`) covers narrowing across
+  spawn and its loss under writable `@`; the pointer-fact cases (call argument,
+  return, member store, collection store, `join` result, channel receive) live
+  in `compiler/tests/integration/pointers_test.go`. No production file changed;
+  the escape-rule proposal remains withdrawn
 - Created: 2026-08-22
-- Updated: 2026-09-20
+- Updated: 2026-09-24
 - Scope: establish that task creation, message transfer, `join`, and `detach`
   are **not** escape boundaries for local checker facts, and lock that in with
   regression coverage

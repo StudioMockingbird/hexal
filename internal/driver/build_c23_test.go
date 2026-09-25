@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -26,14 +27,15 @@ import (
 	"hexal/internal/version"
 )
 
-// withTestBackend fills the required compiler and target into one test's build
-// options. Every tagged driver test that runs a real build goes through it, so
-// the qualified configuration lives in one place. The runtime pack is embedded
-// in the compiler, so there is no runtime directory to select.
+// withTestBackend fills the required compiler and the host-qualified target
+// into one test's build options. Every tagged driver test that runs a real
+// build goes through it, so the qualified configuration lives in one place.
+// The runtime pack is embedded in the compiler, so there is no runtime
+// directory to select.
 func withTestBackend(t *testing.T, options BuildOptions) BuildOptions {
 	t.Helper()
 	options.CompilerPath = requireBackend(t).Exe
-	options.Target = compilerTypes.TargetX86_64LinuxGNU
+	options.Target = hostQualifiedTarget()
 	return options
 }
 
@@ -42,8 +44,26 @@ func doctorOptionsForTest(t *testing.T) DoctorOptions {
 	t.Helper()
 	return DoctorOptions{
 		CompilerPath: requireBackend(t).Exe,
-		Target:       compilerTypes.TargetX86_64LinuxGNU,
+		Target:       hostQualifiedTarget(),
 	}
+}
+
+// hostQualifiedTarget is the target profile this host's driver builds: the
+// only profile checkHost accepts for the running GOOS/GOARCH pair.
+func hostQualifiedTarget() compilerTypes.TargetProfileID {
+	if runtime.GOOS == "windows" {
+		return compilerTypes.TargetX86_64WindowsGNU
+	}
+	return compilerTypes.TargetX86_64LinuxGNU
+}
+
+// hostQualifiedTriple is the Clang toolchain triple for hostQualifiedTarget.
+func hostQualifiedTriple() string {
+	profile, err := resolveProfile(hostQualifiedTarget())
+	if err != nil {
+		panic(err)
+	}
+	return profile.triple
 }
 
 var (
@@ -189,9 +209,15 @@ func TestBuildProducesRunnableExecutable(t *testing.T) {
 
 // TestBuildHasNoMimallocSharedLibraryImport proves the demanded mimalloc pack
 // is linked statically: the executable's dynamic dependencies name no
-// mimalloc shared object.
+// mimalloc shared object. The import scan is ELF-specific and runs on the
+// Linux lane; the Windows lane's static-link proof is the absence of a
+// mimalloc DLL dependency in its own PE import table, which the e2e fixture
+// covers by running the linked program.
 func TestBuildHasNoMimallocSharedLibraryImport(t *testing.T) {
 	requireBackend(t)
+	if runtime.GOOS != "linux" {
+		t.Skip("ELF import inspection applies only to the Linux lane")
+	}
 	dir := t.TempDir()
 	writeSource(t, dir, "main.hex", "let values: Array<Int32, 2> = [1, 2]\nprint(values[0])\n")
 
@@ -265,6 +291,11 @@ func TestBuildResolvesImports(t *testing.T) {
 // link invocation.
 func TestLinkDriverLevelCObject(t *testing.T) {
 	selected := requireBackend(t)
+	target := hostQualifiedTarget()
+	profile, profileErr := resolveProfile(target)
+	if profileErr != nil {
+		t.Fatal(profileErr)
+	}
 	dir := t.TempDir()
 	writeSource(t, dir, "main.hex", "print(\"ok\")\n")
 
@@ -272,7 +303,7 @@ func TestLinkDriverLevelCObject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	compileResult := compiler.Compile(sources, "main.hex", compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU})
+	compileResult := compiler.Compile(sources, "main.hex", compiler.Project{Target: target})
 	if len(compileResult.Stderr) > 0 {
 		t.Fatalf("hexal compilation failed: %v", compileResult.Stderr)
 	}
@@ -285,12 +316,12 @@ func TestLinkDriverLevelCObject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	includes, archives, pack := materializeTestPack(t, staging, compilerTypes.TargetX86_64LinuxGNU, compileResult.Dependencies)
+	includes, archives, pack := materializeTestPack(t, staging, target, compileResult.Dependencies)
 	selected.Directory = staging
 
 	var result BuildResult
-	compileOptions := append(append([]string{}, Options(ModeDebug).Compile...), includeDirOptions(includes)...)
-	if err := compileTranslationUnitsWithOptions(selected, staging, cFiles, compileOptions, nil, &result); err != nil {
+	compileOptions := append(append([]string{}, Options(ModeDebug, target).Compile...), includeDirOptions(includes)...)
+	if err := compileTranslationUnitsWithOptions(selected, staging, cFiles, compileOptions, nil, profile.triple, featureDefines(target), &result); err != nil {
 		t.Fatalf("c compilation failed: %v", err)
 	}
 	const driverC = "int hexal_driver_probe(void) { return 7; }\n"
@@ -299,20 +330,20 @@ func TestLinkDriverLevelCObject(t *testing.T) {
 		t.Fatal(err)
 	}
 	probeObject := filepath.Join(staging, "driver_probe.o")
-	probe, err := selected.CompileOne(qualifiedTriple, []string{"-I", staging}, probeSource, probeObject)
+	probe, err := selected.CompileOne(profile.triple, []string{"-I", staging}, probeSource, probeObject)
 	if err != nil || probe.ExitCode != 0 {
 		t.Fatalf("driver c object failed to compile: %v\n%s", err, probe.Stderr)
 	}
 	objects := cFilesToObjects(staging, cFiles)
 	objects = append(objects, archives...)
 	objects = append(objects, probeObject)
-	output := filepath.Join(dir, "build", "main")
+	output := filepath.Join(dir, "build", "main"+exeSuffix())
 	if err := os.MkdirAll(filepath.Dir(output), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	stagedExe := filepath.Join(staging, "main.staged")
-	linkOptions := append(append([]string{}, Options(ModeDebug).Link...), packSystemLibraryOptions(pack)...)
-	if err := linkObjectsWithOptions(selected, staging, objects, linkOptions, stagedExe, &result); err != nil {
+	stagedExe := filepath.Join(staging, "main.staged"+exeSuffix())
+	linkOptions := append(append([]string{}, Options(ModeDebug, target).Link...), packSystemLibraryOptions(pack)...)
+	if err := linkObjectsWithOptions(selected, staging, profile.triple, objects, linkOptions, stagedExe, &result); err != nil {
 		t.Fatalf("link with driver object failed: %v", err)
 	}
 	if err := publishExecutable(stagedExe, output); err != nil {
@@ -334,7 +365,7 @@ func TestLinkDriverLevelCObject(t *testing.T) {
 func TestGeneratedArtifactsContainNoAbsolutePaths(t *testing.T) {
 	requireBackend(t)
 	sources := map[string]string{"app.hex": "print(\"ok\")\n"}
-	result := compiler.Compile(sources, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64LinuxGNU})
+	result := compiler.Compile(sources, "app.hex", compiler.Project{Target: hostQualifiedTarget()})
 	if len(result.Stderr) > 0 {
 		t.Fatalf("hexal compilation failed: %v", result.Stderr)
 	}

@@ -3,6 +3,8 @@ package backend
 import (
 	"fmt"
 	"strings"
+
+	compilerTypes "hexal/compiler/types"
 )
 
 // requiredHeaders is the exact C header inventory generated C selects for the
@@ -16,21 +18,38 @@ var requiredHeaders = []string{
 	"unistd.h", "fcntl.h",
 }
 
+// requiredWindowsHeaders is the exact C header inventory generated C selects
+// for the Windows target. It keeps the common C23 and libc surface and
+// swaps the POSIX-only headers for windows.h; the Windows pack is what
+// supplies libuv, mimalloc, and utf8proc under that inventory.
+var requiredWindowsHeaders = []string{
+	"errno.h", "inttypes.h", "limits.h", "math.h", "stdatomic.h",
+	"stdckdint.h", "stddef.h", "stdint.h", "stdio.h", "stdlib.h",
+	"strings.h", "signal.h", "windows.h",
+}
+
 // requiredFacilities names the non-header C23 facilities generated code relies
 // on: checked arithmetic, atomics, typeof, nullptr, attributes, and static
-// assertions, plus the POSIX threading and IO paths.
+// assertions, plus the platform threading and IO paths.
 var requiredFacilities = []string{
 	"checked-arithmetic", "atomics", "typeof", "nullptr",
 	"attributes", "static-assert", "posix-threads", "posix-io",
 }
 
 // QualificationProbe returns a C23 translation unit exercising every required
-// header and facility. Qualification compiles, links, and runs it through the
-// selected backend; the trivial `int main` probe proves nothing about the
-// facility set. The driver runs this as its full probe.
-func QualificationProbe() string {
-	includes := make([]string, 0, len(requiredHeaders))
-	for _, header := range requiredHeaders {
+// header and facility for the selected target profile. Qualification compiles,
+// links, and runs it through the selected backend; the trivial `int main`
+// probe proves nothing about the facility set. The driver runs this as its
+// full probe.
+func QualificationProbe(target compilerTypes.TargetProfileID) string {
+	headers := requiredHeaders
+	thread := "pthread_t thread = pthread_self();"
+	if !isLinuxTarget(target) {
+		headers = requiredWindowsHeaders
+		thread = "DWORD thread = GetCurrentThreadId();"
+	}
+	includes := make([]string, 0, len(headers))
+	for _, header := range headers {
 		includes = append(includes, "#include <"+header+">")
 	}
 	return strings.Join(includes, "\n") + `
@@ -54,12 +73,19 @@ int main(void) {
 	if (probe_add(20, 22) != answer) {
 		return 1;
 	}
-	pthread_t thread = pthread_self();
+	` + thread + `
 	(void)thread;
 	printf("%d\n", answer);
 	return 0;
 }
 `
+}
+
+// isLinuxTarget reports whether the profile is a POSIX/Linux target. The
+// facility probe's header set and thread primitive branch on this the same
+// way generated code does.
+func isLinuxTarget(target compilerTypes.TargetProfileID) bool {
+	return strings.Contains(string(target), "linux")
 }
 
 // CompileOne compiles one generated translation unit to an object file:

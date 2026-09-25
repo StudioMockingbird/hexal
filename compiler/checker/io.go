@@ -363,8 +363,30 @@ func seedStreamBindingFacts(flow *flowState, id BindingID, declaredType compiler
 		return
 	}
 	if declaredType.Element != nil {
-		flow.setProvenance(id, allocatorSourceBinding(source.Node))
+		source, kind := allocatorSourceAndKind(source.Node)
+		flow.setProvenance(id, source)
+		flow.setAllocatorKind(id, kind)
 	}
+}
+
+// allocatorSourceAndKind classifies a pointer-producing expression: the
+// Stash or Pool handle it borrows from, and which allocator kind produced
+// it. Zero/unknown means the checker cannot prove a source, which every
+// release site accepts.
+func allocatorSourceAndKind(node Expression) (BindingID, allocatorKind) {
+	switch node.Kind {
+	case HeapAllocateExpression, HeapAllocateAlignedExpression:
+		return 0, heapAllocator
+	case StashMethodCallExpression:
+		if node.Name == "allocate" && node.Operand != nil && node.Operand.Kind == VariableExpression {
+			return node.Operand.Binding, stashAllocator
+		}
+	case PoolMethodCallExpression:
+		if node.Name == "allocate" && node.Operand != nil && node.Operand.Kind == VariableExpression {
+			return node.Operand.Binding, poolAllocator
+		}
+	}
+	return 0, unknownAllocator
 }
 
 // allocatorSourceBinding resolves the Stash or Pool handle binding a fresh
@@ -373,16 +395,8 @@ func seedStreamBindingFacts(flow *flowState, id BindingID, declaredType compiler
 // zero for any other pointer-producing expression (Heap.allocate included --
 // Heap has no handle identity to track allocations against).
 func allocatorSourceBinding(node Expression) BindingID {
-	if node.Kind != StashMethodCallExpression && node.Kind != PoolMethodCallExpression {
-		return 0
-	}
-	if node.Name != "allocate" || node.Operand == nil {
-		return 0
-	}
-	if node.Operand.Kind == VariableExpression {
-		return node.Operand.Binding
-	}
-	return 0
+	source, _ := allocatorSourceAndKind(node)
+	return source
 }
 
 // streamInitializerCapability reads what an initializing expression proves:

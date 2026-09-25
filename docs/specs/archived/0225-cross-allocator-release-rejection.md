@@ -1,10 +1,10 @@
 # RFC 0225: Cross-Allocator Release Rejection
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation ready, blocked only on sequencing. Graduated from
-  RFC 0160's Invalid-free row, which records the gap but owns no work.
-  Implement after RFC 0165, whose allocation identity is the key this RFC's
-  allocator-kind fact uses; every open question is settled
+- Status: Closed; implemented 2026-09-24. Graduated from RFC 0160's
+  Invalid-free row, which records the gap but owns no work. Keyed by RFC
+  0165's allocation identity; Validation green and `docs/reference.md`
+  synchronized
 - Created: 2026-09-20
 - Updated: 2026-09-23
 - Scope: reject releasing a pointer through an allocator that provably did not

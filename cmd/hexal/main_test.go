@@ -130,21 +130,31 @@ func TestHelpListsForeignOptions(t *testing.T) {
 	}
 }
 
-// assertHostGate reports whether this host is outside the one qualified build
-// host, asserting the host diagnostic when it is. Configuration checks the
-// host first, so on any other host the target and backend diagnostics are
-// unreachable and asserting them would test nothing. Returning true tells the
+// assertHostGate reports whether this host is outside the qualified pair
+// set, asserting the host diagnostic when it is. On any other host the
+// target and backend diagnostics are unreachable for a known cross-host
+// target, and asserting them would test nothing. Returning true tells the
 // caller its own assertions do not apply here.
 func assertHostGate(t *testing.T) bool {
 	t.Helper()
-	if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
+	if (runtime.GOOS == "linux" || runtime.GOOS == "windows") && runtime.GOARCH == "amd64" {
 		return false
 	}
-	err := build([]string{"-entry", "main.hex"})
-	if err == nil || !strings.Contains(err.Error(), "is not qualified; this release builds x86-64 Linux from installed Clang") {
+	err := build([]string{"-entry", "main.hex", "-target", "x86_64-linux-gnu"})
+	if err == nil || !strings.Contains(err.Error(), "this release builds x86-64 Linux on linux/amd64 and x86-64 Windows on windows/amd64") {
 		t.Fatalf("build on %s/%s = %v, want the host-qualification diagnostic", runtime.GOOS, runtime.GOARCH, err)
 	}
 	return true
+}
+
+// nativeProfile returns this host's qualified target profile id and the
+// other qualified profile id, for tests that must pass checkHost on the
+// running host.
+func nativeProfile() (native, foreign string) {
+	if runtime.GOOS == "windows" {
+		return "x86_64-windows-gnu-ucrt", "x86_64-linux-gnu"
+	}
+	return "x86_64-linux-gnu", "x86_64-windows-gnu-ucrt"
 }
 
 // A missing or unqualified target and a missing compiler fail at
@@ -154,15 +164,16 @@ func TestBuildRequiresCompilerAndTarget(t *testing.T) {
 	if assertHostGate(t) {
 		return
 	}
+	native, foreign := nativeProfile()
 	for _, testCase := range []struct {
 		args []string
 		want string
 	}{
 		{[]string{"-entry", "main.hex"}, "target profile  is not qualified for native builds in this release"},
 		{[]string{"-entry", "main.hex", "-cc", "whatever"}, "target profile  is not qualified for native builds in this release"},
-		{[]string{"-entry", "main.hex", "-target", "x86_64-windows-gnu-ucrt"}, "target profile x86_64-windows-gnu-ucrt is not qualified for native builds in this release"},
 		{[]string{"-entry", "main.hex", "-target", "x86_64-windows-gnu"}, "target profile x86_64-windows-gnu is not qualified for native builds in this release"},
-		{[]string{"-entry", "main.hex", "-target", "x86_64-linux-gnu"}, "C backend is required; pass -cc <path>"},
+		{[]string{"-entry", "main.hex", "-target", foreign}, "cannot build target " + foreign},
+		{[]string{"-entry", "main.hex", "-target", native}, "C backend is required; pass -cc <path>"},
 	} {
 		err := build(testCase.args)
 		if err == nil || !strings.Contains(err.Error(), testCase.want) {
@@ -226,9 +237,10 @@ func TestBuildRejectsNonExecutableCompilerPath(t *testing.T) {
 	if assertHostGate(t) {
 		return
 	}
+	native, _ := nativeProfile()
 	directory := t.TempDir()
 	for _, path := range []string{filepath.Join(directory, "missing.exe"), directory} {
-		err := build([]string{"-entry", "main.hex", "-cc", path, "-target", "x86_64-linux-gnu"})
+		err := build([]string{"-entry", "main.hex", "-cc", path, "-target", native})
 		if err == nil || !strings.Contains(err.Error(), "is not an executable file") {
 			t.Errorf("build(-cc %q) = %v, want a non-executable diagnostic", path, err)
 		}

@@ -1,28 +1,59 @@
-# RFC 0235: StringBuilder
+# RFC 0235: HTML-safe template rendering and text assembly
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: **Open Discussion; deferred.** Two independent reviews on 2026-09-22
-  found a blocking design question — whether this needs to be a new builtin at
-  all — plus correctness gaps that would produce wrong generated C, and
-  several claims that do not hold against the current tree. The surface is not
-  settled. See Review findings at the end; the body above them is the original
-  proposal, retained unedited so the review can be read against it
+- Status: **Deferred; design not settled.** The original `StringBuilder`
+  proposal below is retained for its review evidence, but it is not an
+  approved implementation plan. The deferred direction in the next section
+  supersedes its decision summary, implementation plan, and readiness claim.
 - Created: 2026-09-22
-- Updated: 2026-09-22
-- Origin: large text/HTML template assembly. Immutable-string concat in a
-  loop is quadratic, and the language has no append primitive to build large
-  documents incrementally
-- Depends on: nothing new — the current String, Slice, List, Heap, view, and
-  shallow-aliasing contracts in `docs/reference.md`
-- Coordinates with: the future compiled-template rendering and streaming
-  sinks, which will target this builder as their output; RFC 0143's
-  interpolation lowering already provides the one-shot half of the same need
-- Updates `docs/reference.md`: yes — one new `StringBuilder` section beside
-  `String` and `List`, and the equality rule's non-comparable list gains
-  builders. The grammar is untouched: no new syntax, only a builtin type with
-  ordinary method calls
-- Swept code: none. No defense in the tree exists because an append
-  primitive was absent
+- Updated: 2026-09-25
+- Origin: cheap text and HTML template assembly without repeatedly copying an
+  immutable String, while keeping untrusted content from becoming browser
+  markup or script.
+- Current reference: `docs/reference.md` defines the existing
+  `String.interpolate`, `List<Byte>`, `Slice<Byte>`, and `String.from_bytes`
+  contracts. This deferred RFC does not change them.
+
+## Deferred direction
+
+- **Solve HTML safety first.** Current `String.interpolate` inserts formatted
+  values as raw text. In an HTML response, untrusted values can therefore
+  become markup or script. A future HTML rendering facility must distinguish
+  trusted template markup from inserted data, escape supported holes for their
+  HTML context, and reject contexts it cannot handle safely. Ordinary
+  `String.interpolate` retains its general-purpose text meaning.
+- **Do not add template syntax.** Reuse the existing interpreted-literal
+  `{{ expression }}` form. A future API may give it an explicitly HTML-aware
+  destination, but this RFC does not choose that API or add another template
+  grammar. The compiler must know the context of each hole; a single generic
+  HTML escape applied to every hole is insufficient for attributes, URLs,
+  scripts, and styles.
+- **Keep the cheap path.** One `String.interpolate` call already measures its
+  segments, allocates one result, and copies each segment once. An HTML-aware
+  equivalent should measure escaped lengths and write directly to the final
+  output, without allocating an escaped String for every hole. For repeated
+  rows, use a linear-time append destination rather than concatenating an
+  ever-growing immutable String. `List<Byte>` already has geometric growth;
+  evaluate a generic bulk append operation before introducing another owning
+  buffer type.
+- **Keep rich user-authored HTML separate.** Escaping makes user text display
+  literally. Preserving selected user markup requires HTML parsing and a
+  maintained sanitization policy; it is not implied by safe interpolation.
+  A C HTML parser such as Lexbor may help if that use case becomes concrete,
+  but parsing alone does not make HTML safe.
+
+Before implementation, settle the HTML contexts supported in the first
+version, the API and append destination, URL-bearing attributes, and whether
+trusted HTML fragments are permitted at all. Specify exact diagnostics and
+end-to-end security and performance validation. No `StringBuilder` builtin or
+new template syntax is approved by this RFC.
+
+## Superseded original proposal and review
+
+The material below preserves the initial buffer proposal and the audit that
+found its design and correctness gaps. Its language surface, implementation
+plan, validation, and "Ready" statement are historical, not instructions to
+implement them.
 
 ## Decision summary
 

@@ -119,6 +119,25 @@ static bool hex_thread_spawn_detached(void (*entry)(void *), void *argument) {
 // whose fputs and abort are not async-signal-safe.
 static const char hex_stack_overflow_message[] = "[Runtime Error] task stack overflow\n";
 
+#if defined(__has_feature)
+#  if __has_feature(leak_sanitizer)
+#    include <sanitizer/lsan_interface.h>
+#    define HEX_LSAN_ROOT_REGISTER(p, n)   __lsan_register_root_region((p), (n))
+#    define HEX_LSAN_ROOT_UNREGISTER(p, n) __lsan_unregister_root_region((p), (n))
+#    define HEX_LSAN_IGNORE(p)             __lsan_ignore_object((p))
+#  endif
+#endif
+#ifndef HEX_LSAN_ROOT_REGISTER
+#  define HEX_LSAN_ROOT_REGISTER(p, n)     ((void)0)
+#  define HEX_LSAN_ROOT_UNREGISTER(p, n)   ((void)0)
+#  define HEX_LSAN_IGNORE(p)               ((void)0)
+#endif
+#if defined(__has_feature)
+#  if __has_feature(leak_sanitizer)
+const char *__lsan_default_options(void) { return "exitcode=0"; }
+#  endif
+#endif
+
 #if defined(_WIN32)
 typedef LPVOID hex_context;
 
@@ -214,6 +233,7 @@ static void hex_worker_guard_setup(void) {
     if (alt.ss_sp == nullptr) {
         hex_runtime_trap("[Runtime Error] stack overflow handler stack allocation failed\n");
     }
+    HEX_LSAN_IGNORE(alt.ss_sp);
     alt.ss_size = HEX_GUARD_HANDLER_STACK;
     if (sigaltstack(&alt, nullptr) != 0) {
         hex_runtime_trap("[Runtime Error] stack overflow handler stack installation failed\n");
@@ -260,10 +280,12 @@ static hex_context_impl *hex_context_create(void (*entry)(void *), void *param) 
         hex_heap_free(context);
         return nullptr;
     }
+    HEX_LSAN_ROOT_REGISTER(region, stack_size);
     context->stack = region;
     context->stack_mapping_size = stack_size;
     context->guard_end = (char *)region + page_size;
     if (getcontext(&context->context) != 0) {
+        HEX_LSAN_ROOT_UNREGISTER(context->stack, context->stack_mapping_size);
         munmap(context->stack, context->stack_mapping_size);
         hex_heap_free(context);
         return nullptr;
@@ -306,6 +328,7 @@ static void hex_context_switch(hex_context_impl *from, hex_context_impl *to) {
 static void hex_context_destroy(hex_context_impl *context) {
     if (context != nullptr) {
         if (context->stack != nullptr) {
+            HEX_LSAN_ROOT_UNREGISTER(context->stack, context->stack_mapping_size);
             munmap(context->stack, context->stack_mapping_size);
         }
         hex_heap_free(context);
@@ -565,6 +588,7 @@ static void hex_dispatch_commit(hex_task *task) {
 static void hex_worker_loop(void *param) {
     const int is_worker_zero = (param != nullptr);
     hex_context loop_context = hex_context_current();
+    HEX_LSAN_IGNORE(loop_context);
     for (;;) {
         hex_mutex_raw_lock(&hex_ready_mutex);
         if (is_worker_zero) {
@@ -604,7 +628,8 @@ static void hex_worker_thread(void *unused) {
     (void)unused;
     hex_current_task = nullptr;
     hex_worker_guard_setup();
-    (void)hex_context_thread();
+    hex_context worker_thread_context = hex_context_thread();
+    HEX_LSAN_IGNORE(worker_thread_context);
     hex_worker_loop(nullptr);
 }
 
@@ -616,6 +641,7 @@ static void hex_worker_thread(void *unused) {
 static void hex_worker_zero_bootstrap(void *param) {
     hex_task *root = (hex_task *)param;
     root->scheduler_fiber = (void *)hex_context_current();
+    HEX_LSAN_IGNORE(root->scheduler_fiber);
     hex_dispatch_commit(root);
     hex_worker_loop((void *)1);
 }
@@ -634,24 +660,30 @@ void hex_scheduler_init(void) {
     if (!hex_mutex_raw_init(&hex_ready_mutex)) {
         hex_runtime_trap("[Runtime Error] scheduler mutex initialization failed\n");
     }
+    HEX_LSAN_IGNORE(hex_ready_mutex.native);
     hex_cond_init(&hex_ready_cond);
+    HEX_LSAN_IGNORE(hex_ready_cond.native);
     hex_root_task = (hex_task *)hex_heap_allocate_zeroed_or_null(sizeof(hex_task));
     if (hex_root_task == nullptr) {
         hex_runtime_trap("[Runtime Error] scheduler allocation failed\n");
     }
+    HEX_LSAN_IGNORE(hex_root_task);
     hex_root_task->fiber = (void *)hex_context_thread();
+    HEX_LSAN_IGNORE(hex_root_task->fiber);
     if (hex_root_task->fiber == nullptr) {
         hex_runtime_trap("[Runtime Error] scheduler fiber initialization failed\n");
     }
     if (!hex_mutex_raw_init(&hex_root_task->lifecycle_mutex)) {
         hex_runtime_trap("[Runtime Error] scheduler lifecycle mutex initialization failed\n");
     }
+    HEX_LSAN_IGNORE(hex_root_task->lifecycle_mutex.native);
     hex_root_task->id = atomic_fetch_add(&hex_next_task_id, 1);
     hex_root_task->flags = HEX_TASK_ROOT;
     hex_root_task->scheduler_fiber = (void *)hex_context_create(hex_worker_zero_bootstrap, hex_root_task);
     if (hex_root_task->scheduler_fiber == nullptr) {
         hex_runtime_trap("[Runtime Error] scheduler worker-zero context creation failed\n");
     }
+    HEX_LSAN_IGNORE(hex_root_task->scheduler_fiber);
     hex_current_task = hex_root_task;
     int logical = (int)uv_available_parallelism();
     if (logical < 1) {

@@ -97,6 +97,12 @@ func checkPoolMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		if pointer.typ.Element == nil || !compilerTypes.Equal(*pointer.typ.Element, element) {
 			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(typeErrorAt(pointer.token, fmt.Sprintf("Pool free requires Ptr<%s> or Ptr<mut %s>; got %s", element.Name, element.Name, pointer.typ.Name)))}
 		}
+		switch ctx.names.flow.allocatorKindOf(receiverVariableBinding(pointer.source)) {
+		case heapAllocator:
+			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(poolFreeHeapAllocatedDiagnostic(pointer.token))}
+		case stashAllocator:
+			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(poolFreeStashAllocatedDiagnostic(pointer.token))}
+		}
 		receiverBinding := receiverVariableBinding(receiver.source)
 		if pointerBinding := receiverVariableBinding(pointer.source); pointerBinding != 0 {
 			if source, ok := ctx.names.flow.provenance[pointerBinding]; ok && source != 0 && source != receiverBinding {

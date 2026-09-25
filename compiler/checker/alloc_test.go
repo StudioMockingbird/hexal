@@ -144,18 +144,27 @@ func TestCheckDeferredExpressionChecksVolatilePointeeKinds(t *testing.T) {
 	}
 }
 
-func TestFlowStateCloneProducesIndependentReleasedInnerMaps(t *testing.T) {
+func TestFlowStateCloneProducesIndependentFreedAllocMaps(t *testing.T) {
 	state := newFlowState()
 	const binding = BindingID(1)
 	state.trackFreed(binding)
-	state.markFreedVersion(binding, 1)
+	state.markFreed(binding)
 	cloned := state.clone()
-	cloned.markFreedVersion(binding, 2)
-	if !cloned.released[binding][1] {
-		t.Fatal("clone lost the released version recorded before cloning")
+	const other = BindingID(2)
+	cloned.trackFreed(other)
+	cloned.markFreed(other)
+	alloc, ok := cloned.trackedAllocation(other)
+	if !ok {
+		t.Fatal("clone lost the allocation tracked after cloning")
 	}
-	if state.released[binding][2] {
-		t.Fatal("clone shares released inner maps with the original state")
+	if !cloned.freedAllocReport(alloc) {
+		t.Fatal("clone lost the freed state recorded after cloning")
+	}
+	if state.freedAllocReport(alloc) {
+		t.Fatal("clone shares freedAlloc with the original state")
+	}
+	if state.tracked[other] {
+		t.Fatal("clone shares tracked with the original state")
 	}
 }
 
@@ -230,6 +239,47 @@ func TestCheckHeapFreeRejectsFreedPointerVolatileAccess(t *testing.T) {
 
 func TestCheckHeapFreeRequiresHeapReceiver(t *testing.T) {
 	requireDiagnostic(t, "let h: Heap = Heap() let mut v: Int32 = 1 h.free(v)", "value is not an allocation produced by this Heap")
+}
+
+func TestAllocatorSourceAndKindClassifiesProducers(t *testing.T) {
+	for _, testCase := range []struct {
+		name string
+		node Expression
+		want allocatorKind
+	}{
+		{"heap allocate", Expression{Kind: HeapAllocateExpression}, heapAllocator},
+		{"aligned heap allocate", Expression{Kind: HeapAllocateAlignedExpression}, heapAllocator},
+		{"stash allocate", Expression{Kind: StashMethodCallExpression, Name: "allocate", Operand: &Expression{Kind: VariableExpression, Binding: 1}}, stashAllocator},
+		{"pool allocate", Expression{Kind: PoolMethodCallExpression, Name: "allocate", Operand: &Expression{Kind: VariableExpression, Binding: 2}}, poolAllocator},
+		{"variable read", Expression{Kind: VariableExpression, Binding: 3}, unknownAllocator},
+		{"stash free is not an allocate", Expression{Kind: StashMethodCallExpression, Name: "free", Operand: &Expression{Kind: VariableExpression, Binding: 1}}, unknownAllocator},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if _, kind := allocatorSourceAndKind(testCase.node); kind != testCase.want {
+				t.Fatalf("allocatorSourceAndKind kind = %v, want %v", kind, testCase.want)
+			}
+		})
+	}
+}
+
+func TestAllocatorKindFollowsSharedAllocationIdentity(t *testing.T) {
+	state := newFlowState()
+	const source = BindingID(1)
+	const alias = BindingID(2)
+	state.trackFreed(source)
+	state.aliasFreed(source, alias)
+	state.setAllocatorKind(source, poolAllocator)
+	if kind := state.allocatorKindOf(alias); kind != poolAllocator {
+		t.Fatalf("allocatorKindOf(alias) = %v, want poolAllocator", kind)
+	}
+	state.setAllocatorKind(source, heapAllocator)
+	if kind := state.allocatorKindOf(alias); kind != heapAllocator {
+		t.Fatalf("allocatorKindOf(alias) after rewrite = %v, want heapAllocator", kind)
+	}
+	const untracked = BindingID(3)
+	if kind := state.allocatorKindOf(untracked); kind != unknownAllocator {
+		t.Fatalf("allocatorKindOf(untracked) = %v, want unknownAllocator", kind)
+	}
 }
 
 func TestCheckHeapAllocateRejectsIncompleteAndFunctionTypes(t *testing.T) {

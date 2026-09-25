@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -244,13 +245,24 @@ func doBuild(tc toolchain, files map[string]string, dependencies []compiler.Runt
 		}
 	}
 	// The generated tree already contains a hexal/ directory of artifacts, so
-	// the executable is named distinctly; a Linux ELF has no extension.
+	// the executable is named distinctly; Windows needs the .exe extension.
 	exe := filepath.Join(dir, "hexal-program")
+	if runtime.GOOS == "windows" {
+		exe += ".exe"
+	}
 	args := append([]string{}, flags...)
-	// Generated C relies on POSIX 2008 declarations (pthread read/write locks,
-	// clock_gettime, getaddrinfo) that a strict -std=c23 glibc compile hides
-	// behind _POSIX_C_SOURCE.
-	args = append(args, "-D_POSIX_C_SOURCE=200809L", "-I", dir)
+	// Generated C relies on platform feature-test declarations (POSIX 2008 on
+	// Linux; the pack's Windows defines on Windows) that a strict -std=c23
+	// compile hides behind them. The target triple selects the ABI the pack
+	// was built for; without it clang defaults to the host's MSVC target on
+	// Windows and cannot link the MinGW archives.
+	args = append(args, "--target="+tc.DefaultTarget)
+	if runtime.GOOS == "windows" {
+		args = append(args, "-DWIN32_LEAN_AND_MEAN", "-D_WIN32_WINNT=0x0A00", "-D_CRT_DECLARE_NONSTDC_NAMES=0", "-D_CRT_SECURE_NO_WARNINGS", "-DUTF8PROC_STATIC")
+	} else {
+		args = append(args, "-D_POSIX_C_SOURCE=200809L")
+	}
+	args = append(args, "-I", dir)
 	if native != nil {
 		args = append(args, native.includeOptions...)
 	}
@@ -264,10 +276,10 @@ func doBuild(tc toolchain, files map[string]string, dependencies []compiler.Runt
 			args = append(args, filepath.Join(dir, name))
 		}
 	}
-	// The scheduler runtime needs a real thread library; the checked-in
-	// libuv pack also links it, but a program selecting only a thread-using
-	// generated unit without that pack must still link.
-	if strings.Contains(strings.Join(names, " "), "concurrency.c") {
+	// The scheduler runtime needs a real thread library on POSIX; the
+	// Windows lane gets threading through the pack's system libraries and
+	// has no -lpthread to pass.
+	if runtime.GOOS != "windows" && strings.Contains(strings.Join(names, " "), "concurrency.c") {
 		args = append(args, "-lpthread")
 	}
 	if native != nil {

@@ -63,7 +63,10 @@ func probeUBSanCapability(tc toolchain, root string) error {
 		return err
 	}
 	exe := filepath.Join(dir, "probe")
-	args := []string{"-std=c23"}
+	if runtime.GOOS == "windows" {
+		exe += ".exe"
+	}
+	args := []string{"-std=c23", "--target=" + tc.DefaultTarget}
 	args = append(args, ubsanFlags...)
 	args = append(args, src, "-o", exe)
 	ctx, cancel := context.WithTimeout(context.Background(), buildProcessTimeout)
@@ -131,7 +134,13 @@ func runUBSanProcess(t *testing.T, path string) (stdout, stderr string, exitedZe
 // Clang. A fixture with no process expectation is compile-only (never
 // executed at Tier 1 either) and has nothing for a runtime sanitizer to
 // check, so it is skipped here exactly as it is never run by TestC23Suite.
+// Clang ships no UBSan runtime for the MinGW ABI; Windows debug uses trap
+// mode (mode_c23 in the driver package), so this diagnostic track is
+// Linux-only.
 func TestC23SuiteUBSan(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("UBSan runtime does not exist for the Windows target")
+	}
 	buildRoot := t.TempDir()
 	clang := requireUBSanCapable(t, buildRoot)
 	for _, f := range fixtureCatalog {

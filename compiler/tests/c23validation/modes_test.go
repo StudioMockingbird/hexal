@@ -20,13 +20,23 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 
 	"hexal/compiler"
+	compilerTypes "hexal/compiler/types"
 	"hexal/internal/driver"
 )
+
+// hostTarget is this host's qualified target profile.
+func hostTarget() compilerTypes.TargetProfileID {
+	if runtime.GOOS == "windows" {
+		return compilerTypes.TargetX86_64WindowsGNU
+	}
+	return compilerTypes.TargetX86_64LinuxGNU
+}
 
 // modeRun is one program's complete observable result under one mode.
 type modeRun struct {
@@ -42,7 +52,7 @@ type modeRun struct {
 // the ones that also run the result, so the compile cache has one writer.
 func buildOnlyInMode(t *testing.T, tc toolchain, result compiler.CompilationResult, buildRoot string, mode driver.BuildMode) string {
 	t.Helper()
-	options := driver.Options(mode)
+	options := driver.Options(mode, hostTarget())
 	flags := append([]string{"-std=c23"}, options.Compile...)
 	key := compileCacheKey{
 		artifactHash: canonicalArtifactHash(result.Files),
@@ -109,12 +119,24 @@ func buildModeArtifacts(tc toolchain, result compiler.CompilationResult, compile
 		}
 	}
 	// The generated tree already contains a hexal/ directory of artifacts, so
-	// the executable is named distinctly; a Linux ELF has no extension.
+	// the executable is named distinctly; Windows needs the .exe extension.
 	exe := filepath.Join(dir, "hexal-program")
+	if runtime.GOOS == "windows" {
+		exe += ".exe"
+	}
 	args := append([]string{}, compileFlags...)
-	// Generated C relies on POSIX 2008 declarations a strict -std=c23 glibc
-	// compile hides behind _POSIX_C_SOURCE (see c23_harness_test.go).
-	args = append(args, "-D_POSIX_C_SOURCE=200809L", "-I", dir)
+	// The target triple selects the ABI the pack was built for; without it
+	// clang defaults to the host's MSVC target on Windows and cannot link
+	// the MinGW archives. Generated C also relies on platform feature-test
+	// declarations a strict -std=c23 compile hides behind them (see
+	// c23_harness_test.go).
+	args = append(args, "--target="+hostTriple())
+	if runtime.GOOS == "windows" {
+		args = append(args, "-DWIN32_LEAN_AND_MEAN", "-D_WIN32_WINNT=0x0A00", "-D_CRT_DECLARE_NONSTDC_NAMES=0", "-D_CRT_SECURE_NO_WARNINGS", "-DUTF8PROC_STATIC")
+	} else {
+		args = append(args, "-D_POSIX_C_SOURCE=200809L")
+	}
+	args = append(args, "-I", dir)
 	if native != nil {
 		args = append(args, native.includeOptions...)
 	}
@@ -340,7 +362,7 @@ func fileSize(t *testing.T, path string) int64 {
 func TestModeCacheKeysDoNotCollideWithTheTieredHarness(t *testing.T) {
 	tiered := strings.Join(append([]string{"-std=c23", "-Wall", "-Wextra", "-Werror"}, warningFlags...), " ")
 	for _, mode := range []driver.BuildMode{driver.ModeDebug, driver.ModeRelease} {
-		options := driver.Options(mode)
+		options := driver.Options(mode, hostTarget())
 		lane := strings.Join(append(append([]string{"-std=c23"}, options.Compile...), options.Link...), " ")
 		if lane == tiered {
 			t.Fatalf("%s mode flag key collides with the tiered harness key", mode)
