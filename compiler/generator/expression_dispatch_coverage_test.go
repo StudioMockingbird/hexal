@@ -4,8 +4,10 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -113,6 +115,35 @@ func dispatchedExpressionKinds(t *testing.T, path string, funcName string) map[s
 	return kinds
 }
 
+// functionFile resolves funcName to the package source file declaring it, so
+// the dispatch contract follows the function through file reorganizations
+// instead of pinning it to one filename.
+func functionFile(t *testing.T, funcName string) string {
+	t.Helper()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("reading package directory: %v", err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		fset := token.NewFileSet()
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", name, err)
+		}
+		for _, declaration := range file.Decls {
+			if function, ok := declaration.(*ast.FuncDecl); ok && function.Name.Name == funcName {
+				return name
+			}
+		}
+	}
+	t.Fatalf("function %s not found in package sources", funcName)
+	return ""
+}
+
 // The generator's two primary expression dispatchers must each explicitly
 // own every concrete ExpressionKind. InvalidExpression is the sole
 // intentional exception: it has no case in either switch and falls through
@@ -120,8 +151,8 @@ func dispatchedExpressionKinds(t *testing.T, path string, funcName string) map[s
 // produces it.
 func TestExpressionDispatchersCoverEveryConcreteKind(t *testing.T) {
 	kinds := expressionKindConstants(t)
-	renderKinds := dispatchedExpressionKinds(t, "render.go", "renderExpressionUncheckedWithState")
-	validateKinds := dispatchedExpressionKinds(t, "validation.go", "validateExpressionNode")
+	renderKinds := dispatchedExpressionKinds(t, functionFile(t, "renderExpressionUncheckedWithState"), "renderExpressionUncheckedWithState")
+	validateKinds := dispatchedExpressionKinds(t, functionFile(t, "validateExpressionNode"), "validateExpressionNode")
 
 	var missingRender, missingValidate []string
 	for _, kind := range kinds {

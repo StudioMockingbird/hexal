@@ -15,6 +15,7 @@ gets deleted.
 | --- | --- | --- | --- |
 | Make generator scope ownership fail closed and remove automatic root-scope repair | [0239](specs/0239-chibicc-review-findings.md) | Low | Medium |
 | Record measured compiler policy honestly and expose deterministic module export-interface fingerprints | [0244](specs/0244-measured-policy-and-export-interface-fingerprints.md) | Medium | High |
+| Remove repeated source-map scans and small diagnostic/test-harness duplication without changing compiler output | [0245](specs/0245-codebase-refactoring-audit.md) | Low | Medium |
 | Prove end-to-end automatic import and static linking of an unmodified Raylib package | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) | High | Medium |
 
 ## Deferred ideas
