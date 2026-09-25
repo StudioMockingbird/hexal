@@ -45,15 +45,13 @@ type Diagnostic struct {
 	// is an insertion point between two tokens, the shape a missing-token
 	// diagnostic and an EOF diagnostic share.
 	//
-	// Line and Column are the same start position in the legacy integer form
-	// the renderer still consumes during migration; a token's Line and Column
-	// are the location the lexer derived beside its span, so the two are not
-	// computed independently at a construction site that has the token. The
-	// offset-to-line/column convention itself lives in compiler/span.
-	Span    span.Span
-	Line    int
-	Column  int
-	Message string
+	// Position is Span's start resolved through the compilation's source
+	// table: the one location the renderer prints and the comparator orders
+	// by. It is the zero Position exactly when Span is zero, so a diagnostic
+	// with no source file renders no location.
+	Span     span.Span
+	Position span.Position
+	Message  string
 }
 
 // InModule returns a copy of the diagnostic stamped with its module, leaving
@@ -87,11 +85,11 @@ func (diagnostic Diagnostic) Error() string {
 	// The module qualifies the position: in a multi-module build "at 5:3"
 	// names no file, and two modules' messages read as one interleaved list.
 	location := ""
-	if diagnostic.Line > 0 {
+	if diagnostic.Position.Line > 0 {
 		if diagnostic.Module != "" {
-			location = fmt.Sprintf(" at %s:%d:%d", diagnostic.Module, diagnostic.Line, diagnostic.Column)
+			location = fmt.Sprintf(" at %s:%d:%d", diagnostic.Module, diagnostic.Position.Line, diagnostic.Position.Column)
 		} else {
-			location = fmt.Sprintf(" at %d:%d", diagnostic.Line, diagnostic.Column)
+			location = fmt.Sprintf(" at %d:%d", diagnostic.Position.Line, diagnostic.Position.Column)
 		}
 	}
 	return "[" + string(diagnostic.Category) + "] " + diagnostic.Message + location
@@ -110,13 +108,18 @@ func (diagnostics Diagnostics) Error() string {
 	return strings.Join(messages, "\n")
 }
 
-// NewDiagnostic builds one structured diagnostic that has no source span: a
-// whole-compilation failure, a project-configuration failure, or another
-// condition no logical source file owns. A diagnostic anchored to a token sets
-// Span and the token's derived Line and Column, so its source identity is the
-// span.
+// NewDiagnostic builds one structured diagnostic with a resolved position and
+// no span: a whole-compilation failure, a project-configuration failure, or
+// another condition no logical source file owns. A caller that has a token or
+// span sets Span and Position together; line and column zero render no
+// location, which is the whole-compilation case.
 func NewDiagnostic(category ErrorCategory, stage string, line, column int, message string) Diagnostic {
-	return Diagnostic{Category: category, Stage: stage, Line: line, Column: column, Message: message}
+	return Diagnostic{
+		Category: category,
+		Stage:    stage,
+		Position: span.Position{Line: line, Column: column},
+		Message:  message,
+	}
 }
 
 // ErrorMessages renders an error into the message lines of a failed build. It
@@ -141,6 +144,30 @@ func ErrorMessages(err error) []string {
 	return []string{err.Error()}
 }
 
+// HasUnknownError reports whether err carries any diagnostic in the Unknown
+// Error category: a compiler defect rather than a rejection of the program.
+// It unwraps exactly like ErrorMessages, so a diagnostic wrapped by any stage
+// is still classified rather than treated as an opaque message.
+func HasUnknownError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var diagnostics Diagnostics
+	if errors.As(err, &diagnostics) {
+		for _, diagnostic := range diagnostics {
+			if diagnostic.Category == UnknownError {
+				return true
+			}
+		}
+		return false
+	}
+	var diagnostic Diagnostic
+	if errors.As(err, &diagnostic) {
+		return diagnostic.Category == UnknownError
+	}
+	return false
+}
+
 // StampModule attributes a stage error to a module's logical source key.
 func StampModule(err error, logicalKey string) error {
 	if err == nil {
@@ -157,11 +184,11 @@ func StampModule(err error, logicalKey string) error {
 	return err
 }
 
-// CompareDiagnostic orders two diagnostics by line, then column. It is the
-// one position comparator shared by every stage that sorts diagnostics.
+// CompareDiagnostic orders two diagnostics by their resolved position. It is
+// the one position comparator shared by every stage that sorts diagnostics.
 func CompareDiagnostic(a, b Diagnostic) int {
-	if a.Line != b.Line {
-		return a.Line - b.Line
+	if a.Position.Line != b.Position.Line {
+		return a.Position.Line - b.Position.Line
 	}
-	return a.Column - b.Column
+	return a.Position.Column - b.Position.Column
 }

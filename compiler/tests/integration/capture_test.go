@@ -133,6 +133,25 @@ func TestCaptureInitializationSafety(t *testing.T) {
 	}
 }
 
+// With two uninitialized captures, every compilation of the same source names
+// the lexically first capture in the diagnostic.
+func TestCaptureInitializationNamesLexicallyFirstCapture(t *testing.T) {
+	source := "both()\nlet mut alpha: Int32 = 0\nlet mut beta: Int32 = 0\nfun both() do\n    alpha = alpha + 1\n    beta = beta + 1\nend\n"
+	want := "function both may access entry binding alpha before alpha is initialized"
+	for attempt := 0; attempt < 100; attempt++ {
+		result := compileSource(source)
+		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 {
+			t.Fatalf("want capture-initialization diagnostic; got exit=%d %v", result.ExitCode, result.Stderr)
+		}
+		if !strings.Contains(result.Stderr[0], want) {
+			t.Fatalf("attempt %d: want %q; got %q", attempt, want, result.Stderr[0])
+		}
+		if strings.Contains(result.Stderr[0], "beta") {
+			t.Fatalf("attempt %d: diagnostic named the non-first capture: %q", attempt, result.Stderr[0])
+		}
+	}
+}
+
 // An environment-dependent function cannot escape as a Fun value, be spawned,
 // or be exported.
 func TestCaptureNonEscaping(t *testing.T) {

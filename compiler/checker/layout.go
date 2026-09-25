@@ -75,40 +75,40 @@ func volatileEligibleType(typ compilerTypes.Type) bool {
 
 // checkVolatileCall resolves read_volatile() and write_volatile(value) on
 // Ptr<T> and Ptr<mut T> receivers whose element is an integer storage type.
-func checkVolatileCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	name := callee.Property.Lexeme
-	element := *receiver.typ.Element
+func checkVolatileCall(call methodCall) checkedExpression {
+	name := call.callee.Property.Lexeme
+	element := *call.receiver.typ.Element
 	if !volatileEligibleType(element) {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "volatile access is supported only for integer storage types; got "+element.Name))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "volatile access is supported only for integer storage types; got "+element.Name))}
 	}
-	if diagnostic := freedPointeeDiagnostic(receiver, callee.Property, ctx.names.flow); diagnostic != nil {
-		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+	if diagnostic := freedPointeeDiagnostic(call.receiver, call.callee.Property, call.ctx.names.flow); diagnostic != nil {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 	}
 	switch name {
 	case "read_volatile":
-		if len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "read_volatile expects no arguments"))}
+		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "read_volatile expects no arguments"))}
 		}
-		node := Expression{Kind: VolatileReadExpression, Operand: &receiver.source.Node, OperandType: receiver.typ, ResultType: element, Element: element}
+		node := Expression{Kind: VolatileReadExpression, Operand: &call.receiver.source.Node, OperandType: call.receiver.typ, ResultType: element, Element: element}
 		source := Operand{Kind: ExpressionOperand, Type: element, Name: name, Node: node}
-		return checkedExpression{source: source, typ: element, token: callee.Property}
+		return checkedExpression{source: source, typ: element, token: call.callee.Property}
 	case "write_volatile":
-		if receiver.typ.PointeeWritable == false {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Ptr<"+element.Name+"> is read-only; volatile write requires Ptr<mut "+element.Name+">"))}
+		if call.receiver.typ.PointeeWritable == false {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Ptr<"+element.Name+"> is read-only; volatile write requires Ptr<mut "+element.Name+">"))}
 		}
-		if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "write_volatile expects 1 argument"))}
+		if len(call.call.Arguments) != 1 || len(call.call.TypeArguments) != 0 {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "write_volatile expects 1 argument"))}
 		}
-		value := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(element), tokenOf(call.Arguments[0]), ctx)
+		value := checkInitializer(call.call.Arguments[0], compilerTypes.NewTypeUse(element), tokenOf(call.call.Arguments[0]), call.ctx)
 		if diagnostics := initializerDiagnostics(value); len(diagnostics) > 0 {
-			return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
+			return checkedExpression{token: tokenOf(call.call.Arguments[0]), diagnostics: diagnostics}
 		}
 		if !assignable(element, value.typ) {
 			return checkedExpression{token: value.token, diagnostic: diagnosticAt(typeErrorAt(value.token, fmt.Sprintf("write_volatile requires %s; got %s", element.Name, value.typ.Name)))}
 		}
-		node := Expression{Kind: VolatileWriteExpression, Operand: &receiver.source.Node, Arguments: []Operand{value.source}, OperandType: receiver.typ, ResultType: compilerTypes.Type{}, Element: element}
+		node := Expression{Kind: VolatileWriteExpression, Operand: &call.receiver.source.Node, Arguments: []Operand{value.source}, OperandType: call.receiver.typ, ResultType: compilerTypes.Type{}, Element: element}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
+		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 	}
-	return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "volatile access supports read_volatile and write_volatile only"))}
+	return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "volatile access supports read_volatile and write_volatile only"))}
 }

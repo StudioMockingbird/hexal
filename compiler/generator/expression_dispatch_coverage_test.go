@@ -16,6 +16,9 @@ import (
 // an iota block states the type explicitly; every later bare spec in the same
 // GenDecl inherits it, so once a GenDecl is confirmed to declare
 // ExpressionKind, every name in every spec of that GenDecl belongs to it.
+// The block must be a plain iota: one leading "= iota" value, no explicit
+// numeric values, and no blank names, so the i-th name has ExpressionKind
+// value i and a test can enumerate the constants behaviorally.
 func expressionKindConstants(t *testing.T) []string {
 	t.Helper()
 	path := filepath.Join("..", "checker", "operands.go")
@@ -38,12 +41,21 @@ func expressionKindConstants(t *testing.T) []string {
 		if !ok || typeIdent.Name != "ExpressionKind" {
 			continue
 		}
-		for _, spec := range genDecl.Specs {
+		for specIndex, spec := range genDecl.Specs {
 			valueSpec, ok := spec.(*ast.ValueSpec)
 			if !ok {
-				continue
+				t.Fatalf("%s: const spec %d is not a value spec", path, specIndex)
+			}
+			if specIndex == 0 && (len(valueSpec.Values) != 1 || len(valueSpec.Names) != 1) {
+				t.Fatalf("%s: first ExpressionKind spec must be exactly \"Name = iota\", found %d names and %d values", path, len(valueSpec.Names), len(valueSpec.Values))
+			}
+			if specIndex > 0 && len(valueSpec.Values) != 0 {
+				t.Fatalf("%s: ExpressionKind spec %d assigns explicit values; the iota mapping would be wrong", path, specIndex)
 			}
 			for _, name := range valueSpec.Names {
+				if name.Name == "_" {
+					t.Fatalf("%s: blank name in the ExpressionKind block would shift the iota mapping", path)
+				}
 				names = append(names, name.Name)
 			}
 		}

@@ -45,7 +45,7 @@ type compileResponse struct {
 type statsResponse struct {
 	TokenCount      int           `json:"tokenCount"`
 	SourceLines     int           `json:"sourceLines"`
-	PixelSubtotalMs float64       `json:"pixelSubtotalMs"`
+	PhaseSubtotalMs float64       `json:"phaseSubtotalMs"`
 	TotalMs         float64       `json:"totalMs"`
 	Phases          []phaseStatus `json:"phases"`
 }
@@ -130,7 +130,7 @@ func toResponse(result compiler.CompilationResult) compileResponse {
 		Stats: statsResponse{
 			TokenCount:      result.Stats.TokenCount,
 			SourceLines:     result.Stats.SourceLines,
-			PixelSubtotalMs: milliseconds(result.Stats.PixelSubtotal),
+			PhaseSubtotalMs: milliseconds(result.Stats.PhaseSubtotal),
 			TotalMs:         milliseconds(result.Stats.TotalDuration),
 			Phases: []phaseStatus{
 				phase("Lexer", result.Stats.LexDuration, formatRate(result.Stats.TokenCount, result.Stats.LexDuration, "tokens/sec")),

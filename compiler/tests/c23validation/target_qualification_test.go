@@ -40,26 +40,13 @@ func (f fixture) resolveQualified(t *testing.T) compiler.CompilationResult {
 		for _, category := range categories {
 			for _, snippet := range category.Snippets {
 				if snippet.ID == f.snippetID {
-					return assertCompilesSourcesWithProject(t, snippet.Sources, snippet.Entrypoint, qualifiedProject)
+					return assertCompilesProject(t, snippet.Sources, snippet.Entrypoint, qualifiedProject)
 				}
 			}
 		}
 		t.Fatalf("fixture %q names unknown snippet ID %q", f.name, f.snippetID)
 	}
-	return assertCompilesSourcesWithProject(t, f.sources, f.entrypoint, qualifiedProject)
-}
-
-// assertCompilesSourcesWithProject is assertCompilesSources generalized to
-// an explicit Project, so the qualified-profile gate can reuse every other
-// fixture-resolution rule (snippet lookup, inline sources) without
-// duplicating it.
-func assertCompilesSourcesWithProject(t *testing.T, sources map[string]string, entrypoint string, project compiler.Project) compiler.CompilationResult {
-	t.Helper()
-	result := compiler.Compile(sources, entrypoint, project)
-	if result.ExitCode != compiler.ExitSuccess {
-		t.Fatalf("expected success under the qualified profile; got %d diagnostic(s):\n%v", len(result.Stderr), result.Stderr)
-	}
-	return result
+	return assertCompilesProject(t, f.sources, f.entrypoint, qualifiedProject)
 }
 
 // TestC23SuiteQualifiedProfile reruns every runnable fixture's own

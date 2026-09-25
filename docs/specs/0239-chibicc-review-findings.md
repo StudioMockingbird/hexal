@@ -19,7 +19,8 @@
   RFC 0191 (advanced C interoperability, which owns F2's surfaces), deferred
   RFC 0209 (external-package conformance, F7 at library scale), and archived
   RFC 0238 (declarative fact guards, whose guards are test-only where F1 is a
-  production-code invariant)
+  production-code invariant); RFC 0245 consumes the completed scope invariant
+  before simplifying other generator state
 - Does not update `docs/reference.md`: no syntax, semantics, signature,
   diagnostic, or generated-C contract moves
 
@@ -78,36 +79,48 @@ program that exercises it.
 ### What Hexal does
 
 Hexal has the same invariant and never states it. `expressionValidation` carries
-`activeScopes []map[checker.BindingID]bool`
-(`compiler/generator/render.go:708`), pushed and popped across 39 call sites in
-six files.
+`activeScopes []map[checker.BindingID]bool` in
+`compiler/generator/render_state.go`. Scope operations are spread across
+statement rendering, validation, declarations, and for-in lowering; use the
+declaration and helper names below rather than pre-split source coordinates.
 
-The invariant **already holds in production**, and is established explicitly
-at seven owners of fresh `expressionValidation` state. Each pushes the root
-scope before allocating any binding into it:
+The invariant **already holds for production scoped walks**. The current
+generator has eleven production `expressionValidation` construction sites.
+Seven own a scoped validation or emission walk; each pushes the root before
+allocating a binding into it:
 
 | Site | Establishes the root scope for |
 | --- | --- |
-| `compiler/generator/validation.go:32` | project-statement validation |
-| `compiler/generator/validation.go:77` | a validated function declaration |
-| `compiler/generator/validation.go:109` | a validated method declaration |
-| `compiler/generator/declarations.go:223` | an emitted function declaration |
-| `compiler/generator/declarations.go:318` | an emitted method declaration |
-| `compiler/generator/local_helpers.go:160` | a local helper |
-| `compiler/generator/emission.go:1290` | the root body |
+| `validateCheckedProgram` | project-statement validation |
+| `validateFunctionDeclaration` | a validated function declaration |
+| `validateMethodDeclaration` | a validated method declaration |
+| `writeFunctionDefinition` | an emitted function declaration |
+| `writeMethodDefinition` | an emitted method declaration |
+| `writeLocalHelperDefinitions` | a local helper |
+| `emitModulePair` | the root body |
 
-Every row owns fresh state. The root scope is never popped: the state is
-discarded when its project walk, function, method, helper, or root-body walk is
-done. The chibicc analogue is therefore not "depth returns to 0" but "depth
-returns to 1, and the original root was never removed".
+Four other constructions are deliberately unscoped: `validateConstantOperand`
+uses a temporary state for constant-object validation; `renderOperand` and
+`renderExpression` use temporary literal-registry states; and
+`emitModulePair` uses `moduleValueRenderState` for static module-value
+initializers. The latter also constructs `renderState` for non-root modules,
+but enters its scoped statement walk only for the root. These states do not
+establish the root-scope invariant because they do not own a statement-scope
+walk. If one later starts such a walk, its caller must establish a root
+explicitly rather than rely on an automatic repair.
+
+Every row in the table owns fresh scoped state. The root scope is never popped:
+the state is discarded when its project walk, function, method, helper, or
+root-body walk is done. The chibicc analogue is therefore not "depth returns
+to 0" but "depth returns to 1, and the original root was never removed".
 
 ### The actual defect
 
-Four sites defend against an empty stack that the five sites above guarantee
-cannot occur:
+Four sites defend against an empty stack that the seven scoped owners above
+guarantee cannot occur on their production paths:
 
 ```go
-// render.go:114, writeStatementsAt
+// render_statements.go, writeStatementsAt
 if len(state.activeScopes) == 0 {
 	state.pushScope()
 	defer state.popScope()
@@ -115,25 +128,25 @@ if len(state.activeScopes) == 0 {
 ```
 
 ```go
-// render.go:837, allocateBinding
+// render_state.go, allocateBinding
 if len(state.activeScopes) == 0 {
 	state.pushScope()
 }
 state.activeScopes[len(state.activeScopes)-1][id] = true
 ```
 
-with the same shape at `render.go:857` (capture registration) and
-`validation.go:127` (`validateStatements`). On every real path the stack is
+with the same shape at `render_state.go` (`registerCapture`) and
+`validation.go` (`validateStatements`). On every real path the stack is
 already non-empty, so all four conditionals are dead.
 
-They are not harmless. Two of them (`render.go:837`, `render.go:857`) push
+They are not harmless. Two of them (`allocateBinding`, `registerCapture`) push
 **without a matching pop**, so if the guarantee ever broke, the repair would
 silently invent a scope and leave it on the stack rather than failing — turning
 a structural bug into a wrong `bindingActive` answer, which feeds generated-C
 correctness.
 
-And the genuine hole is `popScope` itself
-(`compiler/generator/render.go:796-800`):
+And the genuine hole is `popScope` itself in
+`compiler/generator/render_state.go`:
 
 ```go
 func (state *expressionValidation) popScope() {
@@ -184,6 +197,10 @@ code change.
 - No new diagnostic class. An over-pop reuses the existing generator
   contract-break category.
 - No change to generated C. This is an internal consistency check.
+- A failed owner walk discards its state, so it need not unwind every nested
+  scope before returning the original error. A `popScope` that actually runs
+  must still propagate its own invariant error; successful owner walks must
+  pass the depth-one boundary check.
 
 ## F2 — Re-parse C declarators rather than backtrack
 
@@ -537,14 +554,17 @@ supplemental proposals are dispositions and carry no implementation.
   distinguish validation from emission.
 - Direct unit tests prove that removing the root fails without mutating it and
   that one leaked child scope fails with the supplied owner label.
-- The four conditional repairs at `render.go:114`, `render.go:837`,
-  `render.go:857`, and `validation.go:127` are removed.
+- The four conditional repairs in `writeStatementsAt`, `allocateBinding`,
+  `registerCapture`, and `validateStatements` are removed.
 - Focused tests that directly invoke `writeStatementsAt`, `validateStatements`,
   or `allocateBinding` establish one root scope explicitly before invoking the
   helper. Production and test callers therefore share one precondition.
 - Each of the seven production owners still establishes exactly one root scope
   before allocating a binding. No production scope push moves to a different
   semantic boundary.
+- The four unscoped construction paths remain outside the scoped-walk
+  invariant; none relies on an automatic repair to enter statement rendering
+  or statement validation.
 - Every existing integration case passes and no existing snippet-manifest hash
   moves. The implementation changes no generated byte.
 - `go test ./...`, `go vet ./...`, `go vet -tags c23 ./...`, and `gofmt -l`
@@ -586,8 +606,13 @@ supplemental proposals are dispositions and carry no implementation.
 2. Add the owner-boundary check after each of the seven successful fresh-state
    walks: project validation, function validation, method validation, function
    emission, method emission, local-helper emission, and root-body emission.
-3. Delete the four automatic repairs. Run generator tests after each deletion
+3. Re-inventory all eleven production state constructions. Confirm the four
+   auxiliary uses remain unscoped and do not need a root boundary check.
+4. Delete the four automatic repairs. Run generator tests after each deletion
    so any overlooked caller is attributable to one removed repair.
+5. Keep this invariant change separate from RFC 0245's total-state
+   construction: the latter may remove remaining nil-map guards only after
+   this RFC's scope checks and regression gates have landed.
 
 ### Phase 3: focused-test migration and gates
 

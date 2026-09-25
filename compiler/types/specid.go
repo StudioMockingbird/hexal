@@ -5,7 +5,9 @@ import "hexal/compiler/specdata"
 // ResolveSpecID maps one compiler-owned type identifier from the fact registry
 // to its canonical interned Type. The registry imports no compiler package, so
 // it stores identifiers; this adapter is the one place that knows both spaces
-// and keeps Type values on this side of the boundary.
+// and keeps Type values on this side of the boundary. The registry's
+// ConcreteTypeIDs inventory lists exactly the identifiers that must resolve,
+// and a compiler-side test pins the two together.
 //
 // A false result means the registry named a type this compiler does not
 // define. That is a compiler-development defect: a caller reports a structured

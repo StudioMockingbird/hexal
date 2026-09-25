@@ -16,80 +16,80 @@ func isCompilerOwnedPointerOperation(name string) bool {
 // checkPointerArithmeticCall resolves p.offset(count) and p.cast<U>() on a
 // non-nullable pointer receiver. Both preserve the receiver's access mode:
 // a read-only pointer can never produce a writable one.
-func checkPointerArithmeticCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	if callee.Property.Lexeme == "cast" {
-		return checkPointerCastCall(call, callee, receiver, ctx)
+func checkPointerArithmeticCall(call methodCall) checkedExpression {
+	if call.callee.Property.Lexeme == "cast" {
+		return checkPointerCastCall(call)
 	}
-	return checkPointerOffsetCall(call, callee, receiver, ctx)
+	return checkPointerOffsetCall(call)
 }
 
-func checkPointerOffsetCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	property := callee.Property
-	if len(call.TypeArguments) != 0 {
+func checkPointerOffsetCall(call methodCall) checkedExpression {
+	property := call.callee.Property
+	if len(call.call.TypeArguments) != 0 {
 		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "offset takes no type arguments"))}
 	}
-	if len(call.Arguments) != 1 {
+	if len(call.call.Arguments) != 1 {
 		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "offset expects 1 argument (count)"))}
 	}
-	element := *receiver.typ.Element
+	element := *call.receiver.typ.Element
 	if diagnostic := completePointeeDiagnostic(element, property); diagnostic != nil {
 		return checkedExpression{token: property, diagnostic: diagnostic}
 	}
-	if diagnostic := freedPointeeDiagnostic(receiver, property, ctx.names.flow); diagnostic != nil {
+	if diagnostic := freedPointeeDiagnostic(call.receiver, property, call.ctx.names.flow); diagnostic != nil {
 		return checkedExpression{token: property, diagnostic: diagnostic}
 	}
-	count, countDiagnostics := checkForwardCount(call.Arguments[0], property, "offset", ctx)
+	count, countDiagnostics := checkForwardCount(call.call.Arguments[0], property, "offset", call.ctx)
 	if len(countDiagnostics) > 0 {
 		return checkedExpression{token: property, diagnostics: countDiagnostics, diagnostic: &countDiagnostics[0]}
 	}
 	// C proves nothing about staying inside one array object; the programmer
 	// asserts it, so the region must be explicit.
-	if diagnostic := requireUnsafe(ctx, property, unsafePointerOffset); diagnostic != nil {
+	if diagnostic := requireUnsafe(call.ctx, property, unsafePointerOffset); diagnostic != nil {
 		return checkedExpression{token: property, diagnostic: diagnostic}
 	}
 	node := Expression{
 		Kind:        PointerOffsetExpression,
 		Name:        "offset",
-		Operand:     &receiver.source.Node,
+		Operand:     &call.receiver.source.Node,
 		Arguments:   []Operand{count},
-		OperandType: receiver.typ,
-		ResultType:  receiver.typ,
+		OperandType: call.receiver.typ,
+		ResultType:  call.receiver.typ,
 		Element:     element,
 	}
-	source := Operand{Kind: ExpressionOperand, Type: receiver.typ, Name: "offset", Node: node}
-	return checkedExpression{source: source, typ: receiver.typ, token: property}
+	source := Operand{Kind: ExpressionOperand, Type: call.receiver.typ, Name: "offset", Node: node}
+	return checkedExpression{source: source, typ: call.receiver.typ, token: property}
 }
 
-func checkPointerCastCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	property := callee.Property
-	if len(call.Arguments) != 0 {
+func checkPointerCastCall(call methodCall) checkedExpression {
+	property := call.callee.Property
+	if len(call.call.Arguments) != 0 {
 		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "cast expects no arguments"))}
 	}
-	if len(call.TypeArguments) != 1 {
+	if len(call.call.TypeArguments) != 1 {
 		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "cast requires exactly one type argument"))}
 	}
-	destinationUse, diagnostic := resolveTypeUse(call.TypeArguments[0], property, ctx.typeEnvironment, ctx.names.generics)
+	destinationUse, diagnostic := resolveTypeUse(call.call.TypeArguments[0], property, call.ctx.typeEnvironment, call.ctx.names.generics)
 	if diagnostic != nil {
 		return checkedExpression{token: property, diagnostic: diagnostic}
 	}
 	// A cast inspects no object, so an erased or incomplete pointee is valid
 	// on either side; offset, indexing, and `^` stay rejected until the
 	// pointee is complete.
-	result := ctx.typeEnvironment.PtrType(destinationUse.Type)
-	if receiver.typ.PointeeWritable {
-		result = ctx.typeEnvironment.MutPtrType(destinationUse.Type)
+	result := call.ctx.typeEnvironment.PtrType(destinationUse.Type)
+	if call.receiver.typ.PointeeWritable {
+		result = call.ctx.typeEnvironment.MutPtrType(destinationUse.Type)
 	}
 	if result == (compilerTypes.Type{}) {
 		return checkedExpression{token: property, diagnostic: typeErrorPointerConstruction(property)}
 	}
-	if diagnostic := requireUnsafe(ctx, property, unsafePointerCast); diagnostic != nil {
+	if diagnostic := requireUnsafe(call.ctx, property, unsafePointerCast); diagnostic != nil {
 		return checkedExpression{token: property, diagnostic: diagnostic}
 	}
 	node := Expression{
 		Kind:        PointerCastExpression,
 		Name:        "cast",
-		Operand:     &receiver.source.Node,
-		OperandType: receiver.typ,
+		Operand:     &call.receiver.source.Node,
+		OperandType: call.receiver.typ,
 		ResultType:  result,
 		Element:     destinationUse.Type,
 	}

@@ -25,11 +25,6 @@ func String() string {
 	return value
 }
 
-// IsDevelopment reports whether this is an unversioned developer build.
-func IsDevelopment() bool {
-	return value == development
-}
-
 // Valid reports whether the identity is usable: exactly "development" or
 // exactly one canonical timestamp rendering with a real calendar date. The
 // CLI checks this before command dispatch; an invalid build value is a

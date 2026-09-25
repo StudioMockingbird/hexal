@@ -705,8 +705,7 @@ func (parser *Parser) errorAt(token lexer.Token, message string) error {
 		Category: compilerTypes.SyntaxError,
 		Stage:    "parser",
 		Span:     token.Span,
-		Line:     token.Line,
-		Column:   token.Column,
+		Position: span.Position{Line: token.Line, Column: token.Column},
 		Message:  message,
 	}
 }

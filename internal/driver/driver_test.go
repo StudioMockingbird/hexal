@@ -1,12 +1,14 @@
 package driver
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"hexal/compiler"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 	"hexal/internal/version"
 )
@@ -158,20 +160,47 @@ func TestBuildRecordsHexalVersionOnce(t *testing.T) {
 // TestHexalFailureMessageKeepsOrdinaryDiagnosticsStable pins the version
 // attribution rule: ordinary failures render exactly "compilation failed",
 // while a compiler-defect Unknown Error carries the toolchain version for
-// the bug report.
+// the bug report. Classification reads the structured diagnostics, never the
+// rendered text, so rewording a message cannot change which failures are
+// attributed to the compiler.
 func TestHexalFailureMessageKeepsOrdinaryDiagnosticsStable(t *testing.T) {
-	ordinary := []string{"[Syntax Error] expected ')' at main.hex:2:1"}
-	if got := hexalFailureMessage(ordinary); got != "compilation failed" {
+	ordinary := compilerTypes.Diagnostics{
+		{Category: compilerTypes.SyntaxError, Module: "main.hex", Position: span.Position{Line: 2, Column: 1}, Message: "expected ')'"},
+	}
+	if compilerTypes.HasUnknownError(ordinary) {
+		t.Fatal("an ordinary rejection was classified as a compiler defect")
+	}
+	if got := hexalFailureMessage(compilerTypes.HasUnknownError(ordinary)); got != "compilation failed" {
 		t.Fatalf("ordinary message = %q", got)
 	}
-	defect := []string{"[Unknown Error] a violated internal invariant"}
+	defect := compilerTypes.Diagnostics{
+		{Category: compilerTypes.UnknownError, Message: "a violated internal invariant"},
+	}
+	if !compilerTypes.HasUnknownError(defect) {
+		t.Fatal("an Unknown Error diagnostic was not classified as a compiler defect")
+	}
 	want := "compilation failed (Hexal " + version.String() + ")"
-	if got := hexalFailureMessage(defect); got != want {
+	if got := hexalFailureMessage(compilerTypes.HasUnknownError(defect)); got != want {
 		t.Fatalf("defect message = %q, want %q", got, want)
 	}
-	mixed := append(ordinary, defect...)
-	if got := hexalFailureMessage(mixed); got != want {
+	mixed := append(append(compilerTypes.Diagnostics{}, ordinary...), defect...)
+	if got := hexalFailureMessage(compilerTypes.HasUnknownError(mixed)); got != want {
 		t.Fatalf("mixed message = %q, want %q", got, want)
+	}
+	// The defect classification is derived before rendering, so a diagnostic
+	// whose message never spells the category still attributes to the compiler.
+	plain := compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Message: "no bracket text here"}
+	if !compilerTypes.HasUnknownError(plain) {
+		t.Fatal("a single Unknown Error diagnostic was not classified")
+	}
+	if compilerTypes.HasUnknownError(nil) {
+		t.Fatal("nil was classified as a compiler defect")
+	}
+	if !compilerTypes.HasUnknownError(fmt.Errorf("stage: %w", defect)) {
+		t.Fatal("a wrapped Unknown Error set was not classified")
+	}
+	if compilerTypes.HasUnknownError(fmt.Errorf("stage: %w", ordinary)) {
+		t.Fatal("a wrapped ordinary rejection was classified as a compiler defect")
 	}
 }
 

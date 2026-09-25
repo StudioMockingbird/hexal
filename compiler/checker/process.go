@@ -38,84 +38,84 @@ func checkProcessTypeCall(call parser.CallExpression, variable parser.VariableEx
 }
 
 // checkProcessMethodCall resolves wait, terminate, and close on a Process.
-func checkProcessMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	name := callee.Property.Lexeme
+func checkProcessMethodCall(call methodCall) checkedExpression {
+	name := call.callee.Property.Lexeme
 	switch name {
 	case "wait", "terminate", "close":
 	default:
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Process has no method "+name+"; use wait, terminate, or close"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Process has no method "+name+"; use wait, terminate, or close"))}
 	}
-	if len(call.TypeArguments) != 0 || len(call.Arguments) != 0 {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, name+" expects no arguments"))}
+	if len(call.call.TypeArguments) != 0 || len(call.call.Arguments) != 0 {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, name+" expects no arguments"))}
 	}
-	if ctx.names.cleanupDepth > 0 && name != "close" {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "only Process.close() may be deferred"))}
+	if call.ctx.names.cleanupDepth > 0 && name != "close" {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "only Process.close() may be deferred"))}
 	}
-	receiver = valueFromPlace(receiver)
-	if diagnostic := streamClosedDiagnostic(receiver.source, callee.Property, ctx.names.flow); diagnostic != nil {
-		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+	call.receiver = valueFromPlace(call.receiver)
+	if diagnostic := streamClosedDiagnostic(call.receiver.source, call.callee.Property, call.ctx.names.flow); diagnostic != nil {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 	}
 	var resultUnion compilerTypes.Type
 	if name == "wait" {
-		resultUnion = ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.ExitStatusType, compilerTypes.ErrorType})
+		resultUnion = call.ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.ExitStatusType, compilerTypes.ErrorType})
 	} else {
-		resultUnion = ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType})
+		resultUnion = call.ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType})
 	}
 	if resultUnion == (compilerTypes.Type{}) {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(unknownAt(callee.Property, "could not construct the "+name+" result union"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property, "could not construct the "+name+" result union"))}
 	}
-	checked := networkMethodNode("process_"+name, receiver.source.Node, nil, compilerTypes.ProcessType, resultUnion, callee.Property)
-	if name == "close" && ctx.names.cleanupDepth == 0 {
-		markStreamClosed(receiver.source, callee.Property, ctx.names.flow)
+	checked := networkMethodNode("process_"+name, call.receiver.source.Node, nil, compilerTypes.ProcessType, resultUnion, call.callee.Property)
+	if name == "close" && call.ctx.names.cleanupDepth == 0 {
+		markStreamClosed(call.receiver.source, call.callee.Property, call.ctx.names.flow)
 	}
 	return checked
 }
 
 // checkPipeMethodCall resolves read, write, shutdown, and close on a Pipe.
-func checkPipeMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	name := callee.Property.Lexeme
+func checkPipeMethodCall(call methodCall) checkedExpression {
+	name := call.callee.Property.Lexeme
 	switch name {
 	case "read", "write", "shutdown", "close":
 	default:
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Pipe has no method "+name+"; use read, write, shutdown, or close"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Pipe has no method "+name+"; use read, write, shutdown, or close"))}
 	}
-	if len(call.TypeArguments) != 0 {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, name+" takes no type arguments"))}
+	if len(call.call.TypeArguments) != 0 {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, name+" takes no type arguments"))}
 	}
-	if ctx.names.cleanupDepth > 0 && name != "close" {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "only Pipe.close() may be deferred"))}
+	if call.ctx.names.cleanupDepth > 0 && name != "close" {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "only Pipe.close() may be deferred"))}
 	}
-	receiver = valueFromPlace(receiver)
-	if diagnostic := streamClosedDiagnostic(receiver.source, callee.Property, ctx.names.flow); diagnostic != nil {
-		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+	call.receiver = valueFromPlace(call.receiver)
+	if diagnostic := streamClosedDiagnostic(call.receiver.source, call.callee.Property, call.ctx.names.flow); diagnostic != nil {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 	}
 	var arguments []Operand
 	var diagnostics compilerTypes.Diagnostics
 	switch name {
 	case "read":
-		arguments, diagnostics = checkStreamReadArguments(call, callee, ctx)
+		arguments, diagnostics = checkStreamReadArguments(call)
 	case "write":
-		arguments, diagnostics = checkStreamWriteArguments(call, callee, ctx)
+		arguments, diagnostics = checkStreamWriteArguments(call)
 	default:
-		if len(call.Arguments) != 0 {
-			diagnostics = compilerTypes.Diagnostics{typeErrorAt(callee.Property, name+" expects no arguments")}
+		if len(call.call.Arguments) != 0 {
+			diagnostics = compilerTypes.Diagnostics{typeErrorAt(call.callee.Property, name+" expects no arguments")}
 		}
 	}
 	if len(diagnostics) > 0 {
-		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+		return checkedExpression{token: call.callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
 	var resultUnion compilerTypes.Type
 	if name == "read" {
-		resultUnion = streamResultUnion("read", ctx.typeEnvironment)
+		resultUnion = streamResultUnion("read", call.ctx.typeEnvironment)
 	} else {
-		resultUnion = ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType})
+		resultUnion = call.ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType})
 	}
 	if resultUnion == (compilerTypes.Type{}) {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(unknownAt(callee.Property, "could not construct the "+name+" result union"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property, "could not construct the "+name+" result union"))}
 	}
-	checked := networkMethodNode("pipe_"+name, receiver.source.Node, arguments, compilerTypes.PipeType, resultUnion, callee.Property)
-	if name == "close" && ctx.names.cleanupDepth == 0 {
-		markStreamClosed(receiver.source, callee.Property, ctx.names.flow)
+	checked := networkMethodNode("pipe_"+name, call.receiver.source.Node, arguments, compilerTypes.PipeType, resultUnion, call.callee.Property)
+	if name == "close" && call.ctx.names.cleanupDepth == 0 {
+		markStreamClosed(call.receiver.source, call.callee.Property, call.ctx.names.flow)
 	}
 	return checked
 }

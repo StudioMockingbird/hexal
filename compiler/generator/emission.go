@@ -10,8 +10,6 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-const hexalHeaderPrefix = "#ifndef HEXAL_H\n#define HEXAL_H\n\n"
-
 // cHeaderRequirements is the program-wide demand-driven standard-header set,
 // EoS representation requirement, and runtime-trap requirement. Standard
 // headers are rendered once, in lexical order, immediately after the HEXAL_H
@@ -138,21 +136,16 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	// declaration, so ordinary C forward-declaration concerns do not apply,
 	// but every function in this module may read or write them from the
 	// first line of the file onward.
-	moduleValueRenderState := &expressionValidation{
-		variables:      make(map[string]generatedBinding),
-		bindings:       make(map[checker.BindingID]generatedBinding),
-		bindingNames:   make(map[checker.BindingID]string),
-		usedNames:      make(map[string]bool),
-		functions:      functions,
-		methods:        methods,
-		generatedTypes: typeState,
-		strings:        stringState,
-		tags:           merged.tags,
-		owner:          owner,
-		filename:       logicalKey,
-		moduleID:       canonicalID,
-		table:          config.SourceTable,
-	}
+	moduleValueRenderState := newExpressionValidation()
+	moduleValueRenderState.functions = functions
+	moduleValueRenderState.methods = methods
+	moduleValueRenderState.generatedTypes = typeState
+	moduleValueRenderState.strings = stringState
+	moduleValueRenderState.tags = merged.tags
+	moduleValueRenderState.owner = owner
+	moduleValueRenderState.filename = logicalKey
+	moduleValueRenderState.moduleID = canonicalID
+	moduleValueRenderState.table = config.SourceTable
 	if err := writeModuleValueDefinitions(&moduleBody, program.ModuleValues, owner, moduleValueRenderState); err != nil {
 		return "", "", err
 	}
@@ -245,23 +238,18 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		return "", "", err
 	}
 
-	renderState := &expressionValidation{
-		variables:      make(map[string]generatedBinding),
-		bindings:       make(map[checker.BindingID]generatedBinding),
-		bindingNames:   make(map[checker.BindingID]string),
-		usedNames:      make(map[string]bool),
-		functions:      functions,
-		methods:        methods,
-		generatedTypes: typeState,
-		strings:        stringState,
-		tags:           merged.tags,
-		owner:          owner,
-		filename:       logicalKey,
-		moduleID:       canonicalID,
-		table:          config.SourceTable,
-		envFunctions:   entryEnvironmentFunctions(program),
-		envMethods:     entryEnvironmentMethods(program),
-	}
+	renderState := newExpressionValidation()
+	renderState.functions = functions
+	renderState.methods = methods
+	renderState.generatedTypes = typeState
+	renderState.strings = stringState
+	renderState.tags = merged.tags
+	renderState.owner = owner
+	renderState.filename = logicalKey
+	renderState.moduleID = canonicalID
+	renderState.table = config.SourceTable
+	renderState.envFunctions = entryEnvironmentFunctions(program)
+	renderState.envMethods = entryEnvironmentMethods(program)
 	if isRoot {
 		// The selected root module's C file owns the process entry point.
 		// Runtime definitions and state live in the component artifacts

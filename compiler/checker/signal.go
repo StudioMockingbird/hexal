@@ -37,35 +37,35 @@ func checkSignalsTypeCall(call parser.CallExpression, callee lexer.Token, ctx ch
 }
 
 // checkSignalsMethodCall resolves next() and close() on a Signals handle.
-func checkSignalsMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	name := callee.Property.Lexeme
+func checkSignalsMethodCall(call methodCall) checkedExpression {
+	name := call.callee.Property.Lexeme
 	switch name {
 	case "next", "close":
 	default:
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Signals has no method "+name+"; use next or close"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Signals has no method "+name+"; use next or close"))}
 	}
-	if len(call.TypeArguments) != 0 || len(call.Arguments) != 0 {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, name+" expects no arguments"))}
+	if len(call.call.TypeArguments) != 0 || len(call.call.Arguments) != 0 {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, name+" expects no arguments"))}
 	}
-	if ctx.names.cleanupDepth > 0 && name != "close" {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "only Signals.close() may be deferred"))}
+	if call.ctx.names.cleanupDepth > 0 && name != "close" {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "only Signals.close() may be deferred"))}
 	}
-	receiver = valueFromPlace(receiver)
-	if diagnostic := streamClosedDiagnostic(receiver.source, callee.Property, ctx.names.flow); diagnostic != nil {
-		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+	call.receiver = valueFromPlace(call.receiver)
+	if diagnostic := streamClosedDiagnostic(call.receiver.source, call.callee.Property, call.ctx.names.flow); diagnostic != nil {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 	}
 	var resultUnion compilerTypes.Type
 	if name == "next" {
-		resultUnion = ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.SignalType, compilerTypes.EoS, compilerTypes.ErrorType})
+		resultUnion = call.ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.SignalType, compilerTypes.EoS, compilerTypes.ErrorType})
 	} else {
-		resultUnion = ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType})
+		resultUnion = call.ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType})
 	}
 	if resultUnion == (compilerTypes.Type{}) {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(unknownAt(callee.Property, "could not construct the "+name+" result union"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property, "could not construct the "+name+" result union"))}
 	}
-	checked := networkMethodNode("signals_"+name, receiver.source.Node, nil, compilerTypes.SignalsType, resultUnion, callee.Property)
-	if name == "close" && ctx.names.cleanupDepth == 0 {
-		markStreamClosed(receiver.source, callee.Property, ctx.names.flow)
+	checked := networkMethodNode("signals_"+name, call.receiver.source.Node, nil, compilerTypes.SignalsType, resultUnion, call.callee.Property)
+	if name == "close" && call.ctx.names.cleanupDepth == 0 {
+		markStreamClosed(call.receiver.source, call.callee.Property, call.ctx.names.flow)
 	}
 	return checked
 }

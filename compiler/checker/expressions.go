@@ -129,6 +129,25 @@ func checkStructConstructorCall(call parser.CallExpression, typeName lexer.Token
 	return checkObjectConstructorFields(call, typeName, literalType, expectedType, ctx)
 }
 
+// liveMemberType re-resolves one declared member's checked type through the
+// compilation's arena. A builtin object or variant declared at Go init() time
+// (ProcessOptions, Environment's Replace payload) carries List members with a
+// fixed, non-arena identity, because List's own interning lives on the
+// per-compilation arena and is unreachable at package init(); re-resolution
+// recovers the identity a real List<T> binding has, so construction,
+// member reads, and equality all agree on one canonical type. For a member
+// already declared against this arena it is a cache hit returning the
+// identical type unchanged.
+func liveMemberType(memberType compilerTypes.Type, typeEnvironment *compilerTypes.Environment) compilerTypes.Type {
+	if memberType.List == nil {
+		return memberType
+	}
+	if live := typeEnvironment.ListType(memberType.List.Element); live != (compilerTypes.Type{}) {
+		return live
+	}
+	return memberType
+}
+
 // checkObjectConstructorFields checks one constructor call's arguments
 // against an already-resolved nominal struct type's declared members.
 // Shared by a bare Type(...) call (checkStructConstructorCall, which
@@ -165,19 +184,7 @@ func checkObjectConstructorFields(call parser.CallExpression, typeName lexer.Tok
 			continue
 		}
 		seen[member.Name] = true
-		// A builtin object built at Go init() time (ProcessOptions, Environment's
-		// Replace payload) carries List members with a fixed, non-arena identity,
-		// since List's own interning lives on the per-compilation arena and isn't
-		// reachable at init() time. Re-resolving through the live arena here
-		// recovers the identity a real List<T> binding actually has; for
-		// ordinary structs (already declared against this same arena) it is a
-		// cache hit that returns the identical type unchanged.
-		memberType := member.Type
-		if memberType.List != nil {
-			if live := ctx.typeEnvironment.ListType(memberType.List.Element); live != (compilerTypes.Type{}) {
-				memberType = live
-			}
-		}
+		memberType := liveMemberType(member.Type, ctx.typeEnvironment)
 		memberUse := member.Use
 		if memberUse.Type == (compilerTypes.Type{}) || memberType != member.Type {
 			memberUse = compilerTypes.NewTypeUse(memberType)
@@ -302,6 +309,18 @@ type checkContext struct {
 	rootIndex int
 }
 
+// methodCall bundles the four values every builtin method-call dispatcher
+// receives: the written call, its property, the already-checked receiver, and
+// the checking context. They always travel together through the receiver-type
+// dispatch in checkMethodCall, so naming the group removes the repeated
+// four-name signature and the risk of passing them in the wrong order.
+type methodCall struct {
+	call     parser.CallExpression
+	callee   parser.PropertyExpression
+	receiver checkedExpression
+	ctx      checkContext
+}
+
 func checkExpression(expression parser.Expression, context expressionContext, ctx checkContext) checkedExpression {
 	if len(context.expected.Candidates) > 1 && isContextualExpression(expression) {
 		return checkContextualUnion(expression, context.expected, ctx)
@@ -416,8 +435,12 @@ func unaryNode(kind ExpressionKind, operand Expression) Expression {
 	return Expression{Kind: kind, Operand: &operand}
 }
 
-func memberNode(operand Expression, member *compilerTypes.ObjectMember) Expression {
-	node := Expression{Kind: MemberExpression, Operand: &operand, Member: member}
+// memberNode builds a value member-read node. checkedType is the read's
+// arena-resolved type: it is stamped so the generator recovers the checked
+// identity directly instead of re-deriving it from the declared member,
+// whose builtin List fields keep a fixed pre-arena identity.
+func memberNode(operand Expression, member *compilerTypes.ObjectMember, checkedType compilerTypes.Type) Expression {
+	node := Expression{Kind: MemberExpression, Operand: &operand, Member: member, ResultType: checkedType}
 	if member != nil && isTrackedCollection(member.Type) {
 		node.CollectionRoot = collectionRootOfNode(&operand)
 	}

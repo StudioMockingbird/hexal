@@ -29,9 +29,6 @@ func hoistDictFindInStatement(statement checker.Statement, body *strings.Builder
 		if node.Kind != checker.CollectionMethodCallExpression || node.Name != "find" || node.Operand == nil || node.OperandType.Dict == nil || len(node.Arguments) != 1 {
 			return nil
 		}
-		if state.hoistedDictFinds == nil {
-			state.hoistedDictFinds = make(map[*checker.Expression]string)
-		}
 		if _, ok := state.hoistedDictFinds[node.Operand]; ok {
 			return nil
 		}

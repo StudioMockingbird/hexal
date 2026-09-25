@@ -57,64 +57,64 @@ func checkListTypeCall(call parser.CallExpression, callee lexer.Token, ctx check
 
 // checkListMethodCall dispatches the built-in List methods: length, slice,
 // push, pop, set, clear, and free.
-func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	name := callee.Property.Lexeme
-	listType := receiver.typ
+func checkListMethodCall(call methodCall) checkedExpression {
+	name := call.callee.Property.Lexeme
+	listType := call.receiver.typ
 	element := listType.List.Element
 	if !hasBuiltinMethod(listType, name) {
-		diagnostic := typeErrorAt(callee.Property, listType.Name+" has no method "+name)
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		diagnostic := typeErrorAt(call.callee.Property, listType.Name+" has no method "+name)
+		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
 	switch name {
 	case "length":
-		if len(call.Arguments) != 0 {
-			diagnostic := typeErrorAt(callee.Property, "length expects no arguments")
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		if len(call.call.Arguments) != 0 {
+			diagnostic := typeErrorAt(call.callee.Property, "length expects no arguments")
+			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 		}
-		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: listType, ResultType: compilerTypes.SizeType}
+		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: listType, ResultType: compilerTypes.SizeType}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.SizeType, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: callee.Property}
+		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: call.callee.Property}
 	case "slice":
-		return checkSliceMethod(call, callee, receiver, ctx, false)
+		return checkSliceMethod(call, false)
 	case "mut_slice":
-		return checkSliceMethod(call, callee, receiver, ctx, true)
+		return checkSliceMethod(call, true)
 	case "push", "clear", "pop":
 		switch name {
 		case "push":
-			if len(call.Arguments) != 1 {
-				diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("push expects 1 argument; got %d", len(call.Arguments)))
-				return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+			if len(call.call.Arguments) != 1 {
+				diagnostic := typeErrorAt(call.callee.Property, fmt.Sprintf("push expects 1 argument; got %d", len(call.call.Arguments)))
+				return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 			}
-			value, diagnostic := listElementArgument(call.Arguments[0], callee.Property, element, ctx)
+			value, diagnostic := listElementArgument(call.call.Arguments[0], call.callee.Property, element, call.ctx)
 			if diagnostic != nil {
-				return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+				return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 			}
-			node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{value}, OperandType: listType, ResultType: compilerTypes.Type{}, Element: element}
+			node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, Arguments: []Operand{value}, OperandType: listType, ResultType: compilerTypes.Type{}, Element: element}
 			source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
-			return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
+			return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 		case "clear":
-			if len(call.Arguments) != 0 {
-				diagnostic := typeErrorAt(callee.Property, "clear expects no arguments")
-				return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+			if len(call.call.Arguments) != 0 {
+				diagnostic := typeErrorAt(call.callee.Property, "clear expects no arguments")
+				return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 			}
-			node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: listType, ResultType: compilerTypes.Type{}, Element: element}
+			node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: listType, ResultType: compilerTypes.Type{}, Element: element}
 			source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
-			return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
+			return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 		case "pop":
-			if len(call.Arguments) != 0 {
-				diagnostic := typeErrorAt(callee.Property, "pop expects no arguments")
-				return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+			if len(call.call.Arguments) != 0 {
+				diagnostic := typeErrorAt(call.callee.Property, "pop expects no arguments")
+				return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 			}
-			node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: listType, ResultType: element, Element: element}
+			node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: listType, ResultType: element, Element: element}
 			source := Operand{Kind: ExpressionOperand, Type: element, Name: name, Node: node}
-			return checkedExpression{source: source, typ: element, token: callee.Property}
+			return checkedExpression{source: source, typ: element, token: call.callee.Property}
 		}
 	case "free":
-		if len(call.Arguments) != 1 {
-			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("free expects 1 argument; got %d", len(call.Arguments)))
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		if len(call.call.Arguments) != 1 {
+			diagnostic := typeErrorAt(call.callee.Property, fmt.Sprintf("free expects 1 argument; got %d", len(call.call.Arguments)))
+			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 		}
-		heap := checkValue(call.Arguments[0], ctx)
+		heap := checkValue(call.call.Arguments[0], call.ctx)
 		if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 			return heap
 		}
@@ -125,7 +125,7 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		node := Expression{
 			Kind:        CollectionMethodCallExpression,
 			Name:        name,
-			Operand:     &receiver.source.Node,
+			Operand:     &call.receiver.source.Node,
 			Arguments:   []Operand{heap.source},
 			OperandType: listType,
 			ResultType:  compilerTypes.Type{},
@@ -136,16 +136,16 @@ func checkListMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		// borrowed from this exact binding; borrowers consult the mark. A
 		// deferred free releases at scope exit, outside local proof, so it
 		// takes the documented unknown-state envelope instead.
-		if ctx.names.flow != nil && ctx.names.cleanupDepth == 0 {
-			if binding := baseBindingID(&receiver.source.Node); binding != 0 {
-				ctx.names.flow.releaseSource(binding)
+		if call.ctx.names.flow != nil && call.ctx.names.cleanupDepth == 0 {
+			if binding := baseBindingID(&call.receiver.source.Node); binding != 0 {
+				call.ctx.names.flow.releaseSource(binding)
 			}
 		}
-		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
+		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 	default:
-		return unexpectedBuiltinMethod(listType, callee.Property)
+		return unexpectedBuiltinMethod(listType, call.callee.Property)
 	}
-	return unexpectedBuiltinMethod(listType, callee.Property)
+	return unexpectedBuiltinMethod(listType, call.callee.Property)
 }
 
 // listElementArgument checks one push or set value against the element type.

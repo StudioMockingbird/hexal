@@ -83,9 +83,9 @@ func TestParseDiagnosticSpanResolvesToRetainedLocation(t *testing.T) {
 		table.Add(file, source)
 		for _, diagnostic := range diagnostics {
 			got := table.Position(diagnostic.Span)
-			if got.Line != diagnostic.Line || got.Column != diagnostic.Column {
+			if got.Line != diagnostic.Position.Line || got.Column != diagnostic.Position.Column {
 				t.Fatalf("Parse(%q) span %+v resolves to %+v, retained location = %d:%d",
-					source, diagnostic.Span, got, diagnostic.Line, diagnostic.Column)
+					source, diagnostic.Span, got, diagnostic.Position.Line, diagnostic.Position.Column)
 			}
 		}
 	}

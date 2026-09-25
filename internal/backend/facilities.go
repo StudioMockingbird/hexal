@@ -1,7 +1,6 @@
 package backend
 
 import (
-	"fmt"
 	"strings"
 
 	compilerTypes "hexal/compiler/types"
@@ -26,14 +25,6 @@ var requiredWindowsHeaders = []string{
 	"errno.h", "inttypes.h", "limits.h", "math.h", "stdatomic.h",
 	"stdckdint.h", "stddef.h", "stdint.h", "stdio.h", "stdlib.h",
 	"strings.h", "signal.h", "windows.h",
-}
-
-// requiredFacilities names the non-header C23 facilities generated code relies
-// on: checked arithmetic, atomics, typeof, nullptr, attributes, and static
-// assertions, plus the platform threading and IO paths.
-var requiredFacilities = []string{
-	"checked-arithmetic", "atomics", "typeof", "nullptr",
-	"attributes", "static-assert", "posix-threads", "posix-io",
 }
 
 // QualificationProbe returns a C23 translation unit exercising every required
@@ -118,11 +109,4 @@ func (backend *Backend) LinkObjects(target string, objects []string, executable 
 // platform filename.
 func SystemLibraryArgument(name string) string {
 	return "-l" + name
-}
-
-// CheckError formats a failed backend invocation for a stage diagnostic,
-// preserving the complete argument vector and separated streams.
-func CheckError(stage, tool string, result Result) error {
-	return fmt.Errorf("%s: %s %s exited %d\nstdout:\n%s\nstderr:\n%s",
-		stage, tool, strings.Join(result.Args, " "), result.ExitCode, result.Stdout, result.Stderr)
 }

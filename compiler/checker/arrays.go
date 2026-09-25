@@ -181,37 +181,37 @@ func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checke
 // checkCollectionMethodCall dispatches the built-in Array and Slice methods
 // length, slice, and mut_slice. The mutable form exists only for Array:
 // re-slicing a Slice preserves the receiver's access mode through slice.
-func checkCollectionMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	name := callee.Property.Lexeme
-	collectionType := receiver.typ
+func checkCollectionMethodCall(call methodCall) checkedExpression {
+	name := call.callee.Property.Lexeme
+	collectionType := call.receiver.typ
 	// Slice has no mut_slice: re-slicing preserves the receiver's access mode
 	// through slice. The registry does not declare it, and its rejection names
 	// the migration route, so it stays ahead of the registry gate.
-	if name == "mut_slice" && receiver.typ.Slice != nil {
-		diagnostic := typeErrorAt(callee.Property, "Slice has no method mut_slice; re-slicing preserves the receiver's access mode through slice")
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	if name == "mut_slice" && call.receiver.typ.Slice != nil {
+		diagnostic := typeErrorAt(call.callee.Property, "Slice has no method mut_slice; re-slicing preserves the receiver's access mode through slice")
+		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
 	if !hasBuiltinMethod(collectionType, name) {
-		diagnostic := typeErrorAt(callee.Property, collectionType.Name+" has no method "+name)
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		diagnostic := typeErrorAt(call.callee.Property, collectionType.Name+" has no method "+name)
+		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
 	switch name {
 	case "length":
-		if len(call.Arguments) != 0 {
-			diagnostic := typeErrorAt(callee.Property, "length expects no arguments")
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		if len(call.call.Arguments) != 0 {
+			diagnostic := typeErrorAt(call.callee.Property, "length expects no arguments")
+			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 		}
-		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: collectionType, ResultType: compilerTypes.SizeType}
+		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: collectionType, ResultType: compilerTypes.SizeType}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.SizeType, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: callee.Property}
+		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: call.callee.Property}
 	case "slice":
-		return checkSliceMethod(call, callee, receiver, ctx, false)
+		return checkSliceMethod(call, false)
 	case "mut_slice":
-		return checkSliceMethod(call, callee, receiver, ctx, true)
+		return checkSliceMethod(call, true)
 	case "pointer":
-		return checkSlicePointer(call, callee, receiver, ctx)
+		return checkSlicePointer(call)
 	default:
-		return unexpectedBuiltinMethod(collectionType, callee.Property)
+		return unexpectedBuiltinMethod(collectionType, call.callee.Property)
 	}
 }
 

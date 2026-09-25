@@ -1,6 +1,8 @@
 package types
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"hexal/compiler/specdata"
@@ -164,5 +166,96 @@ func TestStorableAndPointeeReadTheRegistry(t *testing.T) {
 	}
 	if environment.PtrType(list) == (Type{}) {
 		t.Fatal("pointerType ignored the corrupted Managed fact")
+	}
+}
+
+// registryRelationError reports the first disagreement between registry
+// domains, each passed in so a test can poison one registration and prove the
+// check fails rather than trusting the live tables:
+//
+//   - every concrete identifier resolves to an interned Type, because the
+//     inventory claims to list exactly what the resolver must answer;
+//   - a resolved identity's facts agree with the consumer's view in both
+//     value and presence, because a record only one side can see makes the
+//     other side a second authority for the same fact;
+//   - every builtin entry is protected, resolves through its own name to its
+//     own identity, and canonicalizes back through the registered Type's Name.
+func registryRelationError(ids []specdata.TypeID, builtins map[string]Type, resolve func(specdata.TypeID) (Type, bool), protected func(string) bool) error {
+	for _, id := range ids {
+		typ, ok := resolve(id)
+		if !ok {
+			return fmt.Errorf("concrete type %q does not resolve", id)
+		}
+		registryFacts, registryRecord := specdata.Facts(id)
+		consumerFacts, consumerRecord := TypeFactsOf(typ)
+		if registryRecord != consumerRecord {
+			return fmt.Errorf("concrete type %q facts: registry record %v, consumer record %v", id, registryRecord, consumerRecord)
+		}
+		if registryRecord && registryFacts != consumerFacts {
+			return fmt.Errorf("concrete type %q facts: registry %v, consumer %v", id, registryFacts, consumerFacts)
+		}
+	}
+	for name, typ := range builtins {
+		if !protected(name) {
+			return fmt.Errorf("builtin %q is not protected", name)
+		}
+		resolved, ok := resolve(specdata.TypeID(name))
+		if !ok {
+			return fmt.Errorf("builtin %q has no concrete identifier", name)
+		}
+		if !Equal(resolved, typ) {
+			return fmt.Errorf("builtin %q resolves to %s, registered as %s", name, resolved.Name, typ.Name)
+		}
+		canonical, ok := builtins[typ.Name]
+		if !ok {
+			return fmt.Errorf("builtin %q registers a type named %q, which has no entry", name, typ.Name)
+		}
+		if !Equal(canonical, typ) {
+			return fmt.Errorf("builtin %q and entry %q hold different identities", name, typ.Name)
+		}
+	}
+	return nil
+}
+
+// TestRegistryRelationsHoldAcrossDomains pins each registry to the domain its
+// neighbours promise: the concrete inventory resolves everywhere, facts round
+// trip through the consumer, and builtin entries stay protected,
+// self-resolving, and canonical. A protected constructor name need not name a
+// builtin Type, so the constructor loop also requires at least one source
+// name to stay unresolvable as a bare builtin.
+func TestRegistryRelationsHoldAcrossDomains(t *testing.T) {
+	if err := registryRelationError(specdata.ConcreteTypeIDs(), builtinTypes, ResolveSpecID, IsProtectedTypeName); err != nil {
+		t.Fatal(err)
+	}
+	unresolved := 0
+	for _, constructor := range specdata.TypeConstructors() {
+		if !IsProtectedTypeName(constructor.SourceName) {
+			t.Errorf("constructor %q source name %q is not protected", constructor.ID, constructor.SourceName)
+		}
+		if _, ok := Lookup(constructor.SourceName); !ok {
+			unresolved++
+		}
+	}
+	if unresolved == 0 {
+		t.Error("every constructor source name resolves as a bare builtin; protectedness must not require a builtin Type")
+	}
+}
+
+// TestRegistryRelationsFailWhenARegistrationIsMissing drops one concrete
+// identifier from the resolver and requires the relation check to reject it:
+// a registration missing on any side must fail the guard, never pass quietly.
+func TestRegistryRelationsFailWhenARegistrationIsMissing(t *testing.T) {
+	poisoned := func(id specdata.TypeID) (Type, bool) {
+		if id == specdata.TypeMutex {
+			return Type{}, false
+		}
+		return ResolveSpecID(id)
+	}
+	err := registryRelationError(specdata.ConcreteTypeIDs(), builtinTypes, poisoned, IsProtectedTypeName)
+	if err == nil {
+		t.Fatal("registry relations held after one concrete identifier stopped resolving")
+	}
+	if !strings.Contains(err.Error(), "Mutex") {
+		t.Fatalf("relation error %q does not name the poisoned registration", err)
 	}
 }

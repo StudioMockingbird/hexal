@@ -9,13 +9,13 @@ import (
 // checkRuneMethodCall dispatches the Rune value surface. Rune lowers to the
 // uint32_t scalar, so value and utf8_length are pure reads with no runtime
 // allocation.
-func checkRuneMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, _ checkContext) checkedExpression {
+func checkRuneMethodCall(call methodCall) checkedExpression {
 	fail := func(message string) checkedExpression {
-		diagnostic := typeErrorAt(callee.Property, message)
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		diagnostic := typeErrorAt(call.callee.Property, message)
+		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
 	var result compilerTypes.Type
-	switch callee.Property.Lexeme {
+	switch call.callee.Property.Lexeme {
 	case "value":
 		result = compilerTypes.UInt32
 	case "utf8_length":
@@ -31,23 +31,23 @@ func checkRuneMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 	case "category":
 		result = compilerTypes.UnicodeCategoryType
 	default:
-		return fail("Rune has no method " + callee.Property.Lexeme)
+		return fail("Rune has no method " + call.callee.Property.Lexeme)
 	}
-	if len(call.Arguments) != 0 {
-		return fail(callee.Property.Lexeme + " expects no arguments")
+	if len(call.call.Arguments) != 0 {
+		return fail(call.callee.Property.Lexeme + " expects no arguments")
 	}
-	if len(call.TypeArguments) != 0 {
-		return fail(callee.Property.Lexeme + " takes no type arguments")
+	if len(call.call.TypeArguments) != 0 {
+		return fail(call.callee.Property.Lexeme + " takes no type arguments")
 	}
 	node := Expression{
 		Kind:        RuneMethodCallExpression,
-		Name:        callee.Property.Lexeme,
-		Operand:     &receiver.source.Node,
+		Name:        call.callee.Property.Lexeme,
+		Operand:     &call.receiver.source.Node,
 		OperandType: compilerTypes.Rune,
 		ResultType:  result,
 	}
-	source := Operand{Kind: ExpressionOperand, Type: result, Name: callee.Property.Lexeme, Node: node}
-	return checkedExpression{source: source, typ: result, token: callee.Property}
+	source := Operand{Kind: ExpressionOperand, Type: result, Name: call.callee.Property.Lexeme, Node: node}
+	return checkedExpression{source: source, typ: result, token: call.callee.Property}
 }
 
 // checkRuneTypeCall resolves the type-level Rune.from(value) constructor: the

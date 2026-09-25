@@ -422,6 +422,15 @@ func TypeConstructors() []TypeConstructorSpec {
 	return specs
 }
 
+// ConcreteTypeIDs returns every concrete compiler-owned identifier in
+// registration order as a copy. Constructor families and the structural Fun
+// identity are excluded: neither resolves to an interned Type. The resolver's
+// completeness against this inventory is a compiler-side test's job, because
+// this package imports no compiler package and cannot run the resolver.
+func ConcreteTypeIDs() []TypeID {
+	return append([]TypeID(nil), concreteTypeIDs...)
+}
+
 // cloneTypeConstructor deep-copies the parameter slice a record owns, so a
 // query result shares no backing array with the registry.
 func cloneTypeConstructor(spec TypeConstructorSpec) TypeConstructorSpec {

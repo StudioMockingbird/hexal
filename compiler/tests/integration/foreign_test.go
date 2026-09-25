@@ -265,6 +265,134 @@ func TestForeignCrossModuleBinding(t *testing.T) {
 	}
 }
 
+// Two modules may bind the same C spelling from different headers. A
+// cross-module reference includes its own defining module's header, each
+// header appears exactly once, and repeated compilations keep the written
+// first-use order.
+func TestForeignDuplicateCNameResolvesByDefiningModule(t *testing.T) {
+	paths := []struct {
+		name        string
+		decl        func(header string) string
+		use         func(alias string) string
+		needsUnsafe bool
+	}{
+		{
+			name: "function",
+			decl: func(header string) string {
+				return "extern c from <" + header + "> do\n" +
+					"    fun c_add as \"same_fn\"(left: Int32 as \"int\", right: Int32 as \"int\"): Int32 as \"int\"\n" +
+					"end\nexport\n    c_add\nend\n"
+			},
+			use: func(alias string) string {
+				return "        let use_value_" + strings.ToLower(alias) + ": Int32 = " + alias + ".c_add(1, 2)\n"
+			},
+			needsUnsafe: true,
+		},
+		{
+			name: "constant",
+			decl: func(header string) string {
+				return "extern c from <" + header + "> do\n" +
+					"    constant same_k as \"SAME_K\": Int32\n" +
+					"end\nexport\n    same_k\nend\n"
+			},
+			use: func(alias string) string {
+				return "    let use_value_" + strings.ToLower(alias) + ": Int32 = " + alias + ".same_k\n"
+			},
+			needsUnsafe: false,
+		},
+		{
+			name: "global",
+			decl: func(header string) string {
+				return "extern c from <" + header + "> do\n" +
+					"    global mut same_g as \"SAME_G\": Int32\n" +
+					"end\nexport\n    same_g\nend\n"
+			},
+			use: func(alias string) string {
+				return "        let use_value_" + strings.ToLower(alias) + ": Int32 = " + alias + ".same_g\n"
+			},
+			needsUnsafe: true,
+		},
+	}
+	for _, path := range paths {
+		t.Run(path.name, func(t *testing.T) {
+			build := func(aliases ...string) map[string]string {
+				imports := ""
+				if len(aliases) > 0 {
+					imports = "import\n    "
+					for i, alias := range aliases {
+						if i > 0 {
+							imports += "    "
+						}
+						imports += alias + " from \"./" + strings.ToLower(alias) + "\""
+						if i < len(aliases)-1 {
+							imports += ","
+						}
+						imports += "\n"
+					}
+					imports += "end\n"
+				}
+				body := "fun main() do\n"
+				if path.needsUnsafe {
+					body += "    unsafe do\n"
+				}
+				for _, alias := range aliases {
+					body += path.use(alias)
+				}
+				if path.needsUnsafe {
+					body += "    end\n"
+				}
+				body += "end\n"
+				return map[string]string{
+					"app.hex": imports + body,
+					"a.hex":   path.decl("a.h"),
+					"b.hex":   path.decl("b.h"),
+				}
+			}
+			scenarios := []struct {
+				name    string
+				aliases []string
+				wantA   bool
+				wantB   bool
+			}{
+				{"a only", []string{"A"}, true, false},
+				{"b only", []string{"B"}, false, true},
+				{"both", []string{"A", "B"}, true, true},
+			}
+			for _, scenario := range scenarios {
+				t.Run(scenario.name, func(t *testing.T) {
+					sources := build(scenario.aliases...)
+					for attempt := 0; attempt < 30; attempt++ {
+						result := compiler.Compile(sources, "app.hex", compiler.Project{Target: windowsTarget})
+						if result.ExitCode != compiler.ExitSuccess {
+							t.Fatalf("attempt %d: compile failed: %v", attempt, result.Stderr)
+						}
+						header := result.Files["modules/app.h"]
+						countA := strings.Count(header, "#include <a.h>")
+						countB := strings.Count(header, "#include <b.h>")
+						if scenario.wantA && countA != 1 {
+							t.Fatalf("attempt %d: want exactly one a.h include, got %d:\n%s", attempt, countA, header)
+						}
+						if !scenario.wantA && countA != 0 {
+							t.Fatalf("attempt %d: a.h must not be included without an A reference:\n%s", attempt, header)
+						}
+						if scenario.wantB && countB != 1 {
+							t.Fatalf("attempt %d: want exactly one b.h include, got %d:\n%s", attempt, countB, header)
+						}
+						if !scenario.wantB && countB != 0 {
+							t.Fatalf("attempt %d: b.h must not be included without a B reference:\n%s", attempt, header)
+						}
+						if scenario.wantA && scenario.wantB {
+							if strings.Index(header, "#include <a.h>") > strings.Index(header, "#include <b.h>") {
+								t.Fatalf("attempt %d: includes must follow written first-use order:\n%s", attempt, header)
+							}
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestStringCPointerBridge(t *testing.T) {
 	declaration := "extern c from <stdio.h> do\n" +
 		"    fun c_puts as \"puts\"(text: Ptr<Byte> | Nil as \"const char *\"): Int32 as \"int\"\n" +

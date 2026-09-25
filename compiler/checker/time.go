@@ -82,51 +82,51 @@ func checkTaskSleepCall(call parser.CallExpression, property lexer.Token, ctx ch
 }
 
 // checkTimeMethodCall resolves the value operations of one time receiver.
-func checkTimeMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	property := callee.Property
+func checkTimeMethodCall(call methodCall) checkedExpression {
+	property := call.callee.Property
 	name := property.Lexeme
-	if len(call.TypeArguments) != 0 {
-		return timeError(property, receiver.typ.Name+" has no generic method "+name+"; convert through its named accessors")
+	if len(call.call.TypeArguments) != 0 {
+		return timeError(property, call.receiver.typ.Name+" has no generic method "+name+"; convert through its named accessors")
 	}
 	// A union binding narrowed to its time member reads through its payload.
-	receiver = valueFromPlace(receiver)
+	call.receiver = valueFromPlace(call.receiver)
 	switch {
-	case compilerTypes.IsDuration(receiver.typ):
+	case compilerTypes.IsDuration(call.receiver.typ):
 		unit, ok := durationAccessorUnit(name)
 		if !ok {
 			return timeError(property, "Duration has no method "+name+"; use as_nanoseconds, as_microseconds, as_milliseconds, or as_seconds")
 		}
-		if len(call.Arguments) != 0 {
+		if len(call.call.Arguments) != 0 {
 			return timeError(property, name+" expects no arguments")
 		}
-		return timeNode("duration_as_"+unit, []Operand{receiver.source}, compilerTypes.DurationType, compilerTypes.UInt64, property)
-	case compilerTypes.IsInstant(receiver.typ):
+		return timeNode("duration_as_"+unit, []Operand{call.receiver.source}, compilerTypes.DurationType, compilerTypes.UInt64, property)
+	case compilerTypes.IsInstant(call.receiver.typ):
 		switch name {
 		case "elapsed":
-			if len(call.Arguments) != 0 {
+			if len(call.call.Arguments) != 0 {
 				return timeError(property, "elapsed expects no arguments")
 			}
-			return timeNode("instant_elapsed", []Operand{receiver.source}, compilerTypes.InstantType, compilerTypes.DurationType, property)
+			return timeNode("instant_elapsed", []Operand{call.receiver.source}, compilerTypes.InstantType, compilerTypes.DurationType, property)
 		case "duration_since":
-			if len(call.Arguments) != 1 {
-				return timeError(property, fmt.Sprintf("duration_since expects 1 argument (earlier: Instant); got %d", len(call.Arguments)))
+			if len(call.call.Arguments) != 1 {
+				return timeError(property, fmt.Sprintf("duration_since expects 1 argument (earlier: Instant); got %d", len(call.call.Arguments)))
 			}
-			earlier, diagnostics := checkTimeArgument(call.Arguments[0], compilerTypes.InstantType, ctx)
+			earlier, diagnostics := checkTimeArgument(call.call.Arguments[0], compilerTypes.InstantType, call.ctx)
 			if len(diagnostics) > 0 {
 				return checkedExpression{token: property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 			}
-			return timeNode("instant_since", []Operand{receiver.source, earlier}, compilerTypes.InstantType, compilerTypes.DurationType, property)
+			return timeNode("instant_since", []Operand{call.receiver.source, earlier}, compilerTypes.InstantType, compilerTypes.DurationType, property)
 		}
 		return timeError(property, "Instant has no method "+name+"; use elapsed or duration_since")
 	default:
-		if len(call.Arguments) != 0 {
+		if len(call.call.Arguments) != 0 {
 			return timeError(property, name+" expects no arguments")
 		}
 		switch name {
 		case "seconds":
-			return timeNode("wall_seconds", []Operand{receiver.source}, compilerTypes.WallTimeType, compilerTypes.Int64, property)
+			return timeNode("wall_seconds", []Operand{call.receiver.source}, compilerTypes.WallTimeType, compilerTypes.Int64, property)
 		case "nanosecond":
-			return timeNode("wall_nanosecond", []Operand{receiver.source}, compilerTypes.WallTimeType, compilerTypes.UInt32, property)
+			return timeNode("wall_nanosecond", []Operand{call.receiver.source}, compilerTypes.WallTimeType, compilerTypes.UInt32, property)
 		}
 		return timeError(property, "WallTime has no method "+name+"; use seconds or nanosecond")
 	}

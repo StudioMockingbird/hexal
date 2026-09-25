@@ -44,16 +44,6 @@ func pureAccessorMethodName(kind checker.ExpressionKind, name string) bool {
 		case "length", "capacity", "is_closed":
 			return true
 		}
-	case checker.RuneMethodCallExpression:
-		// value and utf8_length are pure reads of a scalar receiver.
-		return true
-	case checker.CursorMethodCallExpression:
-		// has_next, peek, and offset are reads; next mutates only the cursor
-		// value it is given, never shared storage.
-		return true
-	case checker.GraphemeMethodCallExpression:
-		// bytes and rune_length read the borrowed range.
-		return true
 	}
 	return false
 }
@@ -78,8 +68,16 @@ func expressionMayObserve(node *checker.Expression, state *expressionValidation)
 		if !pureAccessorMethodName(node.Kind, node.Name) {
 			return true
 		}
+	case checker.CursorMethodCallExpression:
+		// The renderer takes the binding's address for every cursor's next
+		// and for a grapheme peek (which fills the scan cache in place); the
+		// remaining cursor methods take the receiver by value.
+		if node.Name == "next" {
+			return true
+		}
+		return node.Name == "peek" && compilerTypes.IsGraphemeCursor(node.OperandType)
 	case checker.CallExpression, checker.MethodCallExpression,
-		checker.StringFromBytesExpression, checker.StringInterpolateExpression,
+		checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.StringInterpolateExpression,
 		checker.InlineStringConstructExpression, checker.TextCoerceExpression,
 		checker.ListNewExpression, checker.DictNewExpression, checker.TryExpression, checker.PrintExpression,
 		checker.SpawnExpression, checker.TaskYieldExpression, checker.TaskMethodCallExpression,
@@ -88,9 +86,9 @@ func expressionMayObserve(node *checker.Expression, state *expressionValidation)
 		checker.AtomicConstructorExpression, checker.AtomicMethodCallExpression,
 		checker.StashConstructorExpression, checker.StashMethodCallExpression,
 		checker.PoolConstructorExpression, checker.PoolMethodCallExpression,
-		checker.HeapAllocateExpression, checker.HeapAllocateAlignedExpression, checker.HeapFreeExpression, checker.VolatileWriteExpression,
+		checker.HeapAllocateExpression, checker.HeapAllocateAlignedExpression, checker.HeapFreeExpression, checker.VolatileReadExpression, checker.VolatileWriteExpression,
 		checker.StreamConstructorExpression, checker.StreamMethodCallExpression, checker.TimeExpression,
-		checker.NetworkExpression,
+		checker.NetworkExpression, checker.CorelibCallExpression,
 		checker.MatchExpression:
 		return true
 	}
@@ -143,9 +141,6 @@ func hoistSequenceSlots(slots []sequenceSlot, body *strings.Builder, state *expr
 	}
 	if !observed {
 		return nil
-	}
-	if state.hoistedSequencing == nil {
-		state.hoistedSequencing = make(map[*checker.Expression]string)
 	}
 	for _, slot := range slots {
 		if err := hoistSequencingInExpression(slot.key, body, state, indent); err != nil {
@@ -543,9 +538,6 @@ func forceHoistAssignmentTargetIndex(target, source *checker.Expression, body *s
 	if err != nil {
 		return err
 	}
-	if state.hoistedSequencing == nil {
-		state.hoistedSequencing = make(map[*checker.Expression]string)
-	}
 	state.sequenceCounter++
 	temp := fmt.Sprintf("hex_seq_%d", state.sequenceCounter)
 	if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: declaration(operand.Type, temp, false), Value: rendered}); err != nil {
@@ -618,7 +610,7 @@ func hoistEvaluationOrderInStatement(statement checker.Statement, body *strings.
 // hoistedSequenceValue looks up a checked node's evaluation-order hoisted
 // temporary, if hoistEvaluationOrderInStatement already replaced it.
 func hoistedSequenceValue(state *expressionValidation, key *checker.Expression) (string, bool) {
-	if state == nil || state.hoistedSequencing == nil || key == nil {
+	if state == nil || key == nil {
 		return "", false
 	}
 	name, ok := state.hoistedSequencing[key]

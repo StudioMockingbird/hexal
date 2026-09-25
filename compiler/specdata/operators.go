@@ -251,11 +251,6 @@ func Widening(from, to TypeID) bool {
 	return false
 }
 
-// WideningPairs returns every widening pair in registration order as a copy.
-func WideningPairs() []WideningSpec {
-	return append([]WideningSpec(nil), wideningPairs...)
-}
-
 // NumericRank returns id's least-common-type order position. The bool is false
 // for a numeric identity outside the fixed-width order and for every
 // non-numeric identity; the checker's common-type selection can only reach a

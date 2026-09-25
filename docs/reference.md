@@ -63,7 +63,7 @@ The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using 
   That names the mechanisms the language lacks, not a limit on what it diagnoses: see Allocation
   and lifetime for which cleanup misuses are rejected.
 - Native modules are implemented; each `.hex` source is one module.
-- C interop remains a draft feature and is not part of this language.
+- Importing C declarations is implemented; see C interoperability for the supported surface.
 
 ## Programs, names, and bindings
 
@@ -2226,14 +2226,18 @@ Ptr<mut T>.write_volatile(value: T) -> no value
   non-empty identity fails before lexing, including the older ambiguous `x86_64-windows-gnu`
   spelling, and callers cannot supply individual ABI facts. An explicit target selects its
   platform's entrypoint widening and runtime path; a Windows-only branch that remains in the
-  text stays guarded by `#if defined(_WIN32)`. `x86_64-linux-gnu` is the target of the one
-  qualified native driver; `x86_64-windows-gnu-ucrt` remains a core C-generation target with no
-  native driver in this release.
+  text stays guarded by `#if defined(_WIN32)`. Each profile is native on its own host: `x86_64-linux-gnu`
+  on `linux/amd64` and `x86_64-windows-gnu-ucrt` on `windows/amd64`.
 - The result's `Files` map is the sole generated-artifact surface: `CompilationResult` has no
   `MainC`/`MainH` or other mirrored root-file fields, and `Files` is non-nil on every result.
 - `CompilationResult.Stats` is one project-level summary per compilation call. It aggregates only
   the entrypoint and reachable modules, exposes no per-module statistics, and on failure reports
-  work completed before failure.
+  work completed before failure. `Stats.PhaseSubtotal` sums the lex/check/generate stage durations;
+  `Stats.TotalDuration` also covers the entry point's own overhead.
+- `CompilationResult.HasCompilerDefect` reports whether `Stderr` carries an Unknown Error diagnostic
+  — a compiler defect rather than a rejection of the program. It is derived from the structured
+  diagnostics before rendering, is false on success and for every ordinary rejection, and lets the
+  driver attribute a bug without parsing message text.
 - A successful compilation produces exactly `hexal.h`, one C/header pair per reachable module
   under `modules/<canonical-path>.c/.h`, and the demand-driven component artifacts under
   `hexal/` that the reachable program selects; it returns `ExitSuccess` and has empty `Stderr`. A
@@ -2407,7 +2411,8 @@ Ptr<mut T>.write_volatile(value: T) -> no value
   numeric types, non-default calling conventions, dynamic libraries, and C project manifests are
   deferred. The handwritten and prepared-binding surface in the C interoperability section is
   implemented.
-- Memory: source pointer arithmetic/casts, `unsafe`.
+- Memory: pointer arithmetic, pointer casts, and raw address manipulation outside an `unsafe do ... end`
+  block.
 - Control/iteration: ranges, counted loops, user iterators, mutable iteration binders, exceptions.
 - Functions/concurrency: closures, async/await, coroutines, user threads, task groups, `select`,
   unbounded/rendezvous Channels, nonblocking Channel operations, memory-order arguments.
@@ -2415,6 +2420,6 @@ Ptr<mut T>.write_volatile(value: T) -> no value
   reflection, serialization schemas, runtime type objects.
 - Expressions: compound assignment, increment/decrement, conditional operator, numeric suffixes,
   wrapping/saturating conversion or arithmetic modes.
-- I/O: all File APIs (the built-in `File`/`FileMode`/`Stdio` were removed; a library API
-  returns later through C interop), Path, sockets, asynchronous I/O, builders, in-memory
-  output streams.
+- I/O: the protected built-in `File`/`FileMode`/`Stdio` names (the library surfaces are
+  `std/fs`, `std/io`, and `std/net`), Path manipulation, asynchronous I/O, and in-memory output
+  builders.

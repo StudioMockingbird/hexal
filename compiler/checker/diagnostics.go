@@ -23,17 +23,23 @@ func tokenAt(table *span.Table, s span.Span) lexer.Token {
 	return lexer.Token{Span: s, Line: position.Line, Column: position.Column}
 }
 
+// checkerDiagnostic is the one construction path for every checker
+// diagnostic: the four category builders below differ only in category, so a
+// token's span and its resolved position are recorded in exactly one place.
+func checkerDiagnostic(category compilerTypes.ErrorCategory, token lexer.Token, message string) compilerTypes.Diagnostic {
+	return compilerTypes.Diagnostic{
+		Category: category,
+		Stage:    "checker",
+		Span:     token.Span,
+		Position: span.Position{Line: token.Line, Column: token.Column},
+		Message:  message,
+	}
+}
+
 // typeErrorAt is the checker's single Type Error constructor: every site
 // reports through it rather than expanding a composite literal.
 func typeErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
-	return compilerTypes.Diagnostic{
-		Category: compilerTypes.TypeError,
-		Stage:    "checker",
-		Span:     token.Span,
-		Line:     token.Line,
-		Column:   token.Column,
-		Message:  message,
-	}
+	return checkerDiagnostic(compilerTypes.TypeError, token, message)
 }
 
 func moduleDataDiagnostic(owner, name string, token lexer.Token) compilerTypes.Diagnostic {
@@ -75,47 +81,19 @@ func diagnosticInDefiningModule(diagnostic *compilerTypes.Diagnostic, logicalKey
 // the checker reports is built by one of these five, so a category is never
 // spelled at a call site.
 func nameErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
-	return compilerTypes.Diagnostic{
-		Category: compilerTypes.NameError,
-		Stage:    "checker",
-		Span:     token.Span,
-		Line:     token.Line,
-		Column:   token.Column,
-		Message:  message,
-	}
+	return checkerDiagnostic(compilerTypes.NameError, token, message)
 }
 
 func moduleErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
-	return compilerTypes.Diagnostic{
-		Category: compilerTypes.ModuleError,
-		Stage:    "checker",
-		Span:     token.Span,
-		Line:     token.Line,
-		Column:   token.Column,
-		Message:  message,
-	}
+	return checkerDiagnostic(compilerTypes.ModuleError, token, message)
 }
 
 // semanticErrorAt reports a whole-program semantic contract failure, such as
 // scheduler starvation, that is neither a type nor a name error.
 func semanticErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
-	return compilerTypes.Diagnostic{
-		Category: compilerTypes.SemanticError,
-		Stage:    "checker",
-		Span:     token.Span,
-		Line:     token.Line,
-		Column:   token.Column,
-		Message:  message,
-	}
+	return checkerDiagnostic(compilerTypes.SemanticError, token, message)
 }
 
 func unknownAt(token lexer.Token, message string) compilerTypes.Diagnostic {
-	return compilerTypes.Diagnostic{
-		Category: compilerTypes.UnknownError,
-		Stage:    "checker",
-		Span:     token.Span,
-		Line:     token.Line,
-		Column:   token.Column,
-		Message:  message,
-	}
+	return checkerDiagnostic(compilerTypes.UnknownError, token, message)
 }

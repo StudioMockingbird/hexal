@@ -206,20 +206,15 @@ func (ctx definitionContext) writeFunctionDefinition(declared checker.FunctionDe
 		return unknownExpressionDiagnostic("checked returning function may fall through without returning")
 	}
 
-	state := &expressionValidation{
-		variables:      make(map[string]generatedBinding, len(declared.Parameters)),
-		bindings:       make(map[checker.BindingID]generatedBinding, len(declared.Parameters)),
-		bindingNames:   make(map[checker.BindingID]string, len(declared.Parameters)),
-		usedNames:      make(map[string]bool),
-		functions:      ctx.functions,
-		methods:        ctx.methods,
-		generatedTypes: ctx.typeState,
-		strings:        ctx.strings,
-		owner:          ctx.owner,
-		filename:       ctx.filename,
-		table:          ctx.table,
-		tags:           ctx.tags,
-	}
+	state := newExpressionValidation()
+	state.functions = ctx.functions
+	state.methods = ctx.methods
+	state.generatedTypes = ctx.typeState
+	state.strings = ctx.strings
+	state.owner = ctx.owner
+	state.filename = ctx.filename
+	state.table = ctx.table
+	state.tags = ctx.tags
 	state.pushScope()
 	state.envFunctions = ctx.envFunctions
 	state.envMethods = ctx.envMethods
@@ -301,20 +296,15 @@ func (ctx definitionContext) writeMethodDefinition(declared checker.MethodDeclar
 		return unknownExpressionDiagnostic("checked returning method may fall through without returning")
 	}
 
-	state := &expressionValidation{
-		variables:      make(map[string]generatedBinding, len(declared.Parameters)+1),
-		bindings:       make(map[checker.BindingID]generatedBinding, len(declared.Parameters)+1),
-		bindingNames:   make(map[checker.BindingID]string, len(declared.Parameters)+1),
-		usedNames:      make(map[string]bool),
-		functions:      ctx.functions,
-		methods:        ctx.methods,
-		generatedTypes: ctx.typeState,
-		strings:        ctx.strings,
-		owner:          ctx.owner,
-		filename:       ctx.filename,
-		table:          ctx.table,
-		tags:           ctx.tags,
-	}
+	state := newExpressionValidation()
+	state.functions = ctx.functions
+	state.methods = ctx.methods
+	state.generatedTypes = ctx.typeState
+	state.strings = ctx.strings
+	state.owner = ctx.owner
+	state.filename = ctx.filename
+	state.table = ctx.table
+	state.tags = ctx.tags
 	state.pushScope()
 	state.envFunctions = ctx.envFunctions
 	state.envMethods = ctx.envMethods

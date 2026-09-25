@@ -143,20 +143,15 @@ func writeLocalHelperDefinitions(ctx definitionContext, helpers []localHelper) e
 		if helper.result != nil && checker.FallsThrough(helper.body) {
 			return unknownExpressionDiagnostic("checked returning local function helper may fall through without returning")
 		}
-		state := &expressionValidation{
-			variables:      make(map[string]generatedBinding, len(helper.parameters)),
-			bindings:       make(map[checker.BindingID]generatedBinding, len(helper.parameters)),
-			bindingNames:   make(map[checker.BindingID]string, len(helper.parameters)),
-			usedNames:      make(map[string]bool),
-			functions:      ctx.functions,
-			methods:        ctx.methods,
-			generatedTypes: ctx.typeState,
-			strings:        ctx.strings,
-			owner:          ctx.owner,
-			filename:       ctx.filename,
-			table:          ctx.table,
-			tags:           ctx.tags,
-		}
+		state := newExpressionValidation()
+		state.functions = ctx.functions
+		state.methods = ctx.methods
+		state.generatedTypes = ctx.typeState
+		state.strings = ctx.strings
+		state.owner = ctx.owner
+		state.filename = ctx.filename
+		state.table = ctx.table
+		state.tags = ctx.tags
 		state.pushScope()
 		parameters := make([]string, len(helper.parameters))
 		for index, parameter := range helper.parameters {

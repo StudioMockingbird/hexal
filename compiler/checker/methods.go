@@ -562,160 +562,164 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		return receiver
 	}
 	receiver = narrowedReceiver(receiver)
+	// Every builtin receiver dispatch below receives the same four values, so
+	// they travel as one bundle; the written call and callee are already in
+	// scope here.
+	dispatch := methodCall{call: call, callee: callee, receiver: receiver, ctx: ctx}
 	// The compiler-owned `to<Dest>()` conversion resolves on eligible scalar
 	// receivers before user method lookup. A receiver depending on a generic
 	// parameter defers to specialization.
 	if name == "to" &&
 		(compilerTypes.IsInteger(receiver.typ) || compilerTypes.IsFloat(receiver.typ) ||
 			compilerTypes.ContainsTypeParameter(receiver.typ)) {
-		return checkConversionCall(call, callee, receiver, ctx)
+		return checkConversionCall(dispatch)
 	}
 	// The compiler-owned `bit_cast<T>()` reinterprets same-width
 	// fixed-representation scalar bits.
 	if name == "bit_cast" && (bitCastEligibleType(receiver.typ) || compilerTypes.ContainsTypeParameter(receiver.typ)) {
-		return checkBitCastCall(call, callee, receiver, ctx)
+		return checkBitCastCall(dispatch)
 	}
 	// Explicit-endian byte conversion instance methods on fixed-width
 	// integer receivers.
 	if (name == "to_le_bytes" || name == "to_be_bytes") && (compilerTypes.IsInteger(receiver.typ) || compilerTypes.ContainsTypeParameter(receiver.typ)) {
-		return checkEndianToBytesCall(call, callee, receiver, ctx)
+		return checkEndianToBytesCall(dispatch)
 	}
 	// Rune value methods dispatch on the Rune scalar receiver. Rune lowers to
 	// the uint32_t scalar, so these are pure reads with no allocation.
 	if compilerTypes.IsRune(receiver.typ) {
-		return checkRuneMethodCall(call, callee, receiver, ctx)
+		return checkRuneMethodCall(dispatch)
 	}
 	// Text cursor methods dispatch on the cursor descriptor receiver.
 	if compilerTypes.IsCursor(receiver.typ) {
-		return checkCursorMethodCall(call, callee, receiver, ctx)
+		return checkCursorMethodCall(dispatch)
 	}
 	// Grapheme methods dispatch on the borrowed-range receiver.
 	if compilerTypes.IsGrapheme(receiver.typ) {
-		return checkGraphemeMethodCall(call, callee, receiver, ctx)
+		return checkGraphemeMethodCall(dispatch)
 	}
 	// Member or method lookup on a receiver whose type is an open type
 	// parameter is substitution-dependent: the concrete argument decides
 	// whether the member exists at all. Defer it, but still check every
 	// argument so an independent error such as an unknown name is reported.
 	if genericOpen(ctx) && compilerTypes.ContainsTypeParameter(receiver.typ) {
-		return deferDependentMemberCall(call, callee, receiver, ctx)
+		return deferDependentMemberCall(dispatch)
 	}
 	// Volatile integer accesses dispatch on pointer receivers. A nullable
 	// receiver is excluded so the nullable-narrowing diagnostic below owns
 	// it.
 	if receiver.typ.Element != nil && !compilerTypes.IsNullable(receiver.typ) && (name == "read_volatile" || name == "write_volatile") {
-		return checkVolatileCall(call, callee, receiver, ctx)
+		return checkVolatileCall(dispatch)
 	}
 	// Raw address traversal and representation reinterpretation are owned by
 	// the pointer itself, ahead of the pointee's own method namespace: the
 	// receiver here is the pointer, never the object it refers to.
 	if receiver.typ.Element != nil && !compilerTypes.IsNullable(receiver.typ) && isCompilerOwnedPointerOperation(name) {
-		return checkPointerArithmeticCall(call, callee, receiver, ctx)
+		return checkPointerArithmeticCall(dispatch)
 	}
 	// Heap operations dispatch on the built-in receiver type.
 	if compilerTypes.IsHeap(receiver.typ) {
 		switch name {
 		case "allocate":
-			return checkHeapAllocate(call, callee, receiver, ctx)
+			return checkHeapAllocate(dispatch)
 		case "allocate_aligned":
-			return checkHeapAllocateAligned(call, callee, receiver, ctx)
+			return checkHeapAllocateAligned(dispatch)
 		case "free":
-			return checkHeapFree(call, callee, receiver, ctx)
+			return checkHeapFree(dispatch)
 		}
 	}
 	// Array and Slice methods dispatch on the built-in collection receiver
 	// types.
 	if receiver.typ.Array != nil || receiver.typ.Slice != nil {
-		return checkCollectionMethodCall(call, callee, receiver, ctx)
+		return checkCollectionMethodCall(dispatch)
 	}
 	// List methods dispatch on the built-in list receiver type.
 	if receiver.typ.List != nil {
-		return checkListMethodCall(call, callee, receiver, ctx)
+		return checkListMethodCall(dispatch)
 	}
 	// Dict methods dispatch on the built-in dictionary receiver type.
 	if receiver.typ.Dict != nil {
-		return checkDictMethodCall(call, callee, receiver, ctx)
+		return checkDictMethodCall(dispatch)
 	}
 	// Task, Channel, Mutex, and Atomic methods dispatch on their built-in
 	// handle receiver types.
 	if receiver.typ.Task != nil {
-		return checkTaskMethodCall(call, callee, receiver, ctx)
+		return checkTaskMethodCall(dispatch)
 	}
 	if receiver.typ.Channel != nil {
-		return checkChannelMethodCall(call, callee, receiver, ctx)
+		return checkChannelMethodCall(dispatch)
 	}
 	if compilerTypes.IsMutex(receiver.typ) {
-		return checkMutexMethodCall(call, callee, receiver, ctx)
+		return checkMutexMethodCall(dispatch)
 	}
 	if receiver.typ.Atomic != nil {
-		return checkAtomicMethodCall(call, callee, receiver, ctx)
+		return checkAtomicMethodCall(dispatch)
 	}
 	// Stash and Pool methods dispatch on their built-in allocator handle
 	// receiver types.
 	if receiver.typ.Stash != nil {
-		return checkStashMethodCall(call, callee, receiver, ctx)
+		return checkStashMethodCall(dispatch)
 	}
 	if receiver.typ.Pool != nil {
-		return checkPoolMethodCall(call, callee, receiver, ctx)
+		return checkPoolMethodCall(dispatch)
 	}
 	// Stream operations dispatch on the built-in stream receivers: IO
 	// methods take the value; Bytes state-changing methods reach Ptr<mut Bytes>
 	// either through a pointer value or through the mutable-binding rule.
 	if compilerTypes.IsIO(receiver.typ) {
-		return checkIOStreamMethodCall(call, callee, receiver, ctx)
+		return checkIOStreamMethodCall(dispatch)
 	}
 	if compilerTypes.IsFile(receiver.typ) {
-		return checkFileMethodCall(call, callee, receiver, ctx)
+		return checkFileMethodCall(dispatch)
 	}
 	// Address.format(), TcpListener.{accept,close}(), and
 	// TcpConnection.{read,write,shutdown,no_delay,close}() dispatch on their
 	// built-in networking receiver types.
 	if compilerTypes.IsAddress(receiver.typ) {
-		return checkAddressMethodCall(call, callee, receiver, ctx)
+		return checkAddressMethodCall(dispatch)
 	}
 	if compilerTypes.IsTcpListener(receiver.typ) {
-		return checkTcpListenerMethodCall(call, callee, receiver, ctx)
+		return checkTcpListenerMethodCall(dispatch)
 	}
 	if compilerTypes.IsTcpConnection(receiver.typ) {
-		return checkTcpConnectionMethodCall(call, callee, receiver, ctx)
+		return checkTcpConnectionMethodCall(dispatch)
 	}
 	// Process.{wait,terminate,close}() and Pipe.{read,write,shutdown,close}()
 	// dispatch on their built-in process/IPC receiver types.
 	if compilerTypes.IsProcess(receiver.typ) {
-		return checkProcessMethodCall(call, callee, receiver, ctx)
+		return checkProcessMethodCall(dispatch)
 	}
 	if compilerTypes.IsPipe(receiver.typ) {
-		return checkPipeMethodCall(call, callee, receiver, ctx)
+		return checkPipeMethodCall(dispatch)
 	}
 	// Signals.{next,close}() dispatches on its built-in signal-observation
 	// receiver type.
 	if compilerTypes.IsSignals(receiver.typ) {
-		return checkSignalsMethodCall(call, callee, receiver, ctx)
+		return checkSignalsMethodCall(dispatch)
 	}
 	// Error.header() and ErrorKind.header() dispatch on their built-in
 	// receiver types, ahead of the generic object-method and ADT-variant
 	// paths below (Error is Object-based; ErrorKind is Adt-based and has no
 	// object to own a method).
 	if compilerTypes.IsError(receiver.typ) {
-		return checkErrorMethodCall(call, callee, receiver, ctx)
+		return checkErrorMethodCall(dispatch)
 	}
 	if compilerTypes.IsErrorKind(receiver.typ) {
-		return checkErrorKindMethodCall(call, callee, receiver, ctx)
+		return checkErrorKindMethodCall(dispatch)
 	}
 	if receiver.typ.Element != nil && compilerTypes.IsBytes(*receiver.typ.Element) {
-		return checkBytesStreamMethodCall(call, callee, receiver, ctx)
+		return checkBytesStreamMethodCall(dispatch)
 	}
 	if compilerTypes.IsBytes(receiver.typ) {
-		return checkBytesStreamMethodCall(call, callee, receiver, ctx)
+		return checkBytesStreamMethodCall(dispatch)
 	}
 	// Time value operations dispatch on the three time receiver types.
 	if compilerTypes.IsTime(receiver.typ) {
-		return checkTimeMethodCall(call, callee, receiver, ctx)
+		return checkTimeMethodCall(dispatch)
 	}
 	// Text methods dispatch on the built-in String and String<N> receiver
 	// types.
 	if compilerTypes.IsText(receiver.typ) {
-		return checkTextMethodCall(call, callee, receiver, ctx)
+		return checkTextMethodCall(dispatch)
 	}
 	// A nullable receiver reaches no method until a null test narrowed it to
 	// its pointer member.

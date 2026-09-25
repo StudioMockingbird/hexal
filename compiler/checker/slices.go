@@ -26,90 +26,90 @@ func resolveSliceTypeUse(expression parser.SliceTypeExpression, fallback lexer.T
 
 // checkSliceMethod checks start.slice(begin, end) and start.mut_slice(begin,
 // end) for Array, List, and Slice receivers. The mutable form is valid only
-// on Array and List: re-slicing a Slice preserves the receiver's own access
+// on Array and List: re-slicing a Slice preserves the call.receiver's own access
 // mode through slice. Array receivers must be stable places, and mutable
 // Array slicing needs a writable place; a fixed List handle already permits
 // interior element mutation. Known constant bounds against a known array
 // length fail at compile time; all other invalid ranges trap at runtime.
-func checkSliceMethod(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext, mutable bool) checkedExpression {
+func checkSliceMethod(call methodCall, mutable bool) checkedExpression {
 	name := "slice"
 	if mutable {
 		name = "mut_slice"
 	}
-	if len(call.Arguments) != 2 {
-		diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("%s expects 2 arguments; got %d", name, len(call.Arguments)))
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	if len(call.call.Arguments) != 2 {
+		diagnostic := typeErrorAt(call.callee.Property, fmt.Sprintf("%s expects 2 arguments; got %d", name, len(call.call.Arguments)))
+		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
-	start, startKnown, diagnostic := checkArrayIndex(call.Arguments[0], callee.Property, ctx)
+	start, startKnown, diagnostic := checkArrayIndex(call.call.Arguments[0], call.callee.Property, call.ctx)
 	if diagnostic != nil {
-		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 	}
-	end, endKnown, diagnostic := checkArrayIndex(call.Arguments[1], callee.Property, ctx)
+	end, endKnown, diagnostic := checkArrayIndex(call.call.Arguments[1], call.callee.Property, call.ctx)
 	if diagnostic != nil {
-		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 	}
 
 	var element compilerTypes.Type
 	kind := ""
 	writable := mutable
 	switch {
-	case receiver.typ.Array != nil:
-		element = receiver.typ.Array.Element
+	case call.receiver.typ.Array != nil:
+		element = call.receiver.typ.Array.Element
 		kind = "Array"
-	case receiver.typ.List != nil:
-		element = receiver.typ.List.Element
+	case call.receiver.typ.List != nil:
+		element = call.receiver.typ.List.Element
 		kind = "List"
-	case receiver.typ.Slice != nil:
-		element = receiver.typ.Slice.Element
-		writable = receiver.typ.Slice.Writable
+	case call.receiver.typ.Slice != nil:
+		element = call.receiver.typ.Slice.Element
+		writable = call.receiver.typ.Slice.Writable
 	}
 	if kind != "" {
 		// A slice must be rooted in stable storage. A temporary
 		// Array or List has no addressable storage.
-		if !receiver.source.Addressable {
-			diagnostic := typeErrorAt(callee.Property, "a Slice cannot be rooted in a temporary "+kind)
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		if !call.receiver.source.Addressable {
+			diagnostic := typeErrorAt(call.callee.Property, "a Slice cannot be rooted in a temporary "+kind)
+			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 		}
 	}
-	if receiver.typ.Array != nil {
-		if mutable && !receiver.source.Writable {
-			diagnostic := typeErrorAt(callee.Property, "mut_slice requires a writable Array place")
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	if call.receiver.typ.Array != nil {
+		if mutable && !call.receiver.source.Writable {
+			diagnostic := typeErrorAt(call.callee.Property, "mut_slice requires a writable Array place")
+			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 		}
 		if startKnown != nil && startKnown.Constant != nil && startKnown.Constant.Kind() == constant.Int &&
 			endKnown != nil && endKnown.Constant != nil && endKnown.Constant.Kind() == constant.Int {
 			startValue, startExact := constant.Int64Val(startKnown.Constant)
 			endValue, endExact := constant.Int64Val(endKnown.Constant)
-			if startExact && endExact && (startValue > endValue || endValue > int64(receiver.typ.Array.Length)) {
-				diagnostic := typeErrorAt(tokenOf(call.Arguments[0]), fmt.Sprintf("slice range [%d, %d) is out of bounds for %s", startValue, endValue, receiver.typ.Name))
-				return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+			if startExact && endExact && (startValue > endValue || endValue > int64(call.receiver.typ.Array.Length)) {
+				diagnostic := typeErrorAt(tokenOf(call.call.Arguments[0]), fmt.Sprintf("slice range [%d, %d) is out of bounds for %s", startValue, endValue, call.receiver.typ.Name))
+				return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 			}
 		}
 	}
 
-	sliceType := ctx.typeEnvironment.SliceType(element, writable)
+	sliceType := call.ctx.typeEnvironment.SliceType(element, writable)
 	if sliceType == (compilerTypes.Type{}) {
-		diagnostic := typeErrorAt(callee.Property, element.Name+" is not a valid Slice element type")
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		diagnostic := typeErrorAt(call.callee.Property, element.Name+" is not a valid Slice element type")
+		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
 	node := Expression{
 		Kind:        CollectionSliceExpression,
 		Name:        name,
-		Operand:     &receiver.source.Node,
+		Operand:     &call.receiver.source.Node,
 		Arguments:   []Operand{start, end},
-		OperandType: receiver.typ,
+		OperandType: call.receiver.typ,
 		ResultType:  sliceType,
 		Element:     element,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: sliceType, Name: name, Node: node}
-	// A Slice derived from a rest-backed receiver stays rest-backed: its
+	// A Slice derived from a rest-backed call.receiver stays rest-backed: its
 	// backing region is the same invocation-owned region.
-	source.RestBacked = receiver.source.RestBacked
-	return checkedExpression{source: source, typ: sliceType, token: callee.Property}
+	source.RestBacked = call.receiver.source.RestBacked
+	return checkedExpression{source: source, typ: sliceType, token: call.callee.Property}
 }
 
 // viewRootIsLocal reports whether root names storage that dies with the
-// enclosing function: a non-parameter, non-receiver binding.
+// enclosing function: a non-parameter, non-call.receiver binding.
 func viewRootIsLocal(root BindingID, names *scope) bool {
 	bound, ok := names.lookupBinding(root)
 	return ok && !bound.parameter && root != names.selfID

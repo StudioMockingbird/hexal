@@ -191,12 +191,15 @@ func (arena *Arena) CompleteForeignRecord(typ Type, members []ObjectMember) Type
 	return typ
 }
 
-// ForeignRecordMembers returns a foreign record's installed members.
+// ForeignRecordMembers returns a copy of a foreign record's installed members.
+// The copy is deliberate: the members live in the program-wide arena, so a
+// caller that mutated a returned slice would corrupt the shared record for
+// every later reader. It reads the shared record, not a Type copy.
 func ForeignRecordMembers(typ Type) []ObjectMember {
 	if typ.Object == nil {
 		return nil
 	}
-	return typ.Object.Members
+	return append([]ObjectMember(nil), typ.Object.Members...)
 }
 
 // ForeignRecordIncomplete reports whether a foreign record identity is still

@@ -7,6 +7,9 @@ package integration
 
 import (
 	"hexal/compiler"
+	compilerTypes "hexal/compiler/types"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -226,15 +229,113 @@ func TestStatsFields(t *testing.T) {
 		t.Fatalf("TokenCount=%d SourceLines=%d, want both nonzero", result.Stats.TokenCount, result.Stats.SourceLines)
 	}
 	subtotal := result.Stats.LexDuration + result.Stats.CheckDuration + result.Stats.GenerateDuration
-	if result.Stats.PixelSubtotal != subtotal {
-		t.Fatalf("PixelSubtotal = %v, want Lex+Check+Generate = %v", result.Stats.PixelSubtotal, subtotal)
+	if result.Stats.PhaseSubtotal != subtotal {
+		t.Fatalf("PhaseSubtotal = %v, want Lex+Check+Generate = %v", result.Stats.PhaseSubtotal, subtotal)
 	}
-	if result.Stats.TotalDuration < result.Stats.PixelSubtotal {
-		t.Fatalf("TotalDuration = %v, want >= PixelSubtotal = %v", result.Stats.TotalDuration, result.Stats.PixelSubtotal)
+	if result.Stats.TotalDuration < result.Stats.PhaseSubtotal {
+		t.Fatalf("TotalDuration = %v, want >= PhaseSubtotal = %v", result.Stats.TotalDuration, result.Stats.PhaseSubtotal)
 	}
 }
 
 func TestEntrypointAbsentFromSources(t *testing.T) {
 	result := compiler.Compile(map[string]string{"other.hex": "let value: Int32 = 1\n"}, "app.hex", compiler.Project{})
 	assertStderrContains(t, result, "entrypoint app.hex was not found in the supplied sources")
+}
+
+// Resolution reads one canonical-identity index per compilation, so identical
+// content resolves identically regardless of how the caller assembled the
+// map, and each named index case keeps its exact diagnostics: shuffled
+// insertion, missing imports, malformed colliding keys, reserved stdlib keys,
+// and prepared C bindings.
+func TestSourceKeyIndexResolution(t *testing.T) {
+	type entry struct{ key, text string }
+	build := func(entries []entry, order []int) map[string]string {
+		sources := make(map[string]string, len(order))
+		for _, index := range order {
+			sources[entries[index].key] = entries[index].text
+		}
+		return sources
+	}
+	compareRuns := func(t *testing.T, first, second compiler.CompilationResult) {
+		t.Helper()
+		if first.ExitCode != second.ExitCode {
+			t.Fatalf("exit = %d vs %d across insertion orders", first.ExitCode, second.ExitCode)
+		}
+		if !slices.Equal(first.Stderr, second.Stderr) {
+			t.Fatalf("diagnostics differ across insertion orders:\n%v\nvs\n%v", first.Stderr, second.Stderr)
+		}
+		firstKeys := slices.Sorted(maps.Keys(first.Files))
+		secondKeys := slices.Sorted(maps.Keys(second.Files))
+		if !slices.Equal(firstKeys, secondKeys) {
+			t.Fatalf("artifact keys differ: %v vs %v", firstKeys, secondKeys)
+		}
+		for _, key := range firstKeys {
+			if first.Files[key] != second.Files[key] {
+				t.Fatalf("artifact %q differs across insertion orders", key)
+			}
+		}
+	}
+
+	t.Run("shuffled insertion", func(t *testing.T) {
+		entries := []entry{
+			{"app.hex", "import\n    A from \"./a\"\n,\n    B from \"./b\"\nend\nlet value: Int32 = A.twice()\n"},
+			{"a.hex", "fun twice(): Int32 do\n    return 2\nend\nexport\n    twice\nend\n"},
+			{"b.hex", "fun broken(): Int32 do\n    return \"not an int\"\nend\nexport\n    broken\nend\n"},
+		}
+		compareRuns(t,
+			compiler.Compile(build(entries, []int{0, 1, 2}), "app.hex", compiler.Project{}),
+			compiler.Compile(build(entries, []int{2, 0, 1}), "app.hex", compiler.Project{}))
+
+		discovery := []entry{
+			{"app.hex", "import\n    Adder from c \"adder.h\"\n,\n    Std from c <stdio.h>\nend\nlet value: Int32 = 1\n"},
+		}
+		firstRequests, firstErr := compiler.DiscoverCImports(build(discovery, []int{0}), "app.hex")
+		secondRequests, secondErr := compiler.DiscoverCImports(build(discovery, []int{0}), "app.hex")
+		if firstErr != nil || secondErr != nil {
+			t.Fatalf("DiscoverCImports errors: %v, %v", firstErr, secondErr)
+		}
+		if !slices.Equal(firstRequests, secondRequests) {
+			t.Fatalf("requests differ: %v vs %v", firstRequests, secondRequests)
+		}
+	})
+
+	t.Run("missing import", func(t *testing.T) {
+		result := compiler.Compile(map[string]string{"app.hex": "import\n    Nope from \"./nope\"\nend\n"}, "app.hex", compiler.Project{})
+		assertStderrContains(t, result, "imported module ./nope was not found")
+	})
+
+	// The malformed key canonicalizes identically to the valid one and sorts
+	// first, so the index picks it deterministically: the invalid-key
+	// diagnostic names "lib", never its neighbor, on every compilation.
+	t.Run("malformed colliding keys", func(t *testing.T) {
+		sources := map[string]string{
+			"app.hex": "import\n    L from \"./lib\"\nend\nlet value: Int32 = 1\n",
+			"lib.hex": "fun ok(): Int32 do\n    return 1\nend\nexport\n    ok\nend\n",
+			"lib":     "fun ok(): Int32 do\n    return 1\nend\nexport\n    ok\nend\n",
+		}
+		for i := 0; i < 20; i++ {
+			result := compiler.Compile(sources, "app.hex", compiler.Project{})
+			assertStderrContains(t, result, `logical key "lib" is invalid`)
+		}
+	})
+
+	t.Run("reserved stdlib key", func(t *testing.T) {
+		result := compiler.Compile(map[string]string{
+			"app.hex":       "import\n    S from \"./std/thing\"\nend\nlet value: Int32 = 1\n",
+			"std/thing.hex": "let value: Int32 = 1\nexport\n    value\nend\n",
+		}, "app.hex", compiler.Project{})
+		assertStderrContains(t, result, `the "std" path prefix is reserved for the standard library`)
+	})
+
+	t.Run("prepared C binding", func(t *testing.T) {
+		key := compiler.CBindingKey(string(compilerTypes.TargetX86_64WindowsGNU), compiler.CImportRequest{Header: "adder.h"})
+		sources := map[string]string{
+			"app.hex": "import\n    Adder from c \"adder.h\"\nend\nlet value: Int32 = 1\n",
+			key:       "extern c from \"adder.h\" do\nend\n",
+		}
+		result := compiler.Compile(sources, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
+		if result.ExitCode != compiler.ExitSuccess {
+			t.Fatalf("prepared binding must resolve through the index: %v", result.Stderr)
+		}
+	})
 }

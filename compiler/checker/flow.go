@@ -461,12 +461,6 @@ func (state *flowState) escape(id BindingID) {
 	state.dropStringPlaces(id)
 }
 
-// mergeBranch merges one branch's invalidation effects. New control-flow code
-// uses mergeBranches so freed facts include every continuing path.
-func (state *flowState) mergeBranch(branch *flowState) {
-	state.mergeBranches(branch)
-}
-
 // mergeBranches merges invalidation effects from all continuing branches.
 // Narrowing remains invalidated conservatively; unlike narrowing, freed is
 // retained only when every branch still tracks the binding and has freed it.

@@ -413,16 +413,16 @@ func textMethodNode(name string, receiver checkedExpression, arguments []Operand
 // length, bytes, slice, copy, and concat on both; free and c_pointer on the
 // heap form; widen<M> on the inline form. Indexing ([index]) resolves through
 // checkIndexPlace.
-func checkTextMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	name := callee.Property.Lexeme
-	property := callee.Property
-	inline := compilerTypes.IsInlineString(receiver.typ)
+func checkTextMethodCall(call methodCall) checkedExpression {
+	name := call.callee.Property.Lexeme
+	property := call.callee.Property
+	inline := compilerTypes.IsInlineString(call.receiver.typ)
 	fail := func(message string) checkedExpression {
 		diagnostic := typeErrorAt(property, message)
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	checkHeap := func(argument parser.Expression, label string) (checkedExpression, *checkedExpression) {
-		heap := checkValue(argument, ctx)
+		heap := checkValue(argument, call.ctx)
 		if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 			return checkedExpression{}, &heap
 		}
@@ -437,190 +437,190 @@ func checkTextMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 	// operations String<N> accepts, so the same gate rejects exactly the names
 	// the switch below has no case for -- free and c_pointer on the inline form,
 	// widen on the heap form -- with the identical diagnostic.
-	if !hasBuiltinMethod(receiver.typ, name) {
-		return fail(receiver.typ.Name + " has no method " + name)
+	if !hasBuiltinMethod(call.receiver.typ, name) {
+		return fail(call.receiver.typ.Name + " has no method " + name)
 	}
 	switch name {
 	case "length":
-		if len(call.Arguments) != 0 {
+		if len(call.call.Arguments) != 0 {
 			return fail("length expects no arguments")
 		}
-		return textMethodNode(name, receiver, nil, compilerTypes.SizeType, property)
+		return textMethodNode(name, call.receiver, nil, compilerTypes.SizeType, property)
 	case "rune_length":
-		if len(call.Arguments) != 0 {
+		if len(call.call.Arguments) != 0 {
 			return fail("rune_length expects no arguments")
 		}
-		return textMethodNode(name, receiver, nil, compilerTypes.SizeType, property)
+		return textMethodNode(name, call.receiver, nil, compilerTypes.SizeType, property)
 	case "grapheme_length":
-		if len(call.Arguments) != 0 {
+		if len(call.call.Arguments) != 0 {
 			return fail("grapheme_length expects no arguments")
 		}
-		return textMethodNode(name, receiver, nil, compilerTypes.SizeType, property)
+		return textMethodNode(name, call.receiver, nil, compilerTypes.SizeType, property)
 	case "byte_cursor":
-		if len(call.Arguments) != 0 {
+		if len(call.call.Arguments) != 0 {
 			return fail("byte_cursor expects no arguments")
 		}
-		if inline && !receiver.source.Addressable {
-			return fail("a cursor cannot be rooted in a temporary " + receiver.typ.Name)
+		if inline && !call.receiver.source.Addressable {
+			return fail("a cursor cannot be rooted in a temporary " + call.receiver.typ.Name)
 		}
-		return textMethodNode(name, receiver, nil, compilerTypes.ByteCursorType, property)
+		return textMethodNode(name, call.receiver, nil, compilerTypes.ByteCursorType, property)
 	case "rune_cursor":
-		if len(call.Arguments) != 0 {
+		if len(call.call.Arguments) != 0 {
 			return fail("rune_cursor expects no arguments")
 		}
-		if inline && !receiver.source.Addressable {
-			return fail("a cursor cannot be rooted in a temporary " + receiver.typ.Name)
+		if inline && !call.receiver.source.Addressable {
+			return fail("a cursor cannot be rooted in a temporary " + call.receiver.typ.Name)
 		}
-		return textMethodNode(name, receiver, nil, compilerTypes.RuneCursorType, property)
+		return textMethodNode(name, call.receiver, nil, compilerTypes.RuneCursorType, property)
 	case "grapheme_cursor":
-		if len(call.Arguments) != 0 {
+		if len(call.call.Arguments) != 0 {
 			return fail("grapheme_cursor expects no arguments")
 		}
-		if inline && !receiver.source.Addressable {
-			return fail("a cursor cannot be rooted in a temporary " + receiver.typ.Name)
+		if inline && !call.receiver.source.Addressable {
+			return fail("a cursor cannot be rooted in a temporary " + call.receiver.typ.Name)
 		}
-		return textMethodNode(name, receiver, nil, compilerTypes.GraphemeCursorType, property)
+		return textMethodNode(name, call.receiver, nil, compilerTypes.GraphemeCursorType, property)
 	case "bytes":
-		if len(call.Arguments) != 0 {
+		if len(call.call.Arguments) != 0 {
 			return fail("bytes expects no arguments")
 		}
-		if inline && !receiver.source.Addressable {
-			return fail("a Slice cannot be rooted in a temporary " + receiver.typ.Name)
+		if inline && !call.receiver.source.Addressable {
+			return fail("a Slice cannot be rooted in a temporary " + call.receiver.typ.Name)
 		}
-		slice := ctx.typeEnvironment.SliceType(compilerTypes.UInt8, false)
-		return textMethodNode(name, receiver, nil, slice, property)
+		slice := call.ctx.typeEnvironment.SliceType(compilerTypes.UInt8, false)
+		return textMethodNode(name, call.receiver, nil, slice, property)
 	case "slice":
-		if len(call.Arguments) != 2 {
-			return fail(fmt.Sprintf("slice expects 2 arguments; got %d", len(call.Arguments)))
+		if len(call.call.Arguments) != 2 {
+			return fail(fmt.Sprintf("slice expects 2 arguments; got %d", len(call.call.Arguments)))
 		}
-		if inline && !receiver.source.Addressable {
-			return fail("a Slice cannot be rooted in a temporary " + receiver.typ.Name)
+		if inline && !call.receiver.source.Addressable {
+			return fail("a Slice cannot be rooted in a temporary " + call.receiver.typ.Name)
 		}
-		start, _, diagnostic := checkArrayIndex(call.Arguments[0], property, ctx)
+		start, _, diagnostic := checkArrayIndex(call.call.Arguments[0], property, call.ctx)
 		if diagnostic != nil {
 			return checkedExpression{token: property, diagnostic: diagnostic}
 		}
-		end, _, diagnostic := checkArrayIndex(call.Arguments[1], property, ctx)
+		end, _, diagnostic := checkArrayIndex(call.call.Arguments[1], property, call.ctx)
 		if diagnostic != nil {
 			return checkedExpression{token: property, diagnostic: diagnostic}
 		}
-		slice := ctx.typeEnvironment.SliceType(compilerTypes.UInt8, false)
-		return textMethodNode(name, receiver, []Operand{start, end}, slice, property)
+		slice := call.ctx.typeEnvironment.SliceType(compilerTypes.UInt8, false)
+		return textMethodNode(name, call.receiver, []Operand{start, end}, slice, property)
 	case "copy":
-		if len(call.Arguments) != 1 {
-			return fail(fmt.Sprintf("copy expects 1 argument; got %d", len(call.Arguments)))
+		if len(call.call.Arguments) != 1 {
+			return fail(fmt.Sprintf("copy expects 1 argument; got %d", len(call.call.Arguments)))
 		}
-		heap, failure := checkHeap(call.Arguments[0], "copy")
+		heap, failure := checkHeap(call.call.Arguments[0], "copy")
 		if failure != nil {
 			return *failure
 		}
-		return textMethodNode(name, receiver, []Operand{heap.source}, compilerTypes.StringType, property)
+		return textMethodNode(name, call.receiver, []Operand{heap.source}, compilerTypes.StringType, property)
 	case "casefold":
-		if len(call.Arguments) != 1 {
-			return fail(fmt.Sprintf("casefold expects 1 argument; got %d", len(call.Arguments)))
+		if len(call.call.Arguments) != 1 {
+			return fail(fmt.Sprintf("casefold expects 1 argument; got %d", len(call.call.Arguments)))
 		}
-		heap, failure := checkHeap(call.Arguments[0], "casefold")
+		heap, failure := checkHeap(call.call.Arguments[0], "casefold")
 		if failure != nil {
 			return *failure
 		}
-		union, failure := textFailureUnion(compilerTypes.StringType, property, ctx)
+		union, failure := textFailureUnion(compilerTypes.StringType, property, call.ctx)
 		if failure != nil {
 			return *failure
 		}
-		result := textMethodNode(name, receiver, []Operand{heap.source}, union, property)
+		result := textMethodNode(name, call.receiver, []Operand{heap.source}, union, property)
 		result.source.Node.Span = property.Span
 		return result
 	case "normalize":
-		if len(call.Arguments) != 2 {
-			return fail(fmt.Sprintf("normalize expects 2 arguments; got %d", len(call.Arguments)))
+		if len(call.call.Arguments) != 2 {
+			return fail(fmt.Sprintf("normalize expects 2 arguments; got %d", len(call.call.Arguments)))
 		}
-		heap, failure := checkHeap(call.Arguments[0], "normalize")
+		heap, failure := checkHeap(call.call.Arguments[0], "normalize")
 		if failure != nil {
 			return *failure
 		}
-		form := checkValue(call.Arguments[1], ctx)
+		form := checkValue(call.call.Arguments[1], call.ctx)
 		if diagnostics := initializerDiagnostics(form); len(diagnostics) > 0 {
 			return checkedExpression{token: form.token, diagnostics: diagnostics}
 		}
 		if !compilerTypes.IsNormalizationForm(form.typ) {
 			return fail("normalize requires a NormalizationForm; got " + form.typ.Name)
 		}
-		union, failure := textFailureUnion(compilerTypes.StringType, property, ctx)
+		union, failure := textFailureUnion(compilerTypes.StringType, property, call.ctx)
 		if failure != nil {
 			return *failure
 		}
-		result := textMethodNode(name, receiver, []Operand{heap.source, form.source}, union, property)
+		result := textMethodNode(name, call.receiver, []Operand{heap.source, form.source}, union, property)
 		result.source.Node.Span = property.Span
 		return result
 	case "concat":
-		if len(call.Arguments) != 2 {
-			return fail(fmt.Sprintf("concat expects 2 arguments; got %d", len(call.Arguments)))
+		if len(call.call.Arguments) != 2 {
+			return fail(fmt.Sprintf("concat expects 2 arguments; got %d", len(call.call.Arguments)))
 		}
-		heap, failure := checkHeap(call.Arguments[0], "concat")
+		heap, failure := checkHeap(call.call.Arguments[0], "concat")
 		if failure != nil {
 			return *failure
 		}
-		other, failure := checkByteView(call.Arguments[1], "concat", ctx)
+		other, failure := checkByteView(call.call.Arguments[1], "concat", call.ctx)
 		if failure != nil {
 			return *failure
 		}
-		union, failure := textFailureUnion(compilerTypes.StringType, property, ctx)
+		union, failure := textFailureUnion(compilerTypes.StringType, property, call.ctx)
 		if failure != nil {
 			return *failure
 		}
-		result := textMethodNode(name, receiver, []Operand{heap.source, other.source}, union, property)
+		result := textMethodNode(name, call.receiver, []Operand{heap.source, other.source}, union, property)
 		result.source.Node.Span = property.Span
 		return result
 	case "widen":
 		if !inline {
-			return fail(receiver.typ.Name + " has no method widen")
+			return fail(call.receiver.typ.Name + " has no method widen")
 		}
-		if len(call.TypeArguments) != 1 {
+		if len(call.call.TypeArguments) != 1 {
 			return fail("widen requires exactly one capacity argument")
 		}
-		if len(call.Arguments) != 0 {
+		if len(call.call.Arguments) != 0 {
 			return fail("widen expects no arguments")
 		}
-		capacity, diagnostic := inlineStringCapacity(call.TypeArguments[0], property)
+		capacity, diagnostic := inlineStringCapacity(call.call.TypeArguments[0], property)
 		if diagnostic != nil {
 			return checkedExpression{token: property, diagnostic: diagnostic}
 		}
-		if capacity < receiver.typ.InlineString.Capacity {
+		if capacity < call.receiver.typ.InlineString.Capacity {
 			return fail("widen<M> requires M greater than or equal to N")
 		}
-		return textMethodNode(name, receiver, nil, ctx.typeEnvironment.InlineStringType(capacity), property)
+		return textMethodNode(name, call.receiver, nil, call.ctx.typeEnvironment.InlineStringType(capacity), property)
 	case "free":
 		if inline {
-			return fail(receiver.typ.Name + " has no method free")
+			return fail(call.receiver.typ.Name + " has no method free")
 		}
-		if len(call.Arguments) != 1 {
-			return fail(fmt.Sprintf("free expects 1 argument; got %d", len(call.Arguments)))
+		if len(call.call.Arguments) != 1 {
+			return fail(fmt.Sprintf("free expects 1 argument; got %d", len(call.call.Arguments)))
 		}
-		heap, failure := checkHeap(call.Arguments[0], "free")
+		heap, failure := checkHeap(call.call.Arguments[0], "free")
 		if failure != nil {
 			return *failure
 		}
-		if origins := stringOriginOf(receiver.source.Node, ctx); origins&stringOriginStatic != 0 {
+		if origins := stringOriginOf(call.receiver.source.Node, call.ctx); origins&stringOriginStatic != 0 {
 			return fail("cannot free a String literal")
 		}
-		return textMethodNode(name, receiver, []Operand{heap.source}, compilerTypes.Type{}, property)
+		return textMethodNode(name, call.receiver, []Operand{heap.source}, compilerTypes.Type{}, property)
 	case "c_pointer":
 		if inline {
-			return fail(receiver.typ.Name + " has no method c_pointer")
+			return fail(call.receiver.typ.Name + " has no method c_pointer")
 		}
-		if len(call.Arguments) != 0 {
+		if len(call.call.Arguments) != 0 {
 			return fail("c_pointer expects no arguments")
 		}
-		pointer := ctx.typeEnvironment.PtrType(compilerTypes.UInt8)
+		pointer := call.ctx.typeEnvironment.PtrType(compilerTypes.UInt8)
 		if pointer == (compilerTypes.Type{}) {
 			return fail("String.c_pointer has no pointer result")
 		}
 		// The address may outlive the String allocation, so the operation
 		// carries the unsafe contract.
-		if diagnostic := requireUnsafe(ctx, property, unsafeStringCPointer); diagnostic != nil {
+		if diagnostic := requireUnsafe(call.ctx, property, unsafeStringCPointer); diagnostic != nil {
 			return checkedExpression{token: property, diagnostic: diagnostic}
 		}
-		return textMethodNode(name, receiver, nil, pointer, property)
+		return textMethodNode(name, call.receiver, nil, pointer, property)
 	}
-	return fail(receiver.typ.Name + " has no method " + name)
+	return fail(call.receiver.typ.Name + " has no method " + name)
 }

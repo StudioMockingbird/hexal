@@ -109,7 +109,7 @@ func FuzzParse(f *testing.F) {
 			if strings.TrimSpace(diagnostic.Message) == "" {
 				t.Fatalf("parse diagnostic has an empty message: %+v", diagnostic)
 			}
-			if diagnostic.Line <= 0 || diagnostic.Column <= 0 {
+			if diagnostic.Position.Line <= 0 || diagnostic.Position.Column <= 0 {
 				t.Fatalf("parse diagnostic has a non-positive coordinate: %+v", diagnostic)
 			}
 		}

@@ -248,20 +248,10 @@ func checkVariantConstructorCall(call parser.CallExpression, ownerName string, a
 			continue
 		}
 		seen[field.Name] = true
-		// A builtin ADT variant built at Go init() time (Environment.Replace)
-		// carries List payload fields with a fixed, non-arena identity, since
-		// List's own interning lives on the per-compilation arena and isn't
-		// reachable at init() time. Re-resolving through the live arena here
-		// recovers the identity a real List<T> binding actually has; for
-		// ordinary variants (already declared against this same arena) it is
-		// a cache hit that returns the identical type unchanged.
-		fieldType := field.Type
+		fieldType := liveMemberType(field.Type, ctx.typeEnvironment)
 		fieldUse := field.Use
-		if fieldType.List != nil {
-			if live := ctx.typeEnvironment.ListType(fieldType.List.Element); live != (compilerTypes.Type{}) {
-				fieldType = live
-				fieldUse = compilerTypes.NewTypeUse(live)
-			}
+		if fieldType != field.Type {
+			fieldUse = compilerTypes.NewTypeUse(fieldType)
 		}
 		var checked checkedExpression
 		if compilerTypes.IsErrorKind(adtType) && variant.Name == "Other" {
@@ -361,7 +351,7 @@ func unionMemberIndex(union, member compilerTypes.Type) int {
 // variantPayloadPlace resolves member access on a variant-narrowed ADT
 // binding, wrapping the read in AdtPayloadExpression so the generator only
 // reads the payload after the tag proof.
-func variantPayloadPlace(receiver checkedExpression, property lexer.Token) checkedExpression {
+func variantPayloadPlace(receiver checkedExpression, property lexer.Token, ctx checkContext) checkedExpression {
 	if receiver.variant == nil {
 		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "ADT payload fields are only accessible inside a narrowed match arm"))}
 	}
@@ -379,17 +369,18 @@ func variantPayloadPlace(receiver checkedExpression, property lexer.Token) check
 		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, fmt.Sprintf("%s has no field named %s", receiver.variant.Name, property.Lexeme)))}
 	}
 	member := receiver.variant.Payload[memberIndex]
+	memberType := liveMemberType(member.Type, ctx.typeEnvironment)
 	receiverNode := receiver.source.Node
 	node := Expression{
 		Kind:         AdtPayloadExpression,
 		Operand:      &receiverNode,
 		OperandType:  receiver.storageType,
-		ResultType:   member.Type,
+		ResultType:   memberType,
 		VariantIndex: adtVariantIndex(receiver.storageType, receiver.variant.Name),
 		MemberIndex:  memberIndex,
 	}
-	source := Operand{Kind: ExpressionOperand, Type: member.Type, Node: node}
-	return checkedExpression{source: source, typ: member.Type, token: property}
+	source := Operand{Kind: ExpressionOperand, Type: memberType, Node: node}
+	return checkedExpression{source: source, typ: memberType, token: property}
 }
 
 // matchCase is one closed coverage case in table order: its canonical

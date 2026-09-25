@@ -3,7 +3,11 @@ package types
 // The builtin type registry: package-level canonical identities, the map
 // that resolves them by name, and the reserved-name guards over both.
 
-// IsProtectedTypeName reports whether a name is reserved by the language.
+// IsProtectedTypeName reports whether a name is reserved by the language: a
+// registered builtin identity or one of the structural type-position
+// spellings below. Reservedness is independent of resolution -- a protected
+// constructor name need not name a Type, and the builtin ADTs reserve their
+// names through the registry this guards.
 func IsProtectedTypeName(name string) bool {
 	if _, ok := builtinTypes[name]; ok {
 		return true
@@ -49,12 +53,6 @@ var (
 	Float32 = scalarType("Float32", "float", ScalarFloat, 32)
 	Float64 = scalarType("Float64", "double", ScalarFloat, 64)
 	Bool    = scalarType("Bool", "bool", ScalarBool, 1)
-
-	// Int, Float, and UInt are the idiomatic aliases of the platform-native
-	// widths.
-	Int   = Int32
-	Float = Float64
-	UInt  = UInt32
 
 	Nil = Type{
 		Name:         "Nil",
@@ -171,8 +169,14 @@ func errorType() Type {
 	return Type{Name: "Error", CName: "hex_t_Error", CanonicalKey: "Error", Object: object, identity: identity}
 }
 
-// builtinTypes is the canonical registry of every builtin type name: scalars,
-// Nil, Unknown, and Heap. Canonicality compares against these records.
+// builtinTypes is the registry of bare type names an environment resolves
+// with no declaration or alias: the fixed-width scalars, Nil, EoS, Unknown,
+// Heap, String, Size, Error, Mutex, Byte, the text cursors, and the grapheme
+// types; the builtin ADTs ErrorKind, NormalizationForm, and UnicodeCategory
+// register themselves here from their own files. Core-library types resolve
+// through a module qualification instead, so they hold no entry here, and
+// Int, UInt, and Float are not builtin names. Canonicality and protected-name
+// reservation both compare against these records.
 var builtinTypes = map[string]Type{
 	"Bool":    Bool,
 	"Int8":    Int8,

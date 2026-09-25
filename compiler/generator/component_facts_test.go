@@ -91,6 +91,18 @@ func TestSelectedRuntimeDependenciesReadRecords(t *testing.T) {
 		t.Fatalf("validator dependencies = %v, want [%s]", dependencies, specdata.DependencyUtf8proc)
 	}
 
+	// A type-only Process program reaches no libuv operation but still
+	// selects the Handle component, whose handle.c self-includes <uv.h> and
+	// whose record names libuv; the demand must fire for exactly that case.
+	typeOnlyProcess := &programEmission{processState: &generatedProcessState{used: true}}
+	dependencies, err = selectedRuntimeDependencies(map[specdata.ComponentID]bool{specdata.ComponentHandle: true}, typeOnlyProcess)
+	if err != nil {
+		t.Fatalf("type-only process dependency error = %v", err)
+	}
+	if strings.Join(dependencies, ",") != string(specdata.DependencyLibuv) {
+		t.Fatalf("type-only process dependencies = %v, want [%s]", dependencies, specdata.DependencyLibuv)
+	}
+
 	// A demand predicate firing while no selected component records the input
 	// is a registry/builder disagreement, never a silently dropped link.
 	if _, err := selectedRuntimeDependencies(map[specdata.ComponentID]bool{}, heapSelected); err == nil {

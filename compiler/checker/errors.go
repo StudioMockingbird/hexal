@@ -113,42 +113,42 @@ func checkErrorNewCall(call parser.CallExpression, callee lexer.Token, ctx check
 // checkErrorMethodCall resolves Error.header(), the allocation-free derived
 // display header. It is the only Error method: every other field is read as
 // an ordinary object member.
-func checkErrorMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	if callee.Property.Lexeme != "header" {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Error has no method named "+callee.Property.Lexeme))}
+func checkErrorMethodCall(call methodCall) checkedExpression {
+	if call.callee.Property.Lexeme != "header" {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Error has no method named "+call.callee.Property.Lexeme))}
 	}
-	if len(call.TypeArguments) != 0 || len(call.Arguments) != 0 {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "header takes no arguments"))}
+	if len(call.call.TypeArguments) != 0 || len(call.call.Arguments) != 0 {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "header takes no arguments"))}
 	}
-	receiver = valueFromPlace(receiver)
+	call.receiver = valueFromPlace(call.receiver)
 	node := Expression{
 		Kind:        ErrorHeaderExpression,
-		Operand:     &receiver.source.Node,
+		Operand:     &call.receiver.source.Node,
 		OperandType: compilerTypes.ErrorType,
 		ResultType:  compilerTypes.ErrorHeaderText,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: compilerTypes.ErrorHeaderText, Name: "header", Node: node}
-	return checkedExpression{source: source, typ: compilerTypes.ErrorHeaderText, token: callee.Property}
+	return checkedExpression{source: source, typ: compilerTypes.ErrorHeaderText, token: call.callee.Property}
 }
 
 // checkErrorKindMethodCall resolves ErrorKind.header(), the same allocation-
 // free derived display header method on the classification value itself.
-func checkErrorKindMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	if callee.Property.Lexeme != "header" {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "ErrorKind has no method named "+callee.Property.Lexeme))}
+func checkErrorKindMethodCall(call methodCall) checkedExpression {
+	if call.callee.Property.Lexeme != "header" {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "ErrorKind has no method named "+call.callee.Property.Lexeme))}
 	}
-	if len(call.TypeArguments) != 0 || len(call.Arguments) != 0 {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "header takes no arguments"))}
+	if len(call.call.TypeArguments) != 0 || len(call.call.Arguments) != 0 {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "header takes no arguments"))}
 	}
-	receiver = valueFromPlace(receiver)
+	call.receiver = valueFromPlace(call.receiver)
 	node := Expression{
 		Kind:        ErrorKindHeaderExpression,
-		Operand:     &receiver.source.Node,
+		Operand:     &call.receiver.source.Node,
 		OperandType: compilerTypes.ErrorKindType,
 		ResultType:  compilerTypes.ErrorHeaderText,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: compilerTypes.ErrorHeaderText, Name: "header", Node: node}
-	return checkedExpression{source: source, typ: compilerTypes.ErrorHeaderText, token: callee.Property}
+	return checkedExpression{source: source, typ: compilerTypes.ErrorHeaderText, token: call.callee.Property}
 }
 
 // checkTryExpression resolves the `try` form: the operand must be a

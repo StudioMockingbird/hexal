@@ -87,6 +87,35 @@ type generatedBinding struct {
 	mutable bool
 }
 
+// newExpressionValidation returns a rendering/validation state with every
+// per-walk map created. Constructing through this function makes the state
+// total: no production path can write to a nil map, so the lazy
+// initialization that used to sit before each first write is not
+// load-bearing. The caller sets the injected fields (functions, methods,
+// generatedTypes, strings, tags, table, owner, filename, moduleID,
+// envFunctions, envMethods) afterward. A state that must stay deliberately
+// partial is built as a struct literal, which makes it an explicit
+// malformed-state fixture rather than an accidental one.
+func newExpressionValidation() *expressionValidation {
+	return &expressionValidation{
+		expressions:                 make(map[*checker.Expression]bool),
+		objects:                     make(map[*checker.ObjectValue]bool),
+		variables:                   make(map[string]generatedBinding),
+		bindings:                    make(map[checker.BindingID]generatedBinding),
+		bindingNames:                make(map[checker.BindingID]string),
+		usedNames:                   make(map[string]bool),
+		envFunctions:                make(map[string]bool),
+		envMethods:                  make(map[string]bool),
+		captures:                    make(map[*checker.Operand][]string),
+		hoistedTries:                make(map[*checker.Expression]string),
+		hoistedDictFinds:            make(map[*checker.Expression]string),
+		hoistedInterpolations:       make(map[*checker.Expression]string),
+		hoistedInlineInterpolations: make(map[*checker.Expression]string),
+		hoistedSpawns:               make(map[*checker.Expression]string),
+		hoistedSequencing:           make(map[*checker.Expression]string),
+	}
+}
+
 // position resolves one carried span through the compilation's source table.
 // A nil table yields the zero position, so a hand-built checked program with
 // no source keeps the historical 0:0 site and suppresses a #line directive.
@@ -121,18 +150,8 @@ func (state *expressionValidation) bindingActive(id checker.BindingID) bool {
 
 func (state *expressionValidation) allocateBinding(id checker.BindingID, sourceName string, typ compilerTypes.Type, mutable bool) (string, error) {
 	if id == 0 {
-		if state.variables == nil {
-			state.variables = make(map[string]generatedBinding)
-		}
 		state.variables[sourceName] = generatedBinding{typ: typ, mutable: mutable}
 		return privateCName(valueName, sourceName, ""), nil
-	}
-	if state.bindings == nil {
-		state.bindings = make(map[checker.BindingID]generatedBinding)
-		state.bindingNames = make(map[checker.BindingID]string)
-	}
-	if state.usedNames == nil {
-		state.usedNames = make(map[string]bool)
 	}
 	if _, exists := state.bindings[id]; exists {
 		return "", unknownExpressionDiagnostic("duplicate checked binding identity")
@@ -146,7 +165,11 @@ func (state *expressionValidation) allocateBinding(id checker.BindingID, sourceN
 	state.bindings[id] = generatedBinding{typ: typ, mutable: mutable}
 	state.bindingNames[id] = name
 	if len(state.activeScopes) == 0 {
-		state.pushScope()
+		// Every production owner pushes its root scope before allocating a
+		// binding; reaching here without one is a structural generator defect,
+		// so it fails closed instead of inventing a scope the caller never
+		// balances.
+		return "", unknownExpressionDiagnostic("binding allocated without an active scope")
 	}
 	state.activeScopes[len(state.activeScopes)-1][id] = true
 	return name, nil
@@ -156,10 +179,6 @@ func (state *expressionValidation) allocateBinding(id checker.BindingID, sourceN
 // C name, so a function body's reads and writes render against the environment
 // field rather than a local.
 func (state *expressionValidation) registerCapture(capture checker.Capture, cName string) error {
-	if state.bindings == nil {
-		state.bindings = make(map[checker.BindingID]generatedBinding)
-		state.bindingNames = make(map[checker.BindingID]string)
-	}
 	if _, exists := state.bindings[capture.Binding]; exists {
 		return unknownExpressionDiagnostic("duplicate checked binding identity")
 	}

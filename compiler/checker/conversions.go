@@ -7,7 +7,6 @@ import (
 	"math"
 
 	"hexal/compiler/lexer"
-	"hexal/compiler/parser"
 	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
@@ -34,21 +33,21 @@ func truncateTowardZero(value constant.Value) constant.Value {
 // eligible scalar receiver. The receiver-scoped builtin resolves before
 // ordinary method lookup; an unrelated nominal object may declare its own
 // method named `to`.
-func checkConversionCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	source := receiver.typ
-	if len(call.TypeArguments) != 1 {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "to requires exactly 1 explicit type argument"))}
+func checkConversionCall(call methodCall) checkedExpression {
+	source := call.receiver.typ
+	if len(call.call.TypeArguments) != 1 {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "to requires exactly 1 explicit type argument"))}
 	}
-	if len(call.Arguments) != 0 {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "to accepts no value arguments"))}
+	if len(call.call.Arguments) != 0 {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "to accepts no value arguments"))}
 	}
-	targetUse, diagnostic := resolveTypeUse(call.TypeArguments[0], call.OpenParen, ctx.typeEnvironment, ctx.names.generics)
+	targetUse, diagnostic := resolveTypeUse(call.call.TypeArguments[0], call.call.OpenParen, call.ctx.typeEnvironment, call.ctx.names.generics)
 	if diagnostic != nil {
-		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 	}
 	target := targetUse.Type
 	if !conversionPairValid(source, target) {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "numeric conversion requires a supported scalar source and destination; got "+source.Name+" and "+target.Name))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "numeric conversion requires a supported scalar source and destination; got "+source.Name+" and "+target.Name))}
 	}
 
 	// A known-invalid constant conversion is a compile-time error; valid
@@ -60,23 +59,23 @@ func checkConversionCall(call parser.CallExpression, callee parser.PropertyExpre
 	// only the checked bits carry that rounding. The bits store the full
 	// signed value, and Negative mirrors the sign bit, so rebuild the
 	// magnitude from the bits and apply the operand's sign.
-	if receiver.source.Kind == ConstantOperand && receiver.source.Constant != nil {
-		value := receiver.source.Constant
+	if call.receiver.source.Kind == ConstantOperand && call.receiver.source.Constant != nil {
+		value := call.receiver.source.Constant
 		if compilerTypes.IsFloat(source) {
 			if compilerTypes.Equal(source, compilerTypes.Float32) {
-				bits := uint32(receiver.source.FloatBits) &^ (uint32(1) << 31)
+				bits := uint32(call.receiver.source.FloatBits) &^ (uint32(1) << 31)
 				value = constant.MakeFloat64(float64(math.Float32frombits(bits)))
 			} else {
-				bits := receiver.source.FloatBits &^ (uint64(1) << 63)
+				bits := call.receiver.source.FloatBits &^ (uint64(1) << 63)
 				value = constant.MakeFloat64(math.Float64frombits(bits))
 			}
-			if receiver.source.Negative {
+			if call.receiver.source.Negative {
 				value = constant.UnaryOp(gotoken.SUB, value, 0)
 			}
 		}
-		if folded, diagnostic := foldNumericConversion(value, source, target, callee.Property); diagnostic != nil || folded != nil {
+		if folded, diagnostic := foldNumericConversion(value, source, target, call.callee.Property); diagnostic != nil || folded != nil {
 			if diagnostic != nil {
-				return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+				return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 			}
 			// A folded conversion is no longer the original literal, so it
 			// carries no literal text for the generator to re-validate.
@@ -94,19 +93,19 @@ func checkConversionCall(call parser.CallExpression, callee parser.PropertyExpre
 				}
 			}
 			foldedSource.Node = constantNode(foldedSource)
-			return checkedExpression{source: foldedSource, typ: target, token: callee.Property, known: &foldedSource}
+			return checkedExpression{source: foldedSource, typ: target, token: call.callee.Property, known: &foldedSource}
 		}
 	}
 
 	node := Expression{
 		Kind:        ConversionExpression,
 		Name:        "to",
-		Operand:     &receiver.source.Node,
+		Operand:     &call.receiver.source.Node,
 		OperandType: source,
 		ResultType:  target,
 	}
 	sourceOperand := Operand{Kind: ExpressionOperand, Type: target, Name: "to", Node: node}
-	return checkedExpression{source: sourceOperand, typ: target, token: callee.Property}
+	return checkedExpression{source: sourceOperand, typ: target, token: call.callee.Property}
 }
 
 // conversionPairValid applies the source/destination conversion matrix from

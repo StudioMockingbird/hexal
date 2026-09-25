@@ -65,7 +65,7 @@ func GenerateCheckedWithMetadata(graph *checker.ModuleGraph, programs map[string
 	if mergeErr != nil {
 		return GenerationResult{}, mergeErr
 	}
-	merged.foreignIndex = buildForeignIndex(programs)
+	merged.foreignIndex = buildForeignIndex(graph, programs)
 	var root *moduleEmission
 	for _, emission := range modules {
 		isRoot := emission.canonicalID == entrypointCanonical

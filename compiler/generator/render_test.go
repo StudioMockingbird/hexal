@@ -737,8 +737,10 @@ func TestRenderTruthinessConditions(t *testing.T) {
 	}
 
 	// A nullable binding renders as a null test; the binding must be
-	// registered so the variable's type and name resolve.
-	state := &expressionValidation{}
+	// registered so the variable's type and name resolve. Production always
+	// pushes its root scope first; the test does the same.
+	state := newExpressionValidation()
+	state.pushScope()
 	if _, err := state.allocateBinding(1, "maybe", nullable, true); err != nil {
 		t.Fatalf("allocateBinding() error = %v", err)
 	}

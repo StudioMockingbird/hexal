@@ -87,4 +87,9 @@ func TestRegistryQueriesReturnDefensiveCopies(t *testing.T) {
 	if again[0].Files[0] == "mutated" {
 		t.Fatal("Components returned slices aliasing the registry")
 	}
+	ids := ConcreteTypeIDs()
+	ids[0] = "mutated"
+	if again := ConcreteTypeIDs(); again[0] == "mutated" {
+		t.Fatal("ConcreteTypeIDs returned slices aliasing the registry")
+	}
 }

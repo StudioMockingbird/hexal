@@ -763,14 +763,7 @@ func foreignRecordIdentity(cName string, target compilerTypes.TargetProfileID) s
 // configurationErrorAt reports a compilation configuration failure owned by
 // the checker's foreign surface.
 func configurationErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
-	return compilerTypes.Diagnostic{
-		Category: compilerTypes.ConfigurationError,
-		Stage:    "checker",
-		Span:     token.Span,
-		Line:     token.Line,
-		Column:   token.Column,
-		Message:  message,
-	}
+	return checkerDiagnostic(compilerTypes.ConfigurationError, token, message)
 }
 
 func isBool(typ compilerTypes.Type) bool {

@@ -131,7 +131,7 @@ func TestParseRejectsImportAfterTopLevelItem(t *testing.T) {
 			if positioned == nil {
 				t.Fatalf("diagnostics = %v, want the misplaced-import error", diagnostics)
 			}
-			if positioned.Category != compilerTypes.SyntaxError || positioned.Line != testCase.importLine || positioned.Column == 0 {
+			if positioned.Category != compilerTypes.SyntaxError || positioned.Position.Line != testCase.importLine || positioned.Position.Column == 0 {
 				t.Fatalf("misplaced-import diagnostic = %#v, want Syntax Error at line %d", positioned, testCase.importLine)
 			}
 		})
@@ -193,7 +193,7 @@ func TestParseModuleReferenceForms(t *testing.T) {
 			t.Errorf("Parse(%q) diagnostics = %v, want message %q", testCase.source, diagnostics, testCase.message)
 			continue
 		}
-		if found.Category != compilerTypes.SyntaxError || found.Line != testCase.line || found.Column != testCase.column {
+		if found.Category != compilerTypes.SyntaxError || found.Position.Line != testCase.line || found.Position.Column != testCase.column {
 			t.Errorf("Parse(%q) diagnostic = %#v, want Syntax Error at %d:%d", testCase.source, found, testCase.line, testCase.column)
 		}
 	}

@@ -22,7 +22,7 @@ func assertRejectsExactlyOne(t *testing.T, source, want string) {
 	}
 }
 
-func TestHeapFreeRejectsRFCBoundaries(t *testing.T) {
+func TestHeapFreeRejectsInvalidStorageAndRepeatedRelease(t *testing.T) {
 	testCases := []struct {
 		name   string
 		source string

@@ -48,7 +48,14 @@ type CompilationResult struct {
 	Stderr []string
 	// ExitCode is ExitSuccess or ExitFailure, suitable for a process status.
 	ExitCode int
-	Stats    CompilationStats
+	// HasCompilerDefect reports whether Stderr carries an Unknown Error
+	// diagnostic: a failure of the compiler itself rather than a rejection of
+	// the program. It is derived from the structured diagnostics before they
+	// are rendered, so a caller can attribute a bug without parsing message
+	// text. It is false on success and for every ordinary rejection.
+	HasCompilerDefect bool
+	// Stats records the work each compiler phase performed.
+	Stats CompilationStats
 }
 
 // CompilationStats records the work done by each compiler phase. Durations are
@@ -64,10 +71,10 @@ type CompilationStats struct {
 	LexDuration      time.Duration
 	CheckDuration    time.Duration
 	GenerateDuration time.Duration
-	// PixelSubtotal is the sum of the three stage durations; TotalDuration
+	// PhaseSubtotal is the sum of the three stage durations; TotalDuration
 	// additionally covers everything outside them, so the difference is the
 	// entry point's own overhead.
-	PixelSubtotal time.Duration
+	PhaseSubtotal time.Duration
 	TotalDuration time.Duration
 }
 
@@ -103,11 +110,12 @@ func Compile(sources map[string]string, entrypoint string, project Project) (res
 			diagnostic := compilerTypes.NewDiagnostic(compilerTypes.UnknownError, "compile", 0, 0,
 				"internal compiler error")
 			result = CompilationResult{
-				Files:        map[string]string{},
-				Dependencies: []RuntimeDependency{},
-				Stderr:       compilerTypes.ErrorMessages(diagnostic),
-				ExitCode:     ExitFailure,
-				Stats:        stats,
+				Files:             map[string]string{},
+				Dependencies:      []RuntimeDependency{},
+				Stderr:            compilerTypes.ErrorMessages(diagnostic),
+				ExitCode:          ExitFailure,
+				HasCompilerDefect: true,
+				Stats:             stats,
 			}
 		}
 	}()
@@ -336,6 +344,7 @@ func reachableModulesTarget(sources map[string]string, entrypoint, target string
 	root := canonicalFromLogicalKey(entrypoint)
 	state := &reachState{
 		sources:              sources,
+		keysByCanonical:      indexSourceKeys(sources),
 		stdlibSources:        stdlibSourcesByCanonical(),
 		nodes:                make(map[string]*checker.ModuleNode),
 		walk:                 graph.NewWalker[string](),
@@ -377,13 +386,14 @@ func reachableModulesTarget(sources map[string]string, entrypoint, target string
 // driver prepares the requests it returns and compiles the augmented map.
 func DiscoverCImports(sources map[string]string, entrypoint string) ([]CImportRequest, error) {
 	state := &reachState{
-		sources:       sources,
-		stdlibSources: stdlibSourcesByCanonical(),
-		nodes:         make(map[string]*checker.ModuleNode),
-		walk:          graph.NewWalker[string](),
-		byModule:      make(map[string]compilerTypes.Diagnostics),
-		discover:      true,
-		prepared:      make(map[string]bool),
+		sources:         sources,
+		keysByCanonical: indexSourceKeys(sources),
+		stdlibSources:   stdlibSourcesByCanonical(),
+		nodes:           make(map[string]*checker.ModuleNode),
+		walk:            graph.NewWalker[string](),
+		byModule:        make(map[string]compilerTypes.Diagnostics),
+		discover:        true,
+		prepared:        make(map[string]bool),
 	}
 	if err := state.visit(canonicalFromLogicalKey(entrypoint)); err != nil {
 		return nil, err
@@ -398,6 +408,12 @@ func DiscoverCImports(sources map[string]string, entrypoint string) ([]CImportRe
 // the caller never re-lexes for stats.
 type reachState struct {
 	sources map[string]string
+	// keysByCanonical groups every supplied source key by
+	// canonicalFromLogicalKey, each bucket sorted once at construction, so
+	// resolution reads the index instead of rescanning sources. It is derived
+	// data only: sourceTable and import authority keep the original logical
+	// keys, and the index never validates or rewrites them early.
+	keysByCanonical map[string][]string
 	// stdlibSources holds the embedded source stdlib modules, keyed by
 	// canonical id; it is read-only for the whole walk.
 	stdlibSources map[string]string
@@ -634,17 +650,26 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportEn
 	return s.visit(target)
 }
 
+// indexSourceKeys groups every supplied source key by
+// canonicalFromLogicalKey with each bucket sorted ascending: the one place
+// the canonical-identity scan runs, so callers see a deterministic pick and
+// error spelling without rescanning the source map.
+func indexSourceKeys(sources map[string]string) map[string][]string {
+	index := make(map[string][]string, len(sources))
+	for key := range sources {
+		canonical := canonicalFromLogicalKey(key)
+		index[canonical] = append(index[canonical], key)
+	}
+	for _, keys := range index {
+		slices.Sort(keys)
+	}
+	return index
+}
+
 // sourceKeyFor returns every source key that canonicalizes to id, sorted
 // ascending for a deterministic pick and error spelling.
 func (s *reachState) sourceKeyFor(id string) []string {
-	keys := make([]string, 0)
-	for key := range s.sources {
-		if canonicalFromLogicalKey(key) == id {
-			keys = append(keys, key)
-		}
-	}
-	slices.Sort(keys)
-	return keys
+	return s.keysByCanonical[id]
 }
 
 // stdlibSourcesByCanonical rekeys the embedded source stdlib modules by
@@ -700,35 +725,15 @@ func (s *reachState) sourceFor(canonical string) (string, string, bool) {
 }
 
 // record appends one resolution diagnostic to its module's bucket, with the
-// position normalized to 1-based source coordinates.
+// position normalized to 1-based source coordinates. It is recordCategory
+// with the ModuleError category every ordinary resolution failure carries.
 func (s *reachState) record(moduleID string, line, column int, message string) {
-	if line < 1 {
-		line = 1
-	}
-	if column < 1 {
-		column = 1
-	}
-	// The node carries the exact source key this module was read from; a
-	// module diagnosed before its node exists (the ambiguous-key scan) falls
-	// back to the first key that canonicalizes to it.
-	logicalKey := ""
-	if node, ok := s.nodes[moduleID]; ok {
-		logicalKey = node.LogicalKey
-	} else if keys := s.sourceKeyFor(moduleID); len(keys) > 0 {
-		logicalKey = keys[0]
-	}
-	s.byModule[moduleID] = append(s.byModule[moduleID], compilerTypes.Diagnostic{
-		Category: compilerTypes.ModuleError,
-		Stage:    "compile",
-		Module:   logicalKey,
-		Line:     line,
-		Column:   column,
-		Message:  message,
-	})
+	s.recordCategory(moduleID, line, column, compilerTypes.ModuleError, message)
 }
 
-// recordCategory appends one resolution diagnostic with an explicit category,
-// for the Configuration Errors a C import raises before ordinary checking.
+// recordCategory appends one resolution diagnostic with an explicit category:
+// Configuration Errors a C import raises before ordinary checking, and the
+// ModuleError that record delegates for ordinary resolution failures.
 func (s *reachState) recordCategory(moduleID string, line, column int, category compilerTypes.ErrorCategory, message string) {
 	if line < 1 {
 		line = 1
@@ -746,8 +751,7 @@ func (s *reachState) recordCategory(moduleID string, line, column int, category 
 		Category: category,
 		Stage:    "compile",
 		Module:   logicalKey,
-		Line:     line,
-		Column:   column,
+		Position: span.Position{Line: line, Column: column},
 		Message:  message,
 	})
 }
@@ -793,16 +797,17 @@ func failureResult(err error, stats CompilationStats, compileStarted time.Time) 
 	// carries the failure status itself, so no failure C program or partial
 	// module artifact is emitted and Files stays non-nil and empty.
 	return CompilationResult{
-		Files:        map[string]string{},
-		Dependencies: []RuntimeDependency{},
-		Stderr:       compilerTypes.ErrorMessages(err),
-		ExitCode:     ExitFailure,
-		Stats:        stats,
+		Files:             map[string]string{},
+		Dependencies:      []RuntimeDependency{},
+		Stderr:            compilerTypes.ErrorMessages(err),
+		ExitCode:          ExitFailure,
+		HasCompilerDefect: compilerTypes.HasUnknownError(err),
+		Stats:             stats,
 	}
 }
 
 func finalizeStats(stats *CompilationStats, compileStarted time.Time) {
-	stats.PixelSubtotal = stats.LexDuration +
+	stats.PhaseSubtotal = stats.LexDuration +
 		stats.CheckDuration +
 		stats.GenerateDuration
 	stats.TotalDuration = time.Since(compileStarted)

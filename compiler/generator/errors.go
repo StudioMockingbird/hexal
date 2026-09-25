@@ -138,9 +138,6 @@ func hoistTry(node checker.Expression, body *strings.Builder, state *expressionV
 	}
 	state.tryCounter++
 	temp := fmt.Sprintf("hex_try_%d", state.tryCounter)
-	if state.hoistedTries == nil {
-		state.hoistedTries = make(map[*checker.Expression]string)
-	}
 	operand, err := renderExpressionExpectedWithState(*node.Operand, &node.OperandType, state)
 	if err != nil {
 		return err
@@ -303,9 +300,6 @@ func hoistTry(node checker.Expression, body *strings.Builder, state *expressionV
 // prologue was emitted before the enclosing statement; an unhoisted try is
 // an internal compiler failure.
 func renderTryExpression(node checker.Expression, state *expressionValidation) (string, error) {
-	if state.hoistedTries == nil {
-		return "", unknownExpressionDiagnostic("try expression reached generation without hoisting")
-	}
 	name, ok := state.hoistedTries[node.Operand]
 	if !ok {
 		return "", unknownExpressionDiagnostic("try expression reached generation without hoisting")

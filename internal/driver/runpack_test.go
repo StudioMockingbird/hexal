@@ -210,6 +210,23 @@ func TestLoadRuntimeManifestMissingDemandedFile(t *testing.T) {
 	}
 }
 
+// TestRejectDuplicateKeysTreatsEndOfInputAsSuccess pins that the decoder's
+// terminal signal is matched structurally: a complete document is accepted, a
+// repeated field is rejected by name, and a malformed token is rejected. A
+// future decoder that wraps io.EOF keeps working because the end-of-input test
+// is errors.Is rather than a comparison of rendered text.
+func TestRejectDuplicateKeysTreatsEndOfInputAsSuccess(t *testing.T) {
+	if err := rejectDuplicateKeys([]byte(`{"a": 1, "b": [2, 3]}`)); err != nil {
+		t.Fatalf("valid document rejected: %v", err)
+	}
+	if err := rejectDuplicateKeys([]byte(`{"a": 1, "a": 2}`)); err == nil || !strings.Contains(err.Error(), "repeats field") {
+		t.Fatalf("duplicate key = %v", err)
+	}
+	if err := rejectDuplicateKeys([]byte(`}`)); err == nil || !strings.Contains(err.Error(), "malformed") {
+		t.Fatalf("malformed token = %v", err)
+	}
+}
+
 func TestManifestRejections(t *testing.T) {
 	valid := validPackManifest()
 	for _, testCase := range []struct {

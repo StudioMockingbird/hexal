@@ -34,11 +34,11 @@ func genericOpen(ctx checkContext) bool {
 // an open type parameter: the concrete argument decides whether the member
 // exists. Every argument is still checked, so an independent error such as an
 // unknown name inside a deferred operation is reported at declaration.
-func deferDependentMemberCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	if diagnostics := checkDeferredArguments(call.Arguments, ctx); len(diagnostics) > 0 {
-		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+func deferDependentMemberCall(call methodCall) checkedExpression {
+	if diagnostics := checkDeferredArguments(call.call.Arguments, call.ctx); len(diagnostics) > 0 {
+		return checkedExpression{token: call.callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
-	return checkedExpression{typ: receiver.typ, token: callee.Property}
+	return checkedExpression{typ: call.receiver.typ, token: call.callee.Property}
 }
 
 // checkDeferredArguments checks each written argument as a value so a name

@@ -957,59 +957,6 @@ func checkRootExecutable(item parser.TopLevelItem, ctx checkContext) (Statement,
 	return nil, nil
 }
 
-func topLevelItemToken(item parser.TopLevelItem) (lexer.Token, bool) {
-	switch node := item.(type) {
-	case parser.TypeDeclaration:
-		return node.Name, true
-	case parser.FunctionDeclaration:
-		return node.Name, true
-	case parser.MethodDeclaration:
-		return node.Name, true
-	case parser.Declaration:
-		return node.Name, true
-	case parser.Assignment:
-		if token, ok := assignmentTargetToken(node.Target); ok {
-			return token, true
-		}
-		return lexer.Token{Line: 1, Column: 1}, true
-	case parser.CallExpression:
-		return tokenOf(node), true
-	case parser.ReturnStatement:
-		return node.Keyword, true
-	case parser.IfStatement:
-		return node.Keyword, true
-	case parser.WhileStatement:
-		return node.Keyword, true
-	case parser.ForStatement:
-		return node.Keyword, true
-	case parser.UnsafeStatement:
-		return node.Keyword, true
-	case parser.BreakStatement:
-		return node.Keyword, true
-	case parser.ContinueStatement:
-		return node.Keyword, true
-	case parser.DeferStatement:
-		return node.Keyword, true
-	case parser.ErrdeferStatement:
-		return node.Keyword, true
-	case parser.TryStatement:
-		return node.Keyword, true
-	}
-	return lexer.Token{}, false
-}
-
-func assignmentTargetToken(target parser.Expression) (lexer.Token, bool) {
-	switch node := target.(type) {
-	case parser.VariableExpression:
-		return node.Name, true
-	case parser.PropertyExpression:
-		return node.Property, true
-	case parser.IndexExpression:
-		return tokenOf(node.Receiver), true
-	}
-	return lexer.Token{}, false
-}
-
 // executableItemToken classifies one top-level item as an executable
 // statement, returning the token diagnostics point at: the declared name for
 // a data declaration, the statement keyword when one exists, or 1,1. An

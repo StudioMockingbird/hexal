@@ -36,49 +36,49 @@ func endianEligibleType(typ compilerTypes.Type) bool {
 // checkBitCastCall resolves `receiver.bit_cast<Dest>()`. The
 // method takes exactly one explicit type argument and no value arguments;
 // source and destination must be same-width eligible scalars.
-func checkBitCastCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	if len(call.TypeArguments) != 1 {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "bit_cast requires exactly 1 explicit type argument"))}
+func checkBitCastCall(call methodCall) checkedExpression {
+	if len(call.call.TypeArguments) != 1 {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "bit_cast requires exactly 1 explicit type argument"))}
 	}
-	if len(call.Arguments) != 0 {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "bit_cast accepts no value arguments"))}
+	if len(call.call.Arguments) != 0 {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "bit_cast accepts no value arguments"))}
 	}
-	targetUse, diagnostic := resolveTypeUse(call.TypeArguments[0], call.OpenParen, ctx.typeEnvironment, ctx.names.generics)
+	targetUse, diagnostic := resolveTypeUse(call.call.TypeArguments[0], call.call.OpenParen, call.ctx.typeEnvironment, call.ctx.names.generics)
 	if diagnostic != nil {
-		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 	}
 	target := targetUse.Type
-	if !bitCastEligibleType(receiver.typ) || !bitCastEligibleType(target) {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "bit_cast requires equal-width eligible scalar types; got "+receiver.typ.Name+" and "+target.Name))}
+	if !bitCastEligibleType(call.receiver.typ) || !bitCastEligibleType(target) {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "bit_cast requires equal-width eligible scalar types; got "+call.receiver.typ.Name+" and "+target.Name))}
 	}
-	if receiver.typ.Bits != target.Bits {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, fmt.Sprintf("bit_cast requires equal-width eligible scalar types; got %s and %s", receiver.typ.Name, target.Name)))}
+	if call.receiver.typ.Bits != target.Bits {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, fmt.Sprintf("bit_cast requires equal-width eligible scalar types; got %s and %s", call.receiver.typ.Name, target.Name)))}
 	}
-	node := Expression{Kind: BitCastExpression, Operand: &receiver.source.Node, OperandType: receiver.typ, ResultType: target}
+	node := Expression{Kind: BitCastExpression, Operand: &call.receiver.source.Node, OperandType: call.receiver.typ, ResultType: target}
 	source := Operand{Kind: ExpressionOperand, Type: target, Name: "bit_cast", Node: node}
-	return checkedExpression{source: source, typ: target, token: callee.Property}
+	return checkedExpression{source: source, typ: target, token: call.callee.Property}
 }
 
 // checkEndianToBytesCall resolves `value.to_le_bytes()` and
 // `value.to_be_bytes()`. The result is Array<Byte, width / 8>.
-func checkEndianToBytesCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	if len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, callee.Property.Lexeme+" takes no arguments"))}
+func checkEndianToBytesCall(call methodCall) checkedExpression {
+	if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, call.callee.Property.Lexeme+" takes no arguments"))}
 	}
-	if !endianEligibleType(receiver.typ) {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, callee.Property.Lexeme+" requires a fixed-width integer receiver; got "+receiver.typ.Name))}
+	if !endianEligibleType(call.receiver.typ) {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, call.callee.Property.Lexeme+" requires a fixed-width integer receiver; got "+call.receiver.typ.Name))}
 	}
-	array := ctx.typeEnvironment.ArrayType(compilerTypes.UInt8, uint64(receiver.typ.Bits/8))
+	array := call.ctx.typeEnvironment.ArrayType(compilerTypes.UInt8, uint64(call.receiver.typ.Bits/8))
 	if array == (compilerTypes.Type{}) {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(unknownAt(callee.Property, "could not construct the endian byte array type"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property, "could not construct the endian byte array type"))}
 	}
 	memberIndex := 0
-	if callee.Property.Lexeme == "to_be_bytes" {
+	if call.callee.Property.Lexeme == "to_be_bytes" {
 		memberIndex = 1
 	}
-	node := Expression{Kind: EndianConversionExpression, Name: "to", Operand: &receiver.source.Node, OperandType: receiver.typ, ResultType: array, Element: receiver.typ, MemberIndex: memberIndex}
-	source := Operand{Kind: ExpressionOperand, Type: array, Name: callee.Property.Lexeme, Node: node}
-	return checkedExpression{source: source, typ: array, token: callee.Property}
+	node := Expression{Kind: EndianConversionExpression, Name: "to", Operand: &call.receiver.source.Node, OperandType: call.receiver.typ, ResultType: array, Element: call.receiver.typ, MemberIndex: memberIndex}
+	source := Operand{Kind: ExpressionOperand, Type: array, Name: call.callee.Property.Lexeme, Node: node}
+	return checkedExpression{source: source, typ: array, token: call.callee.Property}
 }
 
 // checkEndianFromBytesCall resolves the type-qualified

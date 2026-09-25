@@ -145,30 +145,30 @@ func checkTaskTypeCall(call parser.CallExpression, callee lexer.Token, ctx check
 }
 
 // checkTaskMethodCall resolves the Task handle methods: join and detach.
-func checkTaskMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	name := callee.Property.Lexeme
-	taskType := receiver.typ
+func checkTaskMethodCall(call methodCall) checkedExpression {
+	name := call.callee.Property.Lexeme
+	taskType := call.receiver.typ
 	resultType := taskType.Task.Result
 	if !hasBuiltinMethod(taskType, name) {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Task has no method "+name+"; use join or detach"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Task has no method "+name+"; use join or detach"))}
 	}
 	switch name {
 	case "join":
-		if len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "join expects no arguments"))}
+		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "join expects no arguments"))}
 		}
-		node := Expression{Kind: TaskMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: taskType, ResultType: resultType, Element: resultType}
+		node := Expression{Kind: TaskMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: taskType, ResultType: resultType, Element: resultType}
 		source := Operand{Kind: ExpressionOperand, Type: resultType, Name: name, Node: node}
-		return checkedExpression{source: source, typ: resultType, token: callee.Property}
+		return checkedExpression{source: source, typ: resultType, token: call.callee.Property}
 	case "detach":
-		if len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "detach expects no arguments"))}
+		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "detach expects no arguments"))}
 		}
-		node := Expression{Kind: TaskMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: taskType, ResultType: compilerTypes.Type{}, Element: resultType}
+		node := Expression{Kind: TaskMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: taskType, ResultType: compilerTypes.Type{}, Element: resultType}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
+		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 	default:
-		return unexpectedBuiltinMethod(taskType, callee.Property)
+		return unexpectedBuiltinMethod(taskType, call.callee.Property)
 	}
 }
 
@@ -207,74 +207,74 @@ func checkChannelTypeCall(call parser.CallExpression, callee lexer.Token, ctx ch
 }
 
 // checkChannelMethodCall resolves Channel handle methods.
-func checkChannelMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	name := callee.Property.Lexeme
-	channelType := receiver.typ
+func checkChannelMethodCall(call methodCall) checkedExpression {
+	name := call.callee.Property.Lexeme
+	channelType := call.receiver.typ
 	element := channelType.Channel.Element
 	if !hasBuiltinMethod(channelType, name) {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Channel has no method "+name+"; use send, receive, close, length, capacity, is_closed, or free"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Channel has no method "+name+"; use send, receive, close, length, capacity, is_closed, or free"))}
 	}
 	switch name {
 	case "send":
-		if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "send expects 1 argument"))}
+		if len(call.call.Arguments) != 1 || len(call.call.TypeArguments) != 0 {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "send expects 1 argument"))}
 		}
-		value := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(element), tokenOf(call.Arguments[0]), ctx)
+		value := checkInitializer(call.call.Arguments[0], compilerTypes.NewTypeUse(element), tokenOf(call.call.Arguments[0]), call.ctx)
 		if diagnostics := initializerDiagnostics(value); len(diagnostics) > 0 {
-			return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
+			return checkedExpression{token: tokenOf(call.call.Arguments[0]), diagnostics: diagnostics}
 		}
 		if !assignable(element, value.typ) {
 			return checkedExpression{token: value.token, diagnostic: diagnosticAt(typeErrorAt(value.token, fmt.Sprintf("Channel send requires %s; got %s", element.Name, value.typ.Name)))}
 		}
-		result := ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType})
-		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{value.source}, OperandType: channelType, ResultType: result, Element: element, Span: callee.Property.Span}
+		result := call.ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType})
+		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, Arguments: []Operand{value.source}, OperandType: channelType, ResultType: result, Element: element, Span: call.callee.Property.Span}
 		source := Operand{Kind: ExpressionOperand, Type: result, Name: name, Node: node}
-		return checkedExpression{source: source, typ: result, token: callee.Property}
+		return checkedExpression{source: source, typ: result, token: call.callee.Property}
 	case "receive":
-		if len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "receive expects no arguments"))}
+		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "receive expects no arguments"))}
 		}
-		result := ctx.typeEnvironment.UnionType([]compilerTypes.Type{element, compilerTypes.EoS})
-		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: channelType, ResultType: result, Element: element}
+		result := call.ctx.typeEnvironment.UnionType([]compilerTypes.Type{element, compilerTypes.EoS})
+		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: channelType, ResultType: result, Element: element}
 		source := Operand{Kind: ExpressionOperand, Type: result, Name: name, Node: node}
-		return checkedExpression{source: source, typ: result, token: callee.Property}
+		return checkedExpression{source: source, typ: result, token: call.callee.Property}
 	case "close":
-		if len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "close expects no arguments"))}
+		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "close expects no arguments"))}
 		}
-		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: channelType, ResultType: compilerTypes.Type{}, Element: element}
+		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: channelType, ResultType: compilerTypes.Type{}, Element: element}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
+		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 	case "length", "capacity":
-		if len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, name+" expects no arguments"))}
+		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, name+" expects no arguments"))}
 		}
-		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: channelType, ResultType: compilerTypes.SizeType, Element: element}
+		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: channelType, ResultType: compilerTypes.SizeType, Element: element}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.SizeType, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: callee.Property}
+		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: call.callee.Property}
 	case "is_closed":
-		if len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "is_closed expects no arguments"))}
+		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "is_closed expects no arguments"))}
 		}
-		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: channelType, ResultType: compilerTypes.Bool, Element: element}
+		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: channelType, ResultType: compilerTypes.Bool, Element: element}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Bool, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Bool, token: callee.Property}
+		return checkedExpression{source: source, typ: compilerTypes.Bool, token: call.callee.Property}
 	case "free":
-		if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "free expects 1 argument (allocator)"))}
+		if len(call.call.Arguments) != 1 || len(call.call.TypeArguments) != 0 {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "free expects 1 argument (allocator)"))}
 		}
-		heap := checkValue(call.Arguments[0], ctx)
+		heap := checkValue(call.call.Arguments[0], call.ctx)
 		if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 			return heap
 		}
 		if !compilerTypes.IsHeap(heap.typ) {
 			return checkedExpression{token: heap.token, diagnostic: diagnosticAt(typeErrorAt(heap.token, "free requires a Heap; got "+heap.typ.Name))}
 		}
-		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{heap.source}, OperandType: channelType, ResultType: compilerTypes.Type{}, Element: element}
+		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, Arguments: []Operand{heap.source}, OperandType: channelType, ResultType: compilerTypes.Type{}, Element: element}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
+		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 	default:
-		return unexpectedBuiltinMethod(channelType, callee.Property)
+		return unexpectedBuiltinMethod(channelType, call.callee.Property)
 	}
 }
 
@@ -297,36 +297,36 @@ func checkMutexTypeCall(call parser.CallExpression, callee lexer.Token, ctx chec
 }
 
 // checkMutexMethodCall resolves Mutex handle methods.
-func checkMutexMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	name := callee.Property.Lexeme
-	mutexType := receiver.typ
+func checkMutexMethodCall(call methodCall) checkedExpression {
+	name := call.callee.Property.Lexeme
+	mutexType := call.receiver.typ
 	if !hasBuiltinMethod(mutexType, name) {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Mutex has no method "+name+"; use lock, unlock, or free"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Mutex has no method "+name+"; use lock, unlock, or free"))}
 	}
 	switch name {
 	case "lock", "unlock":
-		if len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, name+" expects no arguments"))}
+		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, name+" expects no arguments"))}
 		}
-		node := Expression{Kind: MutexMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: compilerTypes.MutexType, ResultType: compilerTypes.Type{}}
+		node := Expression{Kind: MutexMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: compilerTypes.MutexType, ResultType: compilerTypes.Type{}}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
+		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 	case "free":
-		if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "free expects 1 argument (allocator)"))}
+		if len(call.call.Arguments) != 1 || len(call.call.TypeArguments) != 0 {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "free expects 1 argument (allocator)"))}
 		}
-		heap := checkValue(call.Arguments[0], ctx)
+		heap := checkValue(call.call.Arguments[0], call.ctx)
 		if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 			return heap
 		}
 		if !compilerTypes.IsHeap(heap.typ) {
 			return checkedExpression{token: heap.token, diagnostic: diagnosticAt(typeErrorAt(heap.token, "free requires a Heap; got "+heap.typ.Name))}
 		}
-		node := Expression{Kind: MutexMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{heap.source}, OperandType: compilerTypes.MutexType, ResultType: compilerTypes.Type{}}
+		node := Expression{Kind: MutexMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, Arguments: []Operand{heap.source}, OperandType: compilerTypes.MutexType, ResultType: compilerTypes.Type{}}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
+		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 	default:
-		return unexpectedBuiltinMethod(mutexType, callee.Property)
+		return unexpectedBuiltinMethod(mutexType, call.callee.Property)
 	}
 }
 
@@ -353,12 +353,12 @@ func checkAtomicTypeCall(call parser.CallExpression, callee lexer.Token, ctx che
 }
 
 // checkAtomicMethodCall resolves Atomic handle methods.
-func checkAtomicMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	name := callee.Property.Lexeme
-	atomicType := receiver.typ
+func checkAtomicMethodCall(call methodCall) checkedExpression {
+	name := call.callee.Property.Lexeme
+	atomicType := call.receiver.typ
 	element := atomicType.Atomic.Element
 	if !hasBuiltinMethod(atomicType, name) {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, fmt.Sprintf("%s has no method named %s", atomicType.Name, name)))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, fmt.Sprintf("%s has no method named %s", atomicType.Name, name)))}
 	}
 	argumentCount := 1
 	if name == "load" {
@@ -367,12 +367,12 @@ func checkAtomicMethodCall(call parser.CallExpression, callee parser.PropertyExp
 	if name == "compare_exchange" {
 		argumentCount = 2
 	}
-	if len(call.Arguments) != argumentCount || len(call.TypeArguments) != 0 {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, name+" expects "+fmt.Sprint(argumentCount)+" argument(s)"))}
+	if len(call.call.Arguments) != argumentCount || len(call.call.TypeArguments) != 0 {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, name+" expects "+fmt.Sprint(argumentCount)+" argument(s)"))}
 	}
 	if name == "fetch_add" || name == "fetch_sub" {
 		if compilerTypes.Equal(element, compilerTypes.Bool) {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, name+" is unavailable for Bool"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, name+" is unavailable for Bool"))}
 		}
 	}
 	resultType := element
@@ -383,8 +383,8 @@ func checkAtomicMethodCall(call parser.CallExpression, callee parser.PropertyExp
 		resultType = compilerTypes.Type{}
 	}
 	var arguments []Operand
-	for _, argument := range call.Arguments {
-		value := checkInitializer(argument, compilerTypes.NewTypeUse(element), tokenOf(argument), ctx)
+	for _, argument := range call.call.Arguments {
+		value := checkInitializer(argument, compilerTypes.NewTypeUse(element), tokenOf(argument), call.ctx)
 		if diagnostics := initializerDiagnostics(value); len(diagnostics) > 0 {
 			return checkedExpression{token: tokenOf(argument), diagnostics: diagnostics}
 		}
@@ -393,7 +393,7 @@ func checkAtomicMethodCall(call parser.CallExpression, callee parser.PropertyExp
 		}
 		arguments = append(arguments, value.source)
 	}
-	node := Expression{Kind: AtomicMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: arguments, OperandType: atomicType, ResultType: resultType, Element: element}
+	node := Expression{Kind: AtomicMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, Arguments: arguments, OperandType: atomicType, ResultType: resultType, Element: element}
 	source := Operand{Kind: ExpressionOperand, Type: resultType, Name: name, Node: node}
-	return checkedExpression{source: source, typ: resultType, token: callee.Property}
+	return checkedExpression{source: source, typ: resultType, token: call.callee.Property}
 }

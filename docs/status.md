@@ -14,9 +14,13 @@ gets deleted.
 | Work | Spec | Effort | ROI |
 | --- | --- | --- | --- |
 | Make generator scope ownership fail closed and remove automatic root-scope repair | [0239](specs/0239-chibicc-review-findings.md) | Low | Medium |
-| Record measured compiler policy honestly and expose deterministic module export-interface fingerprints | [0244](specs/0244-measured-policy-and-export-interface-fingerprints.md) | Medium | High |
-| Remove repeated source-map scans and small diagnostic/test-harness duplication without changing compiler output | [0245](specs/0245-codebase-refactoring-audit.md) | Low | Medium |
-| Prove end-to-end automatic import and static linking of an unmodified Raylib package | [0209](specs/deferred/0209-raylib-external-package-conformance-plan.md) | High | Medium |
+| Centralize compiler diagnostic wording and give every condition a stable visible key | [0243](specs/0243-central-diagnostics-and-stable-keys.md) | High | High |
+| Record measured compiler policy honestly beside the policy it justifies | [0244](specs/0244-measured-compiler-policy.md) | Low | High |
+
+### Under review
+
+| Work | Spec | Effort | ROI |
+| --- | --- | --- | --- |
 
 ## Deferred ideas
 
@@ -32,7 +36,8 @@ A bug is real whether or not its owning spec is scheduled.
 
 | Bug | Owning spec | Effort | ROI |
 | --- | --- | --- | --- |
-| `try String<N>.interpolate(...)` fails at generation with `[Unknown Error] String<N>.interpolate expression reached generation without hoisting`; the same call as a plain `let x: String<N> \| Error = ...` assignment hoists and compiles. Fail-closed, no miscompile. | [0143](specs/archived/0143-raw-strings-and-explicit-heap-interpolation.md) | Medium | High |
+| `try String<N>.interpolate(...)` fails at generation with `[Unknown Error] String<N>.interpolate expression reached generation without hoisting`; the same call as a plain `let x: String<N> \| Error = ...` assignment hoists and compiles. Fail-closed, no miscompile. | unassigned (needs a hoisting-order spec) | Medium | High |
+| `Net.Address.IPv4/IPv6` `bytes` payload fields reject an ordinary `Array<Byte, 4>`/`Array<Byte, 16>` binding both at construction (`expected Array<UInt8, 4> initializer; got Array<UInt8, 4>`) and at equality (canonical-identity mismatch): the globally interned builtin array and the arena's array are distinct identities. `types/network.go` documents literal-only filling while `reference.md` says IPv4/IPv6 construct through the general ADT rules. Fail-closed, no miscompile. | unassigned (needs a builtin-array identity spec) | Medium | High |
 
 ## Known coverage gaps
 
@@ -195,44 +200,6 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   result. Neither test extends the driver's build API to accept an
   externally-supplied object; that general capability remains owned by RFC
   0039/0192, separately blocked.
-- **Compiling real generated C surfaced multiple generator defects across the
-  snippet catalog.** Every failure reproduced so far is now fixed and
-  re-verified compiling clean under the Clang gate, most recently (RFC
-  0131, closed 2026-08-27) handle-valued Array/View element storage,
-  handle-aware nested equality and for-in binders, generic specialization
-  prototype ordering, flow-narrowed union returns and `try` operands, and the
-  ADT equality `abort()` missing `<stdlib.h>`; see the archived spec for the
-  full root-cause account. A full untargeted sweep of the complete 140-snippet
-  catalog now runs to completion and passes: `go test -count=1 -timeout=10m
-  -parallel=8 -tags c23 -run TestC23SnippetCatalogCompiles
-  ./compiler/tests/c23validation` finishes in 151s with 140/140 snippets
-  passing under the Clang gate — before RFC 0140 (closed 2026-08-27)
-  fixed a redundant-toolchain-discovery-per-snippet cost and parallelized the
-  loop (plus two related correctness bugs the fix required: a compile-cache
-  data race and a cache-entry-outliving-its-`t.TempDir()` bug, both latent
-  and not triggered by today's catalog, per the archived spec), this same
-  sweep ran past 50 minutes without asserting a single failure and never
-  completed. Earlier defects fixed and verified
-  compiling and running clean under the Clang gate include `hexal/list.h` and
-  `hexal/array.h` omitting `hexal/string.h` for a String element (and
-  `hexal/view.h`'s equivalent forward-declaration, needed instead of a full
-  include because `hexal/string.h` itself unconditionally needs
-  `hex_view_UInt8`); `print`'s selection of `hexal/io.c` not carrying the
-  same error/list/view/heap dependency propagation a direct stream operation
-  gets; a Go-template `{{0}}` rendering as literal `0` instead of the
-  intended C `{0}` struct initializer in `hexal/io.c`; `Mutex` declared by
-  value instead of by pointer wherever it is not a bare local (object
-  members, union payloads); `Atomic<T>.new`'s constructor casting its
-  argument to the `_Atomic` type inside a plain-typed return (tolerated by
-  one C compiler, rejected by another); a redundant `const` doubling when
-  `hex_dict_find` returns a value type that is itself already a pointer
-  (`Dict<K, String>`); and every `if`/`while` condition that is itself a bare
-  comparison or logical expression being wrapped in one redundant extra pair
-  of parentheses, which is flagged, not merely stylistic, under
-  `-Werror=parentheses-equality`. The corpus-wide sweep that found all of
-  this was `go test -tags c23 -run TestC23SnippetCatalogCompiles`, run once
-  over the full 140-snippet catalog; it had never been run to completion
-  under a real toolchain before.
 - **The Task park/commit/wake protocol's structural generated-C assertions
   (`compiler/generator/concurrency_component_test.go`) are now joined by
   runtime evidence (RFC 0183 Track 2), but not every named scenario is

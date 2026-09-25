@@ -168,7 +168,11 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		}
 		return compilerTypes.UnionTypeUse(union, members), nil
 	default:
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(fallback, "unsupported type expression"))
+		// An unsupported checked type expression is a compiler gap, not a user
+		// mistake: every concrete kind the parser can build is cased above, so
+		// reaching here means a new syntax kind arrived without a resolution
+		// path. Classifying it as a user Type Error would blame the program.
+		return compilerTypes.TypeUse{}, diagnosticAt(unknownAt(fallback, "unsupported type expression"))
 	}
 }
 

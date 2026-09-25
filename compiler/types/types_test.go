@@ -4,13 +4,13 @@ import (
 	"testing"
 
 	"hexal/compiler/config"
+	"hexal/compiler/span"
 )
 
 func TestDiagnosticFormatsCategoryBeforeDescription(t *testing.T) {
 	diagnostic := Diagnostic{
 		Category: SyntaxError,
-		Line:     2,
-		Column:   3,
+		Position: span.Position{Line: 2, Column: 3},
 		Message:  "expected an identifier",
 	}
 
@@ -23,7 +23,7 @@ func TestDiagnosticFormatsCategoryBeforeDescription(t *testing.T) {
 // messages are distinguishable and never read as one interleaved list. Stamping
 // is idempotent: an inner stage's attribution survives an outer stage's stamp.
 func TestDiagnosticQualifiesPositionWithItsModule(t *testing.T) {
-	diagnostic := Diagnostic{Category: TypeError, Line: 5, Column: 3, Message: "mismatch"}
+	diagnostic := Diagnostic{Category: TypeError, Position: span.Position{Line: 5, Column: 3}, Message: "mismatch"}
 	stamped := diagnostic.InModule("graphics/shapes.hex")
 	if got, want := stamped.Error(), "[Type Error] mismatch at graphics/shapes.hex:5:3"; got != want {
 		t.Fatalf("stamped diagnostic = %q, want %q", got, want)
@@ -34,7 +34,7 @@ func TestDiagnosticQualifiesPositionWithItsModule(t *testing.T) {
 	if got := diagnostic.Module; got != "" {
 		t.Fatalf("InModule mutated its receiver: module := %q", got)
 	}
-	set := Diagnostics{diagnostic, {Category: NameError, Line: 1, Column: 1, Message: "unknown"}}.InModule("app.hex")
+	set := Diagnostics{diagnostic, {Category: NameError, Position: span.Position{Line: 1, Column: 1}, Message: "unknown"}}.InModule("app.hex")
 	for _, entry := range set {
 		if entry.Module != "app.hex" {
 			t.Fatalf("set entry %q was not stamped", entry.Message)

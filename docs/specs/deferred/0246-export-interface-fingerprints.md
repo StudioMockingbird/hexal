@@ -1,43 +1,33 @@
-# RFC 0244: Measured Policy and Export Interface Fingerprints
+# RFC 0246: Export Interface Fingerprints
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; design settled, implementation not started
-- Created: 2026-09-24
-- Origin: RFC 0241 findings T2 and T4, selected as the two highest-ROI
-  TypeScript learnings to implement next
+- Status: Deferred; design recorded, implementation not scheduled. Promote and
+  revalidate this proposal when incremental compilation needs the metadata
+- Created: 2026-09-25
+- Origin: RFC 0241 finding T4, split from RFC 0244 so measured-policy cleanup
+  can land without unused fingerprint machinery
 - Depends on: the current checked module registry and the current
   `CompilationResult` API
-- Coordinates with: RFC 0241, deferred RFC 0232 (which will consume interface
-  fingerprints when incremental compilation is designed), deferred RFC 0164
-  (object caching, which remains separate), `AGENTS.md`
+- Coordinates with: RFC 0241, RFC 0244 (measured policy), deferred RFC 0232
+  (which will consume interface fingerprints when incremental compilation is
+  designed), and deferred RFC 0164 (object caching, which remains separate)
 - Does not change: Hexal syntax or semantics, module visibility, generated C,
   `docs/reference.md`, the string-in/string-out compiler boundary, or whether
   compilation is incremental today
 
 ## Summary
 
-Implement two TypeScript lessons that have high value without importing its
-compiler complexity:
-
-1. require measured heuristics to carry their evidence beside the policy they
-   justify; and
-2. make each successfully checked module produce a deterministic fingerprint
-   of the exported semantic interface its importers consume.
-
-The first is an immediate maintenance rule. The second is metadata for a
+Make each successfully checked module produce a deterministic fingerprint of
+the exported semantic interface its importers consume. This is metadata for a
 future incremental driver: it does not add a cache, retain compiler state, skip
 checking, or inspect the filesystem.
 
 ## Goals
 
-- Keep performance claims and tuned thresholds reproducible after their
-  originating spec is archived.
-- Remove unsupported performance language from current compiler policy rather
-  than invent measurements after the fact.
 - Produce one self-contained semantic-interface fingerprint per reachable
   source module.
-- Make implementation-only, private, whitespace, and comment edits preserve a
-  module's fingerprint.
+- Make implementation-only, whitespace, comment, and private edits that leave
+  the checked exported interface unchanged preserve a module's fingerprint.
 - Make every change visible to an importer change the appropriate
   fingerprint.
 - Keep the result deterministic across source-map insertion order and process
@@ -53,68 +43,9 @@ checking, or inspect the filesystem.
 - A user-authored declaration file or emitted `.d.hex` artifact.
 - Hashing generated headers as a substitute for semantic interfaces.
 - Promising that the fingerprint format is stable across schema versions.
-- Changing any policy value while documenting why it exists.
+- Changing compiler policy values; RFC 0244 owns their rationale cleanup.
 
-## Part A: measured compiler policy
-
-### Rule
-
-When measurement selects a non-obvious threshold, ordering, capacity, or
-heuristic, its adjacent CARE rationale records:
-
-1. what workload or corpus was measured;
-2. the alternatives compared;
-3. the figures that selected the current policy; and
-4. the condition that requires remeasurement.
-
-Example:
-
-```go
-// Four workers minimized the 95th-percentile build time on the recorded
-// multi-module corpus: 1=840ms, 2=510ms, 4=370ms, 8=430ms. Remeasure when
-// the corpus or checker ownership model changes materially.
-const checkerWorkers = 4
-```
-
-This rule does not require noise beside values selected for other reasons:
-
-- language or ABI contracts;
-- standard-defined constants;
-- exact platform requirements;
-- safety bounds chosen from a proof;
-- resource ceilings selected conservatively rather than through tuning; or
-- obvious collection sizes and loop mechanics.
-
-Those values still need an honest Contract, Architecture, Rationale, or Edge
-comment when their names do not fully explain them, but they must not pretend
-to have benchmark evidence.
-
-### Current-policy audit
-
-Implementation performs a focused audit of `compiler/config/config.go`, the
-one compiler-owned home for shared tunable policy. Each declaration is
-classified without changing its value:
-
-| Policy | Classification | Required action |
-| --- | --- | --- |
-| `RuntimeABIVersion` | generated/runtime contract | Keep the contract comment |
-| `PageSizeBytes` | platform/layout requirement | Keep the platform rationale |
-| `MaxSyntaxDepth` | recursive-stack safety bound | State headroom rationale; do not claim benchmark tuning |
-| `MaxInterpolationDepth` | lexer/parser consistency bound | Keep its relationship to syntax depth explicit |
-| `ForeignInspectionByteLimit` | conservative hostile-output ceiling | State that it is an initial resource ceiling, not a measured optimum |
-| `ForeignInspectionTimeout` | conservative external-process ceiling | State the same and name the qualification boundary |
-| task stack reserve/commit | public runtime policy plus platform constraint | Keep the contract and backend distinction |
-| `MaxInlineStringCapacity` | language/runtime storage ceiling | Remove the unsupported claim that one page is where inline storage stops being cheaper; state only the bounded-value/stack-layout policy the value actually enforces |
-| Error capacities | public runtime representation | Keep the representation contract |
-
-`AGENTS.md` gains the general rule above under CARE or Simplify so future
-agents do not bury measured policy only in an expiring spec.
-
-No benchmark is fabricated to defend an existing value. If a later change
-wants a different value for performance, that change measures it and records
-the results.
-
-## Part B: exported-interface fingerprints
+## Exported-interface fingerprints
 
 ### Public result
 
@@ -140,6 +71,13 @@ them from canonical module identities.
 
 This remains string-in/string-out compilation. The additional strings are
 compiler metadata, not files, host paths, or retained state.
+
+This is a fingerprint of the **checked Hexal interface**, not of native input
+bytes. A foreign record includes the checked C spelling, header identity, and
+layout facts below, but editing a header without changing those checked facts
+cannot change this digest. An eventual build cache must track the actual C
+headers, native sources, objects, and toolchain inputs separately; this digest
+must never be treated as their replacement.
 
 ### Production point
 
@@ -198,15 +136,19 @@ target profile
 canonical module identity
 ```
 
-Every field is written as its byte length followed by its exact bytes. No JSON,
-Go formatting, pointer identity, map iteration, or delimiter ambiguity enters
-the stream. Changing the encoding contract increments the schema name and
-deliberately changes every fingerprint.
+Every field is written as an unsigned varint byte length followed by its exact
+bytes. Each section writes its record count, and each record writes a kind tag
+and its field count before its fields; an empty field is distinct from an
+absent field. No JSON, Go formatting, pointer identity, map iteration, or
+delimiter ambiguity enters the stream. Changing the encoding contract
+increments the schema name and deliberately changes every fingerprint.
 
-Export records are sorted by `(kind, exported source name)`. Export-block order
-does not matter. Declaration order is retained only where the language makes
-it observable: object member layout, ADT variant ordinals, ADT payload layout,
-and function parameter order.
+Export records are sorted by `(kind, fully qualified export key)`. A method's
+key includes its receiver's canonical identity and method name; a bare method
+name is not a total key when two receivers export the same name. Export-block
+order does not matter. Declaration order is retained only where the language
+makes it observable: object member layout, ADT variant ordinals, ADT payload
+layout, and function parameter order.
 
 The full lowercase SHA-256 is returned. A truncated digest is not sufficient
 for a cache identity.
@@ -231,9 +173,18 @@ The stream records every interface an importer can resolve:
 | generic function | exported name, parameter arity, normalized parameter/rest/result types; body excluded |
 | generic method | exported receiver template, receiver and method arities, name, normalized parameter/rest/result types; body excluded |
 
-The encoder consumes the checker registry's completed export records and the
-existing open-generic records. It does not reparse source and does not print an
-AST back into text.
+The ordinary encoder consumes the checker registry's completed export records.
+Open-generic records are **not yet completed interface records**: their target,
+parameter, and result expressions are parser nodes, and the current
+declaration-time open checks resolve placeholder types only temporarily before
+restoring the generic-check snapshot. Implementation must retain an immutable,
+normalized interface shape when each open generic type, function, or method
+checks successfully. Capture the checked placeholder target/signature before
+the temporary state is restored, normalize type parameters by ordinal, and
+retain no body or specialization request in that shape. The encoder consumes
+these retained checked shapes; it neither serializes parser syntax nor
+re-checks a template during hashing. A failed open check publishes no shape
+and cannot produce a successful fingerprint.
 
 ### The record table needs a guard, not a promise
 
@@ -245,19 +196,30 @@ features because **the fingerprint has no consumer yet**, so an omission
 produces no symptom until an incremental driver ships and skips work it owed.
 
 The exportable surface is enumerable from the checker rather than from this
-table. `applyExportFlags` in `compiler/checker/modules.go:293` switches over
-`FunctionDeclaration` and `MethodDeclaration` and then walks `ModuleValues`,
-`ForeignFunctions`, `ForeignConstants`, `ForeignGlobals`, and `ForeignRecords`;
-nominal types and generics reach importers through the registry's own export
-tables.
+table. `applyExportFlags` stamps ordinary checked declarations, but is **not**
+a complete enumeration source: type names and open generic templates do not
+all receive an `Exported` field there. The production anchors are
+`moduleEntry`'s export-bearing maps in `compiler/checker/modules.go`, populated
+by `registerExports` and `registerGenerics` and gated by `entry.exports` at
+lookup. The current carriers are `functions`, `types`, `methods`,
+`moduleValues`, `foreignFunctions`, `foreignConstants`, `foreignGlobals`,
+`foreignRecords`, `genericFunctions`, `genericTypes`, and `genericMethods`.
+`types` also holds a foreign-record lookup alias; that does not create a
+second interface record beside `foreignRecords`.
 
-So the encoder carries a guard in archived RFC 0238's established pattern:
-every exportable kind the checker can register has an encoder arm, and every
-encoder arm corresponds to a kind the checker can register. A new exportable
-kind added later fails that guard instead of silently falling out of every
-fingerprint. This is the same mechanism that pins the ErrorKind tags and the
-component include literals, applied to the one surface where a gap is
-undetectable by construction.
+So the encoder carries a guard in archived RFC 0238's established pattern.
+A test reads the actual `moduleEntry` map fields and the assignment arms in
+`registerExports` and `registerGenerics` with Go's syntax-tree facilities,
+then compares their export-bearing field names with the field names traversed
+by the encoder. It explicitly excludes the registry's import, export-flag,
+defining-context, and concrete-specialization bookkeeping fields; an added
+field must be classified rather than silently ignored. Within `types` and
+`genericTypes`, focused cases cover alias, object, ADT, and foreign-record
+forms, and unknown checked type forms fail closed instead of falling back to
+a display name. Do not satisfy the guard with two manually maintained copies
+of the record table. Demonstrate that adding a registration arm without an
+encoder arm, and adding an encoder arm without a registrable kind, each fails
+the guard with the missing field or kind named.
 
 ### Type normalization
 
@@ -271,8 +233,10 @@ The type encoder is semantic and recursive:
   are included;
 - generic parameters are encoded by ordinal (`$0`, `$1`, ...), so renaming
   `T` to `Element` does not change the interface;
-- every reachable nominal type is collected into a definition table keyed by
-  its module-qualified canonical identity;
+- every reachable source nominal or foreign record is collected into a
+  definition table keyed by its canonical identity: source objects and ADTs
+  use module-qualified keys, while foreign records use their target-qualified
+  C identity, shared across modules;
 - interface records refer to nominal definitions by that key;
 - the definition table is emitted in key order and contains object members or
   ADT variants recursively; and
@@ -285,7 +249,8 @@ member layout must also change B's interface fingerprint; an eventual
 invalidation walk may then safely stop where a fingerprint is unchanged.
 
 Source display names never replace canonical identities. Two same-named types
-from different modules remain different.
+from different modules remain different, while two declarations of the same
+C record on one target share its one canonical identity.
 
 ### Included and excluded changes
 
@@ -322,15 +287,29 @@ fun identity<Value>(value: Value): Value do ... end
 The fingerprint excludes:
 
 - comments, whitespace, source spans, and logical line numbers;
-- private declarations;
+- private declarations that do not alter a normalized exported type;
 - function and method bodies;
-- module-value initializers;
+- module-value initializers when the checked value type remains unchanged;
 - parameter names;
 - export-block ordering;
 - generated C names derived entirely from semantic identity;
 - generated helper demand;
 - concrete generic specializations requested by this compilation; and
 - generated artifact content.
+
+Transparent aliases are normalized through their targets, regardless of
+whether the alias name is exported. For example, changing a private
+`type Local is Int32` to `type Local is Int64` changes the fingerprint when an
+exported `fun reveal(value: Local): Local` exposes that target; private status
+does not make a public signature change invisible. A current compiler probe
+emits `int32_t hex_f_m3_app_reveal(int32_t)` for the first form and
+`int64_t hex_f_m3_app_reveal(int64_t)` for the second.
+
+The same rule applies to an inferred exported module value: a probe changing
+`let signal = true` to `let signal = b'A'` emits `extern const bool
+hex_v_m9_constants_signal;` versus `extern const uint8_t
+hex_v_m9_constants_signal;`. The initializer is not itself a fingerprint
+field, but the checked exported type it determines is.
 
 The target profile is included in the stream because foreign ABI checking is
 target-dependent. The fingerprint alone is never a complete persistent cache
@@ -358,27 +337,17 @@ Implementation must review:
 - checker module registration and exported-interface closure ordering;
 - generic template records, ensuring bodies and specialization demand do not
   leak into the stream;
-- all exported ordinary and foreign declaration families listed above;
-- `compiler/config/config.go` comments under Part A's classification; and
-- `AGENTS.md` CARE guidance.
+- all exported ordinary and foreign declaration families listed above.
 
 Do not add a cache, session, declaration-file emitter, filesystem lookup, or
 hash of generated headers during this sweep.
 
-## Validation
+## Future implementation acceptance
 
-This section is exhaustive.
-
-Measured policy:
-
-- `AGENTS.md` states the four-part evidence rule for empirically selected
-  policy and distinguishes empirical tuning from contracts, platform facts,
-  proofs, and conservative ceilings.
-- Every declaration in `compiler/config/config.go` has an accurate
-  classification comment; no comment invents benchmark evidence.
-- `MaxInlineStringCapacity` no longer claims that one page is an empirically
-  proven cost crossover.
-- No policy value changes under Part A.
+This deferred proposal authorizes no implementation. On promotion, recheck
+these cases against the then-current compiler and turn them into an exhaustive
+Validation section. No fingerprint may be consumed for incremental skipping
+before that gate passes.
 
 Result contract:
 
@@ -398,9 +367,15 @@ Stability:
 
 - Recompiling identical inputs in separate calls produces identical maps.
 - Comments, whitespace, source positions, export-list order, private
-  declarations, function/method bodies, parameter names, and module-value
-  initializer changes preserve the affected module's fingerprint.
+  declarations that leave exported normalized types unchanged, function/method
+  bodies, parameter names, and module-value initializer changes that preserve
+  the checked value type preserve the affected module's fingerprint.
+- Changing a private transparent alias used in an exported signature from
+  `Int32` to `Int64` changes the defining module's fingerprint.
 - Reordering the input source map preserves every fingerprint.
+- Reordering independent exported methods with the same bare name on distinct
+  receivers preserves the fingerprint; changing either receiver's identity or
+  method signature does not.
 - Renaming a generic parameter while preserving its ordinal use preserves the
   fingerprint.
 
@@ -421,14 +396,24 @@ Sensitivity:
 - Object member name, order, mutability, or type changes change it.
 - ADT variant name/order or payload member name/order/type changes change it.
 - Module-value type changes change it.
+- For an exported inferred module value, changing its initializer so its
+  inferred type changes also changes the fingerprint; the initializer's
+  *value* alone is not an interface fact.
 - Foreign header form/payload, C symbol/spelling, boundary type, record
   completeness/layout, or global mutability changes change it.
 - Generic arity, public signature, alias target, object layout, or ADT layout
-  changes change it; generic body-only changes do not.
+  changes change it even when no concrete specialization is requested;
+  generic body-only changes do not.
 - A reachable imported nominal type's public layout change changes the
   fingerprint of an exported interface that exposes that type.
+- A reachable foreign record's checked completeness or member layout changes
+  the fingerprint of an exported interface that exposes that record, even
+  when another module declared the same C record identity first.
 - The same sources checked under two distinct target profiles produce distinct
   fingerprints.
+- Changing external C header bytes without changing the prepared checked
+  interface does not, by itself, change this fingerprint; native-input
+  invalidation remains the later driver's responsibility.
 
 Regression boundary:
 
@@ -439,38 +424,35 @@ Regression boundary:
 - `docs/reference.md` is reviewed and intentionally unchanged because this is
   compiler metadata, not a language contract.
 
-## Implementation plan
+## Future implementation plan
 
-### Phase 1: measured-policy rule
+### Phase 1: checked generic shapes and canonical interface encoder
 
-1. Add the four-part empirical-policy requirement to `AGENTS.md`.
-2. Audit every declaration in `compiler/config/config.go` against Part A's
-   classification table.
-3. Correct unsupported or ambiguous rationale without changing a value.
-4. Run the ordinary suite and prove generated artifacts did not move.
-
-### Phase 2: canonical interface encoder
-
-1. Add one checker-owned encoder in a focused file such as
+1. Preserve each open generic's checked, placeholder-normalized interface
+   shape during its declaration-time check, before its temporary state is
+   restored. Do not reuse parser expressions as the fingerprint record.
+2. Add one checker-owned encoder in a focused file such as
    `compiler/checker/interface_fingerprint.go`.
-2. Implement length-prefixed field writing and the versioned stream prefix.
-3. Implement normalized type references and the sorted reachable nominal
+3. Implement length-prefixed field writing and the versioned stream prefix.
+4. Implement normalized type references and the sorted reachable nominal
    definition table, with cycle-safe key references.
-4. Implement the ordinary, generic, module-value, and foreign export record
+5. Implement the ordinary, generic, module-value, and foreign export record
    families.
-5. Add focused checker tests for ordering, recursion, same-named nominal types,
+6. Add the two-way registered-kind/encoder-arm guard and prove both failure
+   directions against deliberately missing arms.
+7. Add focused checker tests for ordering, recursion, same-named nominal types,
    generic-parameter normalization, and every record family.
 
-### Phase 3: checker production point
+### Phase 2: checker production point
 
 1. Add the fingerprint field to `checker.Program`.
-2. Produce it only after export registration and closure validation succeed,
-   before generic specializations are assembled.
+2. Produce the fingerprint only after export registration and closure
+   validation succeed, before generic specializations are assembled.
 3. Prove a body-only generic change and different specialization demand do not
    affect it.
 4. Prove imported reachable nominal definitions participate transitively.
 
-### Phase 4: public result
+### Phase 3: public result
 
 1. Add `ExportFingerprints map[string]string` to `CompilationResult`.
 2. Gather successful module fingerprints using `graph.Order` and each node's
@@ -479,18 +461,19 @@ Regression boundary:
 4. Add exported-API integration tests for membership, stability, sensitivity,
    target separation, and unreachable sources.
 
-### Phase 5: conformance and handoff
+### Phase 4: conformance and handoff
 
-1. Run the exhaustive Validation matrix.
+1. Revalidate and run the promoted RFC's exhaustive Validation matrix.
 2. Confirm the snippet manifest is byte-identical.
 3. Review `docs/reference.md` and record that no edit is required.
-4. Update RFC 0232 to consume, rather than redefine, the fingerprint contract.
-5. Mark this RFC closed and remove its `docs/status.md` row only when every
-   gate passes.
+4. Coordinate with RFC 0232 as the eventual consumer; keep its cache and
+   invalidation design outside this fingerprint contract.
+5. Mark the promoted RFC closed only when every gate passes.
 
 ## Implementation readiness
 
-Implementation-ready. The public field, production point, encoding ownership,
-schema/version rule, included interface facts, exclusions, failure behavior,
-tests, and future incremental boundary are all specified. No cache or
-persistent state decision is required to implement this RFC.
+Deferred. The public field, production point, encoding ownership, schema
+version, included interface facts, exclusions, and failure behavior are
+recorded, but no current compiler consumer needs this metadata. Before
+implementation, revalidate the plan and acceptance cases against the compiler
+and the incremental build design that makes fingerprints useful.

@@ -12,7 +12,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -231,7 +233,7 @@ func rejectDuplicateKeys(raw []byte) error {
 	for {
 		token, err := decoder.Token()
 		if err != nil {
-			if err.Error() == "EOF" {
+			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			return fmt.Errorf("runtime pack manifest is malformed: %v", err)

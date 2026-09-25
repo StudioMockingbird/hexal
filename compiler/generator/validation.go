@@ -10,17 +10,12 @@ import (
 
 func validateCheckedProgram(program checker.Program, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, stringState *literalRegistry, table *span.Table) error {
 	typeState := &generatedTypeValidation{declaredObjects: errorDeclaredObjects(program)}
-	state := &expressionValidation{
-		variables:      make(map[string]generatedBinding),
-		bindings:       make(map[checker.BindingID]generatedBinding),
-		bindingNames:   make(map[checker.BindingID]string),
-		usedNames:      make(map[string]bool),
-		functions:      functions,
-		methods:        methods,
-		generatedTypes: typeState,
-		strings:        stringState,
-		table:          table,
-	}
+	state := newExpressionValidation()
+	state.functions = functions
+	state.methods = methods
+	state.generatedTypes = typeState
+	state.strings = stringState
+	state.table = table
 	state.pushScope()
 	for _, typeDeclaration := range program.TypeDeclarations {
 		if !validSourceName(typeDeclaration.Name) {
@@ -55,17 +50,12 @@ func validateFunctionDeclaration(declared checker.FunctionDeclaration, typeState
 	if !validSourceName(declared.Name) || declared.Type.Signature == nil || !validateGeneratedType(declared.Type, typeState, false) {
 		return unknownExpressionDiagnostic("unsupported checked specialized function")
 	}
-	state := &expressionValidation{
-		variables:      make(map[string]generatedBinding, len(declared.Parameters)),
-		bindings:       make(map[checker.BindingID]generatedBinding, len(declared.Parameters)),
-		bindingNames:   make(map[checker.BindingID]string, len(declared.Parameters)),
-		usedNames:      make(map[string]bool),
-		functions:      functions,
-		methods:        methods,
-		generatedTypes: typeState,
-		strings:        stringState,
-		table:          table,
-	}
+	state := newExpressionValidation()
+	state.functions = functions
+	state.methods = methods
+	state.generatedTypes = typeState
+	state.strings = stringState
+	state.table = table
 	state.pushScope()
 	if declared.EnvDependent {
 		if err := registerEnvironment(state, declared.Captures); err != nil {
@@ -87,17 +77,12 @@ func validateMethodDeclaration(declared checker.MethodDeclaration, typeState *ge
 	if declared.Object == nil || !validSourceName(declared.Name) || !validateGeneratedType(declared.SelfType, typeState, false) {
 		return unknownExpressionDiagnostic("unsupported checked specialized method")
 	}
-	state := &expressionValidation{
-		variables:      make(map[string]generatedBinding, len(declared.Parameters)),
-		bindings:       make(map[checker.BindingID]generatedBinding, len(declared.Parameters)),
-		bindingNames:   make(map[checker.BindingID]string, len(declared.Parameters)),
-		usedNames:      make(map[string]bool),
-		functions:      functions,
-		methods:        methods,
-		generatedTypes: typeState,
-		strings:        stringState,
-		table:          table,
-	}
+	state := newExpressionValidation()
+	state.functions = functions
+	state.methods = methods
+	state.generatedTypes = typeState
+	state.strings = stringState
+	state.table = table
 	state.pushScope()
 	if declared.EnvDependent {
 		if err := registerEnvironment(state, declared.Captures); err != nil {

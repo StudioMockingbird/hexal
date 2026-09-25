@@ -174,7 +174,7 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 			return receiver
 		}
 		if receiver.variant != nil {
-			return variantPayloadPlace(receiver, expression.Property)
+			return variantPayloadPlace(receiver, expression.Property, ctx)
 		}
 		// A nullable receiver has no members or .value until a null
 		// test narrowed it to its pointer member. A bare binding names the
@@ -216,20 +216,21 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 			if receiver.storageType.Union != nil && !compilerTypes.IsUnion(receiver.typ) {
 				receiverNode = valueFromPlace(receiver).source.Node
 			}
+			memberType := liveMemberType(member.Type, ctx.typeEnvironment)
 			return checkedExpression{
 				source: Operand{
 					Kind:        VariableOperand,
-					Type:        member.Type,
-					Node:        memberNode(receiverNode, member),
+					Type:        memberType,
+					Node:        memberNode(receiverNode, member, memberType),
 					Addressable: receiver.source.Addressable,
 					Writable:    receiver.source.Writable && member.Mutable,
 				},
-				typ: member.Type,
+				typ: memberType,
 				use: func() compilerTypes.TypeUse {
-					if member.Use.Type == (compilerTypes.Type{}) {
-						return compilerTypes.NewTypeUse(member.Type)
+					if memberType == member.Type && member.Use.Type != (compilerTypes.Type{}) {
+						return member.Use
 					}
-					return member.Use
+					return compilerTypes.NewTypeUse(memberType)
 				}(),
 				token: expression.Property,
 			}

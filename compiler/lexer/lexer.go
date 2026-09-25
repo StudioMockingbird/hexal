@@ -1353,7 +1353,7 @@ func isIdentifierPartAt(source string, index int) bool {
 }
 
 func literalDiagnostic(line, column int, message string) *compilerTypes.Diagnostic {
-	return &compilerTypes.Diagnostic{Category: compilerTypes.SyntaxError, Stage: "lexer", Line: line, Column: column, Message: message}
+	return &compilerTypes.Diagnostic{Category: compilerTypes.SyntaxError, Stage: "lexer", Position: span.Position{Line: line, Column: column}, Message: message}
 }
 
 func isIdentifierStart(ch byte) bool {

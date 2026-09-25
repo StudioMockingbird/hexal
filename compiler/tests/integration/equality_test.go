@@ -73,6 +73,49 @@ func TestObjectEquality(t *testing.T) {
 	}
 }
 
+// Every package-level builtin field whose type is a constructed collection
+// reads back through the compilation arena, so an ordinary List binding and
+// the field compare with one canonical identity. The pre-seeded builtin
+// structural union (working_directory) holds the same identity already.
+func TestBuiltinAggregateFieldIdentityEquality(t *testing.T) {
+	source := "import\n  Proc from std.process\nend\n" +
+		"fun check(h: Heap): Bool do\n" +
+		"    let arguments = List<String>(h)\n" +
+		"    let options = Proc.ProcessOptions(\n" +
+		"        program = \"x\",\n" +
+		"        arguments = arguments,\n" +
+		"        environment = Proc.Environment.Replace(values = List<Proc.EnvironmentVariable>(h)),\n" +
+		"        working_directory = nil,\n" +
+		"        input = Proc.ProcessStream.Pipe(),\n" +
+		"        output = Proc.ProcessStream.Pipe(),\n" +
+		"        error = Proc.ProcessStream.Ignore(),\n" +
+		"    )\n" +
+		"    let same_arguments: Bool = options.arguments == arguments\n" +
+		"    let values = List<Proc.EnvironmentVariable>(h)\n" +
+		"    let env = Proc.Environment.Replace(values = values)\n" +
+		"    let same_values: Bool = match env is\n" +
+		"    | Proc.Environment.Replace then env.values == values\n" +
+		"    | else then false\n" +
+		"    end\n" +
+		"    let directory: String | Nil = nil\n" +
+		"    let same_directory: Bool = options.working_directory == directory\n" +
+		"    return same_arguments and same_values and same_directory\n" +
+		"end\n"
+	result := compileSource(source)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	for _, want := range []string{
+		"hex_equal_hex_list_String(hex_v_options.hex_m_arguments, hex_v_arguments)",
+		"hex_equal_hex_list_EnvironmentVariable(hex_match_scrutinee_1.payload.Replace.hex_m_values, hex_v_values)",
+		"hex_t_String_Nil_equal(hex_v_options.hex_m_working_directory, hex_v_directory)",
+	} {
+		if !strings.Contains(rootC(t, result), want) {
+			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
+		}
+	}
+}
+
 func TestEqualityUnavailable(t *testing.T) {
 	for _, testCase := range []struct {
 		source string

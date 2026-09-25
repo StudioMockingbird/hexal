@@ -990,10 +990,50 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{zeroExit: true, exactStdout: "count = 42\ntruefalsenil1.5-2.5Point { x = 10, y = 20 }\n"},
 	},
 	{
-		name:        "print-evaluation-order-runs",
+		name:        "cursor-next-sibling-order-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun a(): Int32 do\n    print(\"a\")\n    return 1\nend\nfun b(): Int32 do\n    print(\"b\")\n    return 2\nend\nprint(a(), b(), a())\n"},
-		expectation: &processExpectation{zeroExit: true, exactStdout: "aba121"},
+		sources:     map[string]string{"app.hex": "fun pick(a: Int32, b: Int32): Int32 do\n    return (a * 10) + b\nend\nlet mut c: ByteCursor = \"ab\".byte_cursor()\nprint(pick(c.next().to<Int32>(), c.next().to<Int32>()), \"\\n\")\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "1068\n"},
+	},
+	{
+		// A builtin collection field read must carry the arena's canonical
+		// type identity: each comparison below was rejected outright when the
+		// field kept its package-init identity.
+		name:       "builtin-field-identity-equality-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "import\n  Proc from std.process\nend\n" +
+			"fun check(h: Heap): Bool do\n" +
+			"    let arguments = List<String>(h)\n" +
+			"    let options = Proc.ProcessOptions(\n" +
+			"        program = \"x\",\n" +
+			"        arguments = arguments,\n" +
+			"        environment = Proc.Environment.Replace(values = List<Proc.EnvironmentVariable>(h)),\n" +
+			"        working_directory = nil,\n" +
+			"        input = Proc.ProcessStream.Pipe(),\n" +
+			"        output = Proc.ProcessStream.Pipe(),\n" +
+			"        error = Proc.ProcessStream.Ignore(),\n" +
+			"    )\n" +
+			"    let same_arguments: Bool = options.arguments == arguments\n" +
+			"    let values = List<Proc.EnvironmentVariable>(h)\n" +
+			"    let env = Proc.Environment.Replace(values = values)\n" +
+			"    let same_values: Bool = match env is\n" +
+			"    | Proc.Environment.Replace then env.values == values\n" +
+			"    | else then false\n" +
+			"    end\n" +
+			"    let directory: String | Nil = nil\n" +
+			"    let same_directory: Bool = options.working_directory == directory\n" +
+			"    return same_arguments and same_values and same_directory\n" +
+			"end\n" +
+			"print(check(Heap()), \"\\n\")\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true\n"},
+	},
+	{
+		// Two cursor advances in one argument list conflict on the binding:
+		// written order must consume 'a' first, so the product is 97*10+98.
+		name:        "cursor-next-sibling-order-runs",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": "fun pick(a: Int32, b: Int32): Int32 do\n    return (a * 10) + b\nend\nlet mut c: ByteCursor = \"ab\".byte_cursor()\nprint(pick(c.next().to<Int32>(), c.next().to<Int32>()), \"\\n\")\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "1068\n"},
 	},
 	{
 		name:        "print-collections-runs",

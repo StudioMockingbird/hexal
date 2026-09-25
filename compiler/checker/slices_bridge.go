@@ -89,33 +89,33 @@ func checkSliceBridgeCall(call parser.CallExpression, callee lexer.Token, ctx ch
 // and returns Nil exactly when the Slice has no backing address. It allocates
 // and copies nothing and requires unsafe, because the returned address may
 // outlive the Slice.
-func checkSlicePointer(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	if receiver.typ.Slice == nil {
-		diagnostic := typeErrorAt(callee.Property, receiver.typ.Name+" has no method pointer")
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+func checkSlicePointer(call methodCall) checkedExpression {
+	if call.receiver.typ.Slice == nil {
+		diagnostic := typeErrorAt(call.callee.Property, call.receiver.typ.Name+" has no method pointer")
+		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
-	if len(call.Arguments) != 0 {
-		diagnostic := typeErrorAt(callee.Property, "pointer expects no arguments")
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+	if len(call.call.Arguments) != 0 {
+		diagnostic := typeErrorAt(call.callee.Property, "pointer expects no arguments")
+		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
-	element := receiver.typ.Slice.Element
+	element := call.receiver.typ.Slice.Element
 	var pointer compilerTypes.Type
-	if receiver.typ.Slice.Writable {
-		pointer = ctx.typeEnvironment.MutPtrType(element)
+	if call.receiver.typ.Slice.Writable {
+		pointer = call.ctx.typeEnvironment.MutPtrType(element)
 	} else {
-		pointer = ctx.typeEnvironment.PtrType(element)
+		pointer = call.ctx.typeEnvironment.PtrType(element)
 	}
 	if pointer == (compilerTypes.Type{}) {
-		diagnostic := typeErrorAt(callee.Property, element.Name+" is not a valid pointer element type")
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		diagnostic := typeErrorAt(call.callee.Property, element.Name+" is not a valid pointer element type")
+		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
-	nullable := ctx.typeEnvironment.NullableType(pointer)
-	if diagnostic := requireUnsafe(ctx, callee.Property, unsafeSlicePointer); diagnostic != nil {
-		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+	nullable := call.ctx.typeEnvironment.NullableType(pointer)
+	if diagnostic := requireUnsafe(call.ctx, call.callee.Property, unsafeSlicePointer); diagnostic != nil {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 	}
-	node := Expression{Kind: CollectionMethodCallExpression, Name: "pointer", Operand: &receiver.source.Node, OperandType: receiver.typ, ResultType: nullable, Element: element}
+	node := Expression{Kind: CollectionMethodCallExpression, Name: "pointer", Operand: &call.receiver.source.Node, OperandType: call.receiver.typ, ResultType: nullable, Element: element}
 	source := Operand{Kind: ExpressionOperand, Type: nullable, Name: "pointer", Node: node}
-	return checkedExpression{source: source, typ: nullable, token: callee.Property}
+	return checkedExpression{source: source, typ: nullable, token: call.callee.Property}
 }
 
 // requiredFromPointerMode spells the accepted pointer mode for one

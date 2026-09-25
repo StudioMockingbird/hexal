@@ -13,7 +13,7 @@
   determinism model that does not exist
 - Coordinates with: RFC 0221 (which no longer carries this), RFC 0230 (arc
   foundations), RFC 0141 and RFC 0241 (TypeScript review and findings), RFC
-  0244 (the export-interface fingerprint this RFC may consume)
+  0246 (the deferred export-interface fingerprint this RFC may consume)
 - Does not authorize: adding `golang.org/x/sync`, parallel module checking,
   specialization deduplication, or any persistent cache
 
@@ -80,7 +80,7 @@ mechanisms that an eventual design should evaluate rather than rediscover.
 First, TypeScript distinguishes a source version from an exported-shape
 signature. A changed file is rechecked, but dependents are invalidated only
 when the declaration surface they consume changes. Hexal's equivalent would be
-RFC 0244's internal, deterministic fingerprint of one module's exported
+Deferred RFC 0246's internal, deterministic fingerprint of one module's exported
 checked declarations. This RFC consumes that contract; it does not redefine
 the stream. The fingerprint is not a user-authored declaration file and does
 not change `compiler.Compile`'s source-map input.

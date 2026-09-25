@@ -239,12 +239,6 @@ func hoistInlineInterpolate(node checker.Expression, body *strings.Builder, stat
 	if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
 		return err
 	}
-	if state.hoistedSequencing == nil {
-		state.hoistedSequencing = make(map[*checker.Expression]string)
-	}
-	if state.hoistedInlineInterpolations == nil {
-		state.hoistedInlineInterpolations = make(map[*checker.Expression]string)
-	}
 	state.hoistedInlineInterpolations[&node.InterpolationSegments[0].Value.Node] = resultTemp
 	return nil
 }
@@ -344,9 +338,6 @@ func hoistStringInterpolate(node checker.Expression, body *strings.Builder, stat
 		return err
 	}
 
-	if state.hoistedInterpolations == nil {
-		state.hoistedInterpolations = make(map[*checker.Expression]string)
-	}
 	state.hoistedInterpolations[node.Operand] = resultTemp
 	return nil
 }
@@ -452,9 +443,6 @@ func renderStringInterpolate(node checker.Expression, state *expressionValidatio
 			return "", unknownExpressionDiagnostic("String<N>.interpolate expression reached generation without hoisting")
 		}
 		return name, nil
-	}
-	if state.hoistedInterpolations == nil {
-		return "", unknownExpressionDiagnostic("String.interpolate expression reached generation without hoisting")
 	}
 	name, ok := state.hoistedInterpolations[node.Operand]
 	if !ok {

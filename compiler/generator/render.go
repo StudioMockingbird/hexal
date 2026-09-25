@@ -52,6 +52,13 @@ func expressionResultType(node checker.Expression) (compilerTypes.Type, bool) {
 		// A call that produces no value has no type to report.
 		return node.ResultType, node.ResultType != (compilerTypes.Type{})
 	case checker.MemberExpression:
+		// A member read stamps its arena-resolved checked type, which
+		// outranks the declared member type: a builtin List field's declared
+		// identity predates the compilation arena and differs from the live
+		// one even though both describe the same generated C type.
+		if node.ResultType != (compilerTypes.Type{}) {
+			return node.ResultType, true
+		}
 		if node.Member != nil {
 			return node.Member.Type, true
 		}
@@ -131,7 +138,12 @@ func writeLineDirective(body *strings.Builder, line int, filename string) error 
 // renderOperand renders one operand under a fresh validation state bound to
 // the required literal registry, mirroring renderExpression.
 func renderOperand(source checker.Operand, registry *literalRegistry) (string, error) {
-	return renderOperandWithState(source, &expressionValidation{strings: registry})
+	state := newExpressionValidation()
+	state.strings = registry
+	// A whole-operand render with no checked program seeds a source-name table
+	// so a variable resolves to its bare generated name.
+	seedRenderOnlyVariables(&source.Node, source.Type, state)
+	return renderOperandWithState(source, state)
 }
 
 func renderOperandWithState(source checker.Operand, state *expressionValidation) (string, error) {

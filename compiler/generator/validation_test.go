@@ -55,7 +55,7 @@ func TestValidateStatementsContinuesPastNoValueStatements(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			err := validateStatements(
 				[]checker.Statement{testCase.first, invalidFollowUp()},
-				&expressionValidation{},
+				newExpressionValidation(),
 				&generatedTypeValidation{},
 			)
 			if err == nil {
@@ -70,7 +70,7 @@ func TestValidateStatementsContinuesPastNoValueStatements(t *testing.T) {
 func TestValidateStatementsAcceptsDeferredNoResultCallAlone(t *testing.T) {
 	err := validateStatements(
 		[]checker.Statement{deferredNoResultCall()},
-		&expressionValidation{},
+		newExpressionValidation(),
 		&generatedTypeValidation{},
 	)
 	if err != nil {

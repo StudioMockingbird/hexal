@@ -14,7 +14,40 @@ import (
 // registry through renderExpressionWithState; the parameter keeps every
 // direct call site honest about where String payloads resolve.
 func renderExpression(node checker.Expression, registry *literalRegistry) (string, error) {
-	return renderExpressionWithState(node, &expressionValidation{strings: registry})
+	state := newExpressionValidation()
+	state.strings = registry
+	// A whole-expression render with no checked program seeds a source-name
+	// table so a variable operand resolves to its bare generated name; a real
+	// program walk populates the same table through allocateBinding.
+	seedRenderOnlyVariables(&node, compilerTypes.Type{}, state)
+	return renderExpressionWithState(node, state)
+}
+
+// seedRenderOnlyVariables records every bare variable name in the checked
+// subtree under the ordinary generated name, so a helper that renders one
+// expression in isolation resolves a variable operand the way a program walk
+// would. A test-built subtree puts the operand type on the operation, not on
+// the variable node, so the enclosing operand type is threaded down.
+func seedRenderOnlyVariables(node *checker.Expression, operandType compilerTypes.Type, state *expressionValidation) {
+	if node == nil {
+		return
+	}
+	if node.Kind == checker.VariableExpression && node.Binding == 0 && node.Name != "" {
+		typ := node.ResultType
+		if typ == (compilerTypes.Type{}) {
+			typ = operandType
+		}
+		state.variables[node.Name] = generatedBinding{typ: typ}
+		return
+	}
+	childType := node.OperandType
+	seedRenderOnlyVariables(node.Operand, childType, state)
+	seedRenderOnlyVariables(node.Left, childType, state)
+	seedRenderOnlyVariables(node.Right, childType, state)
+	for index := range node.Arguments {
+		argument := node.Arguments[index].Node
+		seedRenderOnlyVariables(&argument, argument.ResultType, state)
+	}
 }
 
 func renderExpressionWithState(node checker.Expression, state *expressionValidation) (string, error) {

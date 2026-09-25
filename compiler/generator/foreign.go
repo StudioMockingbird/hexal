@@ -11,30 +11,47 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
+// foreignSymbolKey identifies one foreign C declaration by the checked
+// canonical id of its defining module plus its C spelling. Two modules may
+// bind the same C name from different headers; only the defining module
+// selects the header a cross-module reference includes.
+type foreignSymbolKey struct {
+	module string
+	cname  string
+}
+
 // foreignIndex resolves the defining header of every foreign C declaration in
-// the program by exact C symbol and by foreign record canonical key.
+// the program by defining module plus C symbol, and by foreign record
+// canonical key.
 type foreignIndex struct {
-	symbols map[string]checker.ForeignHeader
+	symbols map[foreignSymbolKey]checker.ForeignHeader
 	records map[string]checker.ForeignHeader
 }
 
-// buildForeignIndex scans every checked program for foreign declarations. The
-// program map is iterated only to fill maps, so its order never reaches
-// output.
-func buildForeignIndex(programs map[string]checker.Program) *foreignIndex {
+// buildForeignIndex scans every checked program for foreign declarations.
+// Symbol keys carry the defining module identity, so distinct declarations
+// never collide and program-map iteration order never reaches output. The
+// graph supplies canonical id per logical source key; the checker guarantees
+// every graph node has a checked program before generation starts.
+func buildForeignIndex(graph *checker.ModuleGraph, programs map[string]checker.Program) *foreignIndex {
+	canonicalByLogicalKey := make(map[string]string, len(graph.Order))
+	for _, canonical := range graph.Order {
+		canonicalByLogicalKey[graph.Modules[canonical].LogicalKey] = canonical
+	}
 	index := &foreignIndex{
-		symbols: make(map[string]checker.ForeignHeader),
+		symbols: make(map[foreignSymbolKey]checker.ForeignHeader),
 		records: make(map[string]checker.ForeignHeader),
 	}
-	for _, program := range programs {
+	for key, program := range programs {
+		module := canonicalByLogicalKey[key]
 		for _, function := range program.ForeignFunctions {
-			index.symbols[function.CName] = function.Header
+			index.symbols[foreignSymbolKey{module: module, cname: function.CName}] = function.Header
 		}
 		for _, constant := range program.ForeignConstants {
-			index.symbols[constant.CName] = constant.Header
+			index.symbols[foreignSymbolKey{module: module, cname: constant.CName}] = constant.Header
 		}
 		for _, global := range program.ForeignGlobals {
-			index.symbols[global.CName] = global.Header
+			index.symbols[foreignSymbolKey{module: module, cname: global.CName}] = global.Header
 		}
 		for _, record := range program.ForeignRecords {
 			index.records[record.Type.CanonicalKey] = record.Header
@@ -69,7 +86,8 @@ func moduleForeignIncludes(program checker.Program, index *foreignIndex) ([]stri
 			switch node.Kind {
 			case checker.ForeignFunctionReferenceExpression, checker.ForeignConstantExpression, checker.ForeignGlobalExpression:
 				if node.Module != "" {
-					if header, ok := index.symbols[node.ForeignCName]; ok {
+					key := foreignSymbolKey{module: node.Module, cname: node.ForeignCName}
+					if header, ok := index.symbols[key]; ok {
 						add(header)
 					}
 				}

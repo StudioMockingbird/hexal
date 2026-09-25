@@ -17,7 +17,7 @@ func validateConstantOperand(source checker.Operand) error {
 	// Object constants (Error.new results wrapped by union injection)
 	// validate their object value.
 	if source.Object != nil {
-		return validateObjectValue(source.Object, &expressionValidation{})
+		return validateObjectValue(source.Object, newExpressionValidation())
 	}
 	// Nil is the singleton type: its one value is nullptr and it carries no
 	// go/constant, so it is validated before the constant value is required.
@@ -141,9 +141,6 @@ func floatBitsForConstant(value constant.Value, bitSize int, negative bool) uint
 func validateObjectValue(value *checker.ObjectValue, state *expressionValidation) error {
 	if value == nil || value.Type.Object == nil || !supportedGeneratedTypeWithState(value.Type, state) {
 		return unknownExpressionDiagnostic("object operand without a checked object value")
-	}
-	if state.objects == nil {
-		state.objects = make(map[*checker.ObjectValue]bool)
 	}
 	if state.objects[value] {
 		return unknownExpressionDiagnostic("cyclic checked object value")

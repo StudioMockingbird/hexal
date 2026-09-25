@@ -69,80 +69,80 @@ func checkDictTypeCall(call parser.CallExpression, callee lexer.Token, ctx check
 
 // checkDictMethodCall dispatches the built-in Dict methods: insert, get, find,
 // contains, remove, and free.
-func checkDictMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	name := callee.Property.Lexeme
-	dictType := receiver.typ
+func checkDictMethodCall(call methodCall) checkedExpression {
+	name := call.callee.Property.Lexeme
+	dictType := call.receiver.typ
 	keyType := dictType.Dict.Key
 	valueType := dictType.Dict.Value
 	if !hasBuiltinMethod(dictType, name) {
-		diagnostic := typeErrorAt(callee.Property, dictType.Name+" has no method "+name)
-		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		diagnostic := typeErrorAt(call.callee.Property, dictType.Name+" has no method "+name)
+		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
 	switch name {
 	case "length":
 		// Entry count is not an ordering, so reporting it exposes nothing
 		// about the unspecified iteration order Dict deliberately hides.
-		if len(call.Arguments) != 0 {
-			diagnostic := typeErrorAt(callee.Property, "length expects no arguments")
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		if len(call.call.Arguments) != 0 {
+			diagnostic := typeErrorAt(call.callee.Property, "length expects no arguments")
+			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 		}
-		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: dictType, ResultType: compilerTypes.SizeType, Element: valueType}
+		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: dictType, ResultType: compilerTypes.SizeType, Element: valueType}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.SizeType, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: callee.Property}
+		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: call.callee.Property}
 	case "insert":
-		if len(call.Arguments) != 2 {
-			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("insert expects 2 arguments; got %d", len(call.Arguments)))
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		if len(call.call.Arguments) != 2 {
+			diagnostic := typeErrorAt(call.callee.Property, fmt.Sprintf("insert expects 2 arguments; got %d", len(call.call.Arguments)))
+			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 		}
-		key, diagnostic := checkDictKeyArgument(call.Arguments[0], callee.Property, keyType, ctx)
+		key, diagnostic := checkDictKeyArgument(call.call.Arguments[0], call.callee.Property, keyType, call.ctx)
 		if diagnostic != nil {
-			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 		}
-		value, diagnostic := listElementArgument(call.Arguments[1], callee.Property, valueType, ctx)
+		value, diagnostic := listElementArgument(call.call.Arguments[1], call.callee.Property, valueType, call.ctx)
 		if diagnostic != nil {
-			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 		}
-		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{key, value}, OperandType: dictType, ResultType: compilerTypes.Type{}, Element: valueType}
+		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, Arguments: []Operand{key, value}, OperandType: dictType, ResultType: compilerTypes.Type{}, Element: valueType}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
+		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 	case "get", "find", "remove":
-		if len(call.Arguments) != 1 {
-			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("%s expects 1 argument; got %d", name, len(call.Arguments)))
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		if len(call.call.Arguments) != 1 {
+			diagnostic := typeErrorAt(call.callee.Property, fmt.Sprintf("%s expects 1 argument; got %d", name, len(call.call.Arguments)))
+			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 		}
-		key, diagnostic := checkDictKeyArgument(call.Arguments[0], callee.Property, keyType, ctx)
+		key, diagnostic := checkDictKeyArgument(call.call.Arguments[0], call.callee.Property, keyType, call.ctx)
 		if diagnostic != nil {
-			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 		}
 		resultType := valueType
 		if name == "find" {
-			resultType = ctx.typeEnvironment.UnionType([]compilerTypes.Type{valueType, compilerTypes.Nil})
+			resultType = call.ctx.typeEnvironment.UnionType([]compilerTypes.Type{valueType, compilerTypes.Nil})
 			if resultType == (compilerTypes.Type{}) {
-				diagnostic := typeErrorAt(callee.Property, valueType.Name+" cannot be combined with Nil")
-				return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+				diagnostic := typeErrorAt(call.callee.Property, valueType.Name+" cannot be combined with Nil")
+				return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 			}
 		}
-		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{key}, OperandType: dictType, ResultType: resultType, Element: valueType}
+		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, Arguments: []Operand{key}, OperandType: dictType, ResultType: resultType, Element: valueType}
 		source := Operand{Kind: ExpressionOperand, Type: resultType, Name: name, Node: node}
-		return checkedExpression{source: source, typ: resultType, token: callee.Property}
+		return checkedExpression{source: source, typ: resultType, token: call.callee.Property}
 	case "contains":
-		if len(call.Arguments) != 1 {
-			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("contains expects 1 argument; got %d", len(call.Arguments)))
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		if len(call.call.Arguments) != 1 {
+			diagnostic := typeErrorAt(call.callee.Property, fmt.Sprintf("contains expects 1 argument; got %d", len(call.call.Arguments)))
+			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 		}
-		key, diagnostic := checkDictKeyArgument(call.Arguments[0], callee.Property, keyType, ctx)
+		key, diagnostic := checkDictKeyArgument(call.call.Arguments[0], call.callee.Property, keyType, call.ctx)
 		if diagnostic != nil {
-			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 		}
-		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{key}, OperandType: dictType, ResultType: compilerTypes.Bool, Element: valueType}
+		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, Arguments: []Operand{key}, OperandType: dictType, ResultType: compilerTypes.Bool, Element: valueType}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Bool, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Bool, token: callee.Property}
+		return checkedExpression{source: source, typ: compilerTypes.Bool, token: call.callee.Property}
 	case "free":
-		if len(call.Arguments) != 1 {
-			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("free expects 1 argument; got %d", len(call.Arguments)))
-			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
+		if len(call.call.Arguments) != 1 {
+			diagnostic := typeErrorAt(call.callee.Property, fmt.Sprintf("free expects 1 argument; got %d", len(call.call.Arguments)))
+			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 		}
-		heap := checkValue(call.Arguments[0], ctx)
+		heap := checkValue(call.call.Arguments[0], call.ctx)
 		if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 			return heap
 		}
@@ -153,16 +153,16 @@ func checkDictMethodCall(call parser.CallExpression, callee parser.PropertyExpre
 		node := Expression{
 			Kind:        CollectionMethodCallExpression,
 			Name:        name,
-			Operand:     &receiver.source.Node,
+			Operand:     &call.receiver.source.Node,
 			Arguments:   []Operand{heap.source},
 			OperandType: dictType,
 			ResultType:  compilerTypes.Type{},
 			Element:     valueType,
 		}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
+		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 	default:
-		return unexpectedBuiltinMethod(dictType, callee.Property)
+		return unexpectedBuiltinMethod(dictType, call.callee.Property)
 	}
 }
 

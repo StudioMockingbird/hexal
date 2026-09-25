@@ -45,62 +45,62 @@ func checkStashTypeCall(call parser.CallExpression, callee lexer.Token, ctx chec
 // checkStashMethodCall dispatches the built-in Stash methods: allocate,
 // reset, and destroy. A Stash allocation cannot be individually released;
 // stash.free(pointer) is rejected by name.
-func checkStashMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	name := callee.Property.Lexeme
-	stashType := receiver.typ
+func checkStashMethodCall(call methodCall) checkedExpression {
+	name := call.callee.Property.Lexeme
+	stashType := call.receiver.typ
 	element := stashType.Stash.Element
 	if name == "free" {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Stash allocations are released by reset or destroy"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Stash allocations are released by reset or destroy"))}
 	}
-	if diagnostic := checkHandleNotDestroyed(receiver.source, callee.Property, ctx.names.flow); diagnostic != nil {
-		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+	if diagnostic := checkHandleNotDestroyed(call.receiver.source, call.callee.Property, call.ctx.names.flow); diagnostic != nil {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 	}
 	if !hasBuiltinMethod(stashType, name) {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Stash has no method "+name+"; use allocate, reset, or destroy"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Stash has no method "+name+"; use allocate, reset, or destroy"))}
 	}
 	switch name {
 	case "allocate":
-		if len(call.TypeArguments) != 0 {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "Stash allocation accepts no type arguments; its element type is fixed by the receiver"))}
+		if len(call.call.TypeArguments) != 0 {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Stash allocation accepts no type arguments; its element type is fixed by the receiver"))}
 		}
-		if len(call.Arguments) != 1 {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "allocate expects 1 argument"))}
+		if len(call.call.Arguments) != 1 {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "allocate expects 1 argument"))}
 		}
-		initial := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(element), tokenOf(call.Arguments[0]), ctx)
+		initial := checkInitializer(call.call.Arguments[0], compilerTypes.NewTypeUse(element), tokenOf(call.call.Arguments[0]), call.ctx)
 		if diagnostics := initializerDiagnostics(initial); len(diagnostics) > 0 {
-			return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
+			return checkedExpression{token: tokenOf(call.call.Arguments[0]), diagnostics: diagnostics}
 		}
 		if !assignable(element, initial.typ) {
 			return checkedExpression{token: initial.token, diagnostic: diagnosticAt(typeErrorAt(initial.token, fmt.Sprintf("Stash allocation initializer requires %s; got %s", element.Name, initial.typ.Name)))}
 		}
-		result := ctx.typeEnvironment.MutPtrType(element)
-		node := Expression{Kind: StashMethodCallExpression, Name: name, Operand: &receiver.source.Node, Arguments: []Operand{initial.source}, OperandType: stashType, ResultType: result, Element: element}
+		result := call.ctx.typeEnvironment.MutPtrType(element)
+		node := Expression{Kind: StashMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, Arguments: []Operand{initial.source}, OperandType: stashType, ResultType: result, Element: element}
 		source := Operand{Kind: ExpressionOperand, Type: result, Name: name, Node: node}
-		return checkedExpression{source: source, typ: result, token: callee.Property}
+		return checkedExpression{source: source, typ: result, token: call.callee.Property}
 	case "reset":
-		if len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "reset expects no arguments"))}
+		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "reset expects no arguments"))}
 		}
-		if ctx.names.cleanupDepth == 0 {
-			ctx.names.flow.invalidateAllocationsFrom(receiverVariableBinding(receiver.source))
+		if call.ctx.names.cleanupDepth == 0 {
+			call.ctx.names.flow.invalidateAllocationsFrom(receiverVariableBinding(call.receiver.source))
 		}
-		node := Expression{Kind: StashMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: stashType, ResultType: compilerTypes.Type{}, Element: element}
+		node := Expression{Kind: StashMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: stashType, ResultType: compilerTypes.Type{}, Element: element}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
+		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 	case "destroy":
-		if len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "destroy expects no arguments"))}
+		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "destroy expects no arguments"))}
 		}
-		if ctx.names.cleanupDepth == 0 {
-			ctx.names.flow.invalidateAllocationsFrom(receiverVariableBinding(receiver.source))
-			if diagnostic := checkTrackedHeapFreeInState(receiver.source, callee.Property, ctx.names.flow); diagnostic != nil {
-				return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+		if call.ctx.names.cleanupDepth == 0 {
+			call.ctx.names.flow.invalidateAllocationsFrom(receiverVariableBinding(call.receiver.source))
+			if diagnostic := checkTrackedHeapFreeInState(call.receiver.source, call.callee.Property, call.ctx.names.flow); diagnostic != nil {
+				return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 			}
 		}
-		node := Expression{Kind: StashMethodCallExpression, Name: name, Operand: &receiver.source.Node, OperandType: stashType, ResultType: compilerTypes.Type{}, Element: element}
+		node := Expression{Kind: StashMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: stashType, ResultType: compilerTypes.Type{}, Element: element}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
-		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: callee.Property}
+		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 	default:
-		return unexpectedBuiltinMethod(stashType, callee.Property)
+		return unexpectedBuiltinMethod(stashType, call.callee.Property)
 	}
 }

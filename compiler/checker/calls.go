@@ -2,6 +2,8 @@ package checker
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 
 	"hexal/compiler/corelib"
 	"hexal/compiler/lexer"
@@ -83,9 +85,11 @@ func checkCall(call parser.CallExpression, expectedType compilerTypes.Type, ctx 
 		return checkedExpression{token: callee.Name, diagnostic: &diagnostic}
 	}
 	// A root direct call may enter an environment-dependent call graph only
-	// after every binding that graph captures is initialized.
+	// after every binding that graph captures is initialized. Captures are
+	// visited in lexical order so the reported name is stable across
+	// compilations of the same source.
 	if !ctx.names.inFunction() && bound.kind == functionBinding && ctx.names.envDependent[name] {
-		for capture := range ctx.names.envCaptures[name] {
+		for _, capture := range slices.Sorted(maps.Keys(ctx.names.envCaptures[name])) {
 			if !ctx.names.initializedRoots[capture] {
 				diagnostic := typeErrorAt(callee.Name, "function "+name+" may access entry binding "+capture+" before "+capture+" is initialized")
 				return checkedExpression{token: callee.Name, diagnostic: &diagnostic}

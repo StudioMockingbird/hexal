@@ -4,7 +4,10 @@
 package generator
 
 import (
+	"fmt"
+
 	"hexal/compiler/checker"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -49,7 +52,7 @@ func validateFunctionReference(node checker.Expression, expected *compilerTypes.
 		// source-name-keyed declaration table.
 	} else if !validSourceName(node.Name) {
 		return unknownExpressionDiagnostic("function reference without a source name")
-	} else if state.functions != nil && node.Module == "" {
+	} else if len(state.functions) > 0 && node.Module == "" {
 		// A cross-module callee is not in the local declaration table; the
 		// checker resolved it against the target module's exported records,
 		// and the checked Fun type is authoritative.
@@ -341,14 +344,33 @@ func validateDereferenceExpression(node checker.Expression, expected *compilerTy
 	return validateExpressionChildWithState(node.Operand, receiverType, state)
 }
 
+// memberResultMatchesDeclared accepts a checked member type as a faithful
+// resolution of the member's declared type. Identity is the ordinary case;
+// a List<T> field of a builtin declared at package init() is re-resolved
+// through the compilation arena before it reaches any check, and that live
+// type keeps the declared type's canonical key while differing in interned
+// identity. Canonical-key equality with a non-empty key admits exactly that
+// case and nothing else: every other re-resolution would be a compiler bug
+// and fails closed.
+func memberResultMatchesDeclared(result, declared compilerTypes.Type) bool {
+	if compilerTypes.Equal(result, declared) {
+		return true
+	}
+	return declared.CanonicalKey != "" && result.CanonicalKey == declared.CanonicalKey
+}
+
 func validateMemberExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	if node.Operand == nil || node.Member == nil || !validSourceName(node.Member.Name) || !supportedGeneratedTypeWithState(node.Member.Type, state) {
 		return unknownExpressionDiagnostic("member selection has invalid checked metadata")
 	}
-	if expected != nil && !compilerTypes.Equal(*expected, node.Member.Type) {
+	checkedType := node.Member.Type
+	if node.ResultType != (compilerTypes.Type{}) {
+		checkedType = node.ResultType
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, checkedType) {
 		return unknownExpressionDiagnostic("member type does not match its expected type")
 	}
-	if node.ResultType != (compilerTypes.Type{}) && (!supportedGeneratedTypeWithState(node.ResultType, state) || !compilerTypes.Equal(node.ResultType, node.Member.Type) || expected != nil && !compilerTypes.Equal(*expected, node.ResultType)) {
+	if node.ResultType != (compilerTypes.Type{}) && (!supportedGeneratedTypeWithState(node.ResultType, state) || !memberResultMatchesDeclared(node.ResultType, node.Member.Type)) {
 		return unknownExpressionDiagnostic("member result type does not match its checked member")
 	}
 	if node.OperandType != (compilerTypes.Type{}) && !supportedGeneratedTypeWithState(node.OperandType, state) {
@@ -443,7 +465,7 @@ func validateBinaryMetadata(node checker.Expression) error {
 func checkedPlaceMetadata(node checker.Expression, state *expressionValidation) (generatedPlace, error) {
 	switch node.Kind {
 	case checker.VariableExpression:
-		if !validSourceName(node.Name) || state == nil || state.variables == nil {
+		if !validSourceName(node.Name) || state == nil {
 			return generatedPlace{}, unknownExpressionDiagnostic("place variable binding metadata is unavailable")
 		}
 		binding, ok := state.bindingFor(node)
@@ -480,11 +502,15 @@ func checkedPlaceMetadata(node checker.Expression, state *expressionValidation) 
 		if node.OperandType != (compilerTypes.Type{}) && !compilerTypes.Equal(node.OperandType, receiver.typ) {
 			return generatedPlace{}, unknownExpressionDiagnostic("place member receiver type does not match its checked receiver")
 		}
-		if node.ResultType != (compilerTypes.Type{}) && !compilerTypes.Equal(node.ResultType, node.Member.Type) {
+		if node.ResultType != (compilerTypes.Type{}) && !memberResultMatchesDeclared(node.ResultType, node.Member.Type) {
 			return generatedPlace{}, unknownExpressionDiagnostic("place member result type does not match its checked member")
 		}
+		placeType := node.Member.Type
+		if node.ResultType != (compilerTypes.Type{}) {
+			placeType = node.ResultType
+		}
 		return generatedPlace{
-			typ:         node.Member.Type,
+			typ:         placeType,
 			addressable: receiver.addressable,
 			writable:    receiver.writable && node.Member.Mutable,
 		}, nil
@@ -583,4 +609,519 @@ func unknownExpressionDiagnostic(detail string) error {
 		Stage:    "generator",
 		Message:  detail,
 	}
+}
+
+// unknownExpressionDiagnosticAt is the whole-compilation constructor's
+// source-aware sibling: it attaches the checked node's carried span and the
+// position the compilation's source table resolves it to, so an internal
+// generation failure that names a real node renders with its source location.
+// A node without a span (a hand-built checked node, or a compiler-invariant
+// failure with no node at all) keeps the historical zero location.
+func unknownExpressionDiagnosticAt(state *expressionValidation, s span.Span, detail string) error {
+	diagnostic := compilerTypes.Diagnostic{
+		Category: compilerTypes.UnknownError,
+		Stage:    "generator",
+		Message:  detail,
+	}
+	if s.File == "" {
+		return diagnostic
+	}
+	position := state.position(s)
+	diagnostic.Span = s
+	diagnostic.Module = s.File
+	diagnostic.Position = position
+	return diagnostic
+}
+
+func validateVariableExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if !validSourceName(node.Name) {
+		return unknownExpressionDiagnostic("variable without a source name")
+	}
+	if state != nil && (state.variables != nil || state.bindings != nil) {
+		binding, ok := state.bindingFor(node)
+		if !ok {
+			return unknownExpressionDiagnostic("variable is not present in checked bindings")
+		}
+		if expected != nil && !compilerTypes.Equal(binding.typ, *expected) {
+			// A null test narrows a local binding's reads to its non-Nil
+			// base (or to Nil) inside the branch where the test holds;
+			// the binding itself still holds the declared nullable type,
+			// so a narrowed read is a stricter type.
+			if !compilerTypes.Assignable(binding.typ, *expected) {
+				return unknownExpressionDiagnostic("variable type does not match its checked type")
+			}
+		}
+		for _, metadataType := range []compilerTypes.Type{node.OperandType, node.ResultType} {
+			if metadataType != (compilerTypes.Type{}) && !compilerTypes.Equal(binding.typ, metadataType) {
+				return unknownExpressionDiagnostic("variable metadata does not match its checked binding")
+			}
+		}
+	}
+	return validateExpressionMetadata(node, expected, state)
+}
+
+func validateForeignFunctionReferenceExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.ForeignCName == "" || node.ResultType == (compilerTypes.Type{}) || node.ResultType.Signature == nil {
+		return unknownExpressionDiagnostic("foreign function reference without a checked signature")
+	}
+	if expected != nil && !compilerTypes.Equal(node.ResultType, *expected) && !compilerTypes.Assignable(node.ResultType, *expected) {
+		return unknownExpressionDiagnostic("foreign function reference type does not match its expected type")
+	}
+	return nil
+}
+
+func validateForeignConstantExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.ForeignCName == "" {
+		return unknownExpressionDiagnostic("foreign constant without a C spelling")
+	}
+	if expected != nil && !compilerTypes.Equal(node.ResultType, *expected) && !compilerTypes.Assignable(node.ResultType, *expected) {
+		return unknownExpressionDiagnostic("foreign constant type does not match its expected type")
+	}
+	return nil
+}
+
+func validateForeignGlobalExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.ForeignCName == "" {
+		return unknownExpressionDiagnostic("foreign global without a C spelling")
+	}
+	if expected != nil && !compilerTypes.Equal(node.ResultType, *expected) && !compilerTypes.Assignable(node.ResultType, *expected) {
+		return unknownExpressionDiagnostic("foreign global type does not match its expected type")
+	}
+	return nil
+}
+
+func validateObjectExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Object == nil {
+		return unknownExpressionDiagnostic("object expression without a checked object value")
+	}
+	if err := validateObjectValue(node.Object, state); err != nil {
+		return err
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.Object.Type) {
+		return unknownExpressionDiagnostic("object expression type does not match its expected type")
+	}
+	if node.ResultType != (compilerTypes.Type{}) && !compilerTypes.Equal(node.ResultType, node.Object.Type) {
+		return unknownExpressionDiagnostic("object expression result type does not match its checked object")
+	}
+	return validateExpressionMetadata(node, expected, state)
+}
+
+func validateConstantExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Constant == nil || node.Constant.Kind != checker.ConstantOperand && node.Constant.Kind != checker.ObjectOperand ||
+		!compilerTypes.Equal(node.ResultType, node.Constant.Type) ||
+		!supportedGeneratedScalarType(node.ResultType) && node.Constant.Type.Object == nil && node.Constant.Type.Union == nil {
+		detail := ""
+		if node.Constant != nil {
+			detail = fmt.Sprintf(" result=%s const=%s kind=%d literal=%q object=%v union=%v equal=%v", node.ResultType.Name, node.Constant.Type.Name, node.Constant.Kind, node.Constant.Literal, node.Constant.Type.Object != nil, node.Constant.Type.Union != nil, compilerTypes.Equal(node.ResultType, node.Constant.Type))
+		}
+		return unknownExpressionDiagnostic("constant expression without a checked constant" + detail)
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("constant expression type does not match its expected type")
+	}
+	return validateConstantOperand(*node.Constant)
+}
+
+func validateUnaryOperationExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Operand == nil {
+		return unknownExpressionDiagnostic("unary operation with invalid checked metadata")
+	}
+	if node.Operator == checker.LogicalNotOperator {
+		// not accepts any value-producing operand; the operand is
+		// validated through its truthiness.
+		if !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) || compilerTypes.Truthiness(node.OperandType) == compilerTypes.TruthinessInvalid {
+			return unknownExpressionDiagnostic("logical not requires a truthy-compatible operand and a Bool result")
+		}
+		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+			return unknownExpressionDiagnostic("unary operation result type does not match its expected type")
+		}
+		return validateTruthinessChild(node.Operand, state)
+	}
+	if !supportedGeneratedScalarType(node.OperandType) || !supportedGeneratedScalarType(node.ResultType) {
+		return unknownExpressionDiagnostic("unary operation with invalid checked metadata")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("unary operation result type does not match its expected type")
+	}
+	if err := validateUnaryMetadata(node); err != nil {
+		return err
+	}
+	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
+}
+
+func validateBinaryOperationExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Left == nil || node.Right == nil {
+		return unknownExpressionDiagnostic("binary operation with invalid checked metadata")
+	}
+	if node.Operator == checker.LogicalAndOperator || node.Operator == checker.LogicalOrOperator {
+		// and/or accept any value-producing operands, mixed types
+		// included; each side is validated through its truthiness.
+		if !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) || compilerTypes.Truthiness(node.OperandType) == compilerTypes.TruthinessInvalid {
+			return unknownExpressionDiagnostic("logical operation requires a truthy-compatible operand and a Bool result")
+		}
+		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+			return unknownExpressionDiagnostic("binary operation result type does not match its expected type")
+		}
+		if err := validateTruthinessChild(node.Left, state); err != nil {
+			return err
+		}
+		return validateTruthinessChild(node.Right, state)
+	}
+	if !supportedGeneratedScalarType(node.OperandType) && node.OperandType.Element == nil || !supportedGeneratedScalarType(node.ResultType) {
+		return unknownExpressionDiagnostic("binary operation with invalid checked metadata")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("binary operation result type does not match its expected type")
+	}
+	if err := validateBinaryMetadata(node); err != nil {
+		return err
+	}
+	if err := validateExpressionChildWithState(node.Left, node.OperandType, state); err != nil {
+		return err
+	}
+	// A shift count keeps its own integer type; it never takes the left
+	// operand's type, unlike every other binary operator here.
+	rightExpected := node.OperandType
+	if node.Operator == checker.ShiftLeftOperator || node.Operator == checker.ShiftRightOperator {
+		if rightType, ok := expressionTypeWithState(*node.Right, state); ok {
+			rightExpected = rightType
+		}
+	}
+	return validateExpressionChildWithState(node.Right, rightExpected, state)
+}
+
+func validateNullTestExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	// == nil and != nil test a nullable operand's active member. The
+	// operand carries the pre-test nullable type; the result is Bool.
+	if node.Operand == nil {
+		return unknownExpressionDiagnostic("null test without a checked operand")
+	}
+	if node.OperandType == (compilerTypes.Type{}) || !compilerTypes.IsUnion(node.OperandType) || !compilerTypes.ContainsUnionMember(node.OperandType, compilerTypes.Nil) || !supportedGeneratedTypeWithState(node.OperandType, state) {
+		return unknownExpressionDiagnostic("null test has an invalid nullable operand type")
+	}
+	if node.Operator != checker.EqualOperator && node.Operator != checker.NotEqualOperator {
+		return unknownExpressionDiagnostic("null test has an invalid operator")
+	}
+	if node.ResultType != (compilerTypes.Type{}) && !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) {
+		return unknownExpressionDiagnostic("null test result type is not Bool")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, compilerTypes.Bool) {
+		return unknownExpressionDiagnostic("null test result type does not match its expected type")
+	}
+	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
+}
+
+func validateHeapAllocateExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Operand == nil || len(node.Arguments) != 1 || node.Element == (compilerTypes.Type{}) || !compilerTypes.IsCompleteValue(node.Element) || node.Element.Signature != nil || !supportedGeneratedTypeWithState(node.ResultType, state) || node.ResultType.Element == nil || !compilerTypes.Equal(*node.ResultType.Element, node.Element) {
+		return unknownExpressionDiagnostic("heap allocation has invalid checked metadata")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("heap allocation result does not match its expected type")
+	}
+	if err := validateExpressionChildWithState(node.Operand, compilerTypes.Heap, state); err != nil {
+		return err
+	}
+	return validateCheckedOperandWithState(node.Arguments[0], state)
+}
+
+func validateHeapAllocateAlignedExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Operand == nil || len(node.Arguments) != 2 || node.Element == (compilerTypes.Type{}) || !compilerTypes.IsCompleteValue(node.Element) || node.Element.Signature != nil || !supportedGeneratedTypeWithState(node.ResultType, state) || node.ResultType.Element == nil || !compilerTypes.Equal(*node.ResultType.Element, node.Element) {
+		return unknownExpressionDiagnostic("aligned heap allocation has invalid checked metadata")
+	}
+	if !compilerTypes.Equal(node.Arguments[1].Type, compilerTypes.SizeType) {
+		return unknownExpressionDiagnostic("aligned heap allocation alignment is not a Size")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("aligned heap allocation result does not match its expected type")
+	}
+	if err := validateExpressionChildWithState(node.Operand, compilerTypes.Heap, state); err != nil {
+		return err
+	}
+	if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
+		return err
+	}
+	return validateCheckedOperandWithState(node.Arguments[1], state)
+}
+
+func validateHeapFreeExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Operand == nil || len(node.Arguments) != 1 || node.ResultType != (compilerTypes.Type{}) {
+		return unknownExpressionDiagnostic("heap free has invalid checked metadata")
+	}
+	if node.Arguments[0].Type.Element == nil {
+		return unknownExpressionDiagnostic("heap free operand is not a pointer")
+	}
+	if expected != nil {
+		return unknownExpressionDiagnostic("heap free produces no value")
+	}
+	if err := validateExpressionChildWithState(node.Operand, compilerTypes.Heap, state); err != nil {
+		return err
+	}
+	return validateCheckedOperandWithState(node.Arguments[0], state)
+}
+
+func validateAdtConstructExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	adt := node.ResultType.Adt
+	if adt == nil || node.VariantIndex < 0 || node.VariantIndex >= len(adt.Variants) || !supportedGeneratedTypeWithState(node.ResultType, state) {
+		return unknownExpressionDiagnostic("ADT construction has invalid checked metadata")
+	}
+	variant := &adt.Variants[node.VariantIndex]
+	if len(node.Arguments) != len(variant.Payload) {
+		return unknownExpressionDiagnostic("ADT construction payload count does not match its variant")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("ADT construction result does not match its expected type")
+	}
+	for index, member := range variant.Payload {
+		if err := validateCheckedOperandWithState(node.Arguments[index], state); err != nil {
+			return err
+		}
+		if !generatedAssignable(member.Type, node.Arguments[index].Type) {
+			return unknownExpressionDiagnostic("ADT construction payload does not match its variant field")
+		}
+	}
+	return nil
+}
+
+func validateAdtPayloadExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	adt := node.OperandType.Adt
+	if node.Operand == nil || adt == nil || node.VariantIndex < 0 || node.VariantIndex >= len(adt.Variants) || node.MemberIndex < 0 || node.MemberIndex >= len(adt.Variants[node.VariantIndex].Payload) || !supportedGeneratedTypeWithState(node.OperandType, state) {
+		return unknownExpressionDiagnostic("ADT payload read has invalid checked metadata")
+	}
+	member := &adt.Variants[node.VariantIndex].Payload[node.MemberIndex]
+	checkedType := node.ResultType
+	if checkedType == (compilerTypes.Type{}) {
+		checkedType = member.Type
+	}
+	if !memberResultMatchesDeclared(checkedType, member.Type) || expected != nil && !compilerTypes.Equal(*expected, checkedType) {
+		return unknownExpressionDiagnostic("ADT payload read result does not match its checked field")
+	}
+	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
+}
+
+func validateMatchExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Operand == nil || node.ResultType == (compilerTypes.Type{}) || len(node.Arguments) != len(node.MemberMap) || !supportedGeneratedTypeWithState(node.OperandType, state) {
+		return unknownExpressionDiagnostic("match expression has invalid checked metadata")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("match result does not match its expected type")
+	}
+	for armIndex, arm := range node.Arguments {
+		if !generatedAssignable(node.ResultType, arm.Type) {
+			return unknownExpressionDiagnostic("match arm does not match its checked result type")
+		}
+		if err := validateCheckedOperandWithState(arm, state); err != nil {
+			return err
+		}
+		if node.MemberMap[armIndex] == checker.MatchScalarTag {
+			if armIndex >= len(node.MatchConstants) || node.MatchConstants[armIndex].Kind != checker.ConstantOperand {
+				return unknownExpressionDiagnostic("scalar match arm without a checked constant")
+			}
+			if !compilerTypes.Equal(node.MatchConstants[armIndex].Type, node.OperandType) {
+				return unknownExpressionDiagnostic("scalar match constant does not match the scrutinee type")
+			}
+			if err := validateCheckedOperandWithState(node.MatchConstants[armIndex], state); err != nil {
+				return err
+			}
+		}
+	}
+	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
+}
+
+func validateWideningExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Operand == nil || node.OperandType == (compilerTypes.Type{}) || node.ResultType == (compilerTypes.Type{}) {
+		return unknownExpressionDiagnostic("widening expression has invalid checked metadata")
+	}
+	if !compilerTypes.IsInteger(node.ResultType) && !compilerTypes.IsFloat(node.ResultType) {
+		return unknownExpressionDiagnostic("widening destination is not numeric")
+	}
+	if common, ok := compilerTypes.LosslessCommonType(node.OperandType, node.ResultType); !ok || !compilerTypes.Equal(common, node.ResultType) {
+		return unknownExpressionDiagnostic("widening is not a proven lossless conversion")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("widening result does not match its expected type")
+	}
+	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
+}
+
+func validateDeepEqualityExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Left == nil || node.Right == nil || node.OperandType == (compilerTypes.Type{}) || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) || node.Operator != checker.EqualOperator && node.Operator != checker.NotEqualOperator {
+		return unknownExpressionDiagnostic("deep equality has invalid checked metadata")
+	}
+	// Two text operands may be different forms; every other comparison
+	// has one compared type.
+	rightExpected := node.OperandType
+	if compilerTypes.IsText(node.OperandType) {
+		if !compilerTypes.IsText(node.RightType) {
+			return unknownExpressionDiagnostic("text equality has a non-text right operand")
+		}
+		rightExpected = node.RightType
+	}
+	leftType, leftOK := expressionTypeWithState(*node.Left, state)
+	rightType, rightOK := expressionTypeWithState(*node.Right, state)
+	if !leftOK || !rightOK || !compilerTypes.Equal(leftType, node.OperandType) || !compilerTypes.Equal(rightType, rightExpected) {
+		return unknownExpressionDiagnostic("deep equality operand does not match its compared type")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("deep equality result does not match its expected type")
+	}
+	if err := validateExpressionChildWithState(node.Left, node.OperandType, state); err != nil {
+		return err
+	}
+	return validateExpressionChildWithState(node.Right, rightExpected, state)
+}
+
+func validateConversionExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Operand == nil || node.OperandType == (compilerTypes.Type{}) || node.ResultType == (compilerTypes.Type{}) || node.MemberIndex < 0 || node.MemberIndex > 2 {
+		return unknownExpressionDiagnostic("numeric conversion has invalid checked metadata")
+	}
+	if !compilerTypes.IsInteger(node.ResultType) && !compilerTypes.IsFloat(node.ResultType) || node.MemberIndex != 0 && (!compilerTypes.IsInteger(node.OperandType) || !compilerTypes.IsInteger(node.ResultType)) || node.MemberIndex == 0 && !compilerTypes.IsInteger(node.OperandType) && !compilerTypes.IsFloat(node.OperandType) {
+		return unknownExpressionDiagnostic("numeric conversion has invalid checked types")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) && !compilerTypes.WidensTo(node.ResultType, *expected) {
+		return unknownExpressionDiagnostic("numeric conversion result does not match its expected type")
+	}
+	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
+}
+
+func validateBitCastExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Operand == nil || !checker.BitCastEligibleType(node.OperandType) || !checker.BitCastEligibleType(node.ResultType) || node.OperandType.Bits != node.ResultType.Bits {
+		return unknownExpressionDiagnostic("bit cast has invalid checked metadata")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("bit cast result does not match its expected type")
+	}
+	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
+}
+
+func validateErrorHeaderExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Operand == nil || !compilerTypes.IsError(node.OperandType) || !compilerTypes.Equal(node.ResultType, compilerTypes.ErrorHeaderText) {
+		return unknownExpressionDiagnostic("Error.header has invalid checked metadata")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("Error.header result does not match its expected type")
+	}
+	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
+}
+
+func validateErrorKindHeaderExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Operand == nil || !compilerTypes.IsErrorKind(node.OperandType) || !compilerTypes.Equal(node.ResultType, compilerTypes.ErrorHeaderText) {
+		return unknownExpressionDiagnostic("ErrorKind.header has invalid checked metadata")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("ErrorKind.header result does not match its expected type")
+	}
+	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
+}
+
+func validateModuleValueExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Name == "" || node.ResultType == (compilerTypes.Type{}) {
+		return unknownExpressionDiagnostic("module value reference has invalid checked metadata")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("module value reference does not match its expected type")
+	}
+	return nil
+}
+
+func validateEndianConversionExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Operand == nil || node.Element == (compilerTypes.Type{}) || node.MemberIndex < 0 || node.MemberIndex > 1 {
+		return unknownExpressionDiagnostic("endian conversion has invalid checked metadata")
+	}
+	if node.Name == "from" {
+		if len(node.Arguments) != 1 || node.ResultType == (compilerTypes.Type{}) || node.OperandType.Array == nil {
+			return unknownExpressionDiagnostic("endian from conversion has invalid checked metadata")
+		}
+		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+			return unknownExpressionDiagnostic("endian from result does not match its expected type")
+		}
+		return validateCheckedOperandWithState(node.Arguments[0], state)
+	}
+	if len(node.Arguments) != 0 || node.ResultType.Array == nil {
+		return unknownExpressionDiagnostic("endian to conversion has invalid checked metadata")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("endian to result does not match its expected type")
+	}
+	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
+}
+
+func validateTryExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Operand == nil || node.OperandType == (compilerTypes.Type{}) || node.ResultType == (compilerTypes.Type{}) || node.Element == (compilerTypes.Type{}) || node.MemberIndex < 0 || node.OperandType.Union == nil {
+		return unknownExpressionDiagnostic("try expression has invalid checked metadata")
+	}
+	if unionMemberIndex(node.OperandType, compilerTypes.ErrorType) != node.MemberIndex {
+		return unknownExpressionDiagnostic("try expression error member does not match its source union")
+	}
+	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
+}
+
+func validateLayoutExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.OperandType == (compilerTypes.Type{}) || !compilerTypes.Equal(node.ResultType, compilerTypes.SizeType) || node.Name != "size_of" && node.Name != "align_of" {
+		return unknownExpressionDiagnostic("layout query has invalid checked metadata")
+	}
+	if !layoutEligibleGenerated(node.OperandType) {
+		return unknownExpressionDiagnostic("layout query has an ineligible type")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("layout query result type does not match its expected type")
+	}
+	return nil
+}
+
+func validateVolatileReadExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Operand == nil || node.OperandType.Element == nil || !volatileEligibleGenerated(node.Element) || !compilerTypes.Equal(node.Element, *node.OperandType.Element) || !compilerTypes.Equal(node.ResultType, node.Element) {
+		return unknownExpressionDiagnostic("volatile read has invalid checked metadata")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("volatile read result type does not match its expected type")
+	}
+	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
+}
+
+func validateVolatileWriteExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Operand == nil || node.OperandType.Element == nil || len(node.Arguments) != 1 || !node.OperandType.PointeeWritable || !volatileEligibleGenerated(node.Element) || !compilerTypes.Equal(node.Element, *node.OperandType.Element) || node.ResultType != (compilerTypes.Type{}) {
+		return unknownExpressionDiagnostic("volatile write has invalid checked metadata")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("volatile write result type does not match its expected type")
+	}
+	if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
+		return err
+	}
+	return validateCheckedOperandWithState(node.Arguments[0], state)
+}
+
+func validatePrintExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if len(node.Arguments) == 0 || node.ResultType != (compilerTypes.Type{}) || (expected != nil) {
+		return unknownExpressionDiagnostic("print call has invalid checked metadata")
+	}
+	for _, argument := range node.Arguments {
+		if err := validateCheckedOperandWithState(argument, state); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateStringCompareExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
+	if node.Left == nil || node.Right == nil || !compilerTypes.IsText(node.OperandType) || !compilerTypes.IsText(node.RightType) || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) {
+		return unknownExpressionDiagnostic("text ordering has invalid checked metadata")
+	}
+	switch node.Operator {
+	case checker.LessOperator, checker.LessEqualOperator, checker.GreaterOperator, checker.GreaterEqualOperator:
+	default:
+		return unknownExpressionDiagnostic("text ordering has an invalid operator")
+	}
+	leftType, leftOK := expressionTypeWithState(*node.Left, state)
+	rightType, rightOK := expressionTypeWithState(*node.Right, state)
+	if !leftOK || !rightOK || !compilerTypes.Equal(leftType, node.OperandType) || !compilerTypes.Equal(rightType, node.RightType) {
+		return unknownExpressionDiagnostic("text ordering operand does not match its compared type")
+	}
+	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
+		return unknownExpressionDiagnostic("text ordering result does not match its expected type")
+	}
+	if err := validateExpressionChildWithState(node.Left, node.OperandType, state); err != nil {
+		return err
+	}
+	return validateExpressionChildWithState(node.Right, node.RightType, state)
 }

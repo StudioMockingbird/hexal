@@ -42,6 +42,10 @@ exactly that.
 
 Total suite runtime 3.9s, against the ten-second budget.
 
+**Historical:** this baseline predates the 160-snippet catalog (it covers 140
+snippets), so its `BenchmarkCorpus` row is not comparable to the 2026-09-25
+measurement above; the twelve per-program rows are.
+
 ## Traversal counts
 
 Reported only under the `benchmetrics` tag, which compiles the counter into
@@ -202,6 +206,34 @@ says nothing a reader of the frontend can act on.
 ## Measurement history
 
 Newest first.
+
+### 2026-09-25 — current tree, 160-snippet catalog
+
+Go 1.27.0 windows/amd64, AMD Ryzen 5 7530U. Same host as the entries below.
+
+| Benchmark | ns/op | MB/s | B/op | allocs/op |
+|---|---|---|---|---|
+| BenchmarkScalar | 1,093,500 | 0.30 | 292,024 | 1,269 |
+| BenchmarkGenericsHeavy | 2,896,900 | 0.35 | 1,146,000 | 5,214 |
+| BenchmarkMultiModule | 2,083,100 | 0.49 | 635,160 | 4,561 |
+| BenchmarkCollections | 2,191,800 | 0.31 | 821,080 | 2,846 |
+| BenchmarkText | 1,098,200 | 0.51 | 416,536 | 1,785 |
+| BenchmarkConcurrency | 2,175,400 | 0.33 | 883,024 | 3,632 |
+| BenchmarkErrorPaths | 1,831,300 | 0.23 | 490,656 | 3,960 |
+| BenchmarkCorpus | 141,613,500 | 0.31 | 47,646,560 | 253,687 |
+| BenchmarkFailureLex | 64,400 | 1.10 | 14,592 | 81 |
+| BenchmarkFailureParse | 95,200 | 0.97 | 20,096 | 129 |
+| BenchmarkFailureResolve | 73,800 | 2.36 | 11,376 | 78 |
+| BenchmarkFailureCheck | 462,800 | 0.36 | 105,144 | 472 |
+| BenchmarkFailureMany | 138,900 | 8.64 | 135,848 | 810 |
+
+The catalog has grown from 140 to 160 snippets since the entries below, so the
+`BenchmarkCorpus` row measures a larger fixed input and is **not** comparable to
+the older 80,192-allocation row; that figure is historical, not a regression.
+The twelve per-program rows are the same programs as the 2026-08-18 entry and
+remain comparable in shape. 253,687 `allocs/op` is the baseline for the present
+160-snippet corpus; treat any future move against it only on the same corpus.
+`ns/op` and `MB/s` are single `-benchtime 1x` samples.
 
 ### 2026-08-18 22:39 IST — RFC 0080 lands
 

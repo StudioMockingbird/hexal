@@ -7,8 +7,8 @@
 - Origin: RFC 0141 and RFC 0241
 - Depends on: a measured need for long-lived tooling and the incremental state
   model eventually designed by RFC 0232
-- Coordinates with: RFC 0232 (parallel and incremental compilation), deferred
-  RFC 0243 (stable diagnostic identity, which owns the prerequisite named in
+- Coordinates with: RFC 0232 (parallel and incremental compilation),
+  RFC 0243 (central diagnostics and stable keys, which owns the prerequisite named in
   point 3 below), `compiler.Compile`, `docs/reference.md`
 - Does not authorize: an LSP server, formatter, linter, stable diagnostic-code
   migration, state inside `compiler.Compile`, or a new syntax tree
@@ -54,8 +54,8 @@ from them rather than copying TypeScript wholesale.
 - What exact source, project-option, target, and compiler-version identities
   key reuse?
 - How are diagnostic identities introduced without breaking the current
-  `CompilationResult.Stderr` contract? Deferred RFC 0243 owns this question and
-  records the options; this RFC consumes whatever answer it reaches.
+  `CompilationResult.Stderr` contract? RFC 0243 owns the migration and its
+  user-visible rendering change; this RFC consumes the resulting identity.
 - Does formatting require a trivia-preserving syntax representation, or can it
   operate over tokens without changing the compiler AST?
 - How are cancelled editor requests prevented from publishing partial state?

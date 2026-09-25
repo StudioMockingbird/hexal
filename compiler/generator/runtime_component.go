@@ -36,20 +36,24 @@ func utf8procSelected(merged *programEmission) bool {
 }
 
 // libuvSelected reports whether any reachable operation links libuv. The
-// scheduler substrate, the monotonic clock, File, Terminal, and the
-// core-library path and entropy queries link it. std/program.arguments alone
-// does not: it reads the process invocation through the C runtime.
+// scheduler substrate, the monotonic clock, network, Terminal, and the
+// handle registry all link it directly: handle.c self-includes <uv.h> and
+// its component record names libuv, so a type-only Process/Signal program
+// that reaches no other libuv-backed operation still needs the input --
+// File's type reachability has always demanded it the same way.
+// std/program.arguments alone does not link it: it reads the process
+// invocation through the C runtime.
 func libuvSelected(merged *programEmission) bool {
-	if merged.timeState != nil && merged.timeState.instant || merged.fileState != nil && merged.fileState.used {
+	if handleSelected(merged) {
+		return true
+	}
+	if merged.timeState != nil && merged.timeState.instant {
 		return true
 	}
 	if merged.networkState != nil && merged.networkState.used {
 		return true
 	}
 	if merged.terminalState != nil && merged.terminalState.used {
-		return true
-	}
-	if merged.corelibState != nil && (merged.corelibState.paths || merged.corelibState.entropy) {
 		return true
 	}
 	return merged.concurrencyState != nil && merged.concurrencyState.used

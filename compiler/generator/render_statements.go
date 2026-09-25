@@ -140,94 +140,15 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 		}
 		switch statement := statement.(type) {
 		case checker.Declaration:
-			if !supportedGeneratedTypeWithState(statement.Type, state) {
-				return unknownExpressionDiagnostic("unsupported checked declaration type")
-			}
-			if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
-				return err
-			}
-			var name string
-			if statement.Captured {
-				name = "env." + privateCName(valueName, statement.Name, "")
-				if captureErr := state.registerCapture(checker.Capture{Name: statement.Name, Binding: statement.Binding, Type: statement.Type, Mutable: statement.Mutable}, name); captureErr != nil {
-					return captureErr
-				}
-			} else {
-				allocated, nameErr := state.allocateBinding(statement.Binding, statement.Name, statement.Type, statement.Mutable)
-				if nameErr != nil {
-					return nameErr
-				}
-				name = allocated
-			}
-			declared := declaration(statement.Type, name, statement.Mutable)
-			if statement.Captured {
-				declared = name
-			}
-			if statement.Source.Node.Kind == checker.MatchExpression {
-				resultName, matchErr := renderMatchStatement(body, statement.Source.Node, state, indent)
-				if matchErr != nil {
-					return matchErr
-				}
-				if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: declared, Value: resultName}); err != nil {
-					return err
-				}
-				break
-			}
-			value, literalErr := renderOperandWithState(statement.Source, state)
-			if literalErr != nil {
-				return literalErr
-			}
-			if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: declared, Value: value}); err != nil {
+			if err := writeDeclarationStatement(statement, body, state, frame, indent); err != nil {
 				return err
 			}
 		case checker.Assignment:
-			if !supportedGeneratedTypeWithState(statement.Type, state) || !supportedGeneratedTypeWithState(statement.Target.Type, state) {
-				return unknownExpressionDiagnostic("unsupported checked assignment type")
-			}
-			if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
-				return err
-			}
-			target, expressionErr := renderOperandWithState(statement.Target, state)
-			if expressionErr != nil {
-				return expressionErr
-			}
-			if target == "" {
-				return unknownExpressionDiagnostic("empty checked assignment target")
-			}
-			if statement.Source.Node.Kind == checker.MatchExpression {
-				resultName, matchErr := renderMatchStatement(body, statement.Source.Node, state, indent)
-				if matchErr != nil {
-					return matchErr
-				}
-				if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: target, Value: resultName}); err != nil {
-					return err
-				}
-				break
-			}
-			value, literalErr := renderOperandWithState(statement.Source, state)
-			if literalErr != nil {
-				return literalErr
-			}
-			if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: target, Value: value}); err != nil {
+			if err := writeAssignmentStatement(statement, body, state, frame, indent); err != nil {
 				return err
 			}
 		case checker.CallStatement:
-			if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
-				return err
-			}
-			if statement.Call.Node.Kind == checker.PrintExpression {
-				// print is a statement-level builtin producing no value; it
-				// renders its own temporaries and helper calls.
-				if err := renderPrintStatement(body, statement.Call.Node, state, indent); err != nil {
-					return err
-				}
-				break
-			}
-			call, callErr := renderCallStatement(statement, state)
-			if callErr != nil {
-				return callErr
-			}
-			if err := renderInto(body, "module.c", "call_stmt", callStmtModel{Indent: indent, Call: call}); err != nil {
+			if err := writeCallStatement(statement, body, state, frame, indent); err != nil {
 				return err
 			}
 		case checker.TryStatement:
@@ -237,99 +158,19 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				return err
 			}
 		case checker.ReturnStatement:
-			if !frame.inFunction {
-				return unknownExpressionDiagnostic("return outside a function body")
-			}
-			if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
-				return err
-			}
-			text, returnErr := renderReturnStatement(statement, frame.result, state, indent)
-			if returnErr != nil {
-				return returnErr
-			}
-			if err := renderInto(body, "module.c", "raw_text", rawTextModel{Text: text}); err != nil {
+			if err := writeReturnStatement(statement, body, state, frame, indent); err != nil {
 				return err
 			}
 		case checker.RootReturnStatement:
-			// Only the entry module's root scope produces one; a root return
-			// reached inside a function body is a checker-to-generator
-			// contract break, never a silent function return.
-			if frame.inFunction {
-				return unknownExpressionDiagnostic("root return inside a function body")
-			}
-			if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
-				return err
-			}
-			text, returnErr := renderRootReturnStatement(statement, state, indent)
-			if returnErr != nil {
-				return returnErr
-			}
-			if err := renderInto(body, "module.c", "raw_text", rawTextModel{Text: text}); err != nil {
+			if err := writeRootReturnStatement(statement, body, state, frame, indent); err != nil {
 				return err
 			}
 		case checker.IfStatement:
-			condition, conditionErr := renderTruthiness(&statement.Condition, state)
-			if conditionErr != nil {
-				return conditionErr
-			}
-			if err := writeControlHeader(body, indent, "if", condition, state.line(statement.Span), state.line(statement.ConditionSpan), state.filename); err != nil {
-				return err
-			}
-			state.pushScope()
-			if err := writeStatementsAt(body, statement.Then, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: statement.ThenDefers}, indent+"    "); err != nil {
-				return err
-			}
-			state.popScope()
-			for branchIndex, branch := range statement.ElseIf {
-				condition, branchErr := renderTruthiness(&branch.Condition, state)
-				if branchErr != nil {
-					return branchErr
-				}
-				if err := writeControlHeader(body, indent, "} else if", condition, state.line(branch.Span), state.line(branch.ConditionSpan), state.filename); err != nil {
-					return err
-				}
-				state.pushScope()
-				if err := writeStatementsAt(body, branch.Body, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: branchDefers(statement, branchIndex)}, indent+"    "); err != nil {
-					return err
-				}
-				state.popScope()
-			}
-			if statement.Else != nil {
-				if err := writeLineDirective(body, state.line(statement.ElseSpan), state.filename); err != nil {
-					return err
-				}
-				if err := renderInto(body, "module.c", "else_open", indentModel{Indent: indent}); err != nil {
-					return err
-				}
-				state.pushScope()
-				if err := writeStatementsAt(body, statement.Else, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: statement.ElseDefers}, indent+"    "); err != nil {
-					return err
-				}
-				state.popScope()
-			}
-			if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+			if err := writeIfStatement(statement, body, state, frame, indent); err != nil {
 				return err
 			}
 		case checker.WhileStatement:
-			condition, conditionErr := renderTruthiness(&statement.Condition, state)
-			if conditionErr != nil {
-				return conditionErr
-			}
-			if err := writeControlHeader(body, indent, "while", condition, state.line(statement.Span), state.line(statement.ConditionSpan), state.filename); err != nil {
-				return err
-			}
-			state.pushScope()
-			previousLoopDepth := state.loopDepth
-			state.loopDepth++
-			state.loopDepths = append(state.loopDepths, len(state.deferStack))
-			err := writeStatementsAt(body, statement.Body, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: statement.BodyDefers}, indent+"    ")
-			state.loopDepths = state.loopDepths[:len(state.loopDepths)-1]
-			state.loopDepth = previousLoopDepth
-			state.popScope()
-			if err != nil {
-				return err
-			}
-			if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+			if err := writeWhileStatement(statement, body, state, frame, indent); err != nil {
 				return err
 			}
 		case checker.ForStatement:
@@ -348,29 +189,11 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				return err
 			}
 		case checker.BreakStatement:
-			if state.loopDepth == 0 {
-				return unknownExpressionDiagnostic("checked break outside a while loop")
-			}
-			if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
-				return err
-			}
-			if err := unwindToLoopDepth(body, state, indent, "false"); err != nil {
-				return err
-			}
-			if err := renderInto(body, "module.c", "break_stmt", indentModel{Indent: indent}); err != nil {
+			if err := writeBreakStatement(statement, body, state, frame, indent); err != nil {
 				return err
 			}
 		case checker.ContinueStatement:
-			if state.loopDepth == 0 {
-				return unknownExpressionDiagnostic("checked continue outside a while loop")
-			}
-			if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
-				return err
-			}
-			if err := unwindToLoopDepth(body, state, indent, "false"); err != nil {
-				return err
-			}
-			if err := renderInto(body, "module.c", "continue_stmt", indentModel{Indent: indent}); err != nil {
+			if err := writeContinueStatement(statement, body, state, frame, indent); err != nil {
 				return err
 			}
 		case checker.DeferStatement:
@@ -381,29 +204,16 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				return err
 			}
 		case checker.ErrdeferStatement:
-			// errdefer registers exactly like defer; the Err flag decides at
-			// the exit edge whether the action runs.
-			if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
-				return err
-			}
-			if err := writeDeferStatement(body, checker.DeferStatement{Expression: statement.Expression, Action: statement.Action, Span: statement.Span}, state, indent); err != nil {
+			if err := writeErrdeferStatement(statement, body, state, frame, indent); err != nil {
 				return err
 			}
 		case checker.FunctionDeclaration:
-			// Already emitted at file scope; a nested one is not representable.
-			if frame.inFunction {
-				return unknownExpressionDiagnostic("function declaration inside a function body")
-			}
-			if len(state.activeScopes) > 1 {
-				return unknownExpressionDiagnostic("function declaration inside a module-level control-flow block")
+			if err := writeFunctionDeclarationStatement(statement, body, state, frame, indent); err != nil {
+				return err
 			}
 		case checker.MethodDeclaration:
-			// Already emitted at file scope; a nested one is not representable.
-			if frame.inFunction {
-				return unknownExpressionDiagnostic("method declaration inside a function body")
-			}
-			if len(state.activeScopes) > 1 {
-				return unknownExpressionDiagnostic("method declaration inside a module-level control-flow block")
+			if err := writeMethodDeclarationStatement(statement, body, state, frame, indent); err != nil {
+				return err
 			}
 		default:
 			return unknownExpressionDiagnostic("unsupported checked statement")
@@ -689,4 +499,278 @@ func truthinessExpression(typ compilerTypes.Type, rendered string, state *expres
 	default:
 		return "", unknownExpressionDiagnostic("unsupported operand in a truthiness context")
 	}
+}
+
+func writeDeclarationStatement(statement checker.Declaration, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
+	if !supportedGeneratedTypeWithState(statement.Type, state) {
+		return unknownExpressionDiagnostic("unsupported checked declaration type")
+	}
+	if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
+		return err
+	}
+	var name string
+	if statement.Captured {
+		name = "env." + privateCName(valueName, statement.Name, "")
+		if captureErr := state.registerCapture(checker.Capture{Name: statement.Name, Binding: statement.Binding, Type: statement.Type, Mutable: statement.Mutable}, name); captureErr != nil {
+			return captureErr
+		}
+	} else {
+		allocated, nameErr := state.allocateBinding(statement.Binding, statement.Name, statement.Type, statement.Mutable)
+		if nameErr != nil {
+			return nameErr
+		}
+		name = allocated
+	}
+	declared := declaration(statement.Type, name, statement.Mutable)
+	if statement.Captured {
+		declared = name
+	}
+	if statement.Source.Node.Kind == checker.MatchExpression {
+		resultName, matchErr := renderMatchStatement(body, statement.Source.Node, state, indent)
+		if matchErr != nil {
+			return matchErr
+		}
+		if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: declared, Value: resultName}); err != nil {
+			return err
+		}
+		return nil
+	}
+	value, literalErr := renderOperandWithState(statement.Source, state)
+	if literalErr != nil {
+		return literalErr
+	}
+	if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: declared, Value: value}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeAssignmentStatement(statement checker.Assignment, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
+	if !supportedGeneratedTypeWithState(statement.Type, state) || !supportedGeneratedTypeWithState(statement.Target.Type, state) {
+		return unknownExpressionDiagnostic("unsupported checked assignment type")
+	}
+	if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
+		return err
+	}
+	target, expressionErr := renderOperandWithState(statement.Target, state)
+	if expressionErr != nil {
+		return expressionErr
+	}
+	if target == "" {
+		return unknownExpressionDiagnostic("empty checked assignment target")
+	}
+	if statement.Source.Node.Kind == checker.MatchExpression {
+		resultName, matchErr := renderMatchStatement(body, statement.Source.Node, state, indent)
+		if matchErr != nil {
+			return matchErr
+		}
+		if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: target, Value: resultName}); err != nil {
+			return err
+		}
+		return nil
+	}
+	value, literalErr := renderOperandWithState(statement.Source, state)
+	if literalErr != nil {
+		return literalErr
+	}
+	if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: target, Value: value}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeCallStatement(statement checker.CallStatement, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
+	if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
+		return err
+	}
+	if statement.Call.Node.Kind == checker.PrintExpression {
+		// print is a statement-level builtin producing no value; it
+		// renders its own temporaries and helper calls.
+		if err := renderPrintStatement(body, statement.Call.Node, state, indent); err != nil {
+			return err
+		}
+		return nil
+	}
+	call, callErr := renderCallStatement(statement, state)
+	if callErr != nil {
+		return callErr
+	}
+	if err := renderInto(body, "module.c", "call_stmt", callStmtModel{Indent: indent, Call: call}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeReturnStatement(statement checker.ReturnStatement, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
+	if !frame.inFunction {
+		return unknownExpressionDiagnostic("return outside a function body")
+	}
+	if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
+		return err
+	}
+	text, returnErr := renderReturnStatement(statement, frame.result, state, indent)
+	if returnErr != nil {
+		return returnErr
+	}
+	if err := renderInto(body, "module.c", "raw_text", rawTextModel{Text: text}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeRootReturnStatement(statement checker.RootReturnStatement, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
+	// Only the entry module's root scope produces one; a root return
+	// reached inside a function body is a checker-to-generator
+	// contract break, never a silent function return.
+	if frame.inFunction {
+		return unknownExpressionDiagnostic("root return inside a function body")
+	}
+	if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
+		return err
+	}
+	text, returnErr := renderRootReturnStatement(statement, state, indent)
+	if returnErr != nil {
+		return returnErr
+	}
+	if err := renderInto(body, "module.c", "raw_text", rawTextModel{Text: text}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeIfStatement(statement checker.IfStatement, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
+	condition, conditionErr := renderTruthiness(&statement.Condition, state)
+	if conditionErr != nil {
+		return conditionErr
+	}
+	if err := writeControlHeader(body, indent, "if", condition, state.line(statement.Span), state.line(statement.ConditionSpan), state.filename); err != nil {
+		return err
+	}
+	state.pushScope()
+	if err := writeStatementsAt(body, statement.Then, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: statement.ThenDefers}, indent+"    "); err != nil {
+		return err
+	}
+	state.popScope()
+	for branchIndex, branch := range statement.ElseIf {
+		condition, branchErr := renderTruthiness(&branch.Condition, state)
+		if branchErr != nil {
+			return branchErr
+		}
+		if err := writeControlHeader(body, indent, "} else if", condition, state.line(branch.Span), state.line(branch.ConditionSpan), state.filename); err != nil {
+			return err
+		}
+		state.pushScope()
+		if err := writeStatementsAt(body, branch.Body, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: branchDefers(statement, branchIndex)}, indent+"    "); err != nil {
+			return err
+		}
+		state.popScope()
+	}
+	if statement.Else != nil {
+		if err := writeLineDirective(body, state.line(statement.ElseSpan), state.filename); err != nil {
+			return err
+		}
+		if err := renderInto(body, "module.c", "else_open", indentModel{Indent: indent}); err != nil {
+			return err
+		}
+		state.pushScope()
+		if err := writeStatementsAt(body, statement.Else, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: statement.ElseDefers}, indent+"    "); err != nil {
+			return err
+		}
+		state.popScope()
+	}
+	if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeWhileStatement(statement checker.WhileStatement, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
+	condition, conditionErr := renderTruthiness(&statement.Condition, state)
+	if conditionErr != nil {
+		return conditionErr
+	}
+	if err := writeControlHeader(body, indent, "while", condition, state.line(statement.Span), state.line(statement.ConditionSpan), state.filename); err != nil {
+		return err
+	}
+	state.pushScope()
+	previousLoopDepth := state.loopDepth
+	state.loopDepth++
+	state.loopDepths = append(state.loopDepths, len(state.deferStack))
+	err := writeStatementsAt(body, statement.Body, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: statement.BodyDefers}, indent+"    ")
+	state.loopDepths = state.loopDepths[:len(state.loopDepths)-1]
+	state.loopDepth = previousLoopDepth
+	state.popScope()
+	if err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeBreakStatement(statement checker.BreakStatement, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
+	if state.loopDepth == 0 {
+		return unknownExpressionDiagnostic("checked break outside a while loop")
+	}
+	if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
+		return err
+	}
+	if err := unwindToLoopDepth(body, state, indent, "false"); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "break_stmt", indentModel{Indent: indent}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeContinueStatement(statement checker.ContinueStatement, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
+	if state.loopDepth == 0 {
+		return unknownExpressionDiagnostic("checked continue outside a while loop")
+	}
+	if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
+		return err
+	}
+	if err := unwindToLoopDepth(body, state, indent, "false"); err != nil {
+		return err
+	}
+	if err := renderInto(body, "module.c", "continue_stmt", indentModel{Indent: indent}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeErrdeferStatement(statement checker.ErrdeferStatement, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
+	// errdefer registers exactly like defer; the Err flag decides at
+	// the exit edge whether the action runs.
+	if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
+		return err
+	}
+	if err := writeDeferStatement(body, checker.DeferStatement{Expression: statement.Expression, Action: statement.Action, Span: statement.Span}, state, indent); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeFunctionDeclarationStatement(statement checker.FunctionDeclaration, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
+	// Already emitted at file scope; a nested one is not representable.
+	if frame.inFunction {
+		return unknownExpressionDiagnostic("function declaration inside a function body")
+	}
+	if len(state.activeScopes) > 1 {
+		return unknownExpressionDiagnostic("function declaration inside a module-level control-flow block")
+	}
+	return nil
+}
+
+func writeMethodDeclarationStatement(statement checker.MethodDeclaration, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
+	// Already emitted at file scope; a nested one is not representable.
+	if frame.inFunction {
+		return unknownExpressionDiagnostic("method declaration inside a function body")
+	}
+	if len(state.activeScopes) > 1 {
+		return unknownExpressionDiagnostic("method declaration inside a module-level control-flow block")
+	}
+	return nil
 }

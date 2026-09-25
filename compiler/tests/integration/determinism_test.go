@@ -91,11 +91,11 @@ func TestCompilationStatsArePopulated(t *testing.T) {
 	// machine, so the checkable invariant is the relationship between them,
 	// not a lower bound on any one.
 	sum := stats.LexDuration + stats.CheckDuration + stats.GenerateDuration
-	if stats.PixelSubtotal != sum {
-		t.Errorf("PixelSubtotal = %v, want the sum of the stage durations %v", stats.PixelSubtotal, sum)
+	if stats.PhaseSubtotal != sum {
+		t.Errorf("PhaseSubtotal = %v, want the sum of the stage durations %v", stats.PhaseSubtotal, sum)
 	}
-	if stats.TotalDuration < stats.PixelSubtotal {
-		t.Errorf("TotalDuration = %v, want at least the stage subtotal %v", stats.TotalDuration, stats.PixelSubtotal)
+	if stats.TotalDuration < stats.PhaseSubtotal {
+		t.Errorf("TotalDuration = %v, want at least the stage subtotal %v", stats.TotalDuration, stats.PhaseSubtotal)
 	}
 }
 
@@ -112,7 +112,7 @@ func TestCompilationStatsSurviveFailure(t *testing.T) {
 	if result.Stats.TokenCount == 0 {
 		t.Error("TokenCount = 0, want the lexed token count of a program that parsed")
 	}
-	if result.Stats.TotalDuration < result.Stats.PixelSubtotal {
-		t.Errorf("TotalDuration = %v, want at least the stage subtotal %v", result.Stats.TotalDuration, result.Stats.PixelSubtotal)
+	if result.Stats.TotalDuration < result.Stats.PhaseSubtotal {
+		t.Errorf("TotalDuration = %v, want at least the stage subtotal %v", result.Stats.TotalDuration, result.Stats.PhaseSubtotal)
 	}
 }

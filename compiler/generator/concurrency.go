@@ -818,9 +818,6 @@ func hoistSpawn(node checker.Expression, body *strings.Builder, state *expressio
 	state.spawnCounter++
 	temp := fmt.Sprintf("hex_spawn_args_%d", state.spawnCounter)
 	taskTemp := fmt.Sprintf("hex_spawn_task_%d", state.spawnCounter)
-	if state.hoistedSpawns == nil {
-		state.hoistedSpawns = make(map[*checker.Expression]string)
-	}
 	if site.hasFrame() {
 		argsType := "hex_task_args_" + site.key()
 		if err := renderInto(body, "module.c", "spawn_frame_decl", spawnFrameDeclModel{Indent: indent, ArgsType: argsType, Temp: temp}); err != nil {
@@ -870,9 +867,6 @@ func hoistSpawn(node checker.Expression, body *strings.Builder, state *expressio
 // renderSpawnExpression renders a hoisted spawn as its Task | Error union:
 // the handle on success, the constructed Error on creation failure.
 func renderSpawnExpression(node checker.Expression, state *expressionValidation) (string, error) {
-	if state.hoistedSpawns == nil {
-		return "", unknownExpressionDiagnostic("spawn expression reached generation without hoisting")
-	}
 	taskTemp, ok := state.hoistedSpawns[node.Operand]
 	if !ok {
 		return "", unknownExpressionDiagnostic("spawn expression reached generation without hoisting")
@@ -1137,13 +1131,13 @@ func validateConcurrencyExpression(node checker.Expression, expected *compilerTy
 	switch node.Kind {
 	case checker.SpawnExpression:
 		if node.Operand == nil || node.OperandType.Task == nil || node.OperandType.Task.Result == (compilerTypes.Type{}) || node.ResultType.Union == nil || !compilerTypes.Equal(node.Element, node.OperandType.Task.Result) || state.line(node.Span) <= 0 {
-			return unknownExpressionDiagnostic("spawn expression has invalid checked metadata")
+			return unknownExpressionDiagnosticAt(state, node.Span, "spawn expression has invalid checked metadata")
 		}
 		if unionMemberIndex(node.ResultType, node.OperandType) < 0 || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 {
-			return unknownExpressionDiagnostic("spawn result union is missing its Task or Error member")
+			return unknownExpressionDiagnosticAt(state, node.Span, "spawn result union is missing its Task or Error member")
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("spawn result type does not match its expected type")
+			return unknownExpressionDiagnosticAt(state, node.Span, "spawn result type does not match its expected type")
 		}
 		if err := validateExpressionChildWithState(node.Operand, compilerTypes.Type{}, state); err != nil {
 			return err
@@ -1176,13 +1170,13 @@ func validateConcurrencyExpression(node checker.Expression, expected *compilerTy
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.ChannelConstructorExpression:
 		if node.OperandType.Channel == nil || len(node.Arguments) != 2 || !compilerTypes.Equal(node.Element, node.OperandType.Channel.Element) || node.ResultType.Union == nil || state.line(node.Span) <= 0 {
-			return unknownExpressionDiagnostic("channel constructor has invalid checked metadata")
+			return unknownExpressionDiagnosticAt(state, node.Span, "channel constructor has invalid checked metadata")
 		}
 		if unionMemberIndex(node.ResultType, node.OperandType) < 0 || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 {
-			return unknownExpressionDiagnostic("channel constructor union is missing its Channel or Error member")
+			return unknownExpressionDiagnosticAt(state, node.Span, "channel constructor union is missing its Channel or Error member")
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("channel constructor result type does not match its expected type")
+			return unknownExpressionDiagnosticAt(state, node.Span, "channel constructor result type does not match its expected type")
 		}
 		if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
 			return err
@@ -1195,7 +1189,7 @@ func validateConcurrencyExpression(node checker.Expression, expected *compilerTy
 		switch node.Name {
 		case "send":
 			if len(node.Arguments) != 1 || node.ResultType.Union == nil || unionMemberIndex(node.ResultType, compilerTypes.Nil) < 0 || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 || state.line(node.Span) <= 0 {
-				return unknownExpressionDiagnostic("channel send has invalid checked metadata")
+				return unknownExpressionDiagnosticAt(state, node.Span, "channel send has invalid checked metadata")
 			}
 		case "receive":
 			if len(node.Arguments) != 0 || node.ResultType.Union == nil || unionMemberIndex(node.ResultType, node.Element) < 0 || unionMemberIndex(node.ResultType, compilerTypes.EoS) < 0 {
@@ -1234,13 +1228,13 @@ func validateConcurrencyExpression(node checker.Expression, expected *compilerTy
 		return nil
 	case checker.MutexConstructorExpression:
 		if len(node.Arguments) != 1 || !compilerTypes.IsMutex(node.OperandType) || node.ResultType.Union == nil || state.line(node.Span) <= 0 {
-			return unknownExpressionDiagnostic("mutex constructor has invalid checked metadata")
+			return unknownExpressionDiagnosticAt(state, node.Span, "mutex constructor has invalid checked metadata")
 		}
 		if unionMemberIndex(node.ResultType, compilerTypes.MutexType) < 0 || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 {
-			return unknownExpressionDiagnostic("mutex constructor union is missing its Mutex or Error member")
+			return unknownExpressionDiagnosticAt(state, node.Span, "mutex constructor union is missing its Mutex or Error member")
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("mutex constructor result type does not match its expected type")
+			return unknownExpressionDiagnosticAt(state, node.Span, "mutex constructor result type does not match its expected type")
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
 	case checker.MutexMethodCallExpression:

@@ -9,6 +9,7 @@
 # CRLF working-tree copy changes every generated file and moves the snippet
 # manifest. Unlike ordinary text, these are content, not source.
 compiler/generator/packages/* text eol=lf
+compiler/corelib/runtime/* text eol=lf
 
 # Embedded dependency metadata is parsed and hashed byte-for-byte by the
 # compiler, so Windows checkout conversion must not introduce carriage returns.

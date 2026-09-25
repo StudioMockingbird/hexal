@@ -214,6 +214,36 @@ func TestTryAndSequencingHoistsCoexistInOneStatement(t *testing.T) {
 	requireAscending(t, positions, "try hoist", "b()", "add(...)")
 }
 
+// A core-library call observes system state, so two sibling calls must land
+// in ordered temporaries rather than one unsequenced C call expression.
+func TestCorelibCallSiblingsEvaluateLeftToRight(t *testing.T) {
+	result := assertCompiles(t, programImport+
+		"fun total(a: Size, b: Size): Int32 do\n    return 0\nend\n"+
+		"let result: Int32 = total(Prog.available_parallelism(), Prog.available_parallelism())\n")
+	body := rootC(t, result)
+	positions := order(t, body,
+		"hex_seq_1 = hex_program_available_parallelism()",
+		"hex_seq_2 = hex_program_available_parallelism()",
+		"hex_f_m3_app_total(hex_seq_1, hex_seq_2)")
+	requireAscending(t, positions, "first parallelism temporary", "second parallelism temporary", "total(...)")
+	if strings.Count(body, "hex_program_available_parallelism()") != 2 {
+		t.Fatalf("want exactly two parallelism call sites, one per temporary:\n%s", body)
+	}
+}
+
+// A cursor next advances the receiver binding through its address, so it must
+// be captured into a temporary before a pure sibling reads the cursor.
+func TestCursorNextEvaluatesBeforePureSibling(t *testing.T) {
+	result := assertCompiles(t, "fun pick(a: Byte, b: Byte): Int32 do\n    return 0\nend\n"+
+		"fun run(): Int32 do\n    let mut c: ByteCursor = \"ab\".byte_cursor()\n    return pick(c.next(), c.peek())\nend\n")
+	body := rootC(t, result)
+	positions := order(t, body,
+		"hex_byte_cursor_next(&(hex_v_c))",
+		"hex_byte_cursor_peek(hex_v_c)",
+		"hex_f_m3_app_pick(hex_seq_1, hex_seq_2)")
+	requireAscending(t, positions, "next()", "peek()", "pick(...)")
+}
+
 // Repeated compilations of the same source produce byte-identical generated
 // files: the hoist counters and map iteration involved carry no
 // nondeterminism.

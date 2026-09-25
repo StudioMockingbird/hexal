@@ -140,11 +140,9 @@ type BuildOptions struct {
 // stay stable and concise; only a compiler-defect Unknown Error carries the
 // toolchain version, so a bug report is attributable without touching every
 // user-facing message.
-func hexalFailureMessage(diagnostics []string) string {
-	for _, diagnostic := range diagnostics {
-		if strings.Contains(diagnostic, "[Unknown Error]") {
-			return fmt.Sprintf("compilation failed (Hexal %s)", version.String())
-		}
+func hexalFailureMessage(hasCompilerDefect bool) string {
+	if hasCompilerDefect {
+		return fmt.Sprintf("compilation failed (Hexal %s)", version.String())
 	}
 	return "compilation failed"
 }
@@ -270,7 +268,7 @@ func Build(options BuildOptions) (BuildResult, error) {
 		for _, diagnostic := range compileResult.Stderr {
 			fmt.Fprintln(os.Stderr, diagnostic)
 		}
-		return result, &BuildError{Stage: StageHexal, Message: hexalFailureMessage(compileResult.Stderr)}
+		return result, &BuildError{Stage: StageHexal, Message: hexalFailureMessage(compileResult.HasCompilerDefect)}
 	}
 
 	// The mode selects backend options here and nowhere else; the dependency

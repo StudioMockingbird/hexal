@@ -34,9 +34,6 @@ func writeDeferStatement(body *strings.Builder, statement checker.DeferStatement
 	if action.Call == nil {
 		return unknownExpressionDiagnostic("deferred call action without a checked call")
 	}
-	if state.captures == nil {
-		state.captures = make(map[*checker.Operand][]string)
-	}
 	node := action.Call.Node
 	captured := make([]string, 0, len(node.Arguments)+1)
 	switch node.Kind {

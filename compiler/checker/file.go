@@ -50,71 +50,71 @@ func checkFileTypeCall(call parser.CallExpression, variable parser.VariableExpre
 }
 
 // checkFileMethodCall resolves read, write, seek, flush, and close on File.
-func checkFileMethodCall(call parser.CallExpression, callee parser.PropertyExpression, receiver checkedExpression, ctx checkContext) checkedExpression {
-	name := callee.Property.Lexeme
+func checkFileMethodCall(call methodCall) checkedExpression {
+	name := call.callee.Property.Lexeme
 	switch name {
 	case "read", "write", "seek", "flush", "close":
 	default:
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "File has no method "+name+"; use read, write, seek, flush, or close"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "File has no method "+name+"; use read, write, seek, flush, or close"))}
 	}
-	if len(call.TypeArguments) != 0 {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, name+" takes no type arguments"))}
+	if len(call.call.TypeArguments) != 0 {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, name+" takes no type arguments"))}
 	}
-	if ctx.names.cleanupDepth > 0 && name != "close" {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "only File.close() may be deferred on a file"))}
+	if call.ctx.names.cleanupDepth > 0 && name != "close" {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "only File.close() may be deferred on a file"))}
 	}
-	receiver = valueFromPlace(receiver)
-	if diagnostic := streamClosedDiagnostic(receiver.source, callee.Property, ctx.names.flow); diagnostic != nil {
-		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+	call.receiver = valueFromPlace(call.receiver)
+	if diagnostic := streamClosedDiagnostic(call.receiver.source, call.callee.Property, call.ctx.names.flow); diagnostic != nil {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 	}
 	switch name {
 	case "read":
-		if diagnostic := streamCapabilityMismatch("read", receiver.source, callee.Property, ctx.names.flow); diagnostic != nil {
-			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+		if diagnostic := streamCapabilityMismatch("read", call.receiver.source, call.callee.Property, call.ctx.names.flow); diagnostic != nil {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 		}
 	case "write", "flush":
-		if diagnostic := streamCapabilityMismatch("write", receiver.source, callee.Property, ctx.names.flow); diagnostic != nil {
-			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
+		if diagnostic := streamCapabilityMismatch("write", call.receiver.source, call.callee.Property, call.ctx.names.flow); diagnostic != nil {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 		}
 	}
 	var arguments []Operand
 	var diagnostics compilerTypes.Diagnostics
 	switch name {
 	case "read":
-		arguments, diagnostics = checkStreamReadArguments(call, callee, ctx)
+		arguments, diagnostics = checkStreamReadArguments(call)
 	case "write":
-		arguments, diagnostics = checkStreamWriteArguments(call, callee, ctx)
+		arguments, diagnostics = checkStreamWriteArguments(call)
 	case "seek":
-		arguments, diagnostics = checkStreamSeekArguments(call, callee, ctx)
+		arguments, diagnostics = checkStreamSeekArguments(call)
 	default:
-		if len(call.Arguments) != 0 {
-			diagnostics = compilerTypes.Diagnostics{typeErrorAt(callee.Property, name+" expects no arguments")}
+		if len(call.call.Arguments) != 0 {
+			diagnostics = compilerTypes.Diagnostics{typeErrorAt(call.callee.Property, name+" expects no arguments")}
 		}
 	}
 	if len(diagnostics) > 0 {
-		return checkedExpression{token: callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
+		return checkedExpression{token: call.callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
 	resultName := name
 	if name == "flush" {
 		resultName = "close"
 	}
-	resultUnion := streamResultUnion(resultName, ctx.typeEnvironment)
+	resultUnion := streamResultUnion(resultName, call.ctx.typeEnvironment)
 	if resultUnion == (compilerTypes.Type{}) {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(unknownAt(callee.Property, "could not construct the "+name+" result union"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property, "could not construct the "+name+" result union"))}
 	}
 	node := Expression{
 		Kind:        StreamMethodCallExpression,
 		Name:        name,
-		Operand:     &receiver.source.Node,
+		Operand:     &call.receiver.source.Node,
 		Arguments:   arguments,
 		OperandType: compilerTypes.FileType,
 		ResultType:  resultUnion,
-		Span:        callee.Property.Span,
+		Span:        call.callee.Property.Span,
 	}
 	source := Operand{Kind: ExpressionOperand, Type: resultUnion, Name: name, Node: node}
-	checked := checkedExpression{source: source, typ: resultUnion, token: callee.Property}
-	if name == "close" && ctx.names.cleanupDepth == 0 {
-		markStreamClosed(receiver.source, callee.Property, ctx.names.flow)
+	checked := checkedExpression{source: source, typ: resultUnion, token: call.callee.Property}
+	if name == "close" && call.ctx.names.cleanupDepth == 0 {
+		markStreamClosed(call.receiver.source, call.callee.Property, call.ctx.names.flow)
 	}
 	return checked
 }
