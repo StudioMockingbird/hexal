@@ -1,9 +1,9 @@
 package checker
 
 import (
-	"fmt"
 	"go/constant"
 
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -19,7 +19,7 @@ func resolveSliceTypeUse(expression parser.SliceTypeExpression, fallback lexer.T
 	}
 	slice := typeEnvironment.SliceType(elementUse.Type, expression.Writable)
 	if slice == (compilerTypes.Type{}) {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Keyword, elementUse.Type.Name+" is not a valid Slice element type"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Keyword, diag.InvalidSliceElementType(elementUse.Type.Name)))
 	}
 	return compilerTypes.NewTypeUse(slice), nil
 }
@@ -37,8 +37,7 @@ func checkSliceMethod(call methodCall, mutable bool) checkedExpression {
 		name = "mut_slice"
 	}
 	if len(call.call.Arguments) != 2 {
-		diagnostic := typeErrorAt(call.callee.Property, fmt.Sprintf("%s expects 2 arguments; got %d", name, len(call.call.Arguments)))
-		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.SliceMethodArgumentCount(name, len(call.call.Arguments))))}
 	}
 	start, startKnown, diagnostic := checkArrayIndex(call.call.Arguments[0], call.callee.Property, call.ctx)
 	if diagnostic != nil {
@@ -67,30 +66,26 @@ func checkSliceMethod(call methodCall, mutable bool) checkedExpression {
 		// A slice must be rooted in stable storage. A temporary
 		// Array or List has no addressable storage.
 		if !call.receiver.source.Addressable {
-			diagnostic := typeErrorAt(call.callee.Property, "a Slice cannot be rooted in a temporary "+kind)
-			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.SliceRootedInTemporary(kind)))}
 		}
 	}
 	if call.receiver.typ.Array != nil {
 		if mutable && !call.receiver.source.Writable {
-			diagnostic := typeErrorAt(call.callee.Property, "mut_slice requires a writable Array place")
-			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.MutSliceRequiresWritableArray()))}
 		}
 		if startKnown != nil && startKnown.Constant != nil && startKnown.Constant.Kind() == constant.Int &&
 			endKnown != nil && endKnown.Constant != nil && endKnown.Constant.Kind() == constant.Int {
 			startValue, startExact := constant.Int64Val(startKnown.Constant)
 			endValue, endExact := constant.Int64Val(endKnown.Constant)
 			if startExact && endExact && (startValue > endValue || endValue > int64(call.receiver.typ.Array.Length)) {
-				diagnostic := typeErrorAt(tokenOf(call.call.Arguments[0]), fmt.Sprintf("slice range [%d, %d) is out of bounds for %s", startValue, endValue, call.receiver.typ.Name))
-				return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
+				return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(tokenOf(call.call.Arguments[0]), diag.SliceRangeOutOfBounds(startValue, endValue, call.receiver.typ.Name)))}
 			}
 		}
 	}
 
 	sliceType := call.ctx.typeEnvironment.SliceType(element, writable)
 	if sliceType == (compilerTypes.Type{}) {
-		diagnostic := typeErrorAt(call.callee.Property, element.Name+" is not a valid Slice element type")
-		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.InvalidSliceElementType(element.Name)))}
 	}
 	node := Expression{
 		Kind:        CollectionSliceExpression,
@@ -163,5 +158,5 @@ func ptrReturnDiagnostic(node Expression, token lexer.Token, names *scope, writa
 	if writable {
 		label = "Ptr<mut T>"
 	}
-	return diagnosticAt(typeErrorAt(token, fmt.Sprintf("a %s cannot be returned when it borrows a local of this function", label)))
+	return diagnosticAt(messageAt(token, diag.PointerReturnBorrowsLocal(label)))
 }

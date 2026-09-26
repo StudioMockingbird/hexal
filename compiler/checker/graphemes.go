@@ -1,6 +1,7 @@
 package checker
 
 import (
+	diag "hexal/compiler/diagnostics"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -9,8 +10,8 @@ import (
 // view, so no operation copies or owns its bytes.
 func checkGraphemeMethodCall(call methodCall) checkedExpression {
 	name := call.callee.Property.Lexeme
-	fail := func(message string) checkedExpression {
-		diagnostic := typeErrorAt(call.callee.Property, message)
+	fail := func(message diag.Message) checkedExpression {
+		diagnostic := messageAt(call.callee.Property, message)
 		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
 	var result compilerTypes.Type
@@ -18,18 +19,18 @@ func checkGraphemeMethodCall(call methodCall) checkedExpression {
 	case "bytes":
 		result = call.ctx.typeEnvironment.SliceType(compilerTypes.UInt8, false)
 		if result == (compilerTypes.Type{}) {
-			return fail("Grapheme.bytes has no slice result")
+			return fail(diag.GraphemeBytesMissingSliceResult())
 		}
 	case "rune_length":
 		result = compilerTypes.SizeType
 	default:
-		return fail("Grapheme has no method " + name)
+		return fail(diag.GraphemeMethodNotFound(name))
 	}
 	if len(call.call.Arguments) != 0 {
-		return fail(name + " expects no arguments")
+		return fail(diag.GraphemeMethodNoValueArguments(name))
 	}
 	if len(call.call.TypeArguments) != 0 {
-		return fail(name + " takes no type arguments")
+		return fail(diag.GraphemeMethodNoTypeArguments(name))
 	}
 	node := Expression{
 		Kind:        GraphemeMethodCallExpression,

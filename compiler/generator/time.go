@@ -97,7 +97,7 @@ func renderTimeExpression(node checker.Expression, state *expressionValidation) 
 // deferred-cleanup path shares it with the ordinary render path.
 func timeCall(node checker.Expression, arguments []string, state *expressionValidation) (string, error) {
 	if arity, ok := timeOperationArity(node.Name); !ok || arity != len(arguments) {
-		return "", unknownExpressionDiagnostic("time operation has invalid rendered operands")
+		return "", unknownExpressionDiagnostic()
 	}
 	switch node.Name {
 	case "instant_now":
@@ -152,7 +152,7 @@ func timeComparisonOperator(operator checker.Operator) (string, error) {
 	case checker.GreaterEqualOperator:
 		return ">=", nil
 	}
-	return "", unknownExpressionDiagnostic("time comparison has no comparison operator")
+	return "", unknownExpressionDiagnostic()
 }
 
 // validateTimeExpression checks one time operation fail-closed: a known
@@ -160,7 +160,7 @@ func timeComparisonOperator(operator checker.Operator) (string, error) {
 func validateTimeExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	arity, ok := timeOperationArity(node.Name)
 	if !ok || arity != len(node.Arguments) || node.Operand != nil {
-		return unknownExpressionDiagnostic("time operation has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	operand := node.OperandType
 	var operandsOK, resultOK bool
@@ -201,10 +201,10 @@ func validateTimeExpression(node checker.Expression, expected *compilerTypes.Typ
 		}
 	}
 	if !operandsOK || !resultOK {
-		return unknownExpressionDiagnostic("time operation " + node.Name + " has mismatched checked types")
+		return unknownExpressionDiagnostic()
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-		return unknownExpressionDiagnostic("time operation result does not match its expected type")
+		return unknownExpressionDiagnostic()
 	}
 	for _, argument := range node.Arguments {
 		if err := validateCheckedOperandWithState(argument, state); err != nil {
@@ -238,7 +238,7 @@ func writeTimeInlineHelpers(result *strings.Builder, state *generatedTimeState, 
 	}
 	message, ok := literals.Lookup(timeMessageUnavailable)
 	if !ok {
-		return unknownExpressionDiagnostic("time failure message is missing from the literal registry")
+		return unknownExpressionDiagnostic()
 	}
 	for _, union := range state.wallUnions {
 		wallTag, wallField := streamMemberRef(tags, union, compilerTypes.WallTimeType)

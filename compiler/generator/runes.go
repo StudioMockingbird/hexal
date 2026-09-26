@@ -44,47 +44,47 @@ func normalizationFormTag(tags *tagRegistry, index int) string {
 // Int32, or UInt8.
 func validateRuneMethod(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	if !compilerTypes.IsRune(node.OperandType) {
-		return unknownExpressionDiagnostic("rune method has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	switch node.Name {
 	case "value":
 		if node.Operand == nil || len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.UInt32) {
-			return unknownExpressionDiagnostic("rune value has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 	case "utf8_length":
 		if node.Operand == nil || len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.SizeType) {
-			return unknownExpressionDiagnostic("rune utf8_length has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 	case "is_lower", "is_upper", "is_alphabetic", "is_numeric", "is_whitespace":
 		if node.Operand == nil || len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) {
-			return unknownExpressionDiagnostic("rune " + node.Name + " has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 	case "to_lower", "to_upper", "to_title":
 		if node.Operand == nil || len(node.Arguments) != 0 || !compilerTypes.IsRune(node.ResultType) {
-			return unknownExpressionDiagnostic("rune " + node.Name + " has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 	case "display_width":
 		if node.Operand == nil || len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.Int32) {
-			return unknownExpressionDiagnostic("rune display_width has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 	case "combining_class":
 		if node.Operand == nil || len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.UInt8) {
-			return unknownExpressionDiagnostic("rune combining_class has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 	case "category":
 		if node.Operand == nil || len(node.Arguments) != 0 || !compilerTypes.IsUnicodeCategory(node.ResultType) {
-			return unknownExpressionDiagnostic("rune category has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 	case "from":
 		if node.Operand != nil || len(node.Arguments) != 1 || state.line(node.Span) == 0 || !textFailureResult(node.ResultType, compilerTypes.Rune) {
-			return unknownExpressionDiagnostic("Rune.from has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
 	default:
-		return unknownExpressionDiagnostic("unknown rune method " + node.Name)
+		return unknownExpressionDiagnostic()
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) && !compilerTypes.WidensTo(node.ResultType, *expected) {
-		return unknownExpressionDiagnostic("rune method result does not match its expected type")
+		return unknownExpressionDiagnostic()
 	}
 	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 }
@@ -96,7 +96,7 @@ func validateRuneMethod(node checker.Expression, expected *compilerTypes.Type, s
 func renderRuneMethod(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Name == "from" {
 		if len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("Rune.from without a checked argument")
+			return "", unknownExpressionDiagnostic()
 		}
 		value, err := renderOperandWithState(node.Arguments[0], state)
 		if err != nil {
@@ -105,7 +105,7 @@ func renderRuneMethod(node checker.Expression, state *expressionValidation) (str
 		return fmt.Sprintf("hex_rune_from_%s(%s, %d, %d)", streamAdapterSuffix(node.ResultType), value, state.line(node.Span), state.column(node.Span)), nil
 	}
 	if node.Operand == nil {
-		return "", unknownExpressionDiagnostic("rune method without a checked receiver")
+		return "", unknownExpressionDiagnostic()
 	}
 	receiver, err := renderReceiver(node.Operand, node.OperandType, state)
 	if err != nil {
@@ -122,5 +122,5 @@ func renderRuneMethod(node checker.Expression, state *expressionValidation) (str
 	if runePropertyMethod(node.Name) {
 		return "hex_rune_" + node.Name + "(" + receiver + ")", nil
 	}
-	return "", unknownExpressionDiagnostic("unknown rune method " + node.Name)
+	return "", unknownExpressionDiagnostic()
 }

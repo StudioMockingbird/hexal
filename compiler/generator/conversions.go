@@ -286,7 +286,7 @@ func integerMaximumMacro(typ compilerTypes.Type) string {
 // exactly once.
 func renderConversion(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil {
-		return "", unknownExpressionDiagnostic("numeric conversion without an operand")
+		return "", unknownExpressionDiagnostic()
 	}
 	operand, atomic, operandErr := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 	if operandErr != nil {

@@ -6,6 +6,7 @@ package checker
 // binding reference is part of it.
 
 import (
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -14,7 +15,7 @@ import (
 // moduleConstantInitializerDiagnostic rejects an initializer outside the
 // closed static set.
 func moduleConstantInitializerDiagnostic(name lexer.Token) compilerTypes.Diagnostic {
-	return typeErrorAt(name, "module constant "+name.Lexeme+" must be statically initialized")
+	return messageAt(name, diag.ModuleConstantMustBeStatic(name.Lexeme))
 }
 
 // checkModuleConstant checks one fixed top-level declaration in a non-entry
@@ -24,14 +25,14 @@ func moduleConstantInitializerDiagnostic(name lexer.Token) compilerTypes.Diagnos
 func checkModuleConstant(declaration parser.Declaration, moduleID string, ctx checkContext, itemIndex int, typeIndexByName map[string]int) (ModuleValueDeclaration, compilerTypes.Diagnostics) {
 	if declaration.Mutable {
 		return ModuleValueDeclaration{}, compilerTypes.Diagnostics{
-			moduleErrorAt(declaration.Name, "imported module "+moduleID+" cannot declare mutable top-level binding "+declaration.Name.Lexeme+"; pass explicit state instead"),
+			importedModuleMutableBindingDiagnostic(declaration.Name, moduleID, declaration.Name.Lexeme),
 		}
 	}
 	var expectedUse compilerTypes.TypeUse
 	hasExpected := false
 	if declaration.Type != nil {
 		if token, tooLate := firstTypeNameDeclaredAtOrAfter(declaration.Type, itemIndex, typeIndexByName); tooLate {
-			return ModuleValueDeclaration{}, compilerTypes.Diagnostics{typeErrorAt(token, unknownTypeMessage(token.Lexeme))}
+			return ModuleValueDeclaration{}, compilerTypes.Diagnostics{messageAt(token, diag.UnknownType(token.Lexeme))}
 		}
 		use, diagnostic := resolveTypeUse(declaration.Type, declaration.Name, ctx.typeEnvironment, ctx.names.generics)
 		if diagnostic != nil {
@@ -56,7 +57,7 @@ func checkModuleConstant(declaration parser.Declaration, moduleID string, ctx ch
 	// constant type may not contain one directly or through any aggregate.
 	if compilerTypes.ContainsAtomic(checked.typ) {
 		return ModuleValueDeclaration{}, compilerTypes.Diagnostics{
-			typeErrorAt(declaration.Name, "module constant "+declaration.Name.Lexeme+" cannot contain mutable Atomic state; pass explicit state instead"),
+			messageAt(declaration.Name, diag.ModuleConstantCannotContainAtomic(declaration.Name.Lexeme)),
 		}
 	}
 	if !isStaticInitializerOperand(checked.source) {

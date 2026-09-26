@@ -45,7 +45,7 @@ func TestLexRejectsUnexpectedCharacter(t *testing.T) {
 	if err == nil {
 		t.Fatal("Lex accepted an unexpected character")
 	}
-	if err.Error() != `[Syntax Error] unexpected character '$' at 1:13` {
+	if err.Error() != `[Syntax Error syntax.unexpected-character] unexpected character '$' at 1:13` {
 		t.Fatalf("Lex error = %q", err)
 	}
 }
@@ -204,7 +204,7 @@ func TestLexRejectsLeadingUnderscoreIdentifier(t *testing.T) {
 	if err == nil {
 		t.Fatal("Lex accepted an identifier beginning with an underscore")
 	}
-	if got, want := err.Error(), "[Syntax Error] identifiers must begin with a letter at 1:1"; got != want {
+	if got, want := err.Error(), "[Syntax Error syntax.identifier-must-begin-with-letter] identifiers must begin with a letter at 1:1"; got != want {
 		t.Fatalf("Lex error = %q, want %q", got, want)
 	}
 }
@@ -214,7 +214,7 @@ func TestLexRejectsDigitStartIdentifier(t *testing.T) {
 	if err == nil {
 		t.Fatal("Lex accepted an identifier beginning with a digit")
 	}
-	if got, want := err.Error(), "[Syntax Error] identifiers must begin with a letter at 1:1"; got != want {
+	if got, want := err.Error(), "[Syntax Error syntax.identifier-must-begin-with-letter] identifiers must begin with a letter at 1:1"; got != want {
 		t.Fatalf("Lex error = %q, want %q", got, want)
 	}
 }
@@ -331,7 +331,7 @@ func TestLexRejectsMalformedHexadecimalInteger(t *testing.T) {
 		if err == nil {
 			t.Fatalf("Lex accepted malformed hexadecimal literal in %q", source)
 		}
-		want := "[Syntax Error] malformed hexadecimal literal at 1:13"
+		want := "[Syntax Error syntax.malformed-hexadecimal-literal] malformed hexadecimal literal at 1:13"
 		if got := err.Error(); got != want {
 			t.Fatalf("Lex error for %q = %q, want %q", source, got, want)
 		}
@@ -341,7 +341,7 @@ func TestLexRejectsMalformedHexadecimalInteger(t *testing.T) {
 	if err == nil {
 		t.Fatal("Lex accepted an uppercase hexadecimal prefix")
 	}
-	if got, want := err.Error(), "[Syntax Error] integer base prefixes must be lowercase at 1:13"; got != want {
+	if got, want := err.Error(), "[Syntax Error syntax.integer-base-prefix-lowercase] integer base prefixes must be lowercase at 1:13"; got != want {
 		t.Fatalf("Lex error = %q, want %q", got, want)
 	}
 }
@@ -387,7 +387,7 @@ func TestLexRejectsUnterminatedMultilineComment(t *testing.T) {
 	if err == nil {
 		t.Fatal("Lex accepted an unterminated multiline comment")
 	}
-	if got, want := err.Error(), "[Syntax Error] unterminated multiline comment at 1:13"; got != want {
+	if got, want := err.Error(), "[Syntax Error syntax.unterminated-multiline-comment] unterminated multiline comment at 1:13"; got != want {
 		t.Fatalf("Lex error = %q, want %q", got, want)
 	}
 }

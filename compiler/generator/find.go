@@ -44,7 +44,7 @@ func hoistDictFindInStatement(statement checker.Statement, body *strings.Builder
 		temp := fmt.Sprintf("hex_dict_find_%d", state.findCounter)
 		valueType := node.Element
 		if valueType == (compilerTypes.Type{}) {
-			return unknownExpressionDiagnostic("dictionary find has no checked value type")
+			return unknownExpressionDiagnostic()
 		}
 		symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeDict), "find", dictSuffix(node.OperandType))
 		if symbolErr != nil {
@@ -67,11 +67,11 @@ func hoistDictFindInStatement(statement checker.Statement, body *strings.Builder
 
 func renderDictFindExpression(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil || node.ResultType == (compilerTypes.Type{}) || !compilerTypes.IsUnion(node.ResultType) || !compilerTypes.ContainsUnionMember(node.ResultType, compilerTypes.Nil) {
-		return "", unknownExpressionDiagnostic("dictionary find has invalid checked metadata")
+		return "", unknownExpressionDiagnostic()
 	}
 	temp, ok := state.hoistedDictFinds[node.Operand]
 	if !ok {
-		return "", unknownExpressionDiagnostic("dictionary find reached generation without hoisting")
+		return "", unknownExpressionDiagnostic()
 	}
 	if compilerTypes.IsNullable(node.ResultType) {
 		return fmt.Sprintf("(%s == nullptr ? nullptr : *%s)", temp, temp), nil
@@ -79,14 +79,14 @@ func renderDictFindExpression(node checker.Expression, state *expressionValidati
 	valueIndex := unionMemberIndex(node.ResultType, node.Element)
 	nilIndex := unionMemberIndex(node.ResultType, compilerTypes.Nil)
 	if nilIndex < 0 {
-		return "", unknownExpressionDiagnostic("dictionary find result has no Nil member")
+		return "", unknownExpressionDiagnostic()
 	}
 	var present string
 	if node.Element.Union != nil && !compilerTypes.Equal(node.Element, node.ResultType) {
 		present = unionWidenCall(node.Element, node.ResultType, "*"+temp)
 	} else {
 		if valueIndex < 0 {
-			return "", unknownExpressionDiagnostic("dictionary find result has no value member")
+			return "", unknownExpressionDiagnostic()
 		}
 		resultMembers := compilerTypes.UnionMembers(node.ResultType)
 		valueMember, _ := resultMembers.At(valueIndex)

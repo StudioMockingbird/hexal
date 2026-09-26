@@ -124,8 +124,7 @@ func (registry *tagRegistry) constant(identity string) string {
 	name, ok := registry.byIdentity[identity]
 	if !ok {
 		if registry.failure == nil {
-			diagnostic := compilerTypes.NewDiagnostic(compilerTypes.UnknownError, "generator", 0, 0,
-				"generated discriminant is missing from the program-wide registry: "+identity)
+			diagnostic := generatorDiagnostic()
 			registry.failure = &diagnostic
 		}
 		// The placeholder keeps the current artifact renderable while the

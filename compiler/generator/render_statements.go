@@ -216,7 +216,7 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 				return err
 			}
 		default:
-			return unknownExpressionDiagnostic("unsupported checked statement")
+			return unknownExpressionDiagnostic()
 		}
 	}
 	if len(frame.defers) > 0 {
@@ -261,7 +261,7 @@ func renderRestSliceArgument(node *checker.Expression, arguments []string) []str
 func validateCallStatement(statement checker.CallStatement, state *expressionValidation) error {
 	if statement.Call.Kind == checker.ObjectOperand {
 		if statement.Call.Object == nil || !compilerTypes.Equal(statement.Call.Type, statement.Call.Object.Type) {
-			return unknownExpressionDiagnostic("call statement object operand has mismatched checked types")
+			return unknownExpressionDiagnostic()
 		}
 		return validateCheckedOperandWithState(statement.Call, state)
 	}
@@ -287,10 +287,10 @@ func validateCallStatement(statement checker.CallStatement, state *expressionVal
 		// at worst it leaks an allocation or wastes a computation, both the
 		// programmer's choice.
 	default:
-		return unknownExpressionDiagnostic("call statement without a checked call")
+		return unknownExpressionDiagnostic()
 	}
 	if !compilerTypes.Equal(statement.Call.Type, statement.Call.Node.ResultType) {
-		return unknownExpressionDiagnostic("call statement type does not match its checked call")
+		return unknownExpressionDiagnostic()
 	}
 	return validateExpressionNode(statement.Call.Node, nil, state)
 }
@@ -301,7 +301,7 @@ func renderCallStatement(statement checker.CallStatement, state *expressionValid
 		// ExpressionOperand; discarding it (like any other call result) is
 		// legal, but it has no Node for the switch below to dispatch on.
 		if statement.Call.Object == nil || !compilerTypes.Equal(statement.Call.Type, statement.Call.Object.Type) {
-			return "", unknownExpressionDiagnostic("call statement object operand has mismatched checked types")
+			return "", unknownExpressionDiagnostic()
 		}
 		return objectLiteralWithState(statement.Call.Object, state)
 	}
@@ -327,10 +327,10 @@ func renderCallStatement(statement checker.CallStatement, state *expressionValid
 		// at worst it leaks an allocation or wastes a computation, both the
 		// programmer's choice.
 	default:
-		return "", unknownExpressionDiagnostic("call statement without a checked call")
+		return "", unknownExpressionDiagnostic()
 	}
 	if !compilerTypes.Equal(statement.Call.Type, statement.Call.Node.ResultType) {
-		return "", unknownExpressionDiagnostic("call statement type does not match its checked call")
+		return "", unknownExpressionDiagnostic()
 	}
 	return renderExpressionExpectedWithState(statement.Call.Node, nil, state)
 }
@@ -338,15 +338,15 @@ func renderCallStatement(statement checker.CallStatement, state *expressionValid
 func renderReturnStatement(statement checker.ReturnStatement, result *compilerTypes.Type, state *expressionValidation, indent string) (string, error) {
 	if statement.Value == nil {
 		if result != nil {
-			return "", unknownExpressionDiagnostic("bare return in a function that declares a result")
+			return "", unknownExpressionDiagnostic()
 		}
 		return indent + "return;\n", nil
 	}
 	if result == nil {
-		return "", unknownExpressionDiagnostic("return value in a function that declares no result")
+		return "", unknownExpressionDiagnostic()
 	}
 	if !generatedAssignable(*result, statement.Value.Type) {
-		return "", unknownExpressionDiagnostic("return value type does not match its checked function result")
+		return "", unknownExpressionDiagnostic()
 	}
 	if statement.Value.Node.Kind == checker.MatchExpression {
 		var builder strings.Builder
@@ -483,12 +483,12 @@ func truthinessExpression(typ compilerTypes.Type, rendered string, state *expres
 	case compilerTypes.TruthinessNullable:
 		base, ok := compilerTypes.NullableBase(typ)
 		if !ok || !compilerTypes.IsPointerLike(base) {
-			return "", unknownExpressionDiagnostic("nullable operand in a truthiness context is not pointer-like")
+			return "", unknownExpressionDiagnostic()
 		}
 		return "(" + rendered + " != nullptr)", nil
 	case compilerTypes.TruthinessUnion:
 		if typ.Union == nil {
-			return "", unknownExpressionDiagnostic("tagged union truthiness has no union metadata")
+			return "", unknownExpressionDiagnostic()
 		}
 		return unionTruthinessCall(typ, rendered), nil
 	case compilerTypes.TruthinessAlwaysTrue:
@@ -497,13 +497,13 @@ func truthinessExpression(typ compilerTypes.Type, rendered string, state *expres
 		// warning-free under -Wunused-value.
 		return "((void)(" + rendered + "), true)", nil
 	default:
-		return "", unknownExpressionDiagnostic("unsupported operand in a truthiness context")
+		return "", unknownExpressionDiagnostic()
 	}
 }
 
 func writeDeclarationStatement(statement checker.Declaration, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
 	if !supportedGeneratedTypeWithState(statement.Type, state) {
-		return unknownExpressionDiagnostic("unsupported checked declaration type")
+		return unknownExpressionDiagnostic()
 	}
 	if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 		return err
@@ -547,7 +547,7 @@ func writeDeclarationStatement(statement checker.Declaration, body *strings.Buil
 
 func writeAssignmentStatement(statement checker.Assignment, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
 	if !supportedGeneratedTypeWithState(statement.Type, state) || !supportedGeneratedTypeWithState(statement.Target.Type, state) {
-		return unknownExpressionDiagnostic("unsupported checked assignment type")
+		return unknownExpressionDiagnostic()
 	}
 	if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 		return err
@@ -557,7 +557,7 @@ func writeAssignmentStatement(statement checker.Assignment, body *strings.Builde
 		return expressionErr
 	}
 	if target == "" {
-		return unknownExpressionDiagnostic("empty checked assignment target")
+		return unknownExpressionDiagnostic()
 	}
 	if statement.Source.Node.Kind == checker.MatchExpression {
 		resultName, matchErr := renderMatchStatement(body, statement.Source.Node, state, indent)
@@ -603,7 +603,7 @@ func writeCallStatement(statement checker.CallStatement, body *strings.Builder, 
 
 func writeReturnStatement(statement checker.ReturnStatement, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
 	if !frame.inFunction {
-		return unknownExpressionDiagnostic("return outside a function body")
+		return unknownExpressionDiagnostic()
 	}
 	if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 		return err
@@ -623,7 +623,7 @@ func writeRootReturnStatement(statement checker.RootReturnStatement, body *strin
 	// reached inside a function body is a checker-to-generator
 	// contract break, never a silent function return.
 	if frame.inFunction {
-		return unknownExpressionDiagnostic("root return inside a function body")
+		return unknownExpressionDiagnostic()
 	}
 	if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 		return err
@@ -711,7 +711,7 @@ func writeWhileStatement(statement checker.WhileStatement, body *strings.Builder
 
 func writeBreakStatement(statement checker.BreakStatement, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
 	if state.loopDepth == 0 {
-		return unknownExpressionDiagnostic("checked break outside a while loop")
+		return unknownExpressionDiagnostic()
 	}
 	if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 		return err
@@ -727,7 +727,7 @@ func writeBreakStatement(statement checker.BreakStatement, body *strings.Builder
 
 func writeContinueStatement(statement checker.ContinueStatement, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
 	if state.loopDepth == 0 {
-		return unknownExpressionDiagnostic("checked continue outside a while loop")
+		return unknownExpressionDiagnostic()
 	}
 	if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 		return err
@@ -756,10 +756,10 @@ func writeErrdeferStatement(statement checker.ErrdeferStatement, body *strings.B
 func writeFunctionDeclarationStatement(statement checker.FunctionDeclaration, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
 	// Already emitted at file scope; a nested one is not representable.
 	if frame.inFunction {
-		return unknownExpressionDiagnostic("function declaration inside a function body")
+		return unknownExpressionDiagnostic()
 	}
 	if len(state.activeScopes) > 1 {
-		return unknownExpressionDiagnostic("function declaration inside a module-level control-flow block")
+		return unknownExpressionDiagnostic()
 	}
 	return nil
 }
@@ -767,10 +767,10 @@ func writeFunctionDeclarationStatement(statement checker.FunctionDeclaration, bo
 func writeMethodDeclarationStatement(statement checker.MethodDeclaration, body *strings.Builder, state *expressionValidation, frame statementFrame, indent string) error {
 	// Already emitted at file scope; a nested one is not representable.
 	if frame.inFunction {
-		return unknownExpressionDiagnostic("method declaration inside a function body")
+		return unknownExpressionDiagnostic()
 	}
 	if len(state.activeScopes) > 1 {
-		return unknownExpressionDiagnostic("method declaration inside a module-level control-flow block")
+		return unknownExpressionDiagnostic()
 	}
 	return nil
 }

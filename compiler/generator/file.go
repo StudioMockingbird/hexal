@@ -90,7 +90,7 @@ func discoverGeneratedFiles(program checker.Program, logicalKey string, literals
 // renderFileOpen renders File.open through its per-module adapter.
 func renderFileOpen(node checker.Expression, state *expressionValidation) (string, error) {
 	if len(node.Arguments) != 2 {
-		return "", unknownExpressionDiagnostic("file open without checked arguments")
+		return "", unknownExpressionDiagnostic()
 	}
 	path, err := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)
 	if err != nil {
@@ -125,7 +125,7 @@ func renderFileMethod(node checker.Expression, state *expressionValidation) (str
 func fileMethodCall(node checker.Expression, arguments []string, state *expressionValidation) (string, error) {
 	want := map[string]int{"read": 3, "write": 2, "seek": 2, "flush": 1, "close": 1}[node.Name]
 	if want == 0 || len(arguments) != want {
-		return "", unknownExpressionDiagnostic("file operation has invalid rendered operands")
+		return "", unknownExpressionDiagnostic()
 	}
 	return fmt.Sprintf("hex_file_%s_%s(%s, %d, %d)", node.Name, streamAdapterSuffix(node.ResultType), strings.Join(arguments, ", "), state.line(node.Span), state.column(node.Span)), nil
 }
@@ -134,14 +134,14 @@ func fileMethodCall(node checker.Expression, arguments []string, state *expressi
 func validateFileConstructor(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	if node.Name != "open" || len(node.Arguments) != 2 || node.Operand != nil || state.line(node.Span) == 0 ||
 		!compilerTypes.IsString(node.Arguments[0].Type) || !compilerTypes.IsFileMode(node.Arguments[1].Type) {
-		return unknownExpressionDiagnostic("file open has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	members := compilerTypes.UnionMembers(node.ResultType)
 	if node.ResultType.Union == nil || members.Len() != 2 || !unionHasMember(members, compilerTypes.FileType) || !unionHasMember(members, compilerTypes.ErrorType) {
-		return unknownExpressionDiagnostic("file open result is not File | Error")
+		return unknownExpressionDiagnostic()
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-		return unknownExpressionDiagnostic("file open result does not match its expected type")
+		return unknownExpressionDiagnostic()
 	}
 	for _, argument := range node.Arguments {
 		if err := validateCheckedOperandWithState(argument, state); err != nil {
@@ -163,19 +163,19 @@ func validateFileMethodCall(node checker.Expression, expected *compilerTypes.Typ
 	case "flush", "close":
 		arguments, contract = 0, []compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType}
 	default:
-		return unknownExpressionDiagnostic("unknown file operation in checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	members := compilerTypes.UnionMembers(node.ResultType)
 	if node.Operand == nil || len(node.Arguments) != arguments || node.ResultType.Union == nil || members.Len() != len(contract) || state.line(node.Span) == 0 {
-		return unknownExpressionDiagnostic("file operation has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	for _, required := range contract {
 		if !unionHasMember(members, required) {
-			return unknownExpressionDiagnostic("file operation result is missing a contract member")
+			return unknownExpressionDiagnostic()
 		}
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-		return unknownExpressionDiagnostic("file operation result does not match its expected type")
+		return unknownExpressionDiagnostic()
 	}
 	if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
 		return err
@@ -240,7 +240,7 @@ func writeFileInlineHelpers(result *strings.Builder, state *generatedFileState, 
 	message := func(payload string) (string, error) {
 		handle, ok := literals.Lookup(payload)
 		if !ok {
-			return "", unknownExpressionDiagnostic("file failure message is missing from the literal registry: " + payload)
+			return "", unknownExpressionDiagnostic()
 		}
 		return "&" + literals.CName(handle), nil
 	}

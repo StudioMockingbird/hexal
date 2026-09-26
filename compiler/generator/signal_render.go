@@ -31,7 +31,7 @@ func renderSignalExpression(node checker.Expression, state *expressionValidation
 		}
 		return fmt.Sprintf("hex_signals_close_%s(%s, %s)", suffix, receiver, site), nil
 	}
-	return "", unknownExpressionDiagnostic("unknown signal operation " + node.Name)
+	return "", unknownExpressionDiagnostic()
 }
 
 // validateSignalExpression checks one Signals operation fail-closed: a
@@ -45,20 +45,20 @@ func validateSignalExpression(node checker.Expression, state *expressionValidati
 	case "signals_next", "signals_close":
 		wantArguments, wantOperand = 0, true
 	default:
-		return unknownExpressionDiagnostic("unknown signal operation " + node.Name)
+		return unknownExpressionDiagnostic()
 	}
 	if len(node.Arguments) != wantArguments {
-		return unknownExpressionDiagnostic("signal operation has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	if wantOperand {
 		if node.Operand == nil {
-			return unknownExpressionDiagnostic("signal method operation has no checked receiver")
+			return unknownExpressionDiagnostic()
 		}
 		if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
 			return err
 		}
 	} else if node.Operand != nil {
-		return unknownExpressionDiagnostic("signal static operation has an unexpected checked receiver")
+		return unknownExpressionDiagnostic()
 	}
 	for _, argument := range node.Arguments {
 		if err := validateCheckedOperandWithState(argument, state); err != nil {

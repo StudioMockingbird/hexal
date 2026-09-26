@@ -9,7 +9,7 @@ import (
 // yields Bool, next and peek yield the cursor's element, and offset yields Size.
 func validateCursorMethod(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	if node.Operand == nil || !compilerTypes.IsCursor(node.OperandType) {
-		return unknownExpressionDiagnostic("cursor method has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	element := compilerTypes.Rune
 	switch {
@@ -21,21 +21,21 @@ func validateCursorMethod(node checker.Expression, expected *compilerTypes.Type,
 	switch node.Name {
 	case "has_next":
 		if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) {
-			return unknownExpressionDiagnostic("cursor has_next has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 	case "next", "peek":
 		if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, element) {
-			return unknownExpressionDiagnostic("cursor " + node.Name + " has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 	case "offset":
 		if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.SizeType) {
-			return unknownExpressionDiagnostic("cursor offset has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 	default:
-		return unknownExpressionDiagnostic("unknown cursor method " + node.Name)
+		return unknownExpressionDiagnostic()
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) && !compilerTypes.WidensTo(node.ResultType, *expected) {
-		return unknownExpressionDiagnostic("cursor method result does not match its expected type")
+		return unknownExpressionDiagnostic()
 	}
 	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 }
@@ -44,7 +44,7 @@ func validateCursorMethod(node checker.Expression, expected *compilerTypes.Type,
 // a copy; next takes the receiver's address so it advances that binding.
 func renderCursorMethod(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil {
-		return "", unknownExpressionDiagnostic("cursor method without a checked receiver")
+		return "", unknownExpressionDiagnostic()
 	}
 	prefix := "hex_byte_cursor_"
 	switch {
@@ -70,5 +70,5 @@ func renderCursorMethod(node checker.Expression, state *expressionValidation) (s
 	case "offset":
 		return prefix + "offset(" + receiver + ")", nil
 	}
-	return "", unknownExpressionDiagnostic("unknown cursor method " + node.Name)
+	return "", unknownExpressionDiagnostic()
 }

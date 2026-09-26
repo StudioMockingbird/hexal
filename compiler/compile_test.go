@@ -16,8 +16,8 @@ func TestValidateLogicalKeyAccepts(t *testing.T) {
 		"a/b/c.hex",
 		"private_module.hex",
 	} {
-		if err := validateLogicalKey(key); err != nil {
-			t.Errorf("validateLogicalKey(%q) = %v, want accepted", key, err)
+		if message := validateLogicalKey(key); !message.IsZero() {
+			t.Errorf("validateLogicalKey(%q) = %q, want accepted", key, message.Text())
 		}
 	}
 }
@@ -35,13 +35,13 @@ func TestValidateLogicalKeyRejects(t *testing.T) {
 		"../../../etc/passwd.hex", // traversal above the root
 		".hex",                    // no component before the extension
 	} {
-		err := validateLogicalKey(key)
-		if err == nil {
+		message := validateLogicalKey(key)
+		if message.IsZero() {
 			t.Errorf("validateLogicalKey(%q) accepted, want rejected", key)
 			continue
 		}
-		if !strings.Contains(err.Error(), key) {
-			t.Errorf("validateLogicalKey(%q) error = %q, want it to name the offending key", key, err.Error())
+		if !strings.Contains(message.Text(), key) {
+			t.Errorf("validateLogicalKey(%q) message = %q, want it to name the offending key", key, message.Text())
 		}
 	}
 }

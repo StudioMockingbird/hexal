@@ -603,7 +603,7 @@ func hoistEvaluationOrderInStatement(statement checker.Statement, body *strings.
 		checker.MethodDeclaration, checker.UnsafeStatement:
 		return nil
 	default:
-		return unknownExpressionDiagnostic("unsupported checked statement")
+		return unknownExpressionDiagnostic()
 	}
 }
 

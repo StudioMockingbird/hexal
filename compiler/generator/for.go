@@ -69,7 +69,7 @@ func renderForStatement(body *strings.Builder, statement checker.ForStatement, s
 	case sourceType.Dict != nil:
 		return renderForDict(body, statement, loopRender, state, indent)
 	default:
-		return unknownExpressionDiagnostic("unsupported for-in source type " + sourceType.Name)
+		return unknownExpressionDiagnostic()
 	}
 }
 
@@ -187,7 +187,7 @@ func renderForSequence(body *strings.Builder, statement checker.ForStatement, re
 		length = fmt.Sprintf("%s->length", loop)
 		elementAccess = fmt.Sprintf("*hex_list_at_%s(%s, (size_t)(%s_index))", listSuffix(sourceType), loop, loop)
 	default:
-		return unknownExpressionDiagnostic("unknown for-in sequence kind")
+		return unknownExpressionDiagnostic()
 	}
 
 	indexVariable := loop + "_index"

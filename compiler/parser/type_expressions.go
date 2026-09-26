@@ -1,6 +1,9 @@
 package parser
 
-import "hexal/compiler/lexer"
+import (
+	diag "hexal/compiler/diagnostics"
+	"hexal/compiler/lexer"
+)
 
 // TypeExpression is the syntax-tree root for a declared type.
 //
@@ -211,7 +214,7 @@ func (parser *Parser) primaryTypeExpression() (TypeExpression, error) {
 		return GroupedTypeExpression{OpenParen: open, Inner: inner}, nil
 	}
 	if parser.check(lexer.Mut) {
-		return nil, parser.errorAtCurrent("mut is only allowed immediately inside Ptr<...> or Slice<...>")
+		return nil, parser.errorAtCurrent(diag.ParserMutInsidePtr())
 	}
 	name, err := parser.consume(lexer.Identifier, "a type name")
 	if err != nil {
@@ -372,7 +375,7 @@ func (parser *Parser) functionTypeExpression(keyword lexer.Token) (FunctionTypeE
 		sawRest := false
 		for {
 			if sawRest {
-				return FunctionTypeExpression{}, parser.errorAtCurrent("rest parameter must be final")
+				return FunctionTypeExpression{}, parser.errorAtCurrent(diag.ParserRestFinal())
 			}
 			parameter, err := parser.typeExpression()
 			if err != nil {
@@ -432,7 +435,7 @@ func (parser *Parser) typeDefinition() (TypeExpression, error) {
 		return parser.structuralUnionDefinition()
 	}
 	if parser.check(lexer.LeftParen) {
-		return nil, parser.errorAtCurrent("structural sum declarations use 'union ... end'")
+		return nil, parser.errorAtCurrent(diag.ParserSumUnionForm())
 	}
 	if parser.check(lexer.Identifier) && parser.peekAt(1).Kind == lexer.Pipe {
 		return parser.unitAdtShorthand()
@@ -442,7 +445,7 @@ func (parser *Parser) typeDefinition() (TypeExpression, error) {
 		return nil, err
 	}
 	if parser.check(lexer.Pipe) {
-		return nil, parser.errorAtCurrent("structural sum declarations use 'union ... end'")
+		return nil, parser.errorAtCurrent(diag.ParserSumUnionForm())
 	}
 	return target, nil
 }
@@ -458,7 +461,7 @@ func (parser *Parser) aliasTarget() (TypeExpression, error) {
 // "struct" , [ member-declaration , { "," , member-declaration } , [ "," ] ] , "end".
 func (parser *Parser) structDefinition() (ObjectTypeExpression, error) {
 	keyword := parser.advance() // 'struct'
-	return parser.objectMemberBody(keyword, true, "a payload must declare at least one field")
+	return parser.objectMemberBody(keyword, true, diag.ParserPayloadNeedsField())
 }
 
 // structuralUnionDefinition parses "union" primary-type-expression "|"
@@ -470,7 +473,7 @@ func (parser *Parser) structuralUnionDefinition() (TypeExpression, error) {
 		return nil, err
 	}
 	if !parser.check(lexer.Pipe) {
-		return nil, parser.errorAtCurrent("structural sum declarations require at least one '|'")
+		return nil, parser.errorAtCurrent(diag.ParserSumNeedsBar())
 	}
 	members := []TypeExpression{first}
 	pipes := make([]lexer.Token, 0, 1)
@@ -501,17 +504,17 @@ func (parser *Parser) adtDefinition() (AdtDefinitionExpression, error) {
 		}
 		variant := AdtVariantDeclaration{Name: name}
 		if parser.check(lexer.LeftBrace) {
-			return AdtDefinitionExpression{}, parser.errorAtCurrent("ADT payloads use 'as ... end', not braces")
+			return AdtDefinitionExpression{}, parser.errorAtCurrent(diag.ParserAdtPayloadForm())
 		}
 		if parser.check(lexer.As) {
 			asKeyword := parser.advance()
-			payload, err := parser.objectMemberBody(asKeyword, false, "a payload must declare at least one field")
+			payload, err := parser.objectMemberBody(asKeyword, false, diag.ParserPayloadNeedsField())
 			if err != nil {
 				return AdtDefinitionExpression{}, err
 			}
 			for _, member := range payload.Members {
 				if member.Mutable {
-					return AdtDefinitionExpression{}, parser.errorAt(member.Name, "ADT payload fields cannot be mutable")
+					return AdtDefinitionExpression{}, parser.errorAt(member.Name, diag.ParserAdtPayloadMutable())
 				}
 			}
 			variant.Payload = &payload
@@ -553,7 +556,7 @@ func (parser *Parser) unitAdtShorthand() (AdtDefinitionExpression, error) {
 // bodies (which may be empty) and ADT payload bodies (which may not): the
 // keyword introducing the body has already been consumed. emptyDiagnostic is
 // used only when allowEmpty is false and the body is empty.
-func (parser *Parser) objectMemberBody(keyword lexer.Token, allowEmpty bool, emptyDiagnostic string) (ObjectTypeExpression, error) {
+func (parser *Parser) objectMemberBody(keyword lexer.Token, allowEmpty bool, emptyDiagnostic diag.Message) (ObjectTypeExpression, error) {
 	if parser.check(lexer.End) {
 		if !allowEmpty {
 			return ObjectTypeExpression{}, parser.errorAtCurrent(emptyDiagnostic)

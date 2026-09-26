@@ -19,10 +19,10 @@ func validateCheckedProgram(program checker.Program, functions map[string]compil
 	state.pushScope()
 	for _, typeDeclaration := range program.TypeDeclarations {
 		if !validSourceName(typeDeclaration.Name) {
-			return unknownExpressionDiagnostic("invalid checked type declaration name")
+			return unknownExpressionDiagnostic()
 		}
 		if !validateGeneratedType(typeDeclaration.Type, typeState, false) {
-			return unknownExpressionDiagnostic("unsupported checked type declaration " + typeDeclaration.Name)
+			return unknownExpressionDiagnostic()
 		}
 	}
 	if err := validateStatements(program.Statements, state, typeState); err != nil {
@@ -48,7 +48,7 @@ func validateCheckedProgram(program checker.Program, functions map[string]compil
 // same registry the emission pass uses.
 func validateFunctionDeclaration(declared checker.FunctionDeclaration, typeState *generatedTypeValidation, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, stringState *literalRegistry, table *span.Table) error {
 	if !validSourceName(declared.Name) || declared.Type.Signature == nil || !validateGeneratedType(declared.Type, typeState, false) {
-		return unknownExpressionDiagnostic("unsupported checked specialized function")
+		return unknownExpressionDiagnostic()
 	}
 	state := newExpressionValidation()
 	state.functions = functions
@@ -75,7 +75,7 @@ func validateFunctionDeclaration(declared checker.FunctionDeclaration, typeState
 // same reason as validateFunctionDeclaration.
 func validateMethodDeclaration(declared checker.MethodDeclaration, typeState *generatedTypeValidation, functions map[string]compilerTypes.Type, methods map[string]checker.MethodDeclaration, stringState *literalRegistry, table *span.Table) error {
 	if declared.Object == nil || !validSourceName(declared.Name) || !validateGeneratedType(declared.SelfType, typeState, false) {
-		return unknownExpressionDiagnostic("unsupported checked specialized method")
+		return unknownExpressionDiagnostic()
 	}
 	state := newExpressionValidation()
 	state.functions = functions
@@ -109,18 +109,18 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 		switch statement := statement.(type) {
 		case checker.Declaration:
 			if !validSourceName(statement.Name) || !validateGeneratedType(statement.Type, typeState, false) {
-				return unknownExpressionDiagnostic("unsupported checked declaration")
+				return unknownExpressionDiagnostic()
 			}
 			if statement.Binding == 0 {
 				if _, exists := state.variables[statement.Name]; exists {
-					return unknownExpressionDiagnostic("duplicate checked declaration name")
+					return unknownExpressionDiagnostic()
 				}
 			}
 			if err := validateCheckedOperandWithState(statement.Source, state); err != nil {
 				return err
 			}
 			if !generatedAssignable(statement.Type, statement.Source.Type) {
-				return unknownExpressionDiagnostic("declaration source type does not match its checked type")
+				return unknownExpressionDiagnostic()
 			}
 			if _, err := state.allocateBinding(statement.Binding, statement.Name, statement.Type, statement.Mutable); err != nil {
 				return err
@@ -132,7 +132,7 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 			nameValid := validSourceName(statement.Name) ||
 				(statement.Target.Node.Kind == checker.DereferenceExpression && statement.Name == "^")
 			if !nameValid || !validateGeneratedType(statement.Type, typeState, false) || !validateGeneratedType(statement.Target.Type, typeState, false) {
-				return unknownExpressionDiagnostic("unsupported checked assignment")
+				return unknownExpressionDiagnostic()
 			}
 			if err := validateCheckedOperandWithState(statement.Target, state); err != nil {
 				return err
@@ -142,7 +142,7 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 				return err
 			}
 			if !targetPlace.addressable || !targetPlace.writable {
-				return unknownExpressionDiagnostic("assignment target is not an addressable writable place")
+				return unknownExpressionDiagnostic()
 			}
 			if err := validateCheckedOperandWithState(statement.Source, state); err != nil {
 				return err
@@ -154,11 +154,11 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 			if !targetMatches {
 				if base, nullable := compilerTypes.NullableBase(statement.Type); !nullable ||
 					!compilerTypes.Equal(base, statement.Target.Type) && !compilerTypes.IsNil(statement.Target.Type) {
-					return unknownExpressionDiagnostic("assignment target type does not match its checked type")
+					return unknownExpressionDiagnostic()
 				}
 			}
 			if !generatedAssignable(statement.Type, statement.Source.Type) {
-				return unknownExpressionDiagnostic("assignment operand type does not match its checked type")
+				return unknownExpressionDiagnostic()
 			}
 		case checker.CallStatement:
 			if statement.Call.Node.Kind == checker.PrintExpression {
@@ -179,7 +179,7 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 		case checker.DeferStatement:
 			if statement.Action.IsCall {
 				if statement.Action.Call == nil {
-					return unknownExpressionDiagnostic("deferred call action without a checked call")
+					return unknownExpressionDiagnostic()
 				}
 				if statement.Action.Call.Type == (compilerTypes.Type{}) {
 					// A no-result call such as Heap.free validates its node
@@ -259,7 +259,7 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 			state.pushScope()
 			for _, binder := range statement.Binders {
 				if !validSourceName(binder.Name) || !validateGeneratedType(binder.Type, typeState, false) {
-					return unknownExpressionDiagnostic("unsupported checked for binder")
+					return unknownExpressionDiagnostic()
 				}
 				if _, err := state.allocateBinding(binder.Binding, binder.Name, binder.Type, false); err != nil {
 					return err
@@ -283,7 +283,7 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 		case checker.ErrdeferStatement:
 			if statement.Action.IsCall {
 				if statement.Action.Call == nil {
-					return unknownExpressionDiagnostic("errdeferred call action without a checked call")
+					return unknownExpressionDiagnostic()
 				}
 				if statement.Action.Call.Type == (compilerTypes.Type{}) {
 					return validateExpressionNode(statement.Action.Call.Node, nil, state)
@@ -298,24 +298,24 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 			}
 		case checker.BreakStatement:
 			if state.loopDepth == 0 {
-				return unknownExpressionDiagnostic("checked break outside a while loop")
+				return unknownExpressionDiagnostic()
 			}
 		case checker.ContinueStatement:
 			if state.loopDepth == 0 {
-				return unknownExpressionDiagnostic("checked continue outside a while loop")
+				return unknownExpressionDiagnostic()
 			}
 		case checker.FunctionDeclaration:
 			if len(state.activeScopes) > 1 {
-				return unknownExpressionDiagnostic("function declaration inside a module-level control-flow block")
+				return unknownExpressionDiagnostic()
 			}
 			continue
 		case checker.MethodDeclaration:
 			if len(state.activeScopes) > 1 {
-				return unknownExpressionDiagnostic("method declaration inside a module-level control-flow block")
+				return unknownExpressionDiagnostic()
 			}
 			continue
 		default:
-			return unknownExpressionDiagnostic("unsupported checked statement")
+			return unknownExpressionDiagnostic()
 		}
 	}
 	return nil
@@ -328,7 +328,7 @@ func validateCondition(condition checker.Operand, state *expressionValidation) e
 	case compilerTypes.TruthinessNil:
 		return nil
 	case compilerTypes.TruthinessInvalid:
-		return unknownExpressionDiagnostic("cannot determine the truthiness of a checked control-flow condition")
+		return unknownExpressionDiagnostic()
 	}
 	return validateCheckedOperandWithState(condition, state)
 }

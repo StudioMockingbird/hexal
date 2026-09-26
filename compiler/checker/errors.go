@@ -1,9 +1,9 @@
 package checker
 
 import (
-	"fmt"
 	"go/constant"
 
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	"hexal/compiler/span"
@@ -14,31 +14,31 @@ import (
 // error-only deferred cleanup.
 
 func freeLocalStorageDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
-	return typeErrorAt(token, "free does not accept a pointer into this function's local storage")
+	return messageAt(token, diag.FreeLocalStoragePointer())
 }
 
 func freeStashAllocatedDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
-	return typeErrorAt(token, "free does not accept a pointer allocated from a Stash")
+	return messageAt(token, diag.FreeStashAllocatedPointer())
 }
 
 func freePoolAllocatedDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
-	return typeErrorAt(token, "free does not accept a pointer allocated from a Pool")
+	return messageAt(token, diag.FreePoolAllocatedPointer())
 }
 
 func poolFreeHeapAllocatedDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
-	return typeErrorAt(token, "Pool free does not accept a pointer allocated from the Heap")
+	return messageAt(token, diag.PoolFreeHeapAllocatedPointer())
 }
 
 func poolFreeStashAllocatedDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
-	return typeErrorAt(token, "Pool free does not accept a pointer allocated from a Stash")
+	return messageAt(token, diag.PoolFreeStashAllocatedPointer())
 }
 
 func doubleFreeDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
-	return typeErrorAt(token, "free releases storage already released on every path to this point")
+	return messageAt(token, diag.DoubleFree())
 }
 
 func useAfterFreeDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
-	return typeErrorAt(token, "this pointer's storage was released on every path to this point")
+	return messageAt(token, diag.UseAfterFree())
 }
 
 // resultAcceptsError reports whether a function result type can carry an
@@ -64,17 +64,17 @@ func resultAcceptsError(result compilerTypes.Type) bool {
 // token; only kind and message are source arguments.
 func checkErrorNewCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	if len(call.TypeArguments) != 0 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Error must be created with Error(kind, message)"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diag.ErrorConstructorTypeArguments()))}
 	}
 	if len(call.Arguments) != 2 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, fmt.Sprintf("Error expects 2 arguments (kind, message); got %d", len(call.Arguments))))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diag.ErrorConstructorArity(len(call.Arguments))))}
 	}
 	kind := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.ErrorKindType), tokenOf(call.Arguments[0]), ctx)
 	if diagnostics := initializerDiagnostics(kind); len(diagnostics) > 0 {
 		return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
 	}
 	if !compilerTypes.IsErrorKind(kind.typ) {
-		return checkedExpression{token: kind.token, diagnostic: diagnosticAt(typeErrorAt(kind.token, "Error requires ErrorKind as its first argument; use Error(ErrorKind.Other(header = ...), message)"))}
+		return checkedExpression{token: kind.token, diagnostic: diagnosticAt(messageAt(kind.token, diag.ErrorConstructorKindType()))}
 	}
 	// The message is the one text argument that coerces into a bounded
 	// capacity implicitly: a literal is measured at compile time, any other
@@ -115,10 +115,10 @@ func checkErrorNewCall(call parser.CallExpression, callee lexer.Token, ctx check
 // an ordinary object member.
 func checkErrorMethodCall(call methodCall) checkedExpression {
 	if call.callee.Property.Lexeme != "header" {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Error has no method named "+call.callee.Property.Lexeme))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.ErrorMethodNotFound(call.callee.Property.Lexeme)))}
 	}
 	if len(call.call.TypeArguments) != 0 || len(call.call.Arguments) != 0 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "header takes no arguments"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.ErrorHeaderMethodArguments()))}
 	}
 	call.receiver = valueFromPlace(call.receiver)
 	node := Expression{
@@ -135,10 +135,10 @@ func checkErrorMethodCall(call methodCall) checkedExpression {
 // free derived display header method on the classification value itself.
 func checkErrorKindMethodCall(call methodCall) checkedExpression {
 	if call.callee.Property.Lexeme != "header" {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "ErrorKind has no method named "+call.callee.Property.Lexeme))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.ErrorKindMethodNotFound(call.callee.Property.Lexeme)))}
 	}
 	if len(call.call.TypeArguments) != 0 || len(call.call.Arguments) != 0 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "header takes no arguments"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.ErrorHeaderMethodArguments()))}
 	}
 	call.receiver = valueFromPlace(call.receiver)
 	node := Expression{
@@ -157,10 +157,10 @@ func checkErrorKindMethodCall(call methodCall) checkedExpression {
 // success value or union.
 func checkTryExpression(expression parser.TryExpression, context expressionContext, ctx checkContext) checkedExpression {
 	if context.inCleanup || ctx.names.cleanupDepth > 0 {
-		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "try is not permitted inside defer or errdefer"))}
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(messageAt(expression.Keyword, diag.TryInsideCleanup()))}
 	}
 	if !ctx.names.inFunction() || ctx.names.result == nil || !resultAcceptsError(*ctx.names.result) {
-		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "try requires an enclosing function whose result accepts Error"))}
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(messageAt(expression.Keyword, diag.TryRequiresErrorResult()))}
 	}
 	operand := checkExpression(expression.Operand, expressionContext{foldConstants: true}, ctx)
 	if diagnostics := initializerDiagnostics(operand); len(diagnostics) > 0 {
@@ -168,7 +168,7 @@ func checkTryExpression(expression parser.TryExpression, context expressionConte
 	}
 	operandMembers := compilerTypes.UnionMembers(operand.typ)
 	if !compilerTypes.IsUnion(operand.typ) || operandMembers.Len() < 2 {
-		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "try requires a union containing Error and a success member; got "+operand.typ.Name))}
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(messageAt(expression.Keyword, diag.TryOperandMustContainErrorAndSuccess(operand.typ.Name)))}
 	}
 	memberIndex := -1
 	for index := 0; index < operandMembers.Len(); index++ {
@@ -178,11 +178,11 @@ func checkTryExpression(expression parser.TryExpression, context expressionConte
 		}
 	}
 	if memberIndex < 0 {
-		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "try requires a union containing Error and a success member; got "+operand.typ.Name))}
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(messageAt(expression.Keyword, diag.TryOperandMustContainErrorAndSuccess(operand.typ.Name)))}
 	}
 	success, ok := compilerTypes.RemoveUnionMember(ctx.typeEnvironment, operand.typ, compilerTypes.ErrorType)
 	if !ok {
-		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "try requires a union containing Error and a success member; got "+operand.typ.Name))}
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(messageAt(expression.Keyword, diag.TryOperandMustContainErrorAndSuccess(operand.typ.Name)))}
 	}
 	node := Expression{
 		Kind:               TryExpression,
@@ -202,7 +202,7 @@ func checkTryExpression(expression parser.TryExpression, context expressionConte
 // the current function exits by returning Error.
 func checkErrdeferStatement(statement parser.ErrdeferStatement, ctx checkContext) (ErrdeferStatement, compilerTypes.Diagnostics) {
 	if !ctx.names.inFunction() || ctx.names.result == nil || !resultAcceptsError(*ctx.names.result) {
-		return ErrdeferStatement{}, compilerTypes.Diagnostics{typeErrorAt(statement.Keyword, "errdefer requires an enclosing function whose result accepts Error")}
+		return ErrdeferStatement{}, compilerTypes.Diagnostics{messageAt(statement.Keyword, diag.ErrdeferRequiresErrorResult())}
 	}
 	ctx.names.cleanupDepth++
 	defer func() { ctx.names.cleanupDepth-- }()

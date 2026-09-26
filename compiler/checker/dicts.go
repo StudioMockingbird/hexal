@@ -1,8 +1,7 @@
 package checker
 
 import (
-	"fmt"
-
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -13,7 +12,7 @@ import (
 // must be a collection element.
 func resolveDictTypeUse(expression parser.GenericTypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	if len(expression.Arguments) != 2 {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, "Dict requires exactly two type arguments"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diag.DictTypeArgumentCount()))
 	}
 	keyUse, diagnostic := resolveTypeUse(expression.Arguments[0], fallback, typeEnvironment, generics)
 	if diagnostic != nil {
@@ -22,9 +21,9 @@ func resolveDictTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 	if !compilerTypes.IsDictKey(keyUse.Type) {
 		keyToken := typeExpressionToken(expression.Arguments[0], expression.Name)
 		if compilerTypes.IsString(keyUse.Type) {
-			return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(keyToken, "dictionary key type String is not allowed: a Dict stores its keys, and String does not own its bytes; use String<N>"))
+			return compilerTypes.TypeUse{}, diagnosticAt(messageAt(keyToken, diag.DictKeyStringNotAllowed()))
 		}
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(keyToken, "dictionary key type must be Int32 or String<N>"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(keyToken, diag.DictKeyTypeInvalid()))
 	}
 	valueUse, diagnostic := resolveTypeUse(expression.Arguments[1], fallback, typeEnvironment, generics)
 	if diagnostic != nil {
@@ -32,7 +31,7 @@ func resolveDictTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 	}
 	dict := typeEnvironment.DictType(keyUse.Type, valueUse.Type)
 	if dict == (compilerTypes.Type{}) {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, valueUse.Type.Name+" is not a dictionary value type"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diag.InvalidDictValueType(valueUse.Type.Name)))
 	}
 	return compilerTypes.NewTypeUse(dict), nil
 }
@@ -41,7 +40,7 @@ func resolveDictTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 // dictionary.
 func checkDictTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	if len(call.TypeArguments) != 2 || len(call.Arguments) != 1 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Dict requires exactly two type arguments and a Heap; use Dict<K, V>(heap)"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diag.DictConstructorArgumentShape()))}
 	}
 	dictUse, diagnostic := resolveDictTypeUse(parser.GenericTypeExpression{Name: lexer.Token{Kind: lexer.Identifier, Lexeme: "Dict", Line: callee.Line, Column: callee.Column}, Arguments: call.TypeArguments}, callee, ctx.typeEnvironment, ctx.names.generics)
 	if diagnostic != nil {
@@ -52,7 +51,7 @@ func checkDictTypeCall(call parser.CallExpression, callee lexer.Token, ctx check
 		return heap
 	}
 	if !compilerTypes.IsHeap(heap.typ) {
-		diagnostic := typeErrorAt(heap.token, "Dict<K, V>.new requires a Heap; got "+heap.typ.Name)
+		diagnostic := messageAt(heap.token, diag.DictConstructorHeapType(heap.typ.Name))
 		return checkedExpression{token: heap.token, diagnostic: &diagnostic}
 	}
 	node := Expression{
@@ -75,7 +74,7 @@ func checkDictMethodCall(call methodCall) checkedExpression {
 	keyType := dictType.Dict.Key
 	valueType := dictType.Dict.Value
 	if !hasBuiltinMethod(dictType, name) {
-		diagnostic := typeErrorAt(call.callee.Property, dictType.Name+" has no method "+name)
+		diagnostic := messageAt(call.callee.Property, diag.CollectionHasNoMethod(dictType.Name, name))
 		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
 	switch name {
@@ -83,7 +82,7 @@ func checkDictMethodCall(call methodCall) checkedExpression {
 		// Entry count is not an ordering, so reporting it exposes nothing
 		// about the unspecified iteration order Dict deliberately hides.
 		if len(call.call.Arguments) != 0 {
-			diagnostic := typeErrorAt(call.callee.Property, "length expects no arguments")
+			diagnostic := messageAt(call.callee.Property, diag.CollectionMethodNoArguments("length"))
 			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 		}
 		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: dictType, ResultType: compilerTypes.SizeType, Element: valueType}
@@ -91,7 +90,7 @@ func checkDictMethodCall(call methodCall) checkedExpression {
 		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: call.callee.Property}
 	case "insert":
 		if len(call.call.Arguments) != 2 {
-			diagnostic := typeErrorAt(call.callee.Property, fmt.Sprintf("insert expects 2 arguments; got %d", len(call.call.Arguments)))
+			diagnostic := messageAt(call.callee.Property, diag.DictMethodArity("insert", 2, len(call.call.Arguments)))
 			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 		}
 		key, diagnostic := checkDictKeyArgument(call.call.Arguments[0], call.callee.Property, keyType, call.ctx)
@@ -107,7 +106,7 @@ func checkDictMethodCall(call methodCall) checkedExpression {
 		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 	case "get", "find", "remove":
 		if len(call.call.Arguments) != 1 {
-			diagnostic := typeErrorAt(call.callee.Property, fmt.Sprintf("%s expects 1 argument; got %d", name, len(call.call.Arguments)))
+			diagnostic := messageAt(call.callee.Property, diag.DictMethodArity(name, 1, len(call.call.Arguments)))
 			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 		}
 		key, diagnostic := checkDictKeyArgument(call.call.Arguments[0], call.callee.Property, keyType, call.ctx)
@@ -118,7 +117,7 @@ func checkDictMethodCall(call methodCall) checkedExpression {
 		if name == "find" {
 			resultType = call.ctx.typeEnvironment.UnionType([]compilerTypes.Type{valueType, compilerTypes.Nil})
 			if resultType == (compilerTypes.Type{}) {
-				diagnostic := typeErrorAt(call.callee.Property, valueType.Name+" cannot be combined with Nil")
+				diagnostic := messageAt(call.callee.Property, diag.DictFindValueCannotContainNil(valueType.Name))
 				return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 			}
 		}
@@ -127,7 +126,7 @@ func checkDictMethodCall(call methodCall) checkedExpression {
 		return checkedExpression{source: source, typ: resultType, token: call.callee.Property}
 	case "contains":
 		if len(call.call.Arguments) != 1 {
-			diagnostic := typeErrorAt(call.callee.Property, fmt.Sprintf("contains expects 1 argument; got %d", len(call.call.Arguments)))
+			diagnostic := messageAt(call.callee.Property, diag.DictMethodArity("contains", 1, len(call.call.Arguments)))
 			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 		}
 		key, diagnostic := checkDictKeyArgument(call.call.Arguments[0], call.callee.Property, keyType, call.ctx)
@@ -139,7 +138,7 @@ func checkDictMethodCall(call methodCall) checkedExpression {
 		return checkedExpression{source: source, typ: compilerTypes.Bool, token: call.callee.Property}
 	case "free":
 		if len(call.call.Arguments) != 1 {
-			diagnostic := typeErrorAt(call.callee.Property, fmt.Sprintf("free expects 1 argument; got %d", len(call.call.Arguments)))
+			diagnostic := messageAt(call.callee.Property, diag.DictMethodArity("free", 1, len(call.call.Arguments)))
 			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 		}
 		heap := checkValue(call.call.Arguments[0], call.ctx)
@@ -147,7 +146,7 @@ func checkDictMethodCall(call methodCall) checkedExpression {
 			return heap
 		}
 		if !compilerTypes.IsHeap(heap.typ) {
-			diagnostic := typeErrorAt(heap.token, "free requires a Heap; got "+heap.typ.Name)
+			diagnostic := messageAt(heap.token, diag.DictFreeHeapType(heap.typ.Name))
 			return checkedExpression{token: heap.token, diagnostic: &diagnostic}
 		}
 		node := Expression{
@@ -175,7 +174,7 @@ func checkDictKeyArgument(expression parser.Expression, fallback lexer.Token, ke
 		return Operand{}, &diagnostics[0]
 	}
 	if !assignable(keyType, checked.typ) {
-		diagnostic := typeErrorAt(checked.token, "dictionary key requires "+keyType.Name+"; got "+checked.typ.Name+textMismatchHint(keyType, checked.typ))
+		diagnostic := messageAt(checked.token, diag.DictKeyTypeMismatch(keyType.Name, checked.typ.Name, textMismatchDetails(keyType, checked.typ)))
 		return Operand{}, &diagnostic
 	}
 	return checked.source, nil

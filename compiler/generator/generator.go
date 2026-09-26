@@ -2,8 +2,6 @@
 package generator
 
 import (
-	"fmt"
-
 	"hexal/compiler/checker"
 	compilerTypes "hexal/compiler/types"
 )
@@ -53,7 +51,7 @@ func GenerateCheckedWithMetadata(graph *checker.ModuleGraph, programs map[string
 			// total by construction; a caller that assembled the checked map
 			// independently of the graph gets a diagnostic, never a silently
 			// omitted module.
-			return GenerationResult{}, compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("the graph names module %s at source key %s, but no checked program has that key", canonical, key)}
+			return GenerationResult{}, generatorDiagnostic()
 		}
 		emission, discoveryErr := discoverModuleEmission(program, canonical, key, literals, config.SourceTable)
 		if discoveryErr != nil {
@@ -84,7 +82,7 @@ func GenerateCheckedWithMetadata(graph *checker.ModuleGraph, programs map[string
 		// The entrypoint module is always emitted; its absence means the
 		// caller's order or program keys disagree with the root name, a
 		// generation defect, never a quiet hexal.h-less success.
-		return GenerationResult{}, compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("the entrypoint module %s is not among the emitted modules", entrypointCanonical)}
+		return GenerationResult{}, generatorDiagnostic()
 	}
 	header, headerErr := hexalHeader(hexalHeaderInput{
 		sizeLiterals: merged.sizeLiterals,
@@ -104,7 +102,7 @@ func GenerateCheckedWithMetadata(graph *checker.ModuleGraph, programs map[string
 	}
 	for key, content := range components {
 		if _, exists := files[key]; exists {
-			return GenerationResult{}, compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("duplicate generated artifact key %s", key)}
+			return GenerationResult{}, generatorDiagnostic()
 		}
 		files[key] = content
 	}

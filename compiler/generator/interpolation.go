@@ -62,11 +62,11 @@ func hoistInterpolationSegments(node checker.Expression, ordinal int, body *stri
 	for _, segment := range node.InterpolationSegments {
 		if !segment.IsValue {
 			if state.strings == nil {
-				return nil, unknownExpressionDiagnostic("string literal rendering requires a literal registry")
+				return nil, unknownExpressionDiagnostic()
 			}
 			handle, ok := state.strings.Lookup(segment.Text)
 			if !ok {
-				return nil, unknownExpressionDiagnostic("interpolation literal segment is missing from the checked literal registry")
+				return nil, unknownExpressionDiagnostic()
 			}
 			name := state.strings.CName(handle)
 			plans = append(plans, interpolationSegmentPlan{data: name + ".data", byteLen: name + ".byte_length"})
@@ -148,7 +148,7 @@ type interpFormatModel struct {
 // is truncated and no Heap is involved.
 func hoistInlineInterpolate(node checker.Expression, body *strings.Builder, state *expressionValidation, indent string) error {
 	if len(node.InterpolationSegments) == 0 || !compilerTypes.IsInlineString(node.OperandType) || node.ResultType.Union == nil {
-		return unknownExpressionDiagnostic("String<N>.interpolate has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	state.interpolationCounter++
 	ordinal := state.interpolationCounter
@@ -178,7 +178,7 @@ func hoistInlineInterpolate(node checker.Expression, body *strings.Builder, stat
 	}
 	fileHandle, ok := state.strings.Lookup(state.filename)
 	if !ok {
-		return unknownExpressionDiagnostic("inline interpolation is missing its module file literal")
+		return unknownExpressionDiagnostic()
 	}
 	overflow, err := textErrorArm(node.ResultType, "ResourceExhausted", textMessageOverCapacity, state.strings.CName(fileHandle),
 		strconv.Itoa(state.line(node.Span)), strconv.Itoa(state.column(node.Span)), state.strings, state.tags)
@@ -251,7 +251,7 @@ func hoistInlineInterpolate(node checker.Expression, body *strings.Builder, stat
 // is allocated once, and every segment is copied in source order.
 func hoistStringInterpolate(node checker.Expression, body *strings.Builder, state *expressionValidation, indent string) error {
 	if node.Operand == nil || len(node.InterpolationSegments) == 0 {
-		return unknownExpressionDiagnostic("String.interpolate has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	state.interpolationCounter++
 	ordinal := state.interpolationCounter
@@ -376,7 +376,7 @@ func hoistInterpolationValueSegment(value checker.Operand, ordinal, valueOrdinal
 	}
 	formatFunction, bufferSize, ok := interpolationScalarFormatter(typ)
 	if !ok {
-		return interpolationSegmentPlan{}, unknownExpressionDiagnostic("string interpolation does not support " + typ.Name)
+		return interpolationSegmentPlan{}, unknownExpressionDiagnostic()
 	}
 	bufTemp := fmt.Sprintf("hex_interp_buf_%d_%d", ordinal, valueOrdinal)
 	lenTemp := fmt.Sprintf("hex_interp_len_%d_%d", ordinal, valueOrdinal)
@@ -436,17 +436,17 @@ func interpolationScalarFormatter(typ compilerTypes.Type) (string, int, bool) {
 func renderStringInterpolate(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Kind == checker.InlineStringConstructExpression {
 		if len(node.InterpolationSegments) == 0 {
-			return "", unknownExpressionDiagnostic("String<N>.interpolate has no checked segments")
+			return "", unknownExpressionDiagnostic()
 		}
 		name, ok := state.hoistedInlineInterpolations[&node.InterpolationSegments[0].Value.Node]
 		if !ok {
-			return "", unknownExpressionDiagnostic("String<N>.interpolate expression reached generation without hoisting")
+			return "", unknownExpressionDiagnostic()
 		}
 		return name, nil
 	}
 	name, ok := state.hoistedInterpolations[node.Operand]
 	if !ok {
-		return "", unknownExpressionDiagnostic("String.interpolate expression reached generation without hoisting")
+		return "", unknownExpressionDiagnostic()
 	}
 	return name, nil
 }

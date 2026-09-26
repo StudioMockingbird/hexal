@@ -1,7 +1,7 @@
 package parser
 
 import (
-	"fmt"
+	diag "hexal/compiler/diagnostics"
 
 	"hexal/compiler/lexer"
 	"hexal/compiler/span"
@@ -35,7 +35,7 @@ func (parser *Parser) recordBinaryOperator(token lexer.Token) error {
 	if token.Kind == parser.binaryOperatorKind {
 		return nil
 	}
-	return parser.errorAt(token, fmt.Sprintf("mixed binary operators require parentheses; found '%s' after '%s'", token.Lexeme, parser.binaryOperatorToken.Lexeme))
+	return parser.errorAt(token, diag.ParserMixedBinaryOperators(token.Lexeme, parser.binaryOperatorToken.Lexeme))
 }
 
 // expression starts the precedence ladder. mut is only valid before a binding
@@ -92,7 +92,7 @@ func (parser *Parser) interpolationTemplate() (Expression, error) {
 			return nil, err
 		}
 		if parser.check(lexer.InterpClose) {
-			return nil, parser.errorAt(parser.peek(), "string interpolation requires an expression")
+			return nil, parser.errorAt(parser.peek(), diag.ParserInterpolationExpression())
 		}
 		value, err := parser.expression()
 		if err != nil {
@@ -258,7 +258,7 @@ func (parser *Parser) typeTestExpression() (Expression, error) {
 		return nil, err
 	}
 	if parser.check(lexer.Is) {
-		return nil, parser.errorAtCurrent("is tests cannot be chained")
+		return nil, parser.errorAtCurrent(diag.ParserIsTestChained())
 	}
 	return TypeTestExpression{Operand: expression, IsToken: isToken, Type: typeExpression}, nil
 }
@@ -342,7 +342,7 @@ func (parser *Parser) multiplicativeExpression() (Expression, error) {
 
 func (parser *Parser) unaryExpression() (Expression, error) {
 	if parser.check(lexer.Mut) {
-		return nil, parser.errorAtCurrent("mut is not valid on the right-hand side; use @value")
+		return nil, parser.errorAtCurrent(diag.ParserMutRightHandSide())
 	}
 
 	switch {
@@ -425,7 +425,7 @@ func (parser *Parser) numericLiteral() (Expression, error) {
 	case lexer.DecimalFloat:
 		return DecimalLiteral{Token: parser.advance()}, nil
 	default:
-		return nil, parser.errorAtCurrent("expected an integer or decimal floating literal after '-'")
+		return nil, parser.errorAtCurrent(diag.ParserNegativeNumber())
 	}
 }
 
@@ -495,7 +495,7 @@ func (parser *Parser) primaryExpression() (Expression, error) {
 		// and `fun<` starts a generic one. `fun` followed by anything else
 		// is a syntax error at the `fun` keyword.
 		if !parser.funBeginsAnonymousLiteral() {
-			return nil, parser.errorAt(parser.peek(), "anonymous function requires '(' or '<' after 'fun'")
+			return nil, parser.errorAt(parser.peek(), diag.ParserAnonymousFunForm())
 		}
 		literal, err := parser.anonymousFunctionLiteral()
 		if err != nil {
@@ -576,7 +576,7 @@ func (parser *Parser) primaryExpression() (Expression, error) {
 		}
 		expression = ArrayLiteralExpression{OpenBracket: open, Elements: elements, CloseBracket: close}
 	default:
-		return nil, parser.errorAtCurrent("expected a value")
+		return nil, parser.errorAtCurrent(diag.ParserExpectedValue())
 	}
 
 	return parser.postfix(expression)
@@ -619,7 +619,7 @@ func (parser *Parser) postfix(expression Expression) (Expression, error) {
 			}
 			expression = PropertyExpression{Receiver: expression, Property: property}
 		case parser.check(lexer.LeftBrace) && parser.onPreviousTokenLine():
-			return nil, parser.errorAtCurrent("constructors use named arguments in parentheses")
+			return nil, parser.errorAtCurrent(diag.ParserNamedConstructorArguments())
 		case parser.check(lexer.Less) && parser.genericCallFollows():
 			arguments, err := parser.typeArgumentList()
 			if err != nil {
@@ -847,7 +847,7 @@ func (parser *Parser) matchExpression() (Expression, error) {
 		arms = append(arms, MatchArm{Pipe: pipe, Pattern: pattern, Then: then, Expression: armExpression})
 	}
 	if len(arms) == 0 {
-		return nil, parser.errorAtCurrent("expected a match arm after '|'")
+		return nil, parser.errorAtCurrent(diag.ParserMatchArmAfterBar())
 	}
 	end, err := parser.consume(lexer.End, "'end' after a match expression")
 	if err != nil {
@@ -879,7 +879,7 @@ func (parser *Parser) matchPattern(typeMode bool) (MatchPattern, error) {
 		case lexer.Integer, lexer.HexInteger, lexer.BinaryInteger, lexer.OctalInteger, lexer.ByteLiteral, lexer.RuneLiteral:
 			return parser.scalarPattern(minus)
 		default:
-			return nil, parser.errorAtCurrent("expected an integer or byte literal after '-' in a match pattern")
+			return nil, parser.errorAtCurrent(diag.ParserPatternNegativeInteger())
 		}
 	}
 	if parser.check(lexer.Identifier) && parser.peekAt(1).Kind == lexer.Less && parser.genericVariantFollows() {
@@ -929,7 +929,7 @@ func (parser *Parser) scalarPattern(minus lexer.Token) (MatchPattern, error) {
 	case lexer.RuneLiteral:
 		literal = RuneLiteral{Token: token}
 	default:
-		return nil, parser.errorAtCurrent("expected an integer, byte, or rune literal in a match pattern")
+		return nil, parser.errorAtCurrent(diag.ParserPatternLiteral())
 	}
 	return ScalarPattern{Minus: minus, Literal: literal}, nil
 }
@@ -965,7 +965,7 @@ func (parser *Parser) callArguments(callee Expression) (CallExpression, error) {
 				return CallExpression{}, err
 			}
 			if parser.check(lexer.Ellipsis) {
-				return CallExpression{}, parser.errorAtCurrent("spread arguments are not supported; pass explicit values")
+				return CallExpression{}, parser.errorAtCurrent(diag.ParserSpreadArguments())
 			}
 			arguments = append(arguments, argument)
 			labels = append(labels, label)

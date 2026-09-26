@@ -56,7 +56,7 @@ func TestGeneratorPreflightRejectsForgedRestMetadata(t *testing.T) {
 	}
 	forged := restCallProgram(environment, compilerTypes.Int64)
 	_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": forged}, Config{SourceTable: testSpanTable})
-	if err == nil || !strings.Contains(err.Error(), "rest call metadata does not match its checked signature") {
+	if err == nil || !strings.Contains(err.Error(), "internal.generator-invariant") {
 		t.Fatalf("forged rest element accepted: %v", err)
 	}
 }

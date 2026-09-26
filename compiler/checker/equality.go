@@ -1,8 +1,7 @@
 package checker
 
 import (
-	"fmt"
-
+	diagnosticsPkg "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
@@ -106,21 +105,21 @@ func structuralEqualityAvailable(typ compilerTypes.Type) (bool, string) {
 // by kind instead.
 func equalityUnavailableDiagnostic(typ compilerTypes.Type, reason string, token lexer.Token) *compilerTypes.Diagnostic {
 	if reason != "" {
-		diagnostic := typeErrorAt(token, "equality is unavailable because "+reason+" does not support ==")
+		diagnostic := messageAt(token, diagnosticsPkg.EqualityUnavailableBecause(reason))
 		return &diagnostic
 	}
 	switch {
 	case typ.Signature != nil:
-		diagnostic := typeErrorAt(token, "function values are not equality-comparable")
+		diagnostic := messageAt(token, diagnosticsPkg.FunctionValuesNotComparable())
 		return &diagnostic
 	case compilerTypes.IsHeap(typ):
-		diagnostic := typeErrorAt(token, "allocator handles are not equality-comparable")
+		diagnostic := messageAt(token, diagnosticsPkg.AllocatorHandlesNotComparable())
 		return &diagnostic
 	case typ.Dict != nil:
-		diagnostic := typeErrorAt(token, "dictionary equality is not available in v1")
+		diagnostic := messageAt(token, diagnosticsPkg.DictionaryEqualityUnavailable())
 		return &diagnostic
 	}
-	diagnostic := typeErrorAt(token, "equality is unavailable for "+typ.Name)
+	diagnostic := messageAt(token, diagnosticsPkg.EqualityUnavailableFor(typ.Name))
 	return &diagnostic
 }
 
@@ -155,7 +154,7 @@ func checkDeepComparison(operator Operator, left, right checkedExpression, token
 		}
 		common, ok := compilerTypes.LosslessCommonType(left.typ, right.typ)
 		if !ok {
-			diagnostic := typeErrorAt(token, "comparison has no lossless common numeric type")
+			diagnostic := messageAt(token, diagnosticsPkg.NoLosslessCommonNumericComparisonType())
 			return &checkedExpression{token: token, diagnostic: &diagnostic}
 		}
 		leftNode := widenNode(expressionNode(left.source), left.typ, common)
@@ -186,13 +185,15 @@ func checkDeepComparison(operator Operator, left, right checkedExpression, token
 		return &checkedExpression{source: source, typ: compilerTypes.Bool, token: token}
 	}
 	if !compilerTypes.Equal(left.typ, right.typ) {
-		message := fmt.Sprintf("operator %s requires identical operand types; got %s and %s", operator, left.typ.Name, right.typ.Name)
+		var message diagnosticsPkg.Message
 		if left.typ.Element != nil && right.typ.Element != nil {
-			message = "pointer equality requires identical pointer types"
+			message = diagnosticsPkg.PointerEqualityRequiresIdenticalTypes()
 		} else if !ordering {
-			message = "equality requires identical canonical non-numeric operand types"
+			message = diagnosticsPkg.EqualityRequiresIdenticalCanonicalTypes()
+		} else {
+			message = diagnosticsPkg.OperatorRequiresIdenticalOperands(operator.String(), left.typ.Name, right.typ.Name)
 		}
-		diagnostic := typeErrorAt(token, message)
+		diagnostic := messageAt(token, message)
 		return &checkedExpression{token: token, diagnostic: &diagnostic}
 	}
 	typ := left.typ
@@ -203,7 +204,7 @@ func checkDeepComparison(operator Operator, left, right checkedExpression, token
 	}
 	if ordering {
 		if !orderingAvailable(typ) {
-			diagnostic := typeErrorAt(token, "ordering is unavailable for "+typ.Name+" values")
+			diagnostic := messageAt(token, diagnosticsPkg.OrderingUnavailableFor(typ.Name))
 			return &checkedExpression{token: token, diagnostic: &diagnostic}
 		}
 		leftNode := expressionNode(left.source)
@@ -231,7 +232,7 @@ func checkDeepComparison(operator Operator, left, right checkedExpression, token
 	if typ.Object != nil && compilerTypes.IsForeignRecord(typ) {
 		// A foreign record has no Hexal equality contract: C record
 		// compatibility does not imply one.
-		diagnostic := typeErrorAt(token, "equality is unavailable for foreign record "+typ.Name)
+		diagnostic := messageAt(token, diagnosticsPkg.ForeignRecordEqualityUnavailable(typ.Name))
 		return &checkedExpression{token: token, diagnostic: &diagnostic}
 	}
 	if ok, reason := EqualityAvailable(typ); !ok {

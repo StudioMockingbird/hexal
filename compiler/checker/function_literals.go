@@ -7,6 +7,7 @@ package checker
 // named-function form and is checked in functions.go, never here.
 
 import (
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -38,7 +39,7 @@ func checkAnonymousFunctionLiteral(expression parser.AnonymousFunctionLiteral, c
 		return checkedExpression{token: expression.FunKeyword, diagnostics: bodyDiagnostics}
 	}
 	if signature.result != nil && FallsThrough(statements) {
-		diagnostic := typeErrorAt(expression.End, "returning function literal may fall through without returning "+signature.result.Name)
+		diagnostic := messageAt(expression.End, diag.FunctionLiteralMayFallThrough(signature.result.Name))
 		return checkedExpression{token: expression.FunKeyword, diagnostic: &diagnostic}
 	}
 
@@ -77,7 +78,7 @@ func openGenericLiteral(expression parser.AnonymousFunctionLiteral, ctx checkCon
 	diagnostics := validateGenericParameters(expression.TypeParameters)
 	for _, parameter := range expression.TypeParameters {
 		if _, active := ctx.names.generics.frame[parameter.Lexeme]; active {
-			diagnostics = append(diagnostics, typeErrorAt(parameter, "generic parameter "+parameter.Lexeme+" is already declared by an enclosing function"))
+			diagnostics = append(diagnostics, messageAt(parameter, diag.GenericParameterShadowsEnclosingFunction(parameter.Lexeme)))
 		}
 	}
 	if len(diagnostics) > 0 {
@@ -102,7 +103,7 @@ func openGenericLiteral(expression parser.AnonymousFunctionLiteral, ctx checkCon
 	}
 	generic := ctx.typeEnvironment.DeclareGeneric(open.templateKey(), len(expression.TypeParameters), parameterNamesOf(expression.TypeParameters))
 	if generic == nil {
-		diagnostic := unknownAt(expression.FunKeyword, "could not declare the generic template for this function literal")
+		diagnostic := unknownAt(expression.FunKeyword)
 		return nil, compilerTypes.Diagnostics{diagnostic}
 	}
 	open.Generic = generic
@@ -120,7 +121,7 @@ func checkGenericAnonymousFunctionLiteral(expression parser.AnonymousFunctionLit
 		return checkedExpression{token: expression.FunKeyword, diagnostics: diagnostics}
 	}
 	if context.expected.Type.Signature == nil {
-		diagnostic := typeErrorAt(expression.FunKeyword, "cannot infer generic parameter for function literal")
+		diagnostic := messageAt(expression.FunKeyword, diag.CannotInferGenericFunctionLiteral())
 		return checkedExpression{token: expression.FunKeyword, diagnostic: &diagnostic}
 	}
 	specialized, diagnostic := specializeFromExpectedType(open, context.expected.Type, expression.FunKeyword, ctx)
@@ -156,7 +157,7 @@ func checkGenericLiteralDirectCall(call parser.CallExpression, literal parser.An
 			return checkedExpression{token: literal.FunKeyword, diagnostics: argumentDiagnostics}
 		}
 		if checked.typ == (compilerTypes.Type{}) {
-			diagnostic := typeErrorAt(literal.FunKeyword, "cannot infer generic parameter for function literal")
+			diagnostic := messageAt(literal.FunKeyword, diag.CannotInferGenericFunctionLiteral())
 			return checkedExpression{token: literal.FunKeyword, diagnostic: &diagnostic}
 		}
 		argumentTypes = append(argumentTypes, checked.typ)

@@ -1,6 +1,7 @@
 package parser
 
 import (
+	diag "hexal/compiler/diagnostics"
 	"strings"
 
 	"hexal/compiler/lexer"
@@ -22,16 +23,16 @@ func (parser *Parser) typeDeclaration(exported bool) (TypeDeclaration, error) {
 		return TypeDeclaration{}, err
 	}
 	if parser.check(lexer.Equal) {
-		return TypeDeclaration{}, parser.errorAtCurrent("type declarations use 'is', not '='")
+		return TypeDeclaration{}, parser.errorAtCurrent(diag.ParserDeclarationTypeForm())
 	}
 	if parser.check(lexer.As) {
-		return TypeDeclaration{}, parser.errorAtCurrent("ADT declarations use 'type Name is union ... end'")
+		return TypeDeclaration{}, parser.errorAtCurrent(diag.ParserAdtDeclarationForm())
 	}
 	if _, err := parser.consume(lexer.Is, "'is' after a type name"); err != nil {
 		return TypeDeclaration{}, err
 	}
 	if parser.check(lexer.LeftBrace) {
-		return TypeDeclaration{}, parser.errorAtCurrent("struct declarations use 'struct ... end'")
+		return TypeDeclaration{}, parser.errorAtCurrent(diag.ParserStructDeclarationForm())
 	}
 	target, err := parser.typeDefinition()
 	if err != nil {
@@ -84,7 +85,7 @@ func (parser *Parser) functionDeclaration(exported bool) (FunctionDeclaration, e
 	if err != nil {
 		return FunctionDeclaration{}, err
 	}
-	if err := parser.requireDelimiter(lexer.Do, "'do' after function signature"); err != nil {
+	if err := parser.requireDelimiter(lexer.Do, diag.ParserExpectedFunctionBody()); err != nil {
 		return FunctionDeclaration{}, err
 	}
 	diagnosticsBeforeBody := len(parser.diagnostics)
@@ -113,13 +114,13 @@ func (parser *Parser) anonymousFunctionLiteral() (AnonymousFunctionLiteral, erro
 	}
 	// Anonymous literals require '(' directly after `fun` or `fun<...>`. No other token may follow.
 	if !parser.check(lexer.LeftParen) {
-		return AnonymousFunctionLiteral{}, parser.errorAtCurrent("anonymous function requires '(' or '<' after 'fun'")
+		return AnonymousFunctionLiteral{}, parser.errorAtCurrent(diag.ParserAnonymousFunForm())
 	}
 	parameters, returnType, err := parser.signature()
 	if err != nil {
 		return AnonymousFunctionLiteral{}, err
 	}
-	if err := parser.requireDelimiter(lexer.Do, "'do' after function signature"); err != nil {
+	if err := parser.requireDelimiter(lexer.Do, diag.ParserExpectedFunctionBody()); err != nil {
 		return AnonymousFunctionLiteral{}, err
 	}
 	diagnosticsBeforeBody := len(parser.diagnostics)
@@ -166,7 +167,7 @@ func (parser *Parser) methodDeclaration(exported bool) (MethodDeclaration, error
 		if err != nil {
 			return MethodDeclaration{}, err
 		}
-		if err := parser.requireDelimiter(lexer.Do, "'do' after method signature"); err != nil {
+		if err := parser.requireDelimiter(lexer.Do, diag.ParserExpectedMethodBody()); err != nil {
 			return MethodDeclaration{}, err
 		}
 		diagnosticsBeforeBody := len(parser.diagnostics)
@@ -201,7 +202,7 @@ func (parser *Parser) methodDeclaration(exported bool) (MethodDeclaration, error
 	if err != nil {
 		return MethodDeclaration{}, err
 	}
-	if err := parser.requireDelimiter(lexer.Do, "'do' after method signature"); err != nil {
+	if err := parser.requireDelimiter(lexer.Do, diag.ParserExpectedMethodBody()); err != nil {
 		return MethodDeclaration{}, err
 	}
 	diagnosticsBeforeBody := len(parser.diagnostics)
@@ -234,7 +235,7 @@ func (parser *Parser) signature() ([]Parameter, TypeExpression, error) {
 		sawRest := false
 		for {
 			if sawRest {
-				return nil, nil, parser.errorAtCurrent("rest parameter must be final")
+				return nil, nil, parser.errorAtCurrent(diag.ParserRestFinal())
 			}
 			parameter, err := parser.parameter()
 			if err != nil {
@@ -268,7 +269,7 @@ func (parser *Parser) parameter() (Parameter, error) {
 		return Parameter{}, err
 	}
 	if !parser.check(lexer.Colon) {
-		return Parameter{}, parser.errorAt(name, "function parameters require type annotations")
+		return Parameter{}, parser.errorAt(name, diag.ParserParameterAnnotation())
 	}
 	parser.advance()
 	typeExpression, err := parser.typeExpression()
@@ -313,7 +314,7 @@ func (parser *Parser) block(owner string, stops ...lexer.TokenKind) ([]Statement
 			return statements, nil
 		}
 		if parser.check(lexer.EOF) {
-			return nil, blockFailure{err: parser.errorAtCurrent("expected end to close " + owner)}
+			return nil, blockFailure{err: parser.errorAtCurrent(diag.ParserExpectedEnd(owner))}
 		}
 		start := parser.current
 		statement, err := parser.statement()
@@ -327,7 +328,7 @@ func (parser *Parser) block(owner string, stops ...lexer.TokenKind) ([]Statement
 			parser.diagnostics = append(parser.diagnostics, diagnosticsFrom(err)...)
 			parser.synchronizeBlock(start)
 			if parser.check(lexer.EOF) {
-				parser.diagnostics = append(parser.diagnostics, diagnosticsFrom(parser.errorAtCurrent("expected end to close "+owner))...)
+				parser.diagnostics = append(parser.diagnostics, diagnosticsFrom(parser.errorAtCurrent(diag.ParserExpectedEnd(owner)))...)
 				return nil, blockRecovery{}
 			}
 			// A delimiter that is not this block's stop was the reported
@@ -375,7 +376,7 @@ func (parser *Parser) ifStatement() (IfStatement, error) {
 	if err != nil {
 		return IfStatement{}, err
 	}
-	if err := parser.requireDelimiter(lexer.Then, "'then' after if condition"); err != nil {
+	if err := parser.requireDelimiter(lexer.Then, diag.ParserExpectedIfThen()); err != nil {
 		return IfStatement{}, err
 	}
 	thenBody, err := parser.block("if", lexer.ElseIf, lexer.Else, lexer.End)
@@ -390,7 +391,7 @@ func (parser *Parser) ifStatement() (IfStatement, error) {
 		if branchErr != nil {
 			return IfStatement{}, branchErr
 		}
-		if err := parser.requireDelimiter(lexer.Then, "'then' after elseif condition"); err != nil {
+		if err := parser.requireDelimiter(lexer.Then, diag.ParserExpectedElseIfThen()); err != nil {
 			return IfStatement{}, err
 		}
 		branchBody, bodyErr := parser.block("elseif", lexer.ElseIf, lexer.Else, lexer.End)
@@ -491,11 +492,11 @@ func (parser *Parser) forStatement() (ForStatement, error) {
 		}
 		parser.advance()
 		if len(binders) == 3 {
-			return ForStatement{}, parser.errorAt(parser.peek(), "a for-in loop takes at most 3 binders")
+			return ForStatement{}, parser.errorAt(parser.peek(), diag.ParserForMaxBinders())
 		}
 	}
 	if len(binders) < 1 {
-		return ForStatement{}, parser.errorAt(keyword, "a for-in loop needs at least one binder")
+		return ForStatement{}, parser.errorAt(keyword, diag.ParserForNeedsBinder())
 	}
 	if _, err := parser.consume(lexer.In, "'in' after loop binders"); err != nil {
 		return ForStatement{}, err
@@ -524,7 +525,7 @@ func (parser *Parser) forStatement() (ForStatement, error) {
 func (parser *Parser) condition(keyword string) (Expression, error) {
 	switch parser.peek().Kind {
 	case lexer.EOF, lexer.ElseIf, lexer.Else, lexer.End, lexer.Then:
-		return nil, parser.errorAtCurrent("expected a condition after '" + keyword + "'")
+		return nil, parser.errorAtCurrent(diag.ParserExpectedCondition(keyword))
 	default:
 		return parser.expression()
 	}
@@ -544,7 +545,7 @@ func (parser *Parser) letDeclaration(keyword lexer.Token) (Declaration, error) {
 		return Declaration{}, err
 	}
 	if parser.check(lexer.Mut) {
-		return Declaration{}, parser.errorAt(parser.peek(), "'mut' appears only immediately after 'let' in a declaration")
+		return Declaration{}, parser.errorAt(parser.peek(), diag.ParserMutAfterLet())
 	}
 	// `let name := value` and `let name : = value`: the colon begins a type
 	// annotation, so the adjacent `=` is a missing type, not the old operator.
@@ -560,7 +561,7 @@ func (parser *Parser) letDeclaration(keyword lexer.Token) (Declaration, error) {
 	}
 	colon := parser.advance()
 	if parser.check(lexer.Equal) {
-		return Declaration{}, parser.errorAt(colon, "expected a type after ':' in a 'let' declaration")
+		return Declaration{}, parser.errorAt(colon, diag.ParserTypeAfterColon())
 	}
 	typeExpression, err := parser.typeExpression()
 	if err != nil {
@@ -571,9 +572,9 @@ func (parser *Parser) letDeclaration(keyword lexer.Token) (Declaration, error) {
 	if parser.check(lexer.Colon) {
 		secondColon := parser.advance()
 		if parser.check(lexer.Equal) {
-			return Declaration{}, parser.errorAt(secondColon, "':=' is not a declaration operator; use 'let name = value'")
+			return Declaration{}, parser.errorAt(secondColon, diag.ParserDeprecatedColonEquals())
 		}
-		return Declaration{}, parser.errorAt(secondColon, "expected '=' in a 'let' declaration")
+		return Declaration{}, parser.errorAt(secondColon, diag.ParserMissingEqualsLet())
 	}
 	if _, err := parser.consume(lexer.Equal, "'=' in a 'let' declaration"); err != nil {
 		return Declaration{}, err
@@ -591,7 +592,7 @@ func (parser *Parser) letDeclaration(keyword lexer.Token) (Declaration, error) {
 func (parser *Parser) deprecatedDeclaration(name lexer.Token) (Declaration, error) {
 	colon := parser.advance() // the ':' the caller checked
 	if parser.check(lexer.Equal) {
-		return Declaration{}, parser.errorAt(colon, "':=' is not a declaration operator; use 'let name = value'")
+		return Declaration{}, parser.errorAt(colon, diag.ParserDeprecatedColonEquals())
 	}
 	if _, err := parser.typeExpression(); err != nil {
 		return Declaration{}, err
@@ -599,9 +600,9 @@ func (parser *Parser) deprecatedDeclaration(name lexer.Token) (Declaration, erro
 	if parser.check(lexer.Colon) {
 		secondColon := parser.advance()
 		if parser.check(lexer.Equal) {
-			return Declaration{}, parser.errorAt(secondColon, "':=' is not a declaration operator; use 'let name = value'")
+			return Declaration{}, parser.errorAt(secondColon, diag.ParserDeprecatedColonEquals())
 		}
-		return Declaration{}, parser.errorAt(name, "declarations require 'let'")
+		return Declaration{}, parser.errorAt(name, diag.ParserDeclarationNeedsLet())
 	}
-	return Declaration{}, parser.errorAt(name, "declarations require 'let'")
+	return Declaration{}, parser.errorAt(name, diag.ParserDeclarationNeedsLet())
 }

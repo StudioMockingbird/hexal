@@ -1,6 +1,7 @@
 package checker
 
 import (
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -29,26 +30,28 @@ func checkUnsafeStatement(statement parser.UnsafeStatement, ctx checkContext, lo
 // Every such operation routes its permission check through requireUnsafe, so
 // the classification lives in exactly one place instead of being spelled at
 // each call site.
-type unsafeOperation string
+type unsafeOperation = diag.UnsafeOperation
 
 // The classified unsafe-capable operations. Each string is the operation
 // spelling its diagnostic names.
 const (
-	unsafeSliceFromPointer unsafeOperation = "Slice.from_pointer"
-	unsafePointerOffset    unsafeOperation = "Ptr.offset"
-	unsafePointerCast      unsafeOperation = "Ptr.cast"
-	unsafePointerIndex     unsafeOperation = "pointer indexing"
-	unsafeSlicePointer     unsafeOperation = "Slice.pointer"
-	unsafeStringCPointer   unsafeOperation = "String.c_pointer"
+	unsafeSliceFromPointer unsafeOperation = diag.UnsafeSliceFromPointer
+	unsafePointerOffset    unsafeOperation = diag.UnsafePointerOffset
+	unsafePointerCast      unsafeOperation = diag.UnsafePointerCast
+	unsafePointerIndex     unsafeOperation = diag.UnsafePointerIndex
+	unsafeSlicePointer     unsafeOperation = diag.UnsafeSlicePointer
+	unsafeStringCPointer   unsafeOperation = diag.UnsafeStringCPointer
+	unsafeForeignCall      unsafeOperation = diag.UnsafeForeignCall
+	unsafeForeignGlobal    unsafeOperation = diag.UnsafeForeignGlobal
 )
 
 // requireUnsafe reports the permission diagnostic when operation is written
 // outside every enclosing unsafe region, and nil when the permission is
 // active. Callers run it after ordinary resolution so a program that is
 // invalid regardless of safety keeps its earlier diagnostic.
-func requireUnsafe(ctx checkContext, token lexer.Token, operation unsafeOperation) *compilerTypes.Diagnostic {
+func requireUnsafe(ctx checkContext, token lexer.Token, operation unsafeOperation, subject string) *compilerTypes.Diagnostic {
 	if ctx.names != nil && ctx.names.unsafeDepth > 0 {
 		return nil
 	}
-	return diagnosticAt(typeErrorAt(token, string(operation)+" requires an unsafe do ... end block"))
+	return diagnosticAt(messageAt(token, diag.UnsafeOperationRequiresBlock(operation, subject)))
 }

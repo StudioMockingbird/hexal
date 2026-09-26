@@ -104,7 +104,7 @@ func discoverGeneratedUnions(program checker.Program) (*generatedUnionState, err
 					return nil
 				}
 				if typ.CName == "" {
-					return unknownExpressionDiagnostic("union has no generated C name")
+					return unknownExpressionDiagnostic()
 				}
 				state.names[typ.Union] = typ.CName
 				state.order = append(state.order, typ)
@@ -379,29 +379,29 @@ func unionMemberIndex(union, member compilerTypes.Type) int {
 func validateUnionInjection(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	resultMembers := compilerTypes.UnionMembers(node.ResultType)
 	if node.Operand == nil || !compilerTypes.IsUnion(node.ResultType) || !supportedGeneratedTypeWithState(node.ResultType, state) || node.MemberIndex < 0 || node.MemberIndex >= resultMembers.Len() {
-		return unknownExpressionDiagnostic("union injection has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-		return unknownExpressionDiagnostic("union injection result does not match its expected type")
+		return unknownExpressionDiagnostic()
 	}
 	member, _ := resultMembers.At(node.MemberIndex)
 	if !compilerTypes.Assignable(member, node.OperandType) {
-		return unknownExpressionDiagnostic("union injection member does not match its checked source")
+		return unknownExpressionDiagnostic()
 	}
 	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 }
 
 func validateUnionWiden(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	if node.Operand == nil || !compilerTypes.IsUnion(node.OperandType) || !compilerTypes.IsUnion(node.ResultType) || !supportedGeneratedTypeWithState(node.OperandType, state) || !supportedGeneratedTypeWithState(node.ResultType, state) {
-		return unknownExpressionDiagnostic("union widening has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-		return unknownExpressionDiagnostic("union widening result does not match its expected type")
+		return unknownExpressionDiagnostic()
 	}
 	sourceMembers := compilerTypes.UnionMembers(node.OperandType)
 	destinationMembers := compilerTypes.UnionMembers(node.ResultType)
 	if len(node.MemberMap) != sourceMembers.Len() {
-		return unknownExpressionDiagnostic("union widening map does not match its source members")
+		return unknownExpressionDiagnostic()
 	}
 	for index, destinationIndex := range node.MemberMap {
 		if destinationIndex == -1 {
@@ -414,11 +414,11 @@ func validateUnionWiden(node checker.Expression, expected *compilerTypes.Type, s
 		}
 		sourceMember, _ := sourceMembers.At(index)
 		if destinationIndex < -1 || destinationIndex >= destinationMembers.Len() {
-			return unknownExpressionDiagnostic("union widening map contains an invalid member conversion")
+			return unknownExpressionDiagnostic()
 		}
 		destinationMember, _ := destinationMembers.At(destinationIndex)
 		if !compilerTypes.Assignable(destinationMember, sourceMember) {
-			return unknownExpressionDiagnostic("union widening map contains an invalid member conversion")
+			return unknownExpressionDiagnostic()
 		}
 	}
 	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
@@ -426,13 +426,13 @@ func validateUnionWiden(node checker.Expression, expected *compilerTypes.Type, s
 
 func validateUnionTest(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	if node.Operand == nil || !compilerTypes.IsUnion(node.OperandType) || !supportedGeneratedTypeWithState(node.OperandType, state) || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) || compilerTypes.IsNil(node.TestType) || compilerTypes.IsUnion(node.TestType) {
-		return unknownExpressionDiagnostic("union test has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, compilerTypes.Bool) {
-		return unknownExpressionDiagnostic("union test result does not match its expected type")
+		return unknownExpressionDiagnostic()
 	}
 	if unionMemberIndex(node.OperandType, node.TestType) != node.MemberIndex {
-		return unknownExpressionDiagnostic("union test member does not match its checked union")
+		return unknownExpressionDiagnostic()
 	}
 	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 }
@@ -440,23 +440,23 @@ func validateUnionTest(node checker.Expression, expected *compilerTypes.Type, st
 func validateUnionPayload(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	operandMembers := compilerTypes.UnionMembers(node.OperandType)
 	if node.Operand == nil || !compilerTypes.IsUnion(node.OperandType) || !supportedGeneratedTypeWithState(node.OperandType, state) || node.MemberIndex < 0 || node.MemberIndex >= operandMembers.Len() {
-		return unknownExpressionDiagnostic("union payload has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	member, _ := operandMembers.At(node.MemberIndex)
 	if !compilerTypes.Equal(node.ResultType, member) || expected != nil && !compilerTypes.Equal(*expected, member) {
-		return unknownExpressionDiagnostic("union payload result does not match its checked member")
+		return unknownExpressionDiagnostic()
 	}
 	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 }
 
 func validateUnionEquality(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	if node.Left == nil || node.Right == nil || !compilerTypes.IsUnion(node.OperandType) || !supportedGeneratedTypeWithState(node.OperandType, state) || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) || expected != nil && !compilerTypes.Equal(*expected, compilerTypes.Bool) {
-		return unknownExpressionDiagnostic("union equality has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	operandMembers := compilerTypes.UnionMembers(node.OperandType)
 	for index := 0; index < operandMembers.Len(); index++ {
 		if member, _ := operandMembers.At(index); !compilerTypes.IsNil(member) && !unionMemberEqualityAvailable(member) {
-			return unknownExpressionDiagnostic("union equality contains an unsupported member")
+			return unknownExpressionDiagnostic()
 		}
 	}
 	if err := validateExpressionChildWithState(node.Left, node.OperandType, state); err != nil {

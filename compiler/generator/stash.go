@@ -28,7 +28,7 @@ func discoverStashHelpers(program checker.Program) (*stashHelpers, error) {
 			case checker.StashConstructorExpression:
 				state.required = true
 				if node.Element == (compilerTypes.Type{}) || !compilerTypes.IsCompleteValue(node.Element) {
-					return unknownExpressionDiagnostic("stash constructor without a complete checked element type")
+					return unknownExpressionDiagnostic()
 				}
 				if !state.seen[node.Element.CName] {
 					state.seen[node.Element.CName] = true
@@ -100,14 +100,14 @@ func stashAllocateHelper(element compilerTypes.Type) (string, error) {
 
 func renderStashConstructor(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.OperandType.Stash == nil || node.Element == (compilerTypes.Type{}) {
-		return "", unknownExpressionDiagnostic("stash constructor has invalid checked metadata")
+		return "", unknownExpressionDiagnostic()
 	}
 	return stashNewHelper(node.Element) + "()", nil
 }
 
 func renderStashMethod(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil || node.OperandType.Stash == nil {
-		return "", unknownExpressionDiagnostic("stash method has invalid checked metadata")
+		return "", unknownExpressionDiagnostic()
 	}
 	receiver, err := renderReceiver(node.Operand, node.OperandType, state)
 	if err != nil {
@@ -116,7 +116,7 @@ func renderStashMethod(node checker.Expression, state *expressionValidation) (st
 	switch node.Name {
 	case "allocate":
 		if len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("stash allocate has invalid checked metadata")
+			return "", unknownExpressionDiagnostic()
 		}
 		initial, err := renderOperandWithState(node.Arguments[0], state)
 		if err != nil {
@@ -140,7 +140,7 @@ func renderStashMethod(node checker.Expression, state *expressionValidation) (st
 		}
 		return symbol + "(" + receiver + ")", nil
 	default:
-		return "", unknownExpressionDiagnostic("unknown stash method " + node.Name)
+		return "", unknownExpressionDiagnostic()
 	}
 }
 
@@ -150,30 +150,30 @@ func validateStashExpression(node checker.Expression, expected *compilerTypes.Ty
 	switch node.Kind {
 	case checker.StashConstructorExpression:
 		if node.OperandType.Stash == nil || len(node.Arguments) != 0 || !compilerTypes.Equal(node.Element, node.OperandType.Stash.Element) || !compilerTypes.Equal(node.ResultType, node.OperandType) {
-			return unknownExpressionDiagnostic("stash constructor has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("stash constructor result type does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		return nil
 	case checker.StashMethodCallExpression:
 		if node.Operand == nil || node.OperandType.Stash == nil || !compilerTypes.Equal(node.Element, node.OperandType.Stash.Element) {
-			return unknownExpressionDiagnostic("stash method has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		switch node.Name {
 		case "allocate":
 			if len(node.Arguments) != 1 || node.ResultType.Element == nil || !node.ResultType.PointeeWritable || !compilerTypes.Equal(*node.ResultType.Element, node.Element) {
-				return unknownExpressionDiagnostic("stash allocate has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "reset", "destroy":
 			if len(node.Arguments) != 0 || node.ResultType != (compilerTypes.Type{}) {
-				return unknownExpressionDiagnostic("stash " + node.Name + " has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		default:
-			return unknownExpressionDiagnostic("unknown stash method " + node.Name)
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("stash method result type does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
 			return err
@@ -185,5 +185,5 @@ func validateStashExpression(node checker.Expression, expected *compilerTypes.Ty
 		}
 		return nil
 	}
-	return unknownExpressionDiagnostic("unknown stash expression kind")
+	return unknownExpressionDiagnostic()
 }

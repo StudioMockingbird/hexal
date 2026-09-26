@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"hexal/compiler"
+	diagnostics "hexal/compiler/diagnostics"
 	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 	"hexal/internal/version"
@@ -164,18 +165,14 @@ func TestBuildRecordsHexalVersionOnce(t *testing.T) {
 // rendered text, so rewording a message cannot change which failures are
 // attributed to the compiler.
 func TestHexalFailureMessageKeepsOrdinaryDiagnosticsStable(t *testing.T) {
-	ordinary := compilerTypes.Diagnostics{
-		{Category: compilerTypes.SyntaxError, Module: "main.hex", Position: span.Position{Line: 2, Column: 1}, Message: "expected ')'"},
-	}
+	ordinary := compilerTypes.Diagnostics{compilerTypes.At(diagnostics.ParserExpectedToken("')'"), span.Span{}, span.Position{Line: 2, Column: 1}).InModule("main.hex")}
 	if compilerTypes.HasUnknownError(ordinary) {
 		t.Fatal("an ordinary rejection was classified as a compiler defect")
 	}
 	if got := hexalFailureMessage(compilerTypes.HasUnknownError(ordinary)); got != "compilation failed" {
 		t.Fatalf("ordinary message = %q", got)
 	}
-	defect := compilerTypes.Diagnostics{
-		{Category: compilerTypes.UnknownError, Message: "a violated internal invariant"},
-	}
+	defect := compilerTypes.Diagnostics{compilerTypes.Locationless(diagnostics.GeneratorFailure())}
 	if !compilerTypes.HasUnknownError(defect) {
 		t.Fatal("an Unknown Error diagnostic was not classified as a compiler defect")
 	}
@@ -189,7 +186,7 @@ func TestHexalFailureMessageKeepsOrdinaryDiagnosticsStable(t *testing.T) {
 	}
 	// The defect classification is derived before rendering, so a diagnostic
 	// whose message never spells the category still attributes to the compiler.
-	plain := compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Message: "no bracket text here"}
+	plain := compilerTypes.Locationless(diagnostics.UnknownCompiler())
 	if !compilerTypes.HasUnknownError(plain) {
 		t.Fatal("a single Unknown Error diagnostic was not classified")
 	}

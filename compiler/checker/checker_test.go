@@ -44,7 +44,7 @@ func TestCheckRejectsUnknownType(t *testing.T) {
 	if err == nil {
 		t.Fatal("Check accepted an unknown type")
 	}
-	if got, want := err.Error(), "[Type Error] unknown type yyy at app.hex:1:8"; got != want {
+	if got, want := err.Error(), "[Type Error type.unknown-type] unknown type yyy at app.hex:1:8"; got != want {
 		t.Fatalf("Check error = %q, want %q", got, want)
 	}
 }
@@ -61,7 +61,7 @@ func TestCheckReportsIndependentErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("Check accepted invalid type and value")
 	}
-	want := "[Type Error] unknown type Bogus at app.hex:1:8\n[Type Error] given value is outside the Int32 range at app.hex:1:16"
+	want := "[Type Error type.unknown-type] unknown type Bogus at app.hex:1:8\n[Type Error type.numeric-literal-out-of-range] given value is outside the Int32 range at app.hex:1:16"
 	if err.Error() != want {
 		t.Fatalf("Check errors = %q, want %q", err, want)
 	}
@@ -100,7 +100,7 @@ func TestCheckRejectsOutOfRangeHex(t *testing.T) {
 	if err == nil {
 		t.Fatal("Check accepted an out-of-range hexadecimal Int32 literal")
 	}
-	if got, want := err.Error(), "[Type Error] given value is outside the Int32 range at app.hex:1:19"; got != want {
+	if got, want := err.Error(), "[Type Error type.numeric-literal-out-of-range] given value is outside the Int32 range at app.hex:1:19"; got != want {
 		t.Fatalf("Check error = %q, want %q", got, want)
 	}
 }
@@ -124,7 +124,7 @@ func TestCheckKeepsEnvironmentAfterFailedAssignment(t *testing.T) {
 	if err == nil {
 		t.Fatal("Check accepted a mismatched assignment")
 	}
-	if got, want := err.Error(), "[Type Error] expected Int32 initializer; got Bool at app.hex:1:48"; got != want {
+	if got, want := err.Error(), "[Type Error type.initializer-type-mismatch] expected Int32 initializer; got Bool at app.hex:1:48"; got != want {
 		t.Fatalf("Check error = %q, want %q", got, want)
 	}
 	if got, want := len(checked.Statements), 3; got != want {
@@ -195,11 +195,11 @@ func TestCheckPointerDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"let x: Int32 = 13 let p: Ptr<Int32> = 13", "[Type Error] expected Ptr<Int32> initializer; got Int32 at app.hex:1:39"},
-		{"let x: Int32 = 13 let p: Ptr<Int32> = ^x", "[Type Error] cannot dereference Int32; ^ requires Ptr<T> at app.hex:1:39"},
-		{"let mut x: Int32 = 13 let p: Ptr<Int32> = @x let q: Ptr<Bool> = p", "[Type Error] expected Ptr<Bool> initializer; got Ptr<Int32> at app.hex:1:65"},
-		{"let mut x: Int32 = 13 let look: Ptr<Int32> = @x ^look = 42", "[Type Error] cannot write through a read-only pointer ^look at app.hex:1:49"},
-		{"let x: Int32 = 13 let promoted: Ptr<mut Int32> = @x", "[Type Error] expected Ptr<mut Int32> initializer; got Ptr<Int32> at app.hex:1:50"},
+		{"let x: Int32 = 13 let p: Ptr<Int32> = 13", "[Type Error type.initializer-type-mismatch] expected Ptr<Int32> initializer; got Int32 at app.hex:1:39"},
+		{"let x: Int32 = 13 let p: Ptr<Int32> = ^x", "[Type Error type.dereference-requires-pointer] cannot dereference Int32; ^ requires Ptr<T> at app.hex:1:39"},
+		{"let mut x: Int32 = 13 let p: Ptr<Int32> = @x let q: Ptr<Bool> = p", "[Type Error type.initializer-type-mismatch] expected Ptr<Bool> initializer; got Ptr<Int32> at app.hex:1:65"},
+		{"let mut x: Int32 = 13 let look: Ptr<Int32> = @x ^look = 42", "[Type Error type.cannot-write-through-read-only-pointer] cannot write through a read-only pointer ^look at app.hex:1:49"},
+		{"let x: Int32 = 13 let promoted: Ptr<mut Int32> = @x", "[Type Error type.initializer-type-mismatch] expected Ptr<mut Int32> initializer; got Ptr<Int32> at app.hex:1:50"},
 	} {
 		_, err := Check(parseProgram(t, testCase.source))
 		if err == nil || err.Error() != testCase.want {

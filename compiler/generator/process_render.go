@@ -84,7 +84,7 @@ func renderProcessExpression(node checker.Expression, state *expressionValidatio
 		}
 		return fmt.Sprintf("hex_pipe_close_%s(%s, %s)", suffix, receiver, site), nil
 	}
-	return "", unknownExpressionDiagnostic("unknown process operation " + node.Name)
+	return "", unknownExpressionDiagnostic()
 }
 
 // validateProcessExpression checks one process/IPC operation fail-closed: a
@@ -102,20 +102,20 @@ func validateProcessExpression(node checker.Expression, state *expressionValidat
 	case "pipe_write":
 		wantArguments, wantOperand = 1, true
 	default:
-		return unknownExpressionDiagnostic("unknown process operation " + node.Name)
+		return unknownExpressionDiagnostic()
 	}
 	if len(node.Arguments) != wantArguments {
-		return unknownExpressionDiagnostic("process operation has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	if wantOperand {
 		if node.Operand == nil {
-			return unknownExpressionDiagnostic("process method operation has no checked receiver")
+			return unknownExpressionDiagnostic()
 		}
 		if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
 			return err
 		}
 	} else if node.Operand != nil {
-		return unknownExpressionDiagnostic("process static operation has an unexpected checked receiver")
+		return unknownExpressionDiagnostic()
 	}
 	for _, argument := range node.Arguments {
 		if err := validateCheckedOperandWithState(argument, state); err != nil {

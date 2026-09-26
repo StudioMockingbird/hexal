@@ -9,22 +9,22 @@ import (
 // yields a Slice<UInt8> and rune_length yields Size.
 func validateGraphemeMethod(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	if node.Operand == nil || !compilerTypes.IsGrapheme(node.OperandType) {
-		return unknownExpressionDiagnostic("grapheme method has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	switch node.Name {
 	case "bytes":
 		if len(node.Arguments) != 0 || node.ResultType.Slice == nil || !compilerTypes.Equal(node.ResultType.Slice.Element, compilerTypes.UInt8) {
-			return unknownExpressionDiagnostic("grapheme bytes has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 	case "rune_length":
 		if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.SizeType) {
-			return unknownExpressionDiagnostic("grapheme rune_length has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 	default:
-		return unknownExpressionDiagnostic("unknown grapheme method " + node.Name)
+		return unknownExpressionDiagnostic()
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-		return unknownExpressionDiagnostic("grapheme method result does not match its expected type")
+		return unknownExpressionDiagnostic()
 	}
 	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 }
@@ -34,7 +34,7 @@ func validateGraphemeMethod(node checker.Expression, expected *compilerTypes.Typ
 // step is evaluated exactly once.
 func renderGraphemeMethod(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil {
-		return "", unknownExpressionDiagnostic("grapheme method without a checked receiver")
+		return "", unknownExpressionDiagnostic()
 	}
 	receiver, err := renderReceiver(node.Operand, node.OperandType, state)
 	if err != nil {
@@ -46,5 +46,5 @@ func renderGraphemeMethod(node checker.Expression, state *expressionValidation) 
 	case "rune_length":
 		return "hex_grapheme_rune_length(" + receiver + ")", nil
 	}
-	return "", unknownExpressionDiagnostic("unknown grapheme method " + node.Name)
+	return "", unknownExpressionDiagnostic()
 }

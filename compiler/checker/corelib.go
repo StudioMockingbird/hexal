@@ -10,9 +10,8 @@ package checker
 // tree and generated C are unchanged.
 
 import (
-	"fmt"
-
 	"hexal/compiler/corelib"
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -61,14 +60,14 @@ func checkCorelibCall(target string, function corelib.Function, call parser.Call
 		return checkCorelibBuiltin(function.Builtin, call, alias, property, ctx)
 	}
 	if len(call.Arguments) != len(function.Params) {
-		diagnostic := typeErrorAt(property, fmt.Sprintf("%s expects %d argument(s); got %d", property.Lexeme, len(function.Params), len(call.Arguments)))
+		diagnostic := messageAt(property, diag.CorelibFunctionArity(property.Lexeme, len(function.Params), len(call.Arguments)))
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	arguments := make([]Operand, 0, len(function.Params))
 	for index, param := range function.Params {
 		expected := corelibParamType(param, ctx)
 		if expected == (compilerTypes.Type{}) {
-			diagnostic := unknownAt(property, "could not resolve a core-library parameter type")
+			diagnostic := unknownAt(property)
 			return checkedExpression{token: property, diagnostic: &diagnostic}
 		}
 		checked := checkInitializer(call.Arguments[index], compilerTypes.NewTypeUse(expected), tokenOf(call.Arguments[index]), ctx)
@@ -82,7 +81,7 @@ func checkCorelibCall(target string, function corelib.Function, call parser.Call
 	}
 	resultType := corelibResultType(function.Result, ctx)
 	if resultType == (compilerTypes.Type{}) {
-		diagnostic := unknownAt(property, "could not construct a core-library result type")
+		diagnostic := unknownAt(property)
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	node := Expression{
@@ -141,7 +140,7 @@ func checkCorelibBuiltin(builtin string, call parser.CallExpression, alias parse
 	case "terminal_is_attached", "terminal_size":
 		return checkTerminalTypeCall(rebased(property.Lexeme), namespace("Terminal"), ctx)
 	default:
-		diagnostic := unknownAt(property, "unknown core-library builtin "+builtin)
+		diagnostic := unknownAt(property)
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 }

@@ -15,8 +15,6 @@ package generator
 // error, never a silent skip.
 
 import (
-	"fmt"
-
 	"hexal/compiler/checker"
 	compilerTypes "hexal/compiler/types"
 )
@@ -227,8 +225,7 @@ func walkStatementExpressions(statement checker.Statement, visit func(checker.Ex
 		// A statement kind reaching this default is a checker-to-generator
 		// contract break; the typed diagnostic keeps its [Unknown Error]
 		// category intact through Stderr rendering.
-		return compilerTypes.NewDiagnostic(compilerTypes.UnknownError, "generator", 0, 0,
-			fmt.Sprintf("generator walker cannot visit statement of type %T", statement))
+		return generatorDiagnostic()
 	}
 	return nil
 }
@@ -661,8 +658,7 @@ func (state *walkState) walkStatements(statements []checker.Statement) error {
 			// A statement kind reaching this default is a checker-to-
 			// generator contract break; the typed diagnostic keeps its
 			// [Unknown Error] category through Stderr rendering.
-			return compilerTypes.NewDiagnostic(compilerTypes.UnknownError, "generator", 0, 0,
-				fmt.Sprintf("generator walker cannot visit statement of type %T", statement))
+			return generatorDiagnostic()
 		}
 	}
 	return nil

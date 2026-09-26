@@ -154,7 +154,7 @@ func (state *expressionValidation) allocateBinding(id checker.BindingID, sourceN
 		return privateCName(valueName, sourceName, ""), nil
 	}
 	if _, exists := state.bindings[id]; exists {
-		return "", unknownExpressionDiagnostic("duplicate checked binding identity")
+		return "", unknownExpressionDiagnostic()
 	}
 	base := privateCName(valueName, sourceName, "")
 	name := base
@@ -169,7 +169,7 @@ func (state *expressionValidation) allocateBinding(id checker.BindingID, sourceN
 		// binding; reaching here without one is a structural generator defect,
 		// so it fails closed instead of inventing a scope the caller never
 		// balances.
-		return "", unknownExpressionDiagnostic("binding allocated without an active scope")
+		return "", unknownExpressionDiagnostic()
 	}
 	state.activeScopes[len(state.activeScopes)-1][id] = true
 	return name, nil
@@ -180,7 +180,7 @@ func (state *expressionValidation) allocateBinding(id checker.BindingID, sourceN
 // field rather than a local.
 func (state *expressionValidation) registerCapture(capture checker.Capture, cName string) error {
 	if _, exists := state.bindings[capture.Binding]; exists {
-		return unknownExpressionDiagnostic("duplicate checked binding identity")
+		return unknownExpressionDiagnostic()
 	}
 	state.bindings[capture.Binding] = generatedBinding{typ: capture.Type, mutable: capture.Mutable}
 	state.bindingNames[capture.Binding] = cName

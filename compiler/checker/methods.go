@@ -1,10 +1,10 @@
 package checker
 
 import (
-	"fmt"
 	"strings"
 
 	"hexal/compiler/corelib"
+	diagnosticsPkg "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	"hexal/compiler/span"
@@ -69,7 +69,7 @@ func hasBuiltinMethod(typ compilerTypes.Type, name string) bool {
 // for. A method the registry declares must lower somewhere; reaching this is a
 // compiler defect, not a user error, so it fails closed as an Unknown Error.
 func unexpectedBuiltinMethod(typ compilerTypes.Type, token lexer.Token) checkedExpression {
-	diagnostic := unknownAt(token, "built-in method "+token.Lexeme+" on "+typ.Name+" has a registry record but no checker dispatch")
+	diagnostic := unknownAt(token)
 	return checkedExpression{token: token, diagnostic: &diagnostic}
 }
 
@@ -136,11 +136,11 @@ func (table *methodTable) define(method *MethodDeclaration) {
 }
 
 func collisionDiagnostic(functionName, methodName string, token lexer.Token) compilerTypes.Diagnostic {
-	return typeErrorAt(token, fmt.Sprintf("free function %s collides with method %s", functionName, methodName))
+	return messageAt(token, diagnosticsPkg.FreeFunctionCollidesWithMethod(functionName, methodName))
 }
 
 func methodCollisionDiagnostic(objectName, methodName, existing string, token lexer.Token) compilerTypes.Diagnostic {
-	return typeErrorAt(token, fmt.Sprintf("method %s.%s collides with method %s", objectName, methodName, existing))
+	return messageAt(token, diagnosticsPkg.MethodCollidesWithMethod(objectName, methodName, existing))
 }
 
 // isNullableFun reports whether typ is a nullable function pointer
@@ -184,16 +184,16 @@ func checkFunMemberCall(call parser.CallExpression, callee parser.PropertyExpres
 		// checker only narrows bare bindings, so a direct member call cannot
 		// prove non-nil. Require the caller to bind the member to a local
 		// and narrow that local (e.g. `cb := table.cb; if cb != nil { cb() }`).
-		diagnostic := typeErrorAt(callee.Property, member.Type.Name+" may be Nil; narrow it before calling it")
+		diagnostic := messageAt(callee.Property, diagnosticsPkg.NullableMemberNotCallable(member.Type.Name))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 	if funType.Signature == nil {
-		diagnostic := typeErrorAt(callee.Property, member.Name+" is not callable")
+		diagnostic := messageAt(callee.Property, diagnosticsPkg.MemberNotCallable(member.Name))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 	signature := funType.Signature
 	if !aritySatisfied(signature, len(call.Arguments)) {
-		diagnostic := typeErrorAt(callee.Property, arityDiagnostic(member.Name, signature, len(call.Arguments)))
+		diagnostic := messageAt(callee.Property, arityDiagnostic(member.Name, signature, len(call.Arguments)))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 	parameterUses := make([]compilerTypes.TypeUse, len(signature.Parameters))
@@ -248,7 +248,7 @@ func checkFunMemberCall(call parser.CallExpression, callee parser.PropertyExpres
 }
 
 func nonCallableMemberDiagnostic(token lexer.Token, member *compilerTypes.ObjectMember) compilerTypes.Diagnostic {
-	return typeErrorAt(token, fmt.Sprintf("member %s is not callable; its type is %s", member.Name, member.Type.Name))
+	return messageAt(token, diagnosticsPkg.MemberCallType(member.Name, member.Type.Name))
 }
 
 // collectMethodSignature resolves a method's receiver and signature and
@@ -287,8 +287,8 @@ func collectMethodSignature(declaration parser.MethodDeclaration, ctx checkConte
 	// rejected here, before ownership checks or body checking.
 	object := target.Object
 	if object == nil {
-		return MethodDeclaration{}, compilerTypes.Diagnostics{typeErrorAt(declaration.Keyword,
-			"method receiver must be a struct type; got "+target.Name)}
+		return MethodDeclaration{}, compilerTypes.Diagnostics{messageAt(declaration.Keyword,
+			diagnosticsPkg.MethodReceiverMustBeStruct(target.Name))}
 	}
 	// Only the type's defining module may declare its methods. An imported
 	// receiver -- or a transparent alias of one -- resolves to the defining
@@ -296,8 +296,8 @@ func collectMethodSignature(declaration parser.MethodDeclaration, ctx checkConte
 	// it, qualified or not. Builtins carry an empty id and keep their
 	// compiler-owned behavior.
 	if object.ModuleID != "" && object.ModuleID != ctx.names.moduleID {
-		return MethodDeclaration{}, compilerTypes.Diagnostics{typeErrorAt(receiverSpellingToken(declaration.SelfType, declaration.Keyword),
-			"cannot declare methods for imported type "+receiverSpelling(declaration.SelfType, object.Name))}
+		return MethodDeclaration{}, compilerTypes.Diagnostics{messageAt(receiverSpellingToken(declaration.SelfType, declaration.Keyword),
+			diagnosticsPkg.CannotDeclareMethodsForImportedType(receiverSpelling(declaration.SelfType, object.Name)))}
 	}
 	if diagnostic := methodReceiverCopyDiagnostic(target, declaration.Keyword); diagnostic != nil {
 		return MethodDeclaration{}, compilerTypes.Diagnostics{*diagnostic}
@@ -307,9 +307,9 @@ func collectMethodSignature(declaration parser.MethodDeclaration, ctx checkConte
 
 	// Method rules 4 and 5, then the non-injective C name rule.
 	if ctx.names.methods.lookup(object, name) != nil {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, object.Name+" already has a method named "+name))
+		diagnostics = append(diagnostics, messageAt(declaration.Name, diagnosticsPkg.TypeAlreadyHasMethod(object.Name, name)))
 	} else if _, exists := object.Member(name); exists {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, object.Name+" already has a member named "+name))
+		diagnostics = append(diagnostics, messageAt(declaration.Name, diagnosticsPkg.TypeAlreadyHasMember(object.Name, name)))
 	} else if bound, declared := ctx.names.module[object.Name+"_"+name]; declared && bound.kind == functionBinding {
 		diagnostics = append(diagnostics, collisionDiagnostic(object.Name+"_"+name, object.Name+"."+name, declaration.Name))
 	} else if existing, taken := ctx.names.methods.cNames[object.Name+"_"+name]; taken {
@@ -343,7 +343,7 @@ func methodReceiverCopyDiagnostic(target compilerTypes.Type, token lexer.Token) 
 	if compilerTypes.Eligible(target, compilerTypes.PositionFunctionParam) {
 		return nil
 	}
-	return diagnosticAt(typeErrorAt(token, "method receiver must be shallow-copyable; got "+target.Name))
+	return diagnosticAt(messageAt(token, diagnosticsPkg.MethodReceiverNotCopyable(target.Name)))
 }
 
 // checkMethodBody checks a method's body against its already-collected
@@ -383,7 +383,7 @@ func checkMethodBody(declaration parser.MethodDeclaration, checked MethodDeclara
 		// parameter is rejected like any other redeclaration.
 		if ctx.names.importAlias(parameters[index].Name) {
 			token := tokenAt(ctx.names.table, parameters[index].Span)
-			diagnostics = append(diagnostics, nameErrorAt(token, "import alias "+parameters[index].Name+" conflicts with an existing name"))
+			diagnostics = append(diagnostics, importAliasConflictDiagnostic(token, parameters[index].Name))
 			continue
 		}
 		parameters[index].Binding = ctx.names.newBindingID()
@@ -401,8 +401,8 @@ func checkMethodBody(declaration parser.MethodDeclaration, checked MethodDeclara
 	checked.DirectCallees = directCallees(declaration.Body)
 
 	if analyzeReturns && checked.Result != nil && len(bodyDiagnostics) == 0 && FallsThrough(checked.Body) {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.End,
-			fmt.Sprintf("returning %s may fall through without returning %s", checked.Name, checked.Result.Name)))
+		diagnostics = append(diagnostics, messageAt(declaration.End,
+			diagnosticsPkg.FunctionMayFallThrough(checked.Name, checked.Result.Name)))
 	}
 	return checked, diagnostics
 }
@@ -467,7 +467,7 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 					// The name is an exported type that is not constructible
 					// (a handle or scalar-shaped value), never a visibility
 					// failure.
-					diagnostic := typeErrorAt(callee.Property, typ.Name+" is not a constructible type")
+					diagnostic := messageAt(callee.Property, diagnosticsPkg.TypeIsNotConstructible(typ.Name))
 					return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 				}
 				diagnostic := privateToModuleDiagnostic(callee.Property, callee.Property.Lexeme, target)
@@ -535,15 +535,14 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	// below; checkCall's bare-call dispatch handles the current Type(...)
 	// construction spelling before a call ever reaches checkMethodCall.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && callee.Property.Lexeme == "new" && compilerTypes.IsProtectedTypeName(variable.Name.Lexeme) {
-		diagnostic := typeErrorAt(callee.Property, "constructors use '"+variable.Name.Lexeme+"(...)', not '.new(...)'")
+		diagnostic := messageAt(callee.Property, diagnosticsPkg.CanonicalConstructorCall(variable.Name.Lexeme))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
-	// A former static operation on a moved capability namespace keeps its
-	// exact migration hint instead of a bare unknown-variable error.
+	// Former static operations retain their migration hint.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && !ctx.typeEnvironment.Contains(variable.Name.Lexeme) {
 		if _, status := ctx.names.lookup(variable.Name.Lexeme); status == nameMissing {
 			if hint, moved := corelib.OperationHint(variable.Name.Lexeme, name); moved {
-				diagnostic := nameErrorAt(variable.Name, hint)
+				diagnostic := coreOperationMigrationDiagnostic(variable.Name, hint)
 				return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 			}
 		}
@@ -735,7 +734,7 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		object = receiver.typ.Element.Object
 	}
 	if object == nil {
-		diagnostic := typeErrorAt(callee.Property, receiver.typ.Name+" has no method named "+name)
+		diagnostic := messageAt(callee.Property, diagnosticsPkg.TypeHasNoMethod(receiver.typ.Name, name))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 	// A receiver whose type another module defines routes its method lookup
@@ -765,7 +764,7 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 			diagnostic := nonCallableMemberDiagnostic(callee.Property, member)
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		diagnostic := typeErrorAt(callee.Property, object.Name+" has no method named "+name)
+		diagnostic := messageAt(callee.Property, diagnosticsPkg.TypeHasNoMethod(object.Name, name))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 
@@ -775,7 +774,7 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	}
 
 	if !parameterAritySatisfied(method.Parameters, len(call.Arguments)) {
-		diagnostic := typeErrorAt(callee.Property, parameterArityDiagnostic(name, method.Parameters, len(call.Arguments)))
+		diagnostic := messageAt(callee.Property, parameterArityDiagnostic(name, method.Parameters, len(call.Arguments)))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 	expected := make([]compilerTypes.TypeUse, 0, len(method.Parameters))
@@ -838,7 +837,7 @@ func checkImportedMethodCall(call parser.CallExpression, callee parser.PropertyE
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
 	if !parameterAritySatisfied(method.Parameters, len(call.Arguments)) {
-		diagnostic := typeErrorAt(callee.Property, parameterArityDiagnostic(name, method.Parameters, len(call.Arguments)))
+		diagnostic := messageAt(callee.Property, parameterArityDiagnostic(name, method.Parameters, len(call.Arguments)))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 	expected := make([]compilerTypes.TypeUse, 0, len(method.Parameters))
@@ -901,7 +900,7 @@ func checkImportedGenericMethodCall(call parser.CallExpression, callee parser.Pr
 	}
 	receiverArguments := definingCtx.names.generics.objectArguments[object]
 	if receiverArguments == nil {
-		diagnostic := unknownAt(callee.Property, "generic method call without receiver arguments")
+		diagnostic := unknownAt(callee.Property)
 		return MethodDeclaration{}, &diagnostic, true
 	}
 	var methodArguments []compilerTypes.Type
@@ -915,7 +914,7 @@ func checkImportedGenericMethodCall(call parser.CallExpression, callee parser.Pr
 			methodArguments = append(methodArguments, argumentUse.Type)
 		}
 		if len(methodArguments) != methodOpen.Generic.Arity {
-			diagnostic := typeErrorAt(callee.Property, "explicit generic argument count does not match declaration")
+			diagnostic := messageAt(callee.Property, diagnosticsPkg.ExplicitGenericArgumentCountMismatch())
 			return MethodDeclaration{}, &diagnostic, true
 		}
 	} else {
@@ -977,7 +976,7 @@ func adaptReceiver(receiver checkedExpression, method MethodDeclaration, callee 
 			pointer = typeEnvironment.MutPtrType(receiver.typ)
 		}
 		if !assignable(target, pointer) {
-			diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("%s needs %s; @%s is %s",
+			diagnostic := messageAt(callee.Property, diagnosticsPkg.ReceiverPointerIncompatible(
 				method.Name, target.Name, placeDescription(callee.Receiver), pointer.Name))
 			return Operand{}, &diagnostic
 		}
@@ -991,7 +990,7 @@ func adaptReceiver(receiver checkedExpression, method MethodDeclaration, callee 
 			Node: addressNode,
 		}, nil
 	}
-	diagnostic := typeErrorAt(callee.Property, fmt.Sprintf("%s needs %s; %s is %s",
+	diagnostic := messageAt(callee.Property, diagnosticsPkg.ReceiverTypeIncompatible(
 		method.Name, target.Name, placeDescription(callee.Receiver), receiver.typ.Name))
 	return Operand{}, &diagnostic
 }

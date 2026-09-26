@@ -2,12 +2,12 @@
 package lexer
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"hexal/compiler/config"
+	compilerDiagnostics "hexal/compiler/diagnostics"
 	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
@@ -30,20 +30,20 @@ const (
 // escape, Byte cardinality (exactly one byte), Rune cardinality (exactly one
 // Unicode scalar), and UTF-8 validity of the whole payload. The returned
 // message is empty on success.
-func DecodeLiteralBody(body string, set literalEscapeSet) ([]byte, string) {
+func DecodeLiteralBody(body string, set literalEscapeSet) ([]byte, compilerDiagnostics.Message) {
 	payload := make([]byte, 0, len(body))
 	for index := 0; index < len(body); index++ {
 		character := body[index]
 		if character != '\\' {
 			if set == ByteEscapes && (character >= 0x80 || character < 0x20) {
-				return nil, "Byte literal must contain exactly one printable ASCII byte"
+				return nil, compilerDiagnostics.ByteLiteralPrintableCardinality()
 			}
 			payload = append(payload, character)
 			continue
 		}
 		index++
 		if index >= len(body) {
-			return nil, "literal ends with an incomplete escape sequence"
+			return nil, compilerDiagnostics.IncompleteEscapeSequence()
 		}
 		escaped := body[index]
 		switch escaped {
@@ -51,12 +51,12 @@ func DecodeLiteralBody(body string, set literalEscapeSet) ([]byte, string) {
 			payload = append(payload, escaped)
 		case '"':
 			if set == ByteEscapes {
-				return nil, "unsupported escape \\\" in Byte literal"
+				return nil, compilerDiagnostics.UnsupportedByteQuoteEscape()
 			}
 			payload = append(payload, '"')
 		case '{', '}':
 			if set != StringEscapes {
-				return nil, "unsupported escape \\" + string(escaped)
+				return nil, compilerDiagnostics.UnsupportedEscape(rune(escaped))
 			}
 			payload = append(payload, escaped)
 		case 'n':
@@ -69,64 +69,64 @@ func DecodeLiteralBody(body string, set literalEscapeSet) ([]byte, string) {
 			payload = append(payload, 0)
 		case 'x':
 			if set != ByteEscapes {
-				return nil, "unsupported escape \\x; Byte literals use \\xHH"
+				return nil, compilerDiagnostics.UnsupportedHexEscape()
 			}
 			if index+3 > len(body) {
-				return nil, "Byte literal escape \\x requires exactly two hex digits"
+				return nil, compilerDiagnostics.ByteHexEscapeNeedsTwoDigits()
 			}
 			value, err := strconv.ParseUint(body[index+1:index+3], 16, 8)
 			if err != nil {
-				return nil, "Byte literal escape \\x requires exactly two hex digits"
+				return nil, compilerDiagnostics.ByteHexEscapeNeedsTwoDigits()
 			}
 			payload = append(payload, byte(value))
 			index += 2
 		case 'u':
 			if set == ByteEscapes {
-				return nil, "Unicode escapes are not Byte escapes"
+				return nil, compilerDiagnostics.UnicodeEscapeIsNotByteEscape()
 			}
 			if index+1 >= len(body) || body[index+1] != '{' {
-				return nil, "Unicode escape requires \\u{HEX}"
+				return nil, compilerDiagnostics.UnicodeEscapeRequiresBracedHex()
 			}
 			closeIndex := index + 2
 			for closeIndex < len(body) && body[closeIndex] != '}' {
 				closeIndex++
 			}
 			if closeIndex >= len(body) {
-				return nil, "Unicode escape requires \\u{HEX}"
+				return nil, compilerDiagnostics.UnicodeEscapeRequiresBracedHex()
 			}
 			digits := body[index+2 : closeIndex]
 			if len(digits) == 0 {
-				return nil, "Unicode escape requires \\u{HEX}"
+				return nil, compilerDiagnostics.UnicodeEscapeRequiresBracedHex()
 			}
 			value, err := strconv.ParseUint(digits, 16, 32)
 			if err != nil || value > 0x10FFFF || value >= 0xD800 && value <= 0xDFFF {
-				return nil, "invalid Unicode scalar value in escape"
+				return nil, compilerDiagnostics.InvalidUnicodeScalarEscape()
 			}
 			payload = append(payload, []byte(string(rune(value)))...)
 			index = closeIndex
 		default:
-			return nil, "unsupported escape \\" + string(escaped)
+			return nil, compilerDiagnostics.UnsupportedEscape(rune(escaped))
 		}
 	}
 	if set == ByteEscapes && len(payload) != 1 {
-		return nil, "Byte literal must contain exactly one byte"
+		return nil, compilerDiagnostics.ByteLiteralCardinality()
 	}
 	if set == RuneEscapes {
 		if !utf8.Valid(payload) {
-			return nil, "Rune literal must contain exactly one Unicode scalar"
+			return nil, compilerDiagnostics.RuneLiteralCardinality()
 		}
 		decoded, width := utf8.DecodeRune(payload)
 		if decoded == utf8.RuneError && width <= 1 {
-			return nil, "Rune literal must contain exactly one Unicode scalar"
+			return nil, compilerDiagnostics.RuneLiteralCardinality()
 		}
 		if len(payload) != width {
-			return nil, "Rune literal must contain exactly one Unicode scalar"
+			return nil, compilerDiagnostics.RuneLiteralCardinality()
 		}
 	}
 	if set == StringEscapes && !utf8.Valid(payload) {
-		return nil, "string literal contains invalid UTF-8"
+		return nil, compilerDiagnostics.InvalidUTF8StringLiteral()
 	}
-	return payload, ""
+	return payload, compilerDiagnostics.Message{}
 }
 
 // TokenKind identifies the syntactic role of a token.
@@ -580,7 +580,7 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 				column++
 			}
 			if !closed {
-				diagnostics = append(diagnostics, *literalDiagnostic(commentLine, commentColumn, "unterminated multiline comment"))
+				diagnostics = append(diagnostics, *literalDiagnostic(commentLine, commentColumn, compilerDiagnostics.UnterminatedMultilineComment()))
 			}
 			return tokens, diagnostics, index, line, column
 		}
@@ -601,13 +601,13 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 		column += 2
 		end, closed := scanQuotedBody(source, index, line, column)
 		if !closed {
-			diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "unterminated Byte literal"))
+			diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, compilerDiagnostics.UnterminatedByteLiteral()))
 		}
 		bodyEnd := end
 		if closed {
 			bodyEnd = end - 1
 		}
-		if _, message := DecodeLiteralBody(source[index:bodyEnd], ByteEscapes); message != "" {
+		if _, message := DecodeLiteralBody(source[index:bodyEnd], ByteEscapes); !message.IsZero() {
 			diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, message))
 			tokens = append(tokens, newToken(EOF, "", start, line, startColumn))
 		} else {
@@ -624,13 +624,13 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 		column++
 		end, closed := scanQuotedBody(source, index, line, column)
 		if !closed {
-			diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "unterminated Rune literal"))
+			diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, compilerDiagnostics.UnterminatedRuneLiteral()))
 		}
 		bodyEnd := end
 		if closed {
 			bodyEnd = end - 1
 		}
-		if _, message := DecodeLiteralBody(source[index:bodyEnd], RuneEscapes); message != "" {
+		if _, message := DecodeLiteralBody(source[index:bodyEnd], RuneEscapes); !message.IsZero() {
 			diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, message))
 			tokens = append(tokens, newToken(EOF, "", start, line, startColumn))
 		} else {
@@ -647,7 +647,7 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 		index, line, column = end, newLine, newColumn
 	case ch == '_':
 		end := consumeIdentifierTail(source, index+1)
-		diagnostics = append(diagnostics, *literalDiagnostic(line, column, "identifiers must begin with a letter"))
+		diagnostics = append(diagnostics, *literalDiagnostic(line, column, compilerDiagnostics.IdentifierMustBeginWithLetter()))
 		column += end - index
 		index = end
 	case isIdentifierStart(ch):
@@ -674,7 +674,7 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 		index = end
 	case ch == '.' && index+1 < len(source) && isDecimalDigit(source[index+1]):
 		end := consumeNumericTail(source, index+1)
-		diagnostics = append(diagnostics, *literalDiagnostic(line, column, "malformed floating literal"))
+		diagnostics = append(diagnostics, *literalDiagnostic(line, column, compilerDiagnostics.MalformedFloatingLiteral()))
 		column += end - index
 		index = end
 	case ch == ':':
@@ -724,10 +724,10 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 				column++
 			}
 			if !terminated {
-				diagnostics = append(diagnostics, *literalDiagnostic(line, column, "unterminated C header literal"))
+				diagnostics = append(diagnostics, *literalDiagnostic(line, column, compilerDiagnostics.UnterminatedCHeaderLiteral()))
 			}
 			if invalid {
-				diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "invalid C header literal"))
+				diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, compilerDiagnostics.InvalidCHeaderLiteral()))
 			}
 			// Keep a recovery token even when the header is malformed so the
 			// parser can synchronize on a real token sequence.
@@ -824,14 +824,14 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 				}
 			}
 			if !terminated {
-				diagnostics = append(diagnostics, *literalDiagnostic(line, column, "unterminated C header literal"))
+				diagnostics = append(diagnostics, *literalDiagnostic(line, column, compilerDiagnostics.UnterminatedCHeaderLiteral()))
 			}
 			payloadEnd := index - 1
 			if payloadEnd < payloadStart {
 				payloadEnd = payloadStart
 			}
 			if strings.ContainsRune(source[payloadStart:payloadEnd], '\\') {
-				diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "invalid C header literal"))
+				diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, compilerDiagnostics.InvalidCHeaderLiteral()))
 			}
 			tokens = append(tokens, newToken(CHeaderLiteral, source[start:index], start, line, startColumn))
 			return tokens, diagnostics, index, line, column
@@ -856,7 +856,7 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 				}
 			}
 			if !terminated {
-				diagnostics = append(diagnostics, *literalDiagnostic(line, column, "unterminated module path literal"))
+				diagnostics = append(diagnostics, *literalDiagnostic(line, column, compilerDiagnostics.UnterminatedModulePathLiteral()))
 			}
 			// index-1 excludes the closing quote or line terminator that
 			// stopped the scan above. An opening quote at the very end of
@@ -868,7 +868,7 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 				payloadEnd = pathPayloadStart
 			}
 			if strings.ContainsRune(source[pathPayloadStart:payloadEnd], '\\') {
-				diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, "invalid module-path literal"))
+				diagnostics = append(diagnostics, *literalDiagnostic(line, startColumn, compilerDiagnostics.InvalidModulePathLiteral()))
 			}
 			// Keep a recovery token even when the path is malformed so
 			// the parser can synchronize on a real token sequence.
@@ -919,7 +919,7 @@ func scanToken(source string, index, line, column, depth int, previous, beforePr
 		index++
 		column++
 	default:
-		diagnostics = append(diagnostics, *literalDiagnostic(line, column, fmt.Sprintf("unexpected character %q", ch)))
+		diagnostics = append(diagnostics, *unexpectedCharacterDiagnostic(line, column, ch))
 		index++
 		column++
 	}
@@ -982,7 +982,7 @@ func skipToClosingQuote(source string, index, line, column int) (int, int, int) 
 func lexInterpretedString(source string, start, line, column, depth int) ([]Token, []compilerTypes.Diagnostic, int, int, int) {
 	if depth > config.MaxInterpolationDepth {
 		end, endLine, endColumn := skipToClosingQuote(source, start+1, line, column+1)
-		return nil, []compilerTypes.Diagnostic{*literalDiagnostic(line, column, "nesting exceeds the maximum depth of 128")}, end, endLine, endColumn
+		return nil, []compilerTypes.Diagnostic{*literalDiagnostic(line, column, compilerDiagnostics.NestingLimit())}, end, endLine, endColumn
 	}
 	var tokens []Token
 	var diagnostics []compilerTypes.Diagnostic
@@ -1002,7 +1002,7 @@ func lexInterpretedString(source string, start, line, column, depth int) ([]Toke
 				}
 				escaped := source[index+1]
 				if escaped == '\n' || escaped == '\r' {
-					diagnostics = append(diagnostics, *literalDiagnostic(curLine, curColumn, `String literal cannot contain a raw newline; use \n`))
+					diagnostics = append(diagnostics, *literalDiagnostic(curLine, curColumn, compilerDiagnostics.RawNewlineInString()))
 					index += 2
 					curLine++
 					curColumn = 1
@@ -1027,7 +1027,7 @@ func lexInterpretedString(source string, start, line, column, depth int) ([]Toke
 				break
 			}
 			if character == '\n' || character == '\r' {
-				diagnostics = append(diagnostics, *literalDiagnostic(curLine, curColumn, `String literal cannot contain a raw newline; use \n`))
+				diagnostics = append(diagnostics, *literalDiagnostic(curLine, curColumn, compilerDiagnostics.RawNewlineInString()))
 				isCRLF := character == '\r' && index+1 < len(source) && source[index+1] == '\n'
 				index++
 				if isCRLF {
@@ -1045,11 +1045,11 @@ func lexInterpretedString(source string, start, line, column, depth int) ([]Toke
 		if !terminatedByQuote && !opensInterpolation {
 			// EOF before either terminator.
 			if !interpolating {
-				diagnostics = append(diagnostics, *literalDiagnostic(curLine, curColumn, "unterminated string literal"))
+				diagnostics = append(diagnostics, *literalDiagnostic(curLine, curColumn, compilerDiagnostics.UnterminatedStringLiteral()))
 				tokens = append(tokens, newToken(StringLiteral, source[start:index], start, line, column))
 				return tokens, diagnostics, index, curLine, curColumn
 			}
-			diagnostics = append(diagnostics, *literalDiagnostic(curLine, curColumn, "unterminated string interpolation"))
+			diagnostics = append(diagnostics, *literalDiagnostic(curLine, curColumn, compilerDiagnostics.UnterminatedStringInterpolation()))
 			tokens = append(tokens, newToken(InterpText, source[segStart:index], segStart, segLine, segColumn))
 			return tokens, diagnostics, index, curLine, curColumn
 		}
@@ -1109,7 +1109,7 @@ func lexInterpretedString(source string, start, line, column, depth int) ([]Toke
 			index, curLine, curColumn = newIndex, newLine, newColumn
 		}
 		if !closed {
-			diagnostics = append(diagnostics, *literalDiagnostic(openLine, openColumn, "unterminated string interpolation"))
+			diagnostics = append(diagnostics, *literalDiagnostic(openLine, openColumn, compilerDiagnostics.UnterminatedStringInterpolation()))
 			return tokens, diagnostics, index, curLine, curColumn
 		}
 		// Loop back to scan the next text segment after "}}".
@@ -1206,7 +1206,7 @@ func scanRawString(source string, start, line, column, hashCount int) (Token, in
 		}
 	}
 	return newToken(RawStringLiteral, source[start:index], start, line, column), index, curLine, curColumn,
-		literalDiagnostic(line, column, "unterminated raw string literal")
+		literalDiagnostic(line, column, compilerDiagnostics.UnterminatedRawStringLiteral())
 }
 
 func scanNumber(source string, start, line, column int) (Token, int, *compilerTypes.Diagnostic) {
@@ -1214,24 +1214,29 @@ func scanNumber(source string, start, line, column int) (Token, int, *compilerTy
 		prefix := source[start+1]
 		if prefix == 'X' || prefix == 'B' || prefix == 'O' {
 			end := consumeNumericTail(source, start+2)
-			return Token{Kind: EOF}, end, literalDiagnostic(line, column, "integer base prefixes must be lowercase")
+			return Token{Kind: EOF}, end, literalDiagnostic(line, column, compilerDiagnostics.UppercaseIntegerBasePrefix())
 		}
 		if prefix == 'x' || prefix == 'b' || prefix == 'o' {
-			kind, label, digit := Integer, "integer", isDecimalDigit
+			kind, digit := Integer, isDecimalDigit
 			switch prefix {
 			case 'x':
-				kind, label, digit = HexInteger, "hexadecimal", isHexDigit
+				kind, digit = HexInteger, isHexDigit
 			case 'b':
-				kind, label, digit = BinaryInteger, "binary", isBinaryDigit
+				kind, digit = BinaryInteger, isBinaryDigit
 			case 'o':
-				kind, label, digit = OctalInteger, "octal", isOctalDigit
+				kind, digit = OctalInteger, isOctalDigit
 			}
 			end, malformed := scanDigitRun(source, start+2, digit)
 			if end == start+2 || malformed || isIdentifierPartAt(source, end) || (end < len(source) && source[end] == '.') {
 				end = consumeNumericTail(source, end)
-				message := "malformed " + label + " integer literal"
-				if prefix == 'x' {
-					message = "malformed hexadecimal literal"
+				var message compilerDiagnostics.Message
+				switch prefix {
+				case 'x':
+					message = compilerDiagnostics.MalformedHexadecimalLiteral()
+				case 'b':
+					message = compilerDiagnostics.MalformedBinaryIntegerLiteral()
+				case 'o':
+					message = compilerDiagnostics.MalformedOctalIntegerLiteral()
 				}
 				return Token{Kind: EOF}, end, literalDiagnostic(line, column, message)
 			}
@@ -1242,11 +1247,11 @@ func scanNumber(source string, start, line, column int) (Token, int, *compilerTy
 	end, malformed, leadingZero := scanDecimalWhole(source, start)
 	if malformed {
 		end = consumeNumericTail(source, end)
-		return Token{Kind: EOF}, end, literalDiagnostic(line, column, "malformed decimal integer literal")
+		return Token{Kind: EOF}, end, literalDiagnostic(line, column, compilerDiagnostics.MalformedDecimalIntegerLiteral())
 	}
 	if leadingZero {
 		end = consumeNumericTail(source, end)
-		return Token{Kind: EOF}, end, literalDiagnostic(line, column, "decimal integer literals cannot have leading zeros")
+		return Token{Kind: EOF}, end, literalDiagnostic(line, column, compilerDiagnostics.DecimalIntegerLeadingZero())
 	}
 
 	isFloat := false
@@ -1257,10 +1262,10 @@ func scanNumber(source string, start, line, column int) (Token, int, *compilerTy
 			end, fractionMalformed = scanDigitRun(source, end+1, isDecimalDigit)
 			if fractionMalformed {
 				end = consumeNumericTail(source, end)
-				return Token{Kind: EOF}, end, literalDiagnostic(line, column, "malformed decimal floating literal")
+				return Token{Kind: EOF}, end, literalDiagnostic(line, column, compilerDiagnostics.MalformedDecimalFloatingLiteral())
 			}
 		} else {
-			return Token{Kind: EOF}, end + 1, literalDiagnostic(line, column, "malformed decimal floating literal")
+			return Token{Kind: EOF}, end + 1, literalDiagnostic(line, column, compilerDiagnostics.MalformedDecimalFloatingLiteral())
 		}
 	}
 	if end < len(source) && (source[end] == 'e' || source[end] == 'E') {
@@ -1274,19 +1279,19 @@ func scanNumber(source string, start, line, column int) (Token, int, *compilerTy
 		end, exponentMalformed = scanDigitRun(source, end, isDecimalDigit)
 		if exponentStart == end || exponentMalformed || end == exponentStart+1 || (end > 0 && !isDecimalDigit(source[end-1])) {
 			end = consumeNumericTail(source, end)
-			return Token{Kind: EOF}, end, literalDiagnostic(line, column, "malformed decimal floating literal")
+			return Token{Kind: EOF}, end, literalDiagnostic(line, column, compilerDiagnostics.MalformedDecimalFloatingLiteral())
 		}
 	}
 	if isFloat {
 		if end < len(source) && isIdentifierPart(source[end]) {
 			end = consumeNumericTail(source, end)
-			return Token{Kind: EOF}, end, literalDiagnostic(line, column, "identifiers must begin with a letter")
+			return Token{Kind: EOF}, end, literalDiagnostic(line, column, compilerDiagnostics.IdentifierMustBeginWithLetter())
 		}
 		return newToken(DecimalFloat, source[start:end], start, line, column), end, nil
 	}
 	if end < len(source) && isIdentifierPart(source[end]) {
 		end = consumeNumericTail(source, end)
-		return Token{Kind: EOF}, end, literalDiagnostic(line, column, "identifiers must begin with a letter")
+		return Token{Kind: EOF}, end, literalDiagnostic(line, column, compilerDiagnostics.IdentifierMustBeginWithLetter())
 	}
 	return newToken(Integer, source[start:end], start, line, column), end, nil
 }
@@ -1352,8 +1357,13 @@ func isIdentifierPartAt(source string, index int) bool {
 	return index < len(source) && isIdentifierPart(source[index])
 }
 
-func literalDiagnostic(line, column int, message string) *compilerTypes.Diagnostic {
-	return &compilerTypes.Diagnostic{Category: compilerTypes.SyntaxError, Stage: "lexer", Position: span.Position{Line: line, Column: column}, Message: message}
+func literalDiagnostic(line, column int, message compilerDiagnostics.Message) *compilerTypes.Diagnostic {
+	diagnostic := compilerTypes.At(message, span.Span{}, span.Position{Line: line, Column: column})
+	return &diagnostic
+}
+
+func unexpectedCharacterDiagnostic(line, column int, character byte) *compilerTypes.Diagnostic {
+	return literalDiagnostic(line, column, compilerDiagnostics.UnexpectedCharacter(rune(character)))
 }
 
 func isIdentifierStart(ch byte) bool {

@@ -1,9 +1,8 @@
 package compiler
 
 import (
-	"fmt"
-
 	"hexal/compiler/config"
+	diagnostics "hexal/compiler/diagnostics"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -45,20 +44,13 @@ func validateProject(project Project) error {
 		commit = config.DefaultTaskStackCommitBytes
 	}
 	if commit > reserve {
-		return projectDiagnostic(fmt.Sprintf("TaskStackCommit %d exceeds TaskStackReserve %d", commit, reserve))
+		return compilerTypes.Locationless(diagnostics.ProjectTaskStackCommitExceeds(commit, reserve))
 	}
 	if reserve%config.PageSizeBytes != 0 {
-		return projectDiagnostic(fmt.Sprintf("TaskStackReserve %d is not a multiple of %d", reserve, config.PageSizeBytes))
+		return compilerTypes.Locationless(diagnostics.ProjectTaskStackReserveAlignment(reserve, config.PageSizeBytes))
 	}
 	if commit%config.PageSizeBytes != 0 {
-		return projectDiagnostic(fmt.Sprintf("TaskStackCommit %d is not a multiple of %d", commit, config.PageSizeBytes))
+		return compilerTypes.Locationless(diagnostics.ProjectTaskStackCommitAlignment(commit, config.PageSizeBytes))
 	}
 	return nil
-}
-
-// projectDiagnostic builds the one compilation-wide diagnostic class a
-// Project can produce; it carries no module or position because no source
-// line caused it.
-func projectDiagnostic(message string) error {
-	return compilerTypes.NewDiagnostic(compilerTypes.ConfigurationError, "compile", 1, 1, message)
 }

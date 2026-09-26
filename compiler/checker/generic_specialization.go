@@ -4,7 +4,7 @@
 package checker
 
 import (
-	"fmt"
+	diag "hexal/compiler/diagnostics"
 	"strings"
 
 	"hexal/compiler/lexer"
@@ -35,7 +35,7 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 	stem := open.templateKey()
 	key := specializeKey(stem, arguments)
 	if collection == nil {
-		diagnostic := unknownAt(open.Declaration.Name, "generic function specialization outside a specialization collection")
+		diagnostic := unknownAt(open.Declaration.Name)
 		return FunctionDeclaration{}, &diagnostic
 	}
 	if cached, ok := collection[key]; ok {
@@ -43,7 +43,7 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 	}
 	for activeKey := range generics.active {
 		if strings.HasPrefix(activeKey, stem+"|") && activeKey != key {
-			return FunctionDeclaration{}, diagnosticAt(typeErrorAt(open.Declaration.Name, "recursive specialization changes generic arguments"))
+			return FunctionDeclaration{}, diagnosticAt(messageAt(open.Declaration.Name, diag.GenericSpecializationChangesArguments()))
 		}
 	}
 	previousFrame := generics.frame
@@ -73,7 +73,7 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 	functionType := ctx.typeEnvironment.FunTypeRest(parameterTypes, result, rest)
 	if functionType.Signature == nil {
 		generics.frame = previousFrame
-		diagnostic := unknownAt(open.Declaration.Name, "could not construct the function type for "+open.Name)
+		diagnostic := unknownAt(open.Declaration.Name)
 		return FunctionDeclaration{}, &diagnostic
 	}
 	specialized := FunctionDeclaration{
@@ -130,7 +130,7 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 		return FunctionDeclaration{}, &bodyDiagnostics[0]
 	}
 	if result != nil && FallsThrough(statements) {
-		return FunctionDeclaration{}, diagnosticAt(typeErrorAt(open.Declaration.End, fmt.Sprintf("returning %s may fall through without returning %s", specialized.Name, result.Name)))
+		return FunctionDeclaration{}, diagnosticAt(messageAt(open.Declaration.End, diag.GenericFunctionMayFallThrough(specialized.Name, result.Name)))
 	}
 	specialized.Body = statements
 	specialized.Captures = capturesOf(body.capture)
@@ -225,7 +225,7 @@ func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.Obj
 		return MethodDeclaration{}, &bodyDiagnostics[0]
 	}
 	if result != nil && FallsThrough(statements) {
-		return MethodDeclaration{}, diagnosticAt(typeErrorAt(open.Declaration.End, fmt.Sprintf("returning %s may fall through without returning %s", methodName, result.Name)))
+		return MethodDeclaration{}, diagnosticAt(messageAt(open.Declaration.End, diag.GenericFunctionMayFallThrough(methodName, result.Name)))
 	}
 	specialized.Body = statements
 	specialized.Captures = capturesOf(body.capture)
@@ -254,7 +254,7 @@ func checkGenericFunctionReference(name lexer.Token, expected compilerTypes.Type
 	}
 	open := bound.genericFunction
 	if open == nil {
-		diagnostic := unknownAt(name, "generic function binding without an open template")
+		diagnostic := unknownAt(name)
 		return nil, &diagnostic
 	}
 	specialized, diagnostic := specializeFromExpectedType(open, expected, name, ctx)
@@ -317,12 +317,12 @@ func specializeFromExpectedType(open *openGenericFunction, expected compilerType
 	signature := expected.Signature
 	literalRest := len(open.Declaration.Parameters) > 0 && open.Declaration.Parameters[len(open.Declaration.Parameters)-1].Rest
 	if signature == nil || len(signature.Parameters) != len(expectedTypes) || (signature.Result == nil) != !hasResult || signature.Rest != literalRest {
-		return FunctionDeclaration{}, diagnosticAt(typeErrorAt(fallback, fmt.Sprintf("cannot infer generic parameter for %s", open.Name)))
+		return FunctionDeclaration{}, diagnosticAt(messageAt(fallback, diag.GenericCallCannotInferParameter(open.Name)))
 	}
 	bindings := make([]compilerTypes.Type, open.Generic.Arity)
 	for index := range expectedTypes {
 		if !unifyTypes(expectedTypes[index], signature.Parameters[index], bindings, open.Generic) {
-			return FunctionDeclaration{}, diagnosticAt(typeErrorAt(fallback, fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[index].Lexeme)))
+			return FunctionDeclaration{}, diagnosticAt(messageAt(fallback, diag.ConflictingInferredTypes(open.Parameters[index].Lexeme)))
 		}
 	}
 	if hasResult {
@@ -338,15 +338,15 @@ func specializeFromExpectedType(open *openGenericFunction, expected compilerType
 					}
 				}
 			}
-			return FunctionDeclaration{}, diagnosticAt(typeErrorAt(fallback, fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[conflictingIndex].Lexeme)))
+			return FunctionDeclaration{}, diagnosticAt(messageAt(fallback, diag.ConflictingInferredTypes(open.Parameters[conflictingIndex].Lexeme)))
 		}
 	}
 	for index, binding := range bindings {
 		if binding == (compilerTypes.Type{}) {
-			return FunctionDeclaration{}, diagnosticAt(typeErrorAt(fallback, fmt.Sprintf("cannot infer generic parameter %s for %s", open.Parameters[index].Lexeme, open.Name)))
+			return FunctionDeclaration{}, diagnosticAt(messageAt(fallback, diag.GenericParameterCannotBeInferred(open.Parameters[index].Lexeme, open.Name)))
 		}
 		if compilerTypes.ContainsTypeParameter(binding) {
-			return FunctionDeclaration{}, diagnosticAt(typeErrorAt(fallback, fmt.Sprintf("cannot specialize %s with unresolved type arguments", open.Name)))
+			return FunctionDeclaration{}, diagnosticAt(messageAt(fallback, diag.GenericSpecializationHasUnresolvedArguments(open.Name)))
 		}
 	}
 	return specializeFunction(open, bindings, ctx)

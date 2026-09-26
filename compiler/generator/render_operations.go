@@ -13,7 +13,7 @@ func renderOperationWithState(node checker.Expression, state *expressionValidati
 		if node.Constant == nil || node.Constant.Kind != checker.ConstantOperand && node.Constant.Kind != checker.ObjectOperand ||
 			!compilerTypes.Equal(node.ResultType, node.Constant.Type) ||
 			!supportedGeneratedScalarType(node.ResultType) && node.Constant.Type.Object == nil && node.Constant.Type.Union == nil {
-			return "", unknownExpressionDiagnostic("constant expression without a checked constant")
+			return "", unknownExpressionDiagnostic()
 		}
 		return renderOperandWithState(*node.Constant, state)
 	case checker.UnaryOperationExpression:
@@ -23,21 +23,21 @@ func renderOperationWithState(node checker.Expression, state *expressionValidati
 	case checker.InvalidExpression, checker.VariableExpression, checker.AddressOfExpression,
 		checker.DereferenceExpression, checker.MemberExpression, checker.ObjectExpression,
 		checker.FunctionReferenceExpression, checker.CallExpression, checker.MethodCallExpression:
-		return "", unknownExpressionDiagnostic("non-operation passed to operation renderer")
+		return "", unknownExpressionDiagnostic()
 	default:
-		return "", unknownExpressionDiagnostic("unsupported checked operation")
+		return "", unknownExpressionDiagnostic()
 	}
 }
 
 func renderUnaryOperationWithState(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil {
-		return "", unknownExpressionDiagnostic("unary operation without an operand")
+		return "", unknownExpressionDiagnostic()
 	}
 	if node.Operator == checker.LogicalNotOperator {
 		return renderLogicalNotWithState(node, state)
 	}
 	if !supportedGeneratedScalarType(node.OperandType) || !supportedGeneratedScalarType(node.ResultType) {
-		return "", unknownExpressionDiagnostic("unary operation with an unsupported type")
+		return "", unknownExpressionDiagnostic()
 	}
 	if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
 		return "", err
@@ -50,7 +50,7 @@ func renderUnaryOperationWithState(node checker.Expression, state *expressionVal
 	switch node.Operator {
 	case checker.NegateOperator:
 		if !compilerTypes.Equal(node.OperandType, node.ResultType) {
-			return "", unknownExpressionDiagnostic("negation result type does not match its operand type")
+			return "", unknownExpressionDiagnostic()
 		}
 		if compilerTypes.IsSignedInteger(node.OperandType) {
 			return renderSignedWrap(node.Operator, node.OperandType, "", operand)
@@ -58,13 +58,13 @@ func renderUnaryOperationWithState(node checker.Expression, state *expressionVal
 		if compilerTypes.IsFloat(node.OperandType) {
 			return "(-" + operand + ")", nil
 		}
-		return "", unknownExpressionDiagnostic("negation of an unsupported type")
+		return "", unknownExpressionDiagnostic()
 	case checker.BitwiseNotOperator:
 		if !compilerTypes.Equal(node.OperandType, node.ResultType) {
-			return "", unknownExpressionDiagnostic("complement result type does not match its operand type")
+			return "", unknownExpressionDiagnostic()
 		}
 		if !compilerTypes.IsInteger(node.OperandType) {
-			return "", unknownExpressionDiagnostic("complement of an unsupported type")
+			return "", unknownExpressionDiagnostic()
 		}
 		return renderBitwiseComplement(node.OperandType, operand)
 	case checker.InvalidOperator,
@@ -74,9 +74,9 @@ func renderUnaryOperationWithState(node checker.Expression, state *expressionVal
 		checker.GreaterOperator, checker.GreaterEqualOperator, checker.LogicalAndOperator,
 		checker.LogicalOrOperator, checker.BitwiseAndOperator, checker.BitwiseXorOperator,
 		checker.BitwiseOrOperator, checker.ShiftLeftOperator, checker.ShiftRightOperator:
-		return "", unknownExpressionDiagnostic("binary operator in unary operation")
+		return "", unknownExpressionDiagnostic()
 	default:
-		return "", unknownExpressionDiagnostic("unknown unary operator")
+		return "", unknownExpressionDiagnostic()
 	}
 }
 
@@ -84,7 +84,7 @@ func renderUnaryOperationWithState(node checker.Expression, state *expressionVal
 // negated, so any value-producing operand is valid.
 func renderLogicalNotWithState(node checker.Expression, state *expressionValidation) (string, error) {
 	if !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) || compilerTypes.Truthiness(node.OperandType) == compilerTypes.TruthinessInvalid {
-		return "", unknownExpressionDiagnostic("logical not requires a truthy-compatible operand and a Bool result")
+		return "", unknownExpressionDiagnostic()
 	}
 	child, err := renderTruthinessChild(node.Operand, state, node.OperandType)
 	if err != nil {
@@ -95,13 +95,13 @@ func renderLogicalNotWithState(node checker.Expression, state *expressionValidat
 
 func renderBinaryOperationWithState(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Left == nil || node.Right == nil {
-		return "", unknownExpressionDiagnostic("binary operation without both operands")
+		return "", unknownExpressionDiagnostic()
 	}
 	if node.Operator == checker.LogicalAndOperator || node.Operator == checker.LogicalOrOperator {
 		return renderLogicalOperationWithState(node, state)
 	}
 	if !supportedGeneratedScalarType(node.OperandType) && node.OperandType.Element == nil || !supportedGeneratedScalarType(node.ResultType) {
-		return "", unknownExpressionDiagnostic("binary operation with an unsupported type")
+		return "", unknownExpressionDiagnostic()
 	}
 	// An unsigned +, -, or * is one node of a ring tree. Only a maximal tree
 	// reaches here: renderRingOperand renders same-type ring children itself
@@ -130,21 +130,21 @@ func renderBinaryOperationWithState(node checker.Expression, state *expressionVa
 	case checker.AddOperator, checker.SubtractOperator, checker.MultiplyOperator, checker.DivideOperator:
 		arithmeticResult = true
 		if !compilerTypes.IsInteger(node.OperandType) && !compilerTypes.IsFloat(node.OperandType) {
-			return "", unknownExpressionDiagnostic("arithmetic operation with an unsupported type")
+			return "", unknownExpressionDiagnostic()
 		}
 	case checker.RemainderOperator:
 		arithmeticResult = true
 		if !compilerTypes.IsInteger(node.OperandType) {
-			return "", unknownExpressionDiagnostic("remainder operation with a non-integer type")
+			return "", unknownExpressionDiagnostic()
 		}
 	case checker.EqualOperator, checker.NotEqualOperator:
 		if node.OperandType.ScalarKind == compilerTypes.ScalarNone && node.OperandType.Element == nil {
-			return "", unknownExpressionDiagnostic("equality operation with a non-scalar type")
+			return "", unknownExpressionDiagnostic()
 		}
 		resultIsBool = true
 	case checker.LessOperator, checker.LessEqualOperator, checker.GreaterOperator, checker.GreaterEqualOperator:
 		if !compilerTypes.IsInteger(node.OperandType) && !compilerTypes.IsFloat(node.OperandType) {
-			return "", unknownExpressionDiagnostic("ordering operation with an unsupported type")
+			return "", unknownExpressionDiagnostic()
 		}
 		resultIsBool = true
 	case checker.LogicalAndOperator, checker.LogicalOrOperator:
@@ -156,24 +156,24 @@ func renderBinaryOperationWithState(node checker.Expression, state *expressionVa
 		// selected exact width.
 		arithmeticResult = true
 		if !compilerTypes.IsInteger(node.OperandType) {
-			return "", unknownExpressionDiagnostic("bitwise operation with an unsupported type")
+			return "", unknownExpressionDiagnostic()
 		}
 	case checker.ShiftLeftOperator, checker.ShiftRightOperator:
 		// Shifts preserve the left operand's type.
 		arithmeticResult = true
 		if !compilerTypes.IsInteger(node.OperandType) {
-			return "", unknownExpressionDiagnostic("shift operation with an unsupported type")
+			return "", unknownExpressionDiagnostic()
 		}
 	case checker.InvalidOperator, checker.NegateOperator, checker.LogicalNotOperator, checker.BitwiseNotOperator:
-		return "", unknownExpressionDiagnostic("non-binary operator in binary operation")
+		return "", unknownExpressionDiagnostic()
 	default:
-		return "", unknownExpressionDiagnostic("unknown binary operator")
+		return "", unknownExpressionDiagnostic()
 	}
 	if arithmeticResult && !compilerTypes.Equal(node.OperandType, node.ResultType) {
-		return "", unknownExpressionDiagnostic("arithmetic result type does not match its operand type")
+		return "", unknownExpressionDiagnostic()
 	}
 	if resultIsBool != compilerTypes.Equal(node.ResultType, compilerTypes.Bool) {
-		return "", unknownExpressionDiagnostic("binary operation has an invalid result type")
+		return "", unknownExpressionDiagnostic()
 	}
 	left, err := renderHoistedExpressionExpected(node.Left, &node.OperandType, state)
 	if err != nil {
@@ -193,7 +193,7 @@ func renderBinaryOperationWithState(node checker.Expression, state *expressionVa
 			// Unsigned +, -, and * are ring operations, routed to the tree
 			// renderer above; reaching here means the operand and result
 			// types disagree, which the ring predicate rejects.
-			return "", unknownExpressionDiagnostic("unsigned arithmetic result type does not match its operand type")
+			return "", unknownExpressionDiagnostic()
 		}
 	case checker.DivideOperator, checker.RemainderOperator:
 		if compilerTypes.IsInteger(node.OperandType) {
@@ -208,17 +208,17 @@ func renderBinaryOperationWithState(node checker.Expression, state *expressionVa
 		checker.LogicalAndOperator, checker.LogicalOrOperator:
 		operator, ok := binaryCOperator(node.Operator)
 		if !ok {
-			return "", unknownExpressionDiagnostic("unknown binary operator")
+			return "", unknownExpressionDiagnostic()
 		}
 		return "(" + left + " " + operator + " " + right + ")", nil
 	case checker.InvalidOperator, checker.NegateOperator, checker.LogicalNotOperator, checker.BitwiseNotOperator:
-		return "", unknownExpressionDiagnostic("non-binary operator in binary operation")
+		return "", unknownExpressionDiagnostic()
 	default:
-		return "", unknownExpressionDiagnostic("unknown binary operator " + node.Operator.String())
+		return "", unknownExpressionDiagnostic()
 	}
 	operator, ok := binaryCOperator(node.Operator)
 	if !ok {
-		return "", unknownExpressionDiagnostic("unknown binary operator")
+		return "", unknownExpressionDiagnostic()
 	}
 	return "(" + left + " " + operator + " " + right + ")", nil
 }
@@ -229,7 +229,7 @@ func renderBinaryOperationWithState(node checker.Expression, state *expressionVa
 // operand's evaluation when it is reached.
 func renderLogicalOperationWithState(node checker.Expression, state *expressionValidation) (string, error) {
 	if !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) || compilerTypes.Truthiness(node.OperandType) == compilerTypes.TruthinessInvalid {
-		return "", unknownExpressionDiagnostic("logical operation requires a truthy-compatible operand and a Bool result")
+		return "", unknownExpressionDiagnostic()
 	}
 	left, err := renderTruthinessChild(node.Left, state, node.OperandType)
 	if err != nil {

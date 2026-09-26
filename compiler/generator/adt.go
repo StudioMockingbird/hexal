@@ -122,7 +122,7 @@ type adtConstructModel struct {
 func renderAdtConstruct(node checker.Expression, state *expressionValidation) (string, error) {
 	adt := node.ResultType.Adt
 	if adt == nil || node.VariantIndex < 0 || node.VariantIndex >= len(adt.Variants) {
-		return "", unknownExpressionDiagnostic("ADT construction has invalid checked metadata")
+		return "", unknownExpressionDiagnostic()
 	}
 	variant := &adt.Variants[node.VariantIndex]
 	model := adtConstructModel{
@@ -134,7 +134,7 @@ func renderAdtConstruct(node checker.Expression, state *expressionValidation) (s
 		// its header lives in one flat other_header field rather than a
 		// per-variant payload union (see hexal/error.h).
 		if len(node.Arguments) != len(variant.Payload) {
-			return "", unknownExpressionDiagnostic("ADT construction payload count does not match its variant")
+			return "", unknownExpressionDiagnostic()
 		}
 		if len(variant.Payload) == 1 {
 			value, err := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)
@@ -145,7 +145,7 @@ func renderAdtConstruct(node checker.Expression, state *expressionValidation) (s
 		}
 	} else if len(variant.Payload) > 0 {
 		if len(node.Arguments) != len(variant.Payload) {
-			return "", unknownExpressionDiagnostic("ADT construction payload count does not match its variant")
+			return "", unknownExpressionDiagnostic()
 		}
 		model.PayloadOpen = ", .payload." + compilerTypes.SanitizeIdentifier(variant.Name) + " = {"
 		for index, member := range variant.Payload {
@@ -171,11 +171,11 @@ func renderAdtConstruct(node checker.Expression, state *expressionValidation) (s
 func renderAdtPayload(node checker.Expression, state *expressionValidation) (string, error) {
 	adt := node.OperandType.Adt
 	if node.Operand == nil || adt == nil || node.VariantIndex < 0 || node.VariantIndex >= len(adt.Variants) {
-		return "", unknownExpressionDiagnostic("ADT payload read has invalid checked metadata")
+		return "", unknownExpressionDiagnostic()
 	}
 	variant := &adt.Variants[node.VariantIndex]
 	if node.MemberIndex < 0 || node.MemberIndex >= len(variant.Payload) {
-		return "", unknownExpressionDiagnostic("ADT payload read has an invalid member index")
+		return "", unknownExpressionDiagnostic()
 	}
 	receiver, err := renderReceiver(node.Operand, node.OperandType, state)
 	if err != nil {
@@ -210,7 +210,7 @@ type indentModel struct {
 // control flow and returns the name of the result variable.
 func renderMatchStatement(body *strings.Builder, node checker.Expression, state *expressionValidation, indent string) (string, error) {
 	if node.Operand == nil || node.ResultType == (compilerTypes.Type{}) || len(node.Arguments) != len(node.MemberMap) {
-		return "", unknownExpressionDiagnostic("match expression has invalid checked metadata")
+		return "", unknownExpressionDiagnostic()
 	}
 	state.matchCounter++
 	temp := fmt.Sprintf("hex_match_scrutinee_%d", state.matchCounter)
@@ -272,7 +272,7 @@ func renderMatchStatement(body *strings.Builder, node checker.Expression, state 
 		tag := node.MemberMap[armIndex]
 		if tag == checker.MatchScalarTag {
 			if armIndex >= len(node.MatchConstants) || node.MatchConstants[armIndex].Kind != checker.ConstantOperand {
-				return "", unknownExpressionDiagnostic("scalar match arm without a checked constant")
+				return "", unknownExpressionDiagnostic()
 			}
 			rendered, renderErr := renderOperandWithState(node.MatchConstants[armIndex], state)
 			if renderErr != nil {

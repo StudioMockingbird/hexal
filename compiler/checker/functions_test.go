@@ -25,7 +25,7 @@ func requireDiagnostic(t *testing.T, source, want string) {
 		t.Fatalf("Check error type = %T, want Diagnostics", err)
 	}
 	for _, diagnostic := range diagnostics {
-		if diagnostic.Message == want {
+		if diagnostic.Message.Text() == want {
 			return
 		}
 	}

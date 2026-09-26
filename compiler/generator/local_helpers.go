@@ -48,7 +48,7 @@ func collectLocalHelpers(program checker.Program) ([]localHelper, error) {
 			}
 			literal := node.Function
 			if seen[literal.HelperOrdinal] {
-				return unknownExpressionDiagnostic("anonymous function literal helper discovered more than once")
+				return unknownExpressionDiagnostic()
 			}
 			seen[literal.HelperOrdinal] = true
 			helpers = append(helpers, localHelper{
@@ -91,19 +91,19 @@ func writeLocalHelperPrototypes(body *strings.Builder, helpers []localHelper, ty
 	}
 	for _, helper := range helpers {
 		if !validateGeneratedType(helper.typ, typeState, false) {
-			return unknownExpressionDiagnostic("local function helper without a checked Fun type")
+			return unknownExpressionDiagnostic()
 		}
 		resultSpelling := "void"
 		if helper.result != nil {
 			if !validateGeneratedType(*helper.result, typeState, false) {
-				return unknownExpressionDiagnostic("unsupported local function helper result type")
+				return unknownExpressionDiagnostic()
 			}
 			resultSpelling = standaloneResultSpelling(*helper.result)
 		}
 		parameters := make([]string, len(helper.parameters))
 		for index, parameter := range helper.parameters {
 			if !validateGeneratedType(parameter.Type, typeState, false) {
-				return unknownExpressionDiagnostic("unsupported local function helper parameter type")
+				return unknownExpressionDiagnostic()
 			}
 			parameters[index] = typeSpelling(parameter.Type)
 		}
@@ -123,25 +123,25 @@ func writeLocalHelperDefinitions(ctx definitionContext, helpers []localHelper) e
 	for _, helper := range helpers {
 		signature := helper.typ.Signature
 		if signature == nil || !validateGeneratedType(helper.typ, ctx.typeState, false) {
-			return unknownExpressionDiagnostic("local function helper without a checked Fun type")
+			return unknownExpressionDiagnostic()
 		}
 		if len(signature.Parameters) != len(helper.parameters) {
-			return unknownExpressionDiagnostic("local function helper parameter count does not match its checked type")
+			return unknownExpressionDiagnostic()
 		}
 		resultSpelling := "void"
 		if helper.result != nil {
 			if !validateGeneratedType(*helper.result, ctx.typeState, false) {
-				return unknownExpressionDiagnostic("unsupported local function helper result type")
+				return unknownExpressionDiagnostic()
 			}
 			if signature.Result == nil || !compilerTypes.Equal(*signature.Result, *helper.result) {
-				return unknownExpressionDiagnostic("local function helper result does not match its checked type")
+				return unknownExpressionDiagnostic()
 			}
 			resultSpelling = standaloneResultSpelling(*helper.result)
 		} else if signature.Result != nil {
-			return unknownExpressionDiagnostic("local function helper result does not match its checked type")
+			return unknownExpressionDiagnostic()
 		}
 		if helper.result != nil && checker.FallsThrough(helper.body) {
-			return unknownExpressionDiagnostic("checked returning local function helper may fall through without returning")
+			return unknownExpressionDiagnostic()
 		}
 		state := newExpressionValidation()
 		state.functions = ctx.functions
@@ -156,17 +156,17 @@ func writeLocalHelperDefinitions(ctx definitionContext, helpers []localHelper) e
 		parameters := make([]string, len(helper.parameters))
 		for index, parameter := range helper.parameters {
 			if !validSourceName(parameter.Name) {
-				return unknownExpressionDiagnostic("invalid checked local function helper parameter name")
+				return unknownExpressionDiagnostic()
 			}
 			if !validateGeneratedType(parameter.Type, ctx.typeState, false) {
-				return unknownExpressionDiagnostic("unsupported local function helper parameter type")
+				return unknownExpressionDiagnostic()
 			}
 			expected := signature.Parameters[index]
 			if signature.Rest && index == len(signature.Parameters)-1 {
 				expected = signature.RestSlice
 			}
 			if !compilerTypes.Equal(expected, parameter.Type) {
-				return unknownExpressionDiagnostic("local function helper parameter does not match its checked type")
+				return unknownExpressionDiagnostic()
 			}
 			name, nameErr := state.allocateBinding(parameter.Binding, parameter.Name, parameter.Type, false)
 			if nameErr != nil {

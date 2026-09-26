@@ -206,7 +206,7 @@ func TestParseAddressRemainsPlaceOnly(t *testing.T) {
 			t.Fatalf("Lex(%q) returned an error: %v", source, err)
 		}
 		_, err = Parse(tokens)
-		if err == nil || err.Error() != "[Syntax Error] expected a place identifier at 1:22" {
+		if err == nil || err.Error() != "[Syntax Error syntax.expected-token] expected a place identifier at 1:22" {
 			t.Fatalf("Parse(%q) error = %v, want place-only @diagnostic", source, err)
 		}
 	}
@@ -217,8 +217,8 @@ func TestParseAddressRejectsCalls(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"let p: Ptr<Int32> = @f()", "[Syntax Error] a call's ( must follow its callee on the same line at 1:23"},
-		{"let p: Ptr<Int32> = @value.compute()", "[Syntax Error] a call's ( must follow its callee on the same line at 1:35"},
+		{"let p: Ptr<Int32> = @f()", "[Syntax Error syntax.call-same-line] a call's ( must follow its callee on the same line at 1:23"},
+		{"let p: Ptr<Int32> = @value.compute()", "[Syntax Error syntax.call-same-line] a call's ( must follow its callee on the same line at 1:35"},
 	} {
 		tokens, err := lexer.Lex("test.hex", testCase.source)
 		if err != nil {

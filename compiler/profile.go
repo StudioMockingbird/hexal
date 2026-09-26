@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	diagnostics "hexal/compiler/diagnostics"
 	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
@@ -32,14 +33,14 @@ func resolveTargetProfile(target compilerTypes.TargetProfileID) (specdata.Target
 	}
 	id, known := targetFactID[target]
 	if !known {
-		return specdata.TargetFacts{}, projectDiagnostic("unknown target profile " + string(target))
+		return specdata.TargetFacts{}, compilerTypes.Locationless(diagnostics.UnknownTargetProfile(string(target)))
 	}
 	facts, ok := specdata.Target(id)
 	if !ok {
 		// Validate() rejects a registry missing a key its consumers name, so
 		// only a compiler defect reaches here; report it as one rather than as
 		// an unknown target the caller could act on.
-		return specdata.TargetFacts{}, compilerTypes.NewDiagnostic(compilerTypes.UnknownError, "compile", 0, 0, "target registry record missing")
+		return specdata.TargetFacts{}, compilerTypes.Locationless(diagnostics.MissingTargetRecord())
 	}
 	return facts, nil
 }

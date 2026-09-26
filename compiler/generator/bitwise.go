@@ -102,7 +102,7 @@ func writeShiftHelper(result *strings.Builder, spec shiftSpec) error {
 func renderBitwiseOperation(operator checker.Operator, typ compilerTypes.Type, left, right string) (string, error) {
 	unsigned, ok := unsignedCName(typ)
 	if !ok {
-		return "", unknownExpressionDiagnostic("bitwise operation with an unsupported width")
+		return "", unknownExpressionDiagnostic()
 	}
 	operatorText := ""
 	switch operator {
@@ -113,7 +113,7 @@ func renderBitwiseOperation(operator checker.Operator, typ compilerTypes.Type, l
 	case checker.BitwiseOrOperator:
 		operatorText = "|"
 	default:
-		return "", unknownExpressionDiagnostic("unknown bitwise operator")
+		return "", unknownExpressionDiagnostic()
 	}
 	unsignedExpr := fmt.Sprintf("(%s)((%s)%s %s (%s)%s)", unsigned, unsigned, left, operatorText, unsigned, right)
 	if compilerTypes.IsSignedInteger(typ) {
@@ -126,7 +126,7 @@ func renderBitwiseOperation(operator checker.Operator, typ compilerTypes.Type, l
 func renderBitwiseComplement(typ compilerTypes.Type, operand string) (string, error) {
 	unsigned, ok := unsignedCName(typ)
 	if !ok {
-		return "", unknownExpressionDiagnostic("bitwise complement with an unsupported width")
+		return "", unknownExpressionDiagnostic()
 	}
 	unsignedExpr := fmt.Sprintf("(%s)~((uint64_t)%s)", unsigned, operand)
 	if compilerTypes.IsSignedInteger(typ) {
@@ -317,7 +317,7 @@ func writeEndianHelper(result *strings.Builder, spec endianSpec) error {
 // renderBitCast renders a bit_cast<T>() call through its helper.
 func renderBitCast(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil {
-		return "", unknownExpressionDiagnostic("bit cast without a receiver")
+		return "", unknownExpressionDiagnostic()
 	}
 	operand, atomic, operandErr := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 	if operandErr != nil {
@@ -334,12 +334,12 @@ func renderBitCast(node checker.Expression, state *expressionValidation) (string
 // helper.
 func renderEndianConversion(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil || node.Element == (compilerTypes.Type{}) {
-		return "", unknownExpressionDiagnostic("endian conversion without a receiver")
+		return "", unknownExpressionDiagnostic()
 	}
 	spec := endianSpec{typ: node.Element, bigEnd: node.MemberIndex == 1, from: node.Name == "from"}
 	if spec.from {
 		if len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("endian from conversion without bytes")
+			return "", unknownExpressionDiagnostic()
 		}
 		bytes, err := renderOperandWithState(node.Arguments[0], state)
 		if err != nil {

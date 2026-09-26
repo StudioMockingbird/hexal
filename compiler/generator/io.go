@@ -151,19 +151,19 @@ func renderStreamConstructor(node checker.Expression, state *expressionValidatio
 		return renderFileOpen(node, state)
 	}
 	if !compilerTypes.IsIO(node.OperandType) {
-		return "", unknownExpressionDiagnostic("stream constructor without a checked IO result")
+		return "", unknownExpressionDiagnostic()
 	}
 	switch node.Name {
 	case "stdin", "stdout", "stderr":
 		return fmt.Sprintf("hex_io_open_%s(%d, %d)", node.Name, state.line(node.Span), state.column(node.Span)), nil
 	}
-	return "", unknownExpressionDiagnostic("unknown stream constructor " + node.Name)
+	return "", unknownExpressionDiagnostic()
 }
 
 // renderBytesOver renders Bytes.over(buffer) directly to the core value.
 func renderBytesOver(node checker.Expression, state *expressionValidation) (string, error) {
 	if len(node.Arguments) != 1 || !compilerTypes.IsBytes(node.ResultType) {
-		return "", unknownExpressionDiagnostic("bytes-over without a checked list")
+		return "", unknownExpressionDiagnostic()
 	}
 	buffer, err := renderOperandWithState(node.Arguments[0], state)
 	if err != nil {
@@ -199,7 +199,7 @@ func renderStreamMethod(node checker.Expression, state *expressionValidation) (s
 	switch node.Name {
 	case "read":
 		if len(node.Arguments) != 2 {
-			return "", unknownExpressionDiagnostic("stream read without checked arguments")
+			return "", unknownExpressionDiagnostic()
 		}
 		into, intoErr := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)
 		if intoErr != nil {
@@ -212,7 +212,7 @@ func renderStreamMethod(node checker.Expression, state *expressionValidation) (s
 		return fmt.Sprintf("%sread_%s(%s, %s, %s, %s)", prefix, suffix, receiver, into, maximum, site), nil
 	case "write":
 		if len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("stream write without a checked view")
+			return "", unknownExpressionDiagnostic()
 		}
 		from, fromErr := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)
 		if fromErr != nil {
@@ -221,7 +221,7 @@ func renderStreamMethod(node checker.Expression, state *expressionValidation) (s
 		return fmt.Sprintf("%swrite_%s(%s, %s, %s)", prefix, suffix, receiver, from, site), nil
 	case "seek":
 		if len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("stream seek without a checked position")
+			return "", unknownExpressionDiagnostic()
 		}
 		to, toErr := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)
 		if toErr != nil {
@@ -231,7 +231,7 @@ func renderStreamMethod(node checker.Expression, state *expressionValidation) (s
 	case "close":
 		return fmt.Sprintf("hex_io_close_%s(%s, %s)", suffix, receiver, site), nil
 	}
-	return "", unknownExpressionDiagnostic("unknown stream operation " + node.Name)
+	return "", unknownExpressionDiagnostic()
 }
 
 // streamMemberRef resolves one union member's tag constant and payload field.
@@ -246,7 +246,7 @@ func streamMemberRef(tags *tagRegistry, union compilerTypes.Type, member compile
 func streamErrorArm(tags *tagRegistry, literals *literalRegistry, file string, union compilerTypes.Type, operation, code, payload string) (string, error) {
 	handle, ok := literals.Lookup(payload)
 	if !ok {
-		return "", unknownExpressionDiagnostic("stream failure message is missing from the literal registry: " + payload)
+		return "", unknownExpressionDiagnostic()
 	}
 	tag, field := streamMemberRef(tags, union, compilerTypes.ErrorType)
 	return fmt.Sprintf("(%s){ .tag = %s, .payload.%s = hex_io_error(line, column, %s, \"%s\", %s, &%s) }",
@@ -260,7 +260,7 @@ func streamErrorArm(tags *tagRegistry, literals *literalRegistry, file string, u
 func streamErrorArmWithKind(tags *tagRegistry, literals *literalRegistry, file string, union compilerTypes.Type, kindVariant, payload string) (string, error) {
 	handle, ok := literals.Lookup(payload)
 	if !ok {
-		return "", unknownExpressionDiagnostic("stream failure message is missing from the literal registry: " + payload)
+		return "", unknownExpressionDiagnostic()
 	}
 	tag, field := streamMemberRef(tags, union, compilerTypes.ErrorType)
 	return fmt.Sprintf("(%s){ .tag = %s, .payload.%s = (hex_t_Error){ .hex_m_file = %s, .hex_m_line = line, .hex_m_column = column, .hex_m_kind = (hex_t_ErrorKind){ .tag = %s }, .hex_m_message = hex_error_message(hex_text_heap(&%s)) } }",
@@ -274,22 +274,22 @@ func validateStreamConstructor(node checker.Expression, expected *compilerTypes.
 		return validateFileConstructor(node, expected, state)
 	}
 	if !compilerTypes.IsIO(node.OperandType) || node.ResultType.Union == nil {
-		return unknownExpressionDiagnostic("stream constructor has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	switch node.Name {
 	case "stdin", "stdout", "stderr":
 	default:
-		return unknownExpressionDiagnostic("unknown stream constructor in checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	if state.line(node.Span) == 0 || len(node.Arguments) != 0 || node.Operand != nil {
-		return unknownExpressionDiagnostic("stream constructor carries incomplete metadata")
+		return unknownExpressionDiagnostic()
 	}
 	members := compilerTypes.UnionMembers(node.ResultType)
 	if members.Len() != 2 || !unionHasMember(members, compilerTypes.IOType) || !unionHasMember(members, compilerTypes.ErrorType) {
-		return unknownExpressionDiagnostic("stream constructor result is not IO | Error")
+		return unknownExpressionDiagnostic()
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-		return unknownExpressionDiagnostic("stream constructor result does not match its expected type")
+		return unknownExpressionDiagnostic()
 	}
 	return nil
 }
@@ -299,10 +299,10 @@ func validateStreamConstructor(node checker.Expression, expected *compilerTypes.
 func validateBytesOverExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	if node.Operand != nil || len(node.Arguments) != 1 || node.OperandType.List == nil ||
 		node.OperandType.List.Element != compilerTypes.UInt8 || !compilerTypes.IsBytes(node.ResultType) {
-		return unknownExpressionDiagnostic("bytes-over has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-		return unknownExpressionDiagnostic("bytes-over result does not match its expected type")
+		return unknownExpressionDiagnostic()
 	}
 	return validateCheckedOperandWithState(node.Arguments[0], state)
 }
@@ -314,12 +314,12 @@ func validateStreamMethodCall(node checker.Expression, expected *compilerTypes.T
 		return validateFileMethodCall(node, expected, state)
 	}
 	if node.Operand == nil {
-		return unknownExpressionDiagnostic("stream method without a checked receiver")
+		return unknownExpressionDiagnostic()
 	}
 	memory := isBytesReceiver(node)
 	directIO := compilerTypes.IsIO(node.OperandType)
 	if !memory && !directIO {
-		return unknownExpressionDiagnostic("stream method receiver is neither IO nor Ptr<mut Bytes>")
+		return unknownExpressionDiagnostic()
 	}
 	var arguments int
 	var contractMembers []compilerTypes.Type
@@ -337,25 +337,25 @@ func validateStreamMethodCall(node checker.Expression, expected *compilerTypes.T
 		arguments = 0
 		contractMembers = []compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType}
 		if memory {
-			return unknownExpressionDiagnostic("close exists only on IO streams")
+			return unknownExpressionDiagnostic()
 		}
 	default:
-		return unknownExpressionDiagnostic("unknown stream operation in checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	if len(node.Arguments) != arguments || node.ResultType.Union == nil {
-		return unknownExpressionDiagnostic("stream method has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	members := compilerTypes.UnionMembers(node.ResultType)
 	if members.Len() != len(contractMembers) {
-		return unknownExpressionDiagnostic("stream method result members do not match its contract")
+		return unknownExpressionDiagnostic()
 	}
 	for _, required := range contractMembers {
 		if !unionHasMember(members, required) {
-			return unknownExpressionDiagnostic("stream method result is missing a contract member")
+			return unknownExpressionDiagnostic()
 		}
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-		return unknownExpressionDiagnostic("stream method result does not match its expected type")
+		return unknownExpressionDiagnostic()
 	}
 	if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
 		return err

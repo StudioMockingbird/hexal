@@ -11,7 +11,7 @@ import (
 
 func renderPointerOffset(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil || len(node.Arguments) != 1 || node.OperandType.Element == nil {
-		return "", unknownExpressionDiagnostic("pointer offset has invalid checked metadata")
+		return "", unknownExpressionDiagnostic()
 	}
 	receiver, err := renderHoistedReceiver(node.Operand, node.OperandType, state)
 	if err != nil {
@@ -26,7 +26,7 @@ func renderPointerOffset(node checker.Expression, state *expressionValidation) (
 
 func renderPointerIndex(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil || len(node.Arguments) != 1 || node.OperandType.Element == nil {
-		return "", unknownExpressionDiagnostic("pointer index has invalid checked metadata")
+		return "", unknownExpressionDiagnostic()
 	}
 	receiver, err := renderHoistedReceiver(node.Operand, node.OperandType, state)
 	if err != nil {
@@ -41,7 +41,7 @@ func renderPointerIndex(node checker.Expression, state *expressionValidation) (s
 
 func renderPointerCast(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil || node.OperandType.Element == nil || node.ResultType.Element == nil {
-		return "", unknownExpressionDiagnostic("pointer cast has invalid checked metadata")
+		return "", unknownExpressionDiagnostic()
 	}
 	receiver, err := renderReceiver(node.Operand, node.OperandType, state)
 	if err != nil {
@@ -57,10 +57,10 @@ func validatePointerOffset(node checker.Expression, expected *compilerTypes.Type
 		!compilerTypes.Equal(node.OperandType, node.ResultType) ||
 		!compilerTypes.Equal(node.Element, *node.OperandType.Element) ||
 		!compilerTypes.IsCompleteValue(node.Element) {
-		return unknownExpressionDiagnostic("pointer offset has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-		return unknownExpressionDiagnostic("pointer offset result type does not match its expected type")
+		return unknownExpressionDiagnostic()
 	}
 	if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
 		return err
@@ -73,10 +73,10 @@ func validatePointerIndex(node checker.Expression, expected *compilerTypes.Type,
 		!compilerTypes.Equal(node.ResultType, *node.OperandType.Element) ||
 		!compilerTypes.Equal(node.Element, node.ResultType) ||
 		!compilerTypes.IsCompleteValue(node.ResultType) {
-		return unknownExpressionDiagnostic("pointer index has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-		return unknownExpressionDiagnostic("pointer index result type does not match its expected type")
+		return unknownExpressionDiagnostic()
 	}
 	if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
 		return err
@@ -89,10 +89,10 @@ func validatePointerCast(node checker.Expression, expected *compilerTypes.Type, 
 		!isPointerType(node.OperandType) || !isPointerType(node.ResultType) ||
 		node.OperandType.PointeeWritable != node.ResultType.PointeeWritable ||
 		!compilerTypes.Equal(node.Element, *node.ResultType.Element) {
-		return unknownExpressionDiagnostic("pointer cast has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-		return unknownExpressionDiagnostic("pointer cast result type does not match its expected type")
+		return unknownExpressionDiagnostic()
 	}
 	return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 }

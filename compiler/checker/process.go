@@ -8,8 +8,7 @@ package checker
 // tracking reuses the same provenance machinery File and networking share.
 
 import (
-	"fmt"
-
+	diagnosticsPkg "hexal/compiler/diagnostics"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
 )
@@ -18,10 +17,10 @@ import (
 func checkProcessTypeCall(call parser.CallExpression, variable parser.VariableExpression, ctx checkContext) checkedExpression {
 	property := call.Callee.(parser.PropertyExpression).Property
 	if property.Lexeme != "start" || len(call.TypeArguments) != 0 {
-		return checkedExpression{token: variable.Name, diagnostic: diagnosticAt(typeErrorAt(variable.Name, "Process has no such operation; use Process.start(options)"))}
+		return checkedExpression{token: variable.Name, diagnostic: diagnosticAt(messageAt(variable.Name, diagnosticsPkg.UnknownProcessOperation()))}
 	}
 	if len(call.Arguments) != 1 {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, fmt.Sprintf("start expects 1 argument (options: ProcessOptions); got %d", len(call.Arguments))))}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diagnosticsPkg.ProcessStartArity(len(call.Arguments))))}
 	}
 	options := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.ProcessOptionsType), tokenOf(call.Arguments[0]), ctx)
 	if diagnostics := initializerDiagnostics(options); len(diagnostics) > 0 {
@@ -32,7 +31,7 @@ func checkProcessTypeCall(call parser.CallExpression, variable parser.VariableEx
 	}
 	resultUnion := ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.StartedProcessType, compilerTypes.ErrorType})
 	if resultUnion == (compilerTypes.Type{}) {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property, "could not construct the StartedProcess | Error result union"))}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property))}
 	}
 	return networkNode("process_start", nil, []Operand{options.source}, compilerTypes.Type{}, resultUnion, property)
 }
@@ -43,13 +42,13 @@ func checkProcessMethodCall(call methodCall) checkedExpression {
 	switch name {
 	case "wait", "terminate", "close":
 	default:
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Process has no method "+name+"; use wait, terminate, or close"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.UnknownProcessMethod(name)))}
 	}
 	if len(call.call.TypeArguments) != 0 || len(call.call.Arguments) != 0 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, name+" expects no arguments"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.ProcessMethodTakesNoArguments(name)))}
 	}
 	if call.ctx.names.cleanupDepth > 0 && name != "close" {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "only Process.close() may be deferred"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.OnlyProcessCloseMayBeDeferred()))}
 	}
 	call.receiver = valueFromPlace(call.receiver)
 	if diagnostic := streamClosedDiagnostic(call.receiver.source, call.callee.Property, call.ctx.names.flow); diagnostic != nil {
@@ -62,7 +61,7 @@ func checkProcessMethodCall(call methodCall) checkedExpression {
 		resultUnion = call.ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType})
 	}
 	if resultUnion == (compilerTypes.Type{}) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property, "could not construct the "+name+" result union"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property))}
 	}
 	checked := networkMethodNode("process_"+name, call.receiver.source.Node, nil, compilerTypes.ProcessType, resultUnion, call.callee.Property)
 	if name == "close" && call.ctx.names.cleanupDepth == 0 {
@@ -77,13 +76,13 @@ func checkPipeMethodCall(call methodCall) checkedExpression {
 	switch name {
 	case "read", "write", "shutdown", "close":
 	default:
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Pipe has no method "+name+"; use read, write, shutdown, or close"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.UnknownPipeMethod(name)))}
 	}
 	if len(call.call.TypeArguments) != 0 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, name+" takes no type arguments"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.PipeMethodTakesNoTypeArguments(name)))}
 	}
 	if call.ctx.names.cleanupDepth > 0 && name != "close" {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "only Pipe.close() may be deferred"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.OnlyPipeCloseMayBeDeferred()))}
 	}
 	call.receiver = valueFromPlace(call.receiver)
 	if diagnostic := streamClosedDiagnostic(call.receiver.source, call.callee.Property, call.ctx.names.flow); diagnostic != nil {
@@ -98,7 +97,7 @@ func checkPipeMethodCall(call methodCall) checkedExpression {
 		arguments, diagnostics = checkStreamWriteArguments(call)
 	default:
 		if len(call.call.Arguments) != 0 {
-			diagnostics = compilerTypes.Diagnostics{typeErrorAt(call.callee.Property, name+" expects no arguments")}
+			diagnostics = compilerTypes.Diagnostics{messageAt(call.callee.Property, diagnosticsPkg.NoArgumentsExpected(name))}
 		}
 	}
 	if len(diagnostics) > 0 {
@@ -111,7 +110,7 @@ func checkPipeMethodCall(call methodCall) checkedExpression {
 		resultUnion = call.ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType})
 	}
 	if resultUnion == (compilerTypes.Type{}) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property, "could not construct the "+name+" result union"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property))}
 	}
 	checked := networkMethodNode("pipe_"+name, call.receiver.source.Node, arguments, compilerTypes.PipeType, resultUnion, call.callee.Property)
 	if name == "close" && call.ctx.names.cleanupDepth == 0 {

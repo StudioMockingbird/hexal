@@ -1,8 +1,7 @@
 package checker
 
 import (
-	"fmt"
-
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -55,35 +54,37 @@ func printable(typ compilerTypes.Type) bool {
 
 // printUnsupportedPath describes the first unsupported member path of an
 // aggregate argument for the print diagnostic.
-func printUnsupportedPath(typ compilerTypes.Type) string {
+func printUnsupportedDetails(typ compilerTypes.Type) diag.PrintUnsupportedDetails {
 	switch {
 	case typ.Object != nil:
 		for _, member := range typ.Object.Members {
 			if !printable(member.Type) {
-				return fmt.Sprintf("because %s is %s", member.Name, member.Type.Name)
+				return diag.PrintUnsupportedDetails{Kind: diag.PrintUnsupportedObjectMember, Member: member.Name, ValueType: member.Type.Name}
 			}
 		}
 	case typ.Adt != nil:
 		for _, variant := range typ.Adt.Variants {
 			for _, member := range variant.Payload {
 				if !printable(member.Type) {
-					return fmt.Sprintf("because %s is %s", member.Name, member.Type.Name)
+					return diag.PrintUnsupportedDetails{Kind: diag.PrintUnsupportedObjectMember, Member: member.Name, ValueType: member.Type.Name}
 				}
 			}
 		}
 	case typ.Array != nil:
-		return "because its element is " + typ.Array.Element.Name
+		return diag.PrintUnsupportedDetails{Kind: diag.PrintUnsupportedAggregateElement, ValueType: typ.Array.Element.Name}
 	case typ.Slice != nil:
-		return "because its element is " + typ.Slice.Element.Name
+		return diag.PrintUnsupportedDetails{Kind: diag.PrintUnsupportedAggregateElement, ValueType: typ.Slice.Element.Name}
 	case typ.List != nil:
-		return "because its element is " + typ.List.Element.Name
+		return diag.PrintUnsupportedDetails{Kind: diag.PrintUnsupportedAggregateElement, ValueType: typ.List.Element.Name}
 	case typ.Dict != nil:
 		if !printable(typ.Dict.Key) {
-			return "because its key is " + typ.Dict.Key.Name
+			return diag.PrintUnsupportedDetails{Kind: diag.PrintUnsupportedDictKey, ValueType: typ.Dict.Key.Name}
 		}
-		return "because its value is " + typ.Dict.Value.Name
+		return diag.PrintUnsupportedDetails{Kind: diag.PrintUnsupportedDictValue, ValueType: typ.Dict.Value.Name}
+	case compilerTypes.IsUnion(typ):
+		return diag.PrintUnsupportedDetails{Kind: diag.PrintUnsupportedUnion}
 	}
-	return ""
+	return diag.PrintUnsupportedDetails{Kind: diag.PrintUnsupportedDirect}
 }
 
 // checkPrintCall resolves the protected builtin `print(...)` call. It is
@@ -91,10 +92,10 @@ func printUnsupportedPath(typ compilerTypes.Type) string {
 // argument, takes no type arguments, and produces no value.
 func checkPrintCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	if len(call.TypeArguments) != 0 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "print does not take type arguments"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diag.PrintTypeArgumentsNotAllowed()))}
 	}
 	if len(call.Arguments) == 0 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "print expects at least 1 argument"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diag.PrintRequiresArgument()))}
 	}
 	arguments := make([]Operand, 0, len(call.Arguments))
 	for _, argument := range call.Arguments {
@@ -110,16 +111,10 @@ func checkPrintCall(call parser.CallExpression, callee lexer.Token, ctx checkCon
 		if checked.typ.Object != nil && compilerTypes.IsForeignRecord(checked.typ) {
 			// A foreign record's layout is the C compiler's; printing it would
 			// require a Hexal-owned rendering the language does not define.
-			return checkedExpression{token: checked.token, diagnostic: diagnosticAt(typeErrorAt(checked.token, "print does not support foreign record "+checked.typ.Name))}
+			return checkedExpression{token: checked.token, diagnostic: diagnosticAt(messageAt(checked.token, diag.PrintForeignRecordNotSupported(checked.typ.Name)))}
 		}
 		if !printable(checked.typ) {
-			message := "print does not support " + checked.typ.Name
-			if path := printUnsupportedPath(checked.typ); path != "" {
-				message += " " + path
-			} else if compilerTypes.IsUnion(checked.typ) {
-				message += "; narrow or match it first"
-			}
-			return checkedExpression{token: checked.token, diagnostic: diagnosticAt(typeErrorAt(checked.token, message))}
+			return checkedExpression{token: checked.token, diagnostic: diagnosticAt(messageAt(checked.token, diag.PrintValueNotSupported(checked.typ.Name, printUnsupportedDetails(checked.typ))))}
 		}
 		arguments = append(arguments, checked.source)
 	}

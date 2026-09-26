@@ -81,7 +81,7 @@ func discoverGeneratedCorelib(program checker.Program, logicalKey string, litera
 			}
 			path, function, ok := corelib.FunctionByRuntime(node.Name)
 			if !ok {
-				return unknownExpressionDiagnostic("unknown core-library runtime entry point " + node.Name)
+				return unknownExpressionDiagnostic()
 			}
 			state.used = true
 			if path == "std/entropy" {
@@ -132,7 +132,7 @@ func discoverGeneratedCorelib(program checker.Program, logicalKey string, litera
 func renderCorelibCallExpression(node checker.Expression, state *expressionValidation) (string, error) {
 	_, function, ok := corelib.FunctionByRuntime(node.Name)
 	if !ok {
-		return "", unknownExpressionDiagnostic("unknown core-library runtime entry point " + node.Name)
+		return "", unknownExpressionDiagnostic()
 	}
 	if function.Result == corelib.ResultSize {
 		return node.Name + "()", nil
@@ -154,17 +154,17 @@ func renderCorelibCallExpression(node checker.Expression, state *expressionValid
 func validateCorelibCallExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	path, function, ok := corelib.FunctionByRuntime(node.Name)
 	if !ok {
-		return unknownExpressionDiagnostic("unknown core-library runtime entry point " + node.Name)
+		return unknownExpressionDiagnostic()
 	}
 	_ = path
 	if node.Operand != nil {
-		return unknownExpressionDiagnostic("core-library module function has an unexpected checked receiver")
+		return unknownExpressionDiagnostic()
 	}
 	if len(node.Arguments) != len(function.Params) {
-		return unknownExpressionDiagnostic("core-library module function has invalid checked arguments")
+		return unknownExpressionDiagnostic()
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-		return unknownExpressionDiagnostic("core-library module function result does not match its expected type")
+		return unknownExpressionDiagnostic()
 	}
 	for _, argument := range node.Arguments {
 		if err := validateCheckedOperandWithState(argument, state); err != nil {
@@ -180,7 +180,7 @@ func validateCorelibCallExpression(node checker.Expression, expected *compilerTy
 func corelibErrorArm(tags *tagRegistry, file string, union compilerTypes.Type, kind, message string) (string, error) {
 	tag, field := streamMemberRef(tags, union, compilerTypes.ErrorType)
 	if tag == "" || field == "" {
-		return "", unknownExpressionDiagnostic("core-library result union has no Error member")
+		return "", unknownExpressionDiagnostic()
 	}
 	return fmt.Sprintf("(%s){ .tag = %s, .payload.%s = (hex_t_Error){ .hex_m_file = %s, .hex_m_line = line, .hex_m_column = column, .hex_m_kind = %s, .hex_m_message = hex_error_message(hex_text_heap(%s)) } }",
 		union.CName, tag, field, file, kind, message), nil
@@ -218,7 +218,7 @@ func corelibAdapterParameters(params []corelib.Param) (string, error) {
 		case corelib.ParamMutByteSlice:
 			rendered = append(rendered, "hex_mut_slice_UInt8 into")
 		default:
-			return "", unknownExpressionDiagnostic("unknown core-library parameter shape")
+			return "", unknownExpressionDiagnostic()
 		}
 	}
 	return strings.Join(rendered, ", "), nil
@@ -234,7 +234,7 @@ func corelibAdapterArguments(params []corelib.Param) (string, error) {
 		case corelib.ParamMutByteSlice:
 			rendered = append(rendered, "into.data, into.length")
 		default:
-			return "", unknownExpressionDiagnostic("unknown core-library parameter shape")
+			return "", unknownExpressionDiagnostic()
 		}
 	}
 	return strings.Join(rendered, ", "), nil
@@ -268,11 +268,11 @@ func writeCorelibInlineHelpers(result *strings.Builder, state *generatedCorelibS
 	for _, adapter := range state.adapters {
 		member, ok := corelibMemberType(adapter.union)
 		if !ok {
-			return unknownExpressionDiagnostic("core-library result union has no success member")
+			return unknownExpressionDiagnostic()
 		}
 		tag, field := streamMemberRef(tags, adapter.union, member)
 		if tag == "" || field == "" {
-			return unknownExpressionDiagnostic("core-library result union is missing its success member")
+			return unknownExpressionDiagnostic()
 		}
 		failure, err := corelibErrorArm(tags, file, adapter.union, "query.kind", "query.message")
 		if err != nil {
@@ -335,7 +335,7 @@ func writeCorelibInlineHelpers(result *strings.Builder, state *generatedCorelibS
 				return err
 			}
 		default:
-			return unknownExpressionDiagnostic("core-library adapter has an unsupported result shape")
+			return unknownExpressionDiagnostic()
 		}
 	}
 	return nil

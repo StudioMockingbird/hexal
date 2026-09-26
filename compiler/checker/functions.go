@@ -4,8 +4,7 @@ package checker
 // validation.
 
 import (
-	"fmt"
-
+	diagnosticsPkg "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	"hexal/compiler/span"
@@ -79,17 +78,17 @@ func collectFunctionSignature(declaration parser.FunctionDeclaration, ctx checkC
 	if name == "print" {
 		// The protected builtin name cannot be bound by a function
 		// declaration.
-		diagnostics = append(diagnostics, nameErrorAt(declaration.Name, "print is a protected built-in name"))
+		diagnostics = append(diagnostics, protectedBindingNameDiagnostic(declaration.Name, "print"))
 	}
 	if layoutBuiltins[name] {
 		// The layout query names cannot be bound by a function
 		// declaration.
-		diagnostics = append(diagnostics, nameErrorAt(declaration.Name, name+" is a protected built-in name"))
+		diagnostics = append(diagnostics, protectedBindingNameDiagnostic(declaration.Name, name))
 	}
 	if compilerTypes.IsProtectedTypeName(name) || ctx.typeEnvironment.Contains(name) {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "value "+name+" is already declared as a type"))
+		diagnostics = append(diagnostics, messageAt(declaration.Name, diagnosticsPkg.ValueNameConflictsWithType(name)))
 	} else if ctx.names.declaredHere(name) || rootValueNamesSoFar[name] {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, name+" is already declared"))
+		diagnostics = append(diagnostics, messageAt(declaration.Name, diagnosticsPkg.DuplicateDeclaration(name)))
 	} else if method, taken := ctx.names.methods.cNames[name]; taken {
 		// hex_f_ is not injective: Point_translate and method Point.translate
 		// share one private C spelling, so one of them has to go.
@@ -152,8 +151,8 @@ func checkFunctionBody(declaration parser.FunctionDeclaration, signature functio
 	checked.DirectCallees = directCallees(declaration.Body)
 
 	if analyzeReturns && signature.result != nil && len(bodyDiagnostics) == 0 && FallsThrough(checked.Body) {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.End,
-			fmt.Sprintf("returning %s may fall through without returning %s", name, signature.result.Name)))
+		diagnostics = append(diagnostics, messageAt(declaration.End,
+			diagnosticsPkg.FunctionMayFallThrough(name, signature.result.Name)))
 	}
 	return checked, diagnostics
 }
@@ -191,7 +190,7 @@ func checkFunctionSignature(written []parser.Parameter, resultExpr parser.TypeEx
 	}
 	functionType := typeEnvironment.FunTypeRest(parameterTypes, result, rest)
 	if functionType.Signature == nil {
-		return functionSignature{}, compilerTypes.Diagnostics{unknownAt(fallback, "could not construct the function type for "+fallback.Lexeme)}
+		return functionSignature{}, compilerTypes.Diagnostics{unknownAt(fallback)}
 	}
 	return functionSignature{parameters: parameters, result: result, resultUse: resultUse, functionType: functionType}, nil
 }
@@ -207,7 +206,7 @@ func bindParametersAndCheckBody(parameters []FunctionParameter, statements []par
 	for index := range parameters {
 		if enclosing.importAlias(parameters[index].Name) {
 			token := tokenAt(enclosing.table, parameters[index].Span)
-			diagnostics = append(diagnostics, nameErrorAt(token, "import alias "+parameters[index].Name+" conflicts with an existing name"))
+			diagnostics = append(diagnostics, importAliasConflictDiagnostic(token, parameters[index].Name))
 			continue
 		}
 		parameters[index].Binding = body.newBindingID()
@@ -227,11 +226,11 @@ func checkParameters(written []parser.Parameter, typeEnvironment *compilerTypes.
 	for _, parameter := range written {
 		parameterName := parameter.Name.Lexeme
 		if compilerTypes.IsProtectedTypeName(parameterName) || typeEnvironment.Contains(parameterName) {
-			diagnostics = append(diagnostics, typeErrorAt(parameter.Name, "value "+parameterName+" is already declared as a type"))
+			diagnostics = append(diagnostics, messageAt(parameter.Name, diagnosticsPkg.ValueNameConflictsWithType(parameterName)))
 			continue
 		}
 		if seen[parameterName] {
-			diagnostics = append(diagnostics, typeErrorAt(parameter.Name, "parameter "+parameterName+" is declared more than once"))
+			diagnostics = append(diagnostics, messageAt(parameter.Name, diagnosticsPkg.DuplicateParameter(parameterName)))
 			continue
 		}
 		resolvedUse, diagnostic := resolveTypeUse(parameter.Type, parameter.Name, typeEnvironment, generics)
@@ -248,7 +247,7 @@ func checkParameters(written []parser.Parameter, typeEnvironment *compilerTypes.
 			// unusable element rather than the generic value-position one.
 			sliceType := typeEnvironment.SliceType(resolved, false)
 			if sliceType == (compilerTypes.Type{}) || !compilerTypes.Eligible(resolved, compilerTypes.PositionFunctionParam) {
-				diagnostics = append(diagnostics, typeErrorAt(parameter.Name, resolved.Name+" is not a valid rest element type"))
+				diagnostics = append(diagnostics, messageAt(parameter.Name, diagnosticsPkg.InvalidRestElementType(resolved.Name)))
 				continue
 			}
 			seen[parameterName] = true
@@ -271,8 +270,8 @@ func checkParameters(written []parser.Parameter, typeEnvironment *compilerTypes.
 		// the shared position model like every other copy-requiring
 		// position.
 		if !compilerTypes.Eligible(resolved, compilerTypes.PositionFunctionParam) {
-			diagnostics = append(diagnostics, typeErrorAt(parameter.Name,
-				"function parameter "+resolved.Name+" is not shallow-copyable"))
+			diagnostics = append(diagnostics, messageAt(parameter.Name,
+				diagnosticsPkg.FunctionParameterNotShallowCopyable(resolved.Name)))
 			continue
 		}
 		parameters = append(parameters, FunctionParameter{
@@ -303,7 +302,7 @@ func checkResultType(written parser.TypeExpression, fallback lexer.Token, typeEn
 	// model like every other copy-requiring position. Fun is
 	// now valid as a function result via the expanded Storable matrix.
 	if !compilerTypes.Eligible(resolved, compilerTypes.PositionFunctionResult) {
-		return nil, nil, compilerTypes.Diagnostics{typeErrorAt(fallback, "function result "+resolved.Name+" is not shallow-copyable")}
+		return nil, nil, compilerTypes.Diagnostics{messageAt(fallback, diagnosticsPkg.FunctionResultNotShallowCopyable(resolved.Name))}
 	}
 	return &resolved, &resolvedUse, nil
 }

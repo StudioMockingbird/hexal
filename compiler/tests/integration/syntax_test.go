@@ -11,8 +11,8 @@ import (
 func TestReportsIndependentCheckerErrors(t *testing.T) {
 	result := compileSource("let x: Bogus = 2147483648")
 	want := []string{
-		"[Type Error] unknown type Bogus at app.hex:1:8",
-		"[Type Error] given value is outside the Int32 range at app.hex:1:16",
+		"[Type Error type.unknown-type] unknown type Bogus at app.hex:1:8",
+		"[Type Error type.numeric-literal-out-of-range] given value is outside the Int32 range at app.hex:1:16",
 	}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] || result.Stderr[1] != want[1] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
@@ -25,8 +25,8 @@ func TestCollectsLexerDiagnostics(t *testing.T) {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
 	want := []string{
-		"[Syntax Error] unexpected character '$' at app.hex:1:16",
-		"[Syntax Error] unexpected character '#' at app.hex:1:18",
+		"[Syntax Error syntax.unexpected-character] unexpected character '$' at app.hex:1:16",
+		"[Syntax Error syntax.unexpected-character] unexpected character '#' at app.hex:1:18",
 	}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] || result.Stderr[1] != want[1] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
@@ -38,7 +38,7 @@ func TestRejectsInvalidDeclarationSyntax(t *testing.T) {
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
-	want := []string{"[Syntax Error] identifiers must begin with a letter at app.hex:1:1"}
+	want := []string{"[Syntax Error syntax.identifier-must-begin-with-letter] identifiers must begin with a letter at app.hex:1:1"}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
 	}
@@ -48,8 +48,8 @@ func TestRejectsEqualsInValueBinding(t *testing.T) {
 	for _, testCase := range []struct {
 		name, source, want string
 	}{
-		{"typed binding", "x: Int32 = 13", "[Syntax Error] declarations require 'let' at app.hex:1:1"},
-		{"mutable binding", "mut x = 13", "[Syntax Error] 'mut' appears only immediately after 'let' in a declaration at app.hex:1:1"},
+		{"typed binding", "x: Int32 = 13", "[Syntax Error syntax.declaration-needs-let] declarations require 'let' at app.hex:1:1"},
+		{"mutable binding", "mut x = 13", "[Syntax Error syntax.mut-after-let] 'mut' appears only immediately after 'let' in a declaration at app.hex:1:1"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			result := compileSource(testCase.source)
@@ -102,7 +102,7 @@ func TestRejectsSemicolon(t *testing.T) {
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
-	want := []string{"[Syntax Error] unexpected character ';' at app.hex:1:18"}
+	want := []string{"[Syntax Error syntax.unexpected-character] unexpected character ';' at app.hex:1:18"}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
 	}
@@ -113,7 +113,7 @@ func TestRejectsTypedReassignment(t *testing.T) {
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
-	want := []string{"[Type Error] variable x is already declared in this scope; use '=' for reassignment at app.hex:1:23"}
+	want := []string{"[Type Error type.variable-already-declared-in-scope] variable x is already declared in this scope; use '=' for reassignment at app.hex:1:23"}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
 	}
@@ -124,7 +124,7 @@ func TestRejectsUnknownAssignment(t *testing.T) {
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
-	want := []string{"[Type Error] unknown variable x at app.hex:1:1"}
+	want := []string{"[Name Error name.unknown-variable] unknown variable x at app.hex:1:1"}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
 	}
@@ -133,8 +133,8 @@ func TestRejectsUnknownAssignment(t *testing.T) {
 func TestReportsIndependentStatementErrors(t *testing.T) {
 	result := compileSource("let x: Bogus = 1 let y: Bogus = 2")
 	want := []string{
-		"[Type Error] unknown type Bogus at app.hex:1:8",
-		"[Type Error] unknown type Bogus at app.hex:1:25",
+		"[Type Error type.unknown-type] unknown type Bogus at app.hex:1:8",
+		"[Type Error type.unknown-type] unknown type Bogus at app.hex:1:25",
 	}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] || result.Stderr[1] != want[1] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
@@ -147,7 +147,7 @@ func TestParseErrorsAbortBeforeChecking(t *testing.T) {
 	// are not stacked on top (earliest diagnostic ownership).
 	result := compileSource("let x: Int32 = 13 y let z: Bogus = 1")
 	want := []string{
-		"[Syntax Error] expected '=' for an assignment at app.hex:1:21",
+		"[Syntax Error syntax.assignment-equals] expected '=' for an assignment at app.hex:1:21",
 	}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
@@ -157,8 +157,8 @@ func TestParseErrorsAbortBeforeChecking(t *testing.T) {
 func TestDoesNotBindFailedDeclaration(t *testing.T) {
 	result := compileSource("let bad: Bogus = 1 x = 2")
 	want := []string{
-		"[Type Error] unknown type Bogus at app.hex:1:10",
-		"[Type Error] unknown variable x at app.hex:1:20",
+		"[Type Error type.unknown-type] unknown type Bogus at app.hex:1:10",
+		"[Name Error name.unknown-variable] unknown variable x at app.hex:1:20",
 	}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] || result.Stderr[1] != want[1] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)

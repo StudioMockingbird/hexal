@@ -7,6 +7,7 @@ package parser
 // optional import block and precedes every ordinary top-level item.
 
 import (
+	diag "hexal/compiler/diagnostics"
 	"strings"
 
 	"hexal/compiler/lexer"
@@ -30,12 +31,12 @@ func (parser *Parser) externBlock() (ExternBlock, error) {
 	keyword := parser.advance()
 	c := parser.peek()
 	if c.Kind != lexer.Identifier || c.Lexeme != "c" {
-		return ExternBlock{}, parser.errorAtCurrent("expected 'c' after 'extern'")
+		return ExternBlock{}, parser.errorAtCurrent(diag.ParserExternC())
 	}
 	parser.advance()
 	from := parser.peek()
 	if from.Kind != lexer.Identifier || from.Lexeme != "from" {
-		return ExternBlock{}, parser.errorAtCurrent("foreign declaration requires a C header")
+		return ExternBlock{}, parser.errorAtCurrent(diag.ParserMissingCHeader())
 	}
 	parser.advance()
 	header, err := parser.cHeaderLiteral(from)
@@ -44,7 +45,7 @@ func (parser *Parser) externBlock() (ExternBlock, error) {
 	}
 	do := parser.peek()
 	if do.Kind != lexer.Do {
-		return ExternBlock{}, parser.errorAtCurrent("expected 'do' after the foreign header")
+		return ExternBlock{}, parser.errorAtCurrent(diag.ParserExternDo())
 	}
 	parser.advance()
 	declarations := make([]ExternDeclaration, 0)
@@ -74,7 +75,7 @@ func (parser *Parser) externDeclaration() (ExternDeclaration, error) {
 	case parser.atContextual("global"):
 		return parser.externGlobal()
 	default:
-		return nil, parser.errorAtCurrent("unsupported foreign declaration")
+		return nil, parser.errorAtCurrent(diag.ParserUnsupportedForeignDeclaration())
 	}
 }
 
@@ -278,7 +279,7 @@ func (parser *Parser) consumeCSpellingAttribute() (*lexer.Token, error) {
 	}
 	spelling := trimStringLiteral(literal.Lexeme)
 	if !validCSpelling(spelling) {
-		return nil, parser.errorAt(literal, "invalid C spelling "+spelling)
+		return nil, parser.errorAt(literal, diag.ParserInvalidCSpelling(spelling))
 	}
 	literal.Lexeme = spelling
 	return &literal, nil
@@ -314,7 +315,7 @@ func validCSpelling(spelling string) bool {
 // reference. keyword anchors a missing-header diagnostic.
 func (parser *Parser) cHeaderLiteral(keyword lexer.Token) (ImportReference, error) {
 	if !parser.check(lexer.CHeaderLiteral) {
-		return ImportReference{}, parser.errorAtCurrent("foreign declaration requires a C header")
+		return ImportReference{}, parser.errorAtCurrent(diag.ParserMissingCHeader())
 	}
 	literal := parser.advance()
 	system := strings.HasPrefix(literal.Lexeme, "<")
@@ -326,7 +327,7 @@ func (parser *Parser) cHeaderLiteral(keyword lexer.Token) (ImportReference, erro
 		}
 	}
 	if !validCHeaderName(payload) {
-		return ImportReference{}, parser.errorAt(literal, "invalid C header name "+payload)
+		return ImportReference{}, parser.errorAt(literal, diag.ParserInvalidCHeaderName(payload))
 	}
 	return ImportReference{
 		Kind:            CHeaderImportReference,

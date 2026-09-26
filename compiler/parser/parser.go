@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"hexal/compiler/config"
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
@@ -66,7 +67,7 @@ func (parser *Parser) enterSyntax() (func(), error) {
 	parser.syntaxDepth++
 	exit := func() { parser.syntaxDepth-- }
 	if parser.syntaxDepth > config.MaxSyntaxDepth {
-		return exit, parser.errorAtCurrent("nesting exceeds the maximum depth of 128")
+		return exit, parser.errorAtCurrent(diag.ParserMaxNesting())
 	}
 	return exit, nil
 }
@@ -107,7 +108,7 @@ func (failure blockFailure) Unwrap() error { return failure.err }
 // available to the checker.
 func Parse(tokens []lexer.Token) (Program, error) {
 	if len(tokens) == 0 {
-		return Program{}, compilerTypes.NewDiagnostic(compilerTypes.SyntaxError, "parser", 1, 1, "expected a declaration")
+		return Program{}, compilerTypes.Locationless(diag.ParserExpectedDeclaration())
 	}
 
 	parser := Parser{tokens: tokens}
@@ -142,13 +143,13 @@ func Parse(tokens []lexer.Token) (Program, error) {
 	for !parser.check(lexer.EOF) {
 		if parser.atExternBlock() {
 			token := parser.peek()
-			parser.diagnostics = append(parser.diagnostics, diagnosticsFrom(parser.errorAt(token, "extern blocks must precede ordinary top-level items"))...)
+			parser.diagnostics = append(parser.diagnostics, diagnosticsFrom(parser.errorAt(token, diag.ParserExternBeforeTopLevel()))...)
 			parser.synchronize(parser.current)
 			continue
 		}
 		if exportClosed {
 			next := parser.peek()
-			parser.diagnostics = append(parser.diagnostics, diagnosticsFrom(parser.errorAt(next, "export block must be the final top-level construct"))...)
+			parser.diagnostics = append(parser.diagnostics, diagnosticsFrom(parser.errorAt(next, diag.ParserExportLast()))...)
 			parser.synchronize(parser.current)
 			if parser.check(lexer.EOF) {
 				break
@@ -158,7 +159,7 @@ func Parse(tokens []lexer.Token) (Program, error) {
 		}
 		if parser.check(lexer.Import) {
 			keyword := parser.peek()
-			parser.diagnostics = append(parser.diagnostics, diagnosticsFrom(parser.errorAt(keyword, "import block must be the first top-level construct"))...)
+			parser.diagnostics = append(parser.diagnostics, diagnosticsFrom(parser.errorAt(keyword, diag.ParserImportFirst()))...)
 			parser.synchronize(parser.current)
 			continue
 		}
@@ -224,7 +225,7 @@ func (parser *Parser) importBlock() (ImportBlock, error) {
 	keyword := parser.advance()
 	if parser.check(lexer.End) {
 		parser.advance()
-		return ImportBlock{}, parser.errorAt(keyword, "import block requires at least one entry")
+		return ImportBlock{}, parser.errorAt(keyword, diag.ParserImportNeedsEntry())
 	}
 	var entries []ImportEntry
 	for {
@@ -234,7 +235,7 @@ func (parser *Parser) importBlock() (ImportBlock, error) {
 		}
 		from := parser.peek()
 		if from.Kind != lexer.Identifier || from.Lexeme != "from" {
-			return ImportBlock{}, parser.errorAtCurrent("expected 'from' after an import alias")
+			return ImportBlock{}, parser.errorAtCurrent(diag.ParserImportFrom())
 		}
 		parser.advance()
 		reference, err := parser.importReference(from)
@@ -279,36 +280,35 @@ func (parser *Parser) importReference(from lexer.Token) (ImportReference, error)
 			// A quoted standard-library path is a retired spelling: the
 			// dotted form is the one obvious way to name a stdlib module.
 			dotted := strings.ReplaceAll(payload, "/", ".")
-			return ImportReference{}, parser.errorAt(path,
-				"standard-library imports use dotted paths; write "+dotted)
+			return ImportReference{}, parser.errorAt(path, diag.ParserImportDotted(dotted))
 		}
-		return ImportReference{}, parser.errorAt(path, "quoted import paths must begin with ./ or ../")
+		return ImportReference{}, parser.errorAt(path, diag.ParserImportRelative())
 	}
 	if parser.check(lexer.Identifier) && parser.peek().Lexeme == "c" {
 		return parser.cHeaderReference(parser.advance())
 	}
 	std := parser.peek()
 	if std.Kind != lexer.Identifier || std.Lexeme != "std" {
-		return ImportReference{}, parser.errorAtCurrent("a module path literal after 'from'")
+		return ImportReference{}, parser.errorAtCurrent(diag.ParserModuleLiteralAfterFrom())
 	}
 	if std.Line != from.Line {
-		return ImportReference{}, parser.errorAt(std, "module reference must begin on the same line as 'from'")
+		return ImportReference{}, parser.errorAt(std, diag.ParserImportSameLine())
 	}
 	parser.advance()
 	if parser.check(lexer.Slash) {
 		// `std/io` mixes the retired collection-path separator into the
 		// dotted reference; name the exact replacement.
-		return ImportReference{}, parser.errorAt(parser.peek(), "standard-library imports use dots between components")
+		return ImportReference{}, parser.errorAt(parser.peek(), diag.ParserImportDots())
 	}
 	if !parser.check(lexer.Dot) {
-		return ImportReference{}, parser.errorAt(std, "standard-library import requires a component after std.")
+		return ImportReference{}, parser.errorAt(std, diag.ParserImportComponent())
 	}
 	parser.advance()
 	var components []lexer.Token
 	spelled := "std"
 	for {
 		if !parser.check(lexer.Identifier) {
-			return ImportReference{}, parser.errorAtCurrent("expected a standard-library module component after '.'")
+			return ImportReference{}, parser.errorAtCurrent(diag.ParserImportComponentAfterDot())
 		}
 		component := parser.advance()
 		components = append(components, component)
@@ -357,7 +357,7 @@ func (parser *Parser) exportBlock() (ExportBlock, error) {
 	keyword := parser.advance()
 	if parser.check(lexer.End) {
 		parser.advance()
-		return ExportBlock{}, parser.errorAt(keyword, "export block requires at least one entry")
+		return ExportBlock{}, parser.errorAt(keyword, diag.ParserExportNeedsEntry())
 	}
 	var entries []ExportEntry
 	for {
@@ -433,7 +433,7 @@ func (parser *Parser) consume(kind lexer.TokenKind, expected string) (lexer.Toke
 	if parser.check(kind) {
 		return parser.advance(), nil
 	}
-	return lexer.Token{}, parser.errorAtCurrent("expected " + expected)
+	return lexer.Token{}, parser.errorAtCurrent(diag.ParserExpectedToken(expected))
 }
 
 func (parser *Parser) statement() (Statement, error) {
@@ -443,7 +443,7 @@ func (parser *Parser) statement() (Statement, error) {
 		// statement start. Reuse the ordering diagnostic so a nested block
 		// reports the same error as a late one instead of parsing as an
 		// expression.
-		return nil, parser.errorAt(parser.peek(), "extern blocks must precede ordinary top-level items")
+		return nil, parser.errorAt(parser.peek(), diag.ParserExternBeforeTopLevel())
 	case parser.check(lexer.Fun):
 		// At statement position, `fun` followed by an identifier used to
 		// begin a local named function declaration; named function
@@ -451,16 +451,16 @@ func (parser *Parser) statement() (Statement, error) {
 		// an anonymous literal which is not a statement - it must be bound
 		// first.
 		if parser.tokenAfterFun() == lexer.Identifier {
-			return nil, parser.errorAt(parser.peek(), "named function declarations are only valid at module scope")
+			return nil, parser.errorAt(parser.peek(), diag.ParserNamedFunctionScope())
 		}
 		if parser.funBeginsAnonymousLiteral() {
-			return nil, parser.errorAt(parser.peek(), "anonymous functions cannot begin statements; bind the function first")
+			return nil, parser.errorAt(parser.peek(), diag.ParserAnonymousStatement())
 		}
-		return nil, parser.errorAt(parser.peek(), "anonymous function requires '(' or '<' after 'fun'")
+		return nil, parser.errorAt(parser.peek(), diag.ParserAnonymousFunForm())
 	case parser.check(lexer.Method):
-		return nil, parser.errorAt(parser.peek(), "method declarations are module-level only")
+		return nil, parser.errorAt(parser.peek(), diag.ParserModuleScopeOnly("method declarations"))
 	case parser.check(lexer.Type):
-		return nil, parser.errorAt(parser.peek(), "type declarations are module-level only")
+		return nil, parser.errorAt(parser.peek(), diag.ParserModuleScopeOnly("type declarations"))
 	case parser.check(lexer.LeftParen):
 		// A parenthesized place opens a dereference-first assignment target
 		// such as (^pointer).member = value. Anything else starting with
@@ -478,7 +478,7 @@ func (parser *Parser) statement() (Statement, error) {
 		parser.current = start
 		// postfix refuses a '(' that begins a new line, which leaves the '('
 		// starting a statement. That is only ever a split call.
-		return nil, parser.errorAt(parser.peek(), "a call's ( must follow its callee on the same line")
+		return nil, parser.errorAt(parser.peek(), diag.ParserCallSameLine())
 	case parser.check(lexer.Return):
 		return parser.returnStatement()
 	case parser.check(lexer.If):
@@ -509,30 +509,30 @@ func (parser *Parser) statement() (Statement, error) {
 		return ErrdeferStatement{Keyword: keyword, Expression: expression}, nil
 	case parser.check(lexer.ElseIf):
 		if len(parser.blockStack) > 0 && parser.blockStack[len(parser.blockStack)-1] == "while" {
-			return nil, parser.errorAt(parser.peek(), "'elseif' cannot appear inside a while body")
+			return nil, parser.errorAt(parser.peek(), diag.ParserElseifInWhile())
 		}
 		if len(parser.blockStack) > 0 && parser.blockStack[len(parser.blockStack)-1] == "else" {
-			return nil, parser.errorAt(parser.peek(), "'elseif' cannot appear after 'else'")
+			return nil, parser.errorAt(parser.peek(), diag.ParserElseifAfterElse())
 		}
-		return nil, parser.errorAt(parser.peek(), "unexpected 'elseif' outside an if statement")
+		return nil, parser.errorAt(parser.peek(), diag.ParserElseifOutsideIf())
 	case parser.check(lexer.Export):
 		// export applies only to module-level declarations. At statement
 		// position it can never be valid, so it is rejected here rather than
 		// as a confusing identifier-form error.
-		return nil, parser.errorAt(parser.peek(), "export may prefix only a module-level type, function, or implementation declaration")
+		return nil, parser.errorAt(parser.peek(), diag.ParserExportPrefix())
 	case parser.check(lexer.Else):
 		if len(parser.blockStack) > 0 {
 			top := parser.blockStack[len(parser.blockStack)-1]
 			if top == "while" {
-				return nil, parser.errorAt(parser.peek(), "'else' cannot appear inside a while body")
+				return nil, parser.errorAt(parser.peek(), diag.ParserElseInWhile())
 			}
 			if top == "else" {
-				return nil, parser.errorAt(parser.peek(), "'else' must be the final clause of an if statement")
+				return nil, parser.errorAt(parser.peek(), diag.ParserElseFinal())
 			}
 		}
-		return nil, parser.errorAt(parser.peek(), "unexpected 'else' outside an if statement")
+		return nil, parser.errorAt(parser.peek(), diag.ParserElseOutsideIf())
 	case parser.check(lexer.End):
-		return nil, parser.errorAt(parser.peek(), "unexpected 'end' outside a block")
+		return nil, parser.errorAt(parser.peek(), diag.ParserEndOutsideBlock())
 	case parser.check(lexer.Self):
 		return parser.postfixStatement(VariableExpression{Name: parser.advance()})
 	case parser.check(lexer.At), parser.check(lexer.Caret):
@@ -560,7 +560,7 @@ func (parser *Parser) statement() (Statement, error) {
 
 	if parser.check(lexer.Mut) {
 		// `mut` is only valid immediately after `let` in a declaration.
-		return nil, parser.errorAt(parser.peek(), "'mut' appears only immediately after 'let' in a declaration")
+		return nil, parser.errorAt(parser.peek(), diag.ParserMutAfterLet())
 	}
 
 	name, err := parser.consume(lexer.Identifier, "an identifier")
@@ -594,7 +594,7 @@ func (parser *Parser) postfixStatement(start Expression) (Statement, error) {
 	if call, ok := target.(CallExpression); ok {
 		return call, nil
 	}
-	return nil, parser.errorAtCurrent("expected '=' for an assignment")
+	return nil, parser.errorAtCurrent(diag.ParserAssignmentEquals())
 }
 
 // isPlaceExpression reports whether a parsed expression has a place shape
@@ -645,7 +645,7 @@ func (parser *Parser) returnStatement() (Statement, error) {
 		return ReturnStatement{Keyword: keyword, Value: value}, nil
 	}
 	if valueOnlyToken(next.Kind) {
-		return nil, parser.errorAt(next, "a return value must begin on the same line as return")
+		return nil, parser.errorAt(next, diag.ParserReturnSameLine())
 	}
 	return ReturnStatement{Keyword: keyword}, nil
 }
@@ -695,19 +695,13 @@ func valueOnlyToken(kind lexer.TokenKind) bool {
 	}
 }
 
-func (parser *Parser) errorAtCurrent(message string) error {
+func (parser *Parser) errorAtCurrent(message diag.Message) error {
 	token := parser.peek()
 	return parser.errorAt(token, message)
 }
 
-func (parser *Parser) errorAt(token lexer.Token, message string) error {
-	return compilerTypes.Diagnostic{
-		Category: compilerTypes.SyntaxError,
-		Stage:    "parser",
-		Span:     token.Span,
-		Position: span.Position{Line: token.Line, Column: token.Column},
-		Message:  message,
-	}
+func (parser *Parser) errorAt(token lexer.Token, message diag.Message) error {
+	return compilerTypes.At(message, token.Span, span.Position{Line: token.Line, Column: token.Column})
 }
 
 // synchronize discards the invalid statement while preserving the next token
@@ -812,9 +806,5 @@ func diagnosticsFrom(err error) compilerTypes.Diagnostics {
 	if errors.As(err, &diagnostic) {
 		return compilerTypes.Diagnostics{diagnostic}
 	}
-	return compilerTypes.Diagnostics{{
-		Category: compilerTypes.UnknownError,
-		Stage:    "parser",
-		Message:  err.Error(),
-	}}
+	return compilerTypes.Diagnostics{compilerTypes.Locationless(diag.ParserUnknownError())}
 }

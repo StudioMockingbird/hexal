@@ -160,7 +160,7 @@ func nonErrorUnionMember(union compilerTypes.Type) (compilerTypes.Type, error) {
 			return member, nil
 		}
 	}
-	return compilerTypes.Type{}, unknownExpressionDiagnostic("result union has no non-Error member")
+	return compilerTypes.Type{}, unknownExpressionDiagnostic()
 }
 
 // networkErrorArm spells one Error payload construction for a network
@@ -168,7 +168,7 @@ func nonErrorUnionMember(union compilerTypes.Type) (compilerTypes.Type, error) {
 func networkErrorArm(tags *tagRegistry, literals *literalRegistry, name string, union compilerTypes.Type, status, payload string) (string, error) {
 	handle, ok := literals.Lookup(payload)
 	if !ok {
-		return "", unknownExpressionDiagnostic("network failure message is missing from the literal registry: " + payload)
+		return "", unknownExpressionDiagnostic()
 	}
 	_ = name
 	tag, field := streamMemberRef(tags, union, compilerTypes.ErrorType)

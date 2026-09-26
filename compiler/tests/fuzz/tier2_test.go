@@ -173,11 +173,11 @@ func TestChecklistCoverageGuardFires(t *testing.T) {
 // floor and reports the first rejection.
 func TestAcceptanceRateGuardFires(t *testing.T) {
 	recorder := &recordingFailer{}
-	assertAcceptanceRate(recorder, 5, 10, "seed 0: [Type Error] deliberate")
+	assertAcceptanceRate(recorder, 5, 10, "seed 0: [Type Error type.expected-got] expected Int32; got Bool")
 	if !recorder.fired {
 		t.Fatal("assertAcceptanceRate did not fire at 50% acceptance")
 	}
-	if !strings.Contains(recorder.message, "deliberate") {
+	if !strings.Contains(recorder.message, "expected Int32; got Bool") {
 		t.Fatalf("assertAcceptanceRate fired without reporting the first rejection: %q", recorder.message)
 	}
 }

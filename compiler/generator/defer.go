@@ -32,14 +32,14 @@ func writeDeferStatement(body *strings.Builder, statement checker.DeferStatement
 		return nil
 	}
 	if action.Call == nil {
-		return unknownExpressionDiagnostic("deferred call action without a checked call")
+		return unknownExpressionDiagnostic()
 	}
 	node := action.Call.Node
 	captured := make([]string, 0, len(node.Arguments)+1)
 	switch node.Kind {
 	case checker.MethodCallExpression:
 		if node.Operand == nil {
-			return unknownExpressionDiagnostic("deferred method call without a receiver")
+			return unknownExpressionDiagnostic()
 		}
 		receiverOperand := checker.Operand{Kind: checker.ExpressionOperand, Type: node.OperandType, Node: *node.Operand}
 		name, err := state.captureOperand(body, receiverOperand, indent)
@@ -49,7 +49,7 @@ func writeDeferStatement(body *strings.Builder, statement checker.DeferStatement
 		captured = append(captured, name)
 	case checker.HeapFreeExpression:
 		if node.Operand == nil {
-			return unknownExpressionDiagnostic("deferred heap free without a receiver")
+			return unknownExpressionDiagnostic()
 		}
 		receiverOperand := checker.Operand{Kind: checker.ExpressionOperand, Type: compilerTypes.Heap, Node: *node.Operand}
 		name, err := state.captureOperand(body, receiverOperand, indent)
@@ -61,7 +61,7 @@ func writeDeferStatement(body *strings.Builder, statement checker.DeferStatement
 		// defer text.free(h) captures the owning handle at registration so
 		// the cleanup always frees the exact object the defer saw.
 		if node.Operand == nil {
-			return unknownExpressionDiagnostic("deferred string method without a receiver")
+			return unknownExpressionDiagnostic()
 		}
 		receiverOperand := checker.Operand{Kind: checker.ExpressionOperand, Type: node.OperandType, Node: *node.Operand}
 		name, err := state.captureOperand(body, receiverOperand, indent)
@@ -74,7 +74,7 @@ func writeDeferStatement(body *strings.Builder, statement checker.DeferStatement
 		// handle at registration so the cleanup always frees the exact
 		// object.
 		if node.Name != "free" || node.OperandType.List == nil && node.OperandType.Dict == nil || node.Operand == nil {
-			return unknownExpressionDiagnostic("deferred collection free without a receiver")
+			return unknownExpressionDiagnostic()
 		}
 		receiverOperand := checker.Operand{Kind: checker.ExpressionOperand, Type: node.OperandType, Node: *node.Operand}
 		name, err := state.captureOperand(body, receiverOperand, indent)
@@ -91,7 +91,7 @@ func writeDeferStatement(body *strings.Builder, statement checker.DeferStatement
 			break
 		}
 		if node.OperandType.Signature == nil {
-			return unknownExpressionDiagnostic("deferred call without a checked callee")
+			return unknownExpressionDiagnostic()
 		}
 		calleeOperand := checker.Operand{Kind: checker.ExpressionOperand, Type: node.OperandType, Node: *node.Operand}
 		name, err := state.captureOperand(body, calleeOperand, indent)
@@ -106,7 +106,7 @@ func writeDeferStatement(body *strings.Builder, statement checker.DeferStatement
 		// connection/listener.close() captures the handle at registration so
 		// the cleanup always targets the exact handle the defer saw.
 		if node.Operand == nil {
-			return unknownExpressionDiagnostic("deferred handle method without a receiver")
+			return unknownExpressionDiagnostic()
 		}
 		receiverOperand := checker.Operand{Kind: checker.ExpressionOperand, Type: node.OperandType, Node: *node.Operand}
 		name, err := state.captureOperand(body, receiverOperand, indent)
@@ -134,7 +134,7 @@ func (state *expressionValidation) captureOperand(body *strings.Builder, operand
 		return "", err
 	}
 	if !supportedGeneratedTypeWithState(operand.Type, state) {
-		return "", unknownExpressionDiagnostic("deferred capture has an unsupported type")
+		return "", unknownExpressionDiagnostic()
 	}
 	state.captureCounter++
 	name := fmt.Sprintf("hex_defer_capture_%d", state.captureCounter)
@@ -204,7 +204,7 @@ func deferredActionRegistered(state *expressionValidation, action checker.Deferr
 func writeDeferredAction(body *strings.Builder, action checker.DeferredAction, state *expressionValidation, indent string) error {
 	if action.IsCall {
 		if action.Call == nil {
-			return unknownExpressionDiagnostic("deferred call action without a checked call")
+			return unknownExpressionDiagnostic()
 		}
 		if action.Call.Node.Kind == checker.PrintExpression {
 			return renderDeferredPrint(body, action, state, indent)
@@ -219,7 +219,7 @@ func writeDeferredAction(body *strings.Builder, action checker.DeferredAction, s
 		return nil
 	}
 	if action.Value == nil {
-		return unknownExpressionDiagnostic("deferred expression action without a checked operand")
+		return unknownExpressionDiagnostic()
 	}
 	rendered, err := renderOperandWithState(*action.Value, state)
 	if err != nil {
@@ -237,28 +237,28 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 	switch node.Kind {
 	case checker.MethodCallExpression:
 		if node.Owner == nil || len(arguments) < 1 {
-			return "", unknownExpressionDiagnostic("deferred method call without a captured receiver")
+			return "", unknownExpressionDiagnostic()
 		}
 		methodArguments := renderRestSliceArgument(&node, arguments[1:])
 		if state.envMethods[node.Name] {
 			if state.envPointer == "" {
-				return "", unknownExpressionDiagnostic("deferred call to an environment-dependent method without an environment")
+				return "", unknownExpressionDiagnostic()
 			}
 			methodArguments = append([]string{state.envPointer}, methodArguments...)
 		}
 		return methodCName(node.Owner, node.Name, moduleOwner(node.Owner.ModuleID, state.owner)) + "(" + strings.Join(append([]string{arguments[0]}, methodArguments...), ", ") + ")", nil
 	case checker.CallExpression:
 		if node.Operand == nil {
-			return "", unknownExpressionDiagnostic("deferred call without a checked callee")
+			return "", unknownExpressionDiagnostic()
 		}
 		if node.Operand.Kind == checker.FunctionReferenceExpression {
 			if node.Operand.Name == "" {
-				return "", unknownExpressionDiagnostic("deferred call without a checked function callee")
+				return "", unknownExpressionDiagnostic()
 			}
 			callArguments := renderRestSliceArgument(&node, arguments)
 			if state.envFunctions[node.Operand.Name] {
 				if state.envPointer == "" {
-					return "", unknownExpressionDiagnostic("deferred call to an environment-dependent function without an environment")
+					return "", unknownExpressionDiagnostic()
 				}
 				callArguments = append([]string{state.envPointer}, callArguments...)
 			}
@@ -267,13 +267,13 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		// A Fun<>-valued callee was captured at registration; the call is the
 		// captured function value applied to the captured arguments.
 		if len(arguments) < 1 {
-			return "", unknownExpressionDiagnostic("deferred call without a captured callee")
+			return "", unknownExpressionDiagnostic()
 		}
 		callArguments := renderRestSliceArgument(&node, arguments[1:])
 		return arguments[0] + "(" + strings.Join(callArguments, ", ") + ")", nil
 	case checker.HeapFreeExpression:
 		if len(arguments) != 2 {
-			return "", unknownExpressionDiagnostic("deferred heap free without captured arguments")
+			return "", unknownExpressionDiagnostic()
 		}
 		// The captures hold the receiver (the Heap) first and the freed
 		// pointer second; the helper takes them in the opposite order, with
@@ -281,7 +281,7 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		return "((void)(" + arguments[0] + "), hex_heap_free(" + arguments[1] + "))", nil
 	case checker.StringMethodCallExpression:
 		if node.Name != "free" || len(arguments) != 2 {
-			return "", unknownExpressionDiagnostic("deferred string free without captured arguments")
+			return "", unknownExpressionDiagnostic()
 		}
 		// The captures hold the receiver (the owning handle) first and the
 		// heap second; the helper takes them in the opposite order.
@@ -292,7 +292,7 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		return symbol + "(" + arguments[1] + ", " + arguments[0] + ")", nil
 	case checker.CollectionMethodCallExpression:
 		if node.Name != "free" || node.OperandType.List == nil && node.OperandType.Dict == nil || len(arguments) != 2 {
-			return "", unknownExpressionDiagnostic("deferred collection free without captured arguments")
+			return "", unknownExpressionDiagnostic()
 		}
 		// The captures hold the receiver (the owning header) first and the
 		// heap second; the helper takes them in the opposite order.
@@ -310,7 +310,7 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		return symbol + "(" + arguments[1] + ", " + arguments[0] + ")", nil
 	case checker.ChannelMethodCallExpression:
 		if node.Name != "free" || len(arguments) != 2 {
-			return "", unknownExpressionDiagnostic("deferred channel free without captured arguments")
+			return "", unknownExpressionDiagnostic()
 		}
 		// The captures hold the receiver (the Channel handle) first and the
 		// heap second; the helper takes the heap token.
@@ -336,7 +336,7 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			}
 			return symbol + "(" + arguments[1] + ", " + arguments[0] + ")", nil
 		}
-		return "", unknownExpressionDiagnostic("deferred mutex method without a captured receiver")
+		return "", unknownExpressionDiagnostic()
 	case checker.TaskMethodCallExpression:
 		switch node.Name {
 		case "join", "detach":
@@ -346,7 +346,7 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			}
 			return symbol + "(" + arguments[0] + ")", nil
 		}
-		return "", unknownExpressionDiagnostic("deferred task method without a captured receiver")
+		return "", unknownExpressionDiagnostic()
 	case checker.TimeExpression:
 		return timeCall(node, arguments, state)
 	case checker.NetworkExpression:
@@ -354,7 +354,7 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		// process/IPC operation; the captured receiver feeds the
 		// module-owned result-union adapter.
 		if len(arguments) != 1 {
-			return "", unknownExpressionDiagnostic("deferred network call without a captured receiver")
+			return "", unknownExpressionDiagnostic()
 		}
 		suffix := streamAdapterSuffix(node.ResultType)
 		site := fmt.Sprintf("%d, %d", state.line(node.Span), state.column(node.Span))
@@ -371,7 +371,7 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		case "signals_close":
 			return fmt.Sprintf("hex_signals_close_%s(%s, %s)", suffix, arguments[0], site), nil
 		}
-		return "", unknownExpressionDiagnostic("deferred network call without a captured receiver")
+		return "", unknownExpressionDiagnostic()
 	case checker.StreamMethodCallExpression:
 		// The checker admits only close as a deferred stream operation; the
 		// captured receiver feeds the module-owned result-union adapter.
@@ -379,18 +379,18 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			return fileMethodCall(node, arguments, state)
 		}
 		if node.Name != "close" || len(arguments) != 1 {
-			return "", unknownExpressionDiagnostic("deferred stream call without a captured stream")
+			return "", unknownExpressionDiagnostic()
 		}
 		return fmt.Sprintf("hex_io_close_%s(%s, %d, %d)",
 			streamAdapterSuffix(node.ResultType), arguments[0], state.line(node.Span), state.column(node.Span)), nil
 	case checker.StashMethodCallExpression:
 		if len(arguments) < 1 {
-			return "", unknownExpressionDiagnostic("deferred stash method without a captured receiver")
+			return "", unknownExpressionDiagnostic()
 		}
 		switch node.Name {
 		case "allocate":
 			if len(arguments) != 2 {
-				return "", unknownExpressionDiagnostic("deferred stash allocate without captured arguments")
+				return "", unknownExpressionDiagnostic()
 			}
 			symbol, symbolErr := stashAllocateHelper(node.Element)
 			if symbolErr != nil {
@@ -410,15 +410,15 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			}
 			return symbol + "(" + arguments[0] + ")", nil
 		}
-		return "", unknownExpressionDiagnostic("deferred stash method without a captured receiver")
+		return "", unknownExpressionDiagnostic()
 	case checker.PoolMethodCallExpression:
 		if len(arguments) < 1 {
-			return "", unknownExpressionDiagnostic("deferred pool method without a captured receiver")
+			return "", unknownExpressionDiagnostic()
 		}
 		switch node.Name {
 		case "allocate":
 			if len(arguments) != 2 {
-				return "", unknownExpressionDiagnostic("deferred pool allocate without captured arguments")
+				return "", unknownExpressionDiagnostic()
 			}
 			symbol, symbolErr := poolAllocHelper(node.OperandType)
 			if symbolErr != nil {
@@ -427,7 +427,7 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			return symbol + "(" + arguments[0] + ", " + arguments[1] + ")", nil
 		case "free":
 			if len(arguments) != 2 {
-				return "", unknownExpressionDiagnostic("deferred pool free without captured arguments")
+				return "", unknownExpressionDiagnostic()
 			}
 			symbol, symbolErr := poolFreeHelper(node.OperandType)
 			if symbolErr != nil {
@@ -441,9 +441,9 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			}
 			return symbol + "(" + arguments[0] + ")", nil
 		}
-		return "", unknownExpressionDiagnostic("deferred pool method without a captured receiver")
+		return "", unknownExpressionDiagnostic()
 	default:
-		return "", unknownExpressionDiagnostic("unsupported deferred call node")
+		return "", unknownExpressionDiagnostic()
 	}
 }
 
@@ -462,7 +462,7 @@ func unwindAllDefers(body *strings.Builder, state *expressionValidation, indent 
 // loop body from innermost to outermost, as required before break or continue.
 func unwindToLoopDepth(body *strings.Builder, state *expressionValidation, indent string, errorExit string) error {
 	if len(state.loopDepths) == 0 {
-		return unknownExpressionDiagnostic("loop unwinding outside a loop")
+		return unknownExpressionDiagnostic()
 	}
 	bottom := state.loopDepths[len(state.loopDepths)-1]
 	for index := len(state.deferStack) - 1; index >= bottom; index-- {

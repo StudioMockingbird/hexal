@@ -1,6 +1,7 @@
 package checker
 
 import (
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -10,8 +11,8 @@ import (
 // uint32_t scalar, so value and utf8_length are pure reads with no runtime
 // allocation.
 func checkRuneMethodCall(call methodCall) checkedExpression {
-	fail := func(message string) checkedExpression {
-		diagnostic := typeErrorAt(call.callee.Property, message)
+	fail := func(message diag.Message) checkedExpression {
+		diagnostic := messageAt(call.callee.Property, message)
 		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
 	var result compilerTypes.Type
@@ -31,13 +32,13 @@ func checkRuneMethodCall(call methodCall) checkedExpression {
 	case "category":
 		result = compilerTypes.UnicodeCategoryType
 	default:
-		return fail("Rune has no method " + call.callee.Property.Lexeme)
+		return fail(diag.RuneMethodNotFound(call.callee.Property.Lexeme))
 	}
 	if len(call.call.Arguments) != 0 {
-		return fail(call.callee.Property.Lexeme + " expects no arguments")
+		return fail(diag.RuneMethodNoValueArguments(call.callee.Property.Lexeme))
 	}
 	if len(call.call.TypeArguments) != 0 {
-		return fail(call.callee.Property.Lexeme + " takes no type arguments")
+		return fail(diag.RuneMethodNoTypeArguments(call.callee.Property.Lexeme))
 	}
 	node := Expression{
 		Kind:        RuneMethodCallExpression,
@@ -54,25 +55,25 @@ func checkRuneMethodCall(call methodCall) checkedExpression {
 // one operation that turns a UInt32 into a checked scalar, rejecting
 // surrogates and values above U+10FFFF at runtime.
 func checkRuneTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
-	fail := func(message string) checkedExpression {
-		diagnostic := typeErrorAt(callee, message)
+	fail := func(message diag.Message) checkedExpression {
+		diagnostic := messageAt(callee, message)
 		return checkedExpression{token: callee, diagnostic: &diagnostic}
 	}
 	if call.Callee.(parser.PropertyExpression).Property.Lexeme != "from" {
-		return fail("Rune has no such operation; use Rune.from(value)")
+		return fail(diag.RuneOperationUnsupported())
 	}
 	if len(call.Arguments) != 1 {
-		return fail("Rune.from expects 1 argument")
+		return fail(diag.RuneFromArgumentCount())
 	}
 	if len(call.TypeArguments) != 0 {
-		return fail("Rune.from takes no type arguments")
+		return fail(diag.RuneFromTypeArguments())
 	}
 	value := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.UInt32), callee, ctx)
 	if diagnostics := initializerDiagnostics(value); len(diagnostics) > 0 {
 		return checkedExpression{token: value.token, diagnostics: diagnostics}
 	}
 	if !compilerTypes.Equal(value.typ, compilerTypes.UInt32) {
-		return fail("Rune.from requires a UInt32; got " + value.typ.Name)
+		return fail(diag.RuneFromValueType(value.typ.Name))
 	}
 	union, failure := textFailureUnion(compilerTypes.Rune, callee, ctx)
 	if failure != nil {

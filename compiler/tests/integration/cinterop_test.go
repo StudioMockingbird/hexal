@@ -14,7 +14,7 @@ import (
 func TestCImportRequiresQualifiedTarget(t *testing.T) {
 	source := "import\n    Adder from c \"adder.h\"\nend\nlet value: Int32 = 1\n"
 	result := compiler.Compile(map[string]string{"app.hex": source}, "app.hex", compiler.Project{})
-	assertStderrContains(t, result, "[Configuration Error] C interoperability requires a qualified target")
+	assertStderrContains(t, result, "[Configuration Error configuration.c-interop-target-required] C interoperability requires a qualified target")
 }
 
 func TestCImportPreparedBindingMissing(t *testing.T) {

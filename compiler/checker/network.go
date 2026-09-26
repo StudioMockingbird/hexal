@@ -7,8 +7,7 @@ package checker
 // machinery File and IO share.
 
 import (
-	"fmt"
-
+	diagnosticsPkg "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -18,10 +17,10 @@ import (
 func checkAddressTypeCall(call parser.CallExpression, variable parser.VariableExpression, ctx checkContext) checkedExpression {
 	property := call.Callee.(parser.PropertyExpression).Property
 	if property.Lexeme != "parse" || len(call.TypeArguments) != 0 {
-		return checkedExpression{token: variable.Name, diagnostic: diagnosticAt(typeErrorAt(variable.Name, "Address has no such operation; use Address.parse(text, port)"))}
+		return checkedExpression{token: variable.Name, diagnostic: diagnosticAt(messageAt(variable.Name, diagnosticsPkg.UnknownAddressOperation()))}
 	}
 	if len(call.Arguments) != 2 {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, fmt.Sprintf("parse expects 2 arguments (text: String, port: UInt16); got %d", len(call.Arguments))))}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diagnosticsPkg.AddressParseArity(len(call.Arguments))))}
 	}
 	var arguments []Operand
 	for index, expected := range []compilerTypes.Type{compilerTypes.StringType, compilerTypes.UInt16} {
@@ -36,7 +35,7 @@ func checkAddressTypeCall(call parser.CallExpression, variable parser.VariableEx
 	}
 	resultUnion := ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.AddressType, compilerTypes.ErrorType})
 	if resultUnion == (compilerTypes.Type{}) {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property, "could not construct the Address | Error result union"))}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property))}
 	}
 	return networkNode("address_parse", nil, arguments, compilerTypes.Type{}, resultUnion, property)
 }
@@ -45,10 +44,10 @@ func checkAddressTypeCall(call parser.CallExpression, variable parser.VariableEx
 func checkDnsTypeCall(call parser.CallExpression, variable parser.VariableExpression, ctx checkContext) checkedExpression {
 	property := call.Callee.(parser.PropertyExpression).Property
 	if property.Lexeme != "resolve" || len(call.TypeArguments) != 0 {
-		return checkedExpression{token: variable.Name, diagnostic: diagnosticAt(typeErrorAt(variable.Name, "Dns has no such operation; use Dns.resolve(heap, host, service)"))}
+		return checkedExpression{token: variable.Name, diagnostic: diagnosticAt(messageAt(variable.Name, diagnosticsPkg.UnknownDNSOperation()))}
 	}
 	if len(call.Arguments) != 3 {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, fmt.Sprintf("resolve expects 3 arguments (heap: Heap, host: String, service: String); got %d", len(call.Arguments))))}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diagnosticsPkg.DNSResolveArity(len(call.Arguments))))}
 	}
 	var arguments []Operand
 	for index, expected := range []compilerTypes.Type{compilerTypes.Heap, compilerTypes.StringType, compilerTypes.StringType} {
@@ -63,11 +62,11 @@ func checkDnsTypeCall(call parser.CallExpression, variable parser.VariableExpres
 	}
 	addressList := ctx.typeEnvironment.ListType(compilerTypes.AddressType)
 	if addressList == (compilerTypes.Type{}) {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property, "could not construct List<Address>"))}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property))}
 	}
 	resultUnion := ctx.typeEnvironment.UnionType([]compilerTypes.Type{addressList, compilerTypes.ErrorType})
 	if resultUnion == (compilerTypes.Type{}) {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property, "could not construct the List<Address> | Error result union"))}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property))}
 	}
 	return networkNode("dns_resolve", nil, arguments, compilerTypes.Type{}, resultUnion, property)
 }
@@ -76,12 +75,12 @@ func checkDnsTypeCall(call parser.CallExpression, variable parser.VariableExpres
 func checkTcpTypeCall(call parser.CallExpression, variable parser.VariableExpression, ctx checkContext) checkedExpression {
 	property := call.Callee.(parser.PropertyExpression).Property
 	if len(call.TypeArguments) != 0 {
-		return checkedExpression{token: variable.Name, diagnostic: diagnosticAt(typeErrorAt(variable.Name, "Tcp operations take no type arguments"))}
+		return checkedExpression{token: variable.Name, diagnostic: diagnosticAt(messageAt(variable.Name, diagnosticsPkg.TCPHasNoTypeArguments()))}
 	}
 	switch property.Lexeme {
 	case "connect":
 		if len(call.Arguments) != 1 {
-			return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, fmt.Sprintf("connect expects 1 argument (address: Address); got %d", len(call.Arguments))))}
+			return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diagnosticsPkg.TCPConnectArity(len(call.Arguments))))}
 		}
 		address := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.AddressType), tokenOf(call.Arguments[0]), ctx)
 		if diagnostics := initializerDiagnostics(address); len(diagnostics) > 0 {
@@ -92,12 +91,12 @@ func checkTcpTypeCall(call parser.CallExpression, variable parser.VariableExpres
 		}
 		resultUnion := ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.TcpConnectionType, compilerTypes.ErrorType})
 		if resultUnion == (compilerTypes.Type{}) {
-			return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property, "could not construct the TcpConnection | Error result union"))}
+			return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property))}
 		}
 		return networkNode("tcp_connect", nil, []Operand{address.source}, compilerTypes.Type{}, resultUnion, property)
 	case "listen":
 		if len(call.Arguments) != 2 {
-			return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, fmt.Sprintf("listen expects 2 arguments (address: Address, backlog: Size); got %d", len(call.Arguments))))}
+			return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diagnosticsPkg.TCPListenArity(len(call.Arguments))))}
 		}
 		address := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.AddressType), tokenOf(call.Arguments[0]), ctx)
 		if diagnostics := initializerDiagnostics(address); len(diagnostics) > 0 {
@@ -115,11 +114,11 @@ func checkTcpTypeCall(call parser.CallExpression, variable parser.VariableExpres
 		}
 		resultUnion := ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.TcpListenerType, compilerTypes.ErrorType})
 		if resultUnion == (compilerTypes.Type{}) {
-			return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property, "could not construct the TcpListener | Error result union"))}
+			return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property))}
 		}
 		return networkNode("tcp_listen", nil, []Operand{address.source, backlog.source}, compilerTypes.Type{}, resultUnion, property)
 	default:
-		return checkedExpression{token: variable.Name, diagnostic: diagnosticAt(typeErrorAt(variable.Name, "Tcp has no such operation; use Tcp.connect or Tcp.listen"))}
+		return checkedExpression{token: variable.Name, diagnostic: diagnosticAt(messageAt(variable.Name, diagnosticsPkg.UnknownTCPOperation()))}
 	}
 }
 
@@ -128,13 +127,13 @@ func checkTcpTypeCall(call parser.CallExpression, variable parser.VariableExpres
 // Address has a bounded representation.
 func checkAddressMethodCall(call methodCall) checkedExpression {
 	if call.callee.Property.Lexeme != "format" {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Address has no method "+call.callee.Property.Lexeme+"; use format"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.UnknownAddressMethod(call.callee.Property.Lexeme)))}
 	}
 	if len(call.call.TypeArguments) != 0 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "format takes no type arguments"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.MethodTakesNoTypeArguments("format")))}
 	}
 	if len(call.call.Arguments) != 1 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, fmt.Sprintf("format expects 1 argument (heap: Heap); got %d", len(call.call.Arguments))))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.AddressFormatArity(len(call.call.Arguments))))}
 	}
 	heap := checkInitializer(call.call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.Heap), tokenOf(call.call.Arguments[0]), call.ctx)
 	if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
@@ -154,13 +153,13 @@ func checkTcpListenerMethodCall(call methodCall) checkedExpression {
 	switch name {
 	case "accept", "close":
 	default:
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "TcpListener has no method "+name+"; use accept or close"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.UnknownTCPListenerMethod(name)))}
 	}
 	if len(call.call.TypeArguments) != 0 || len(call.call.Arguments) != 0 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, name+" expects no arguments"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.NoArgumentsExpected(name)))}
 	}
 	if call.ctx.names.cleanupDepth > 0 && name != "close" {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "only TcpListener.close() may be deferred"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.OnlyTCPListenerCloseMayBeDeferred()))}
 	}
 	call.receiver = valueFromPlace(call.receiver)
 	if diagnostic := streamClosedDiagnostic(call.receiver.source, call.callee.Property, call.ctx.names.flow); diagnostic != nil {
@@ -173,7 +172,7 @@ func checkTcpListenerMethodCall(call methodCall) checkedExpression {
 		resultUnion = call.ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType})
 	}
 	if resultUnion == (compilerTypes.Type{}) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property, "could not construct the "+name+" result union"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property))}
 	}
 	checked := networkMethodNode("tcp_"+name, call.receiver.source.Node, nil, compilerTypes.TcpListenerType, resultUnion, call.callee.Property)
 	if name == "close" && call.ctx.names.cleanupDepth == 0 {
@@ -189,13 +188,13 @@ func checkTcpConnectionMethodCall(call methodCall) checkedExpression {
 	switch name {
 	case "read", "write", "shutdown", "no_delay", "close":
 	default:
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "TcpConnection has no method "+name+"; use read, write, shutdown, no_delay, or close"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.UnknownTCPConnectionMethod(name)))}
 	}
 	if len(call.call.TypeArguments) != 0 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, name+" takes no type arguments"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.MethodTakesNoTypeArguments(name)))}
 	}
 	if call.ctx.names.cleanupDepth > 0 && name != "close" {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "only TcpConnection.close() may be deferred"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.OnlyTCPConnectionCloseMayBeDeferred()))}
 	}
 	call.receiver = valueFromPlace(call.receiver)
 	if diagnostic := streamClosedDiagnostic(call.receiver.source, call.callee.Property, call.ctx.names.flow); diagnostic != nil {
@@ -210,7 +209,7 @@ func checkTcpConnectionMethodCall(call methodCall) checkedExpression {
 		arguments, diagnostics = checkStreamWriteArguments(call)
 	case "no_delay":
 		if len(call.call.Arguments) != 1 {
-			diagnostics = compilerTypes.Diagnostics{typeErrorAt(call.callee.Property, fmt.Sprintf("no_delay expects 1 argument (enabled: Bool); got %d", len(call.call.Arguments)))}
+			diagnostics = compilerTypes.Diagnostics{messageAt(call.callee.Property, diagnosticsPkg.TCPNoDelayArity(len(call.call.Arguments)))}
 			break
 		}
 		enabled := checkInitializer(call.call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.Bool), tokenOf(call.call.Arguments[0]), call.ctx)
@@ -225,7 +224,7 @@ func checkTcpConnectionMethodCall(call methodCall) checkedExpression {
 		arguments = []Operand{enabled.source}
 	default:
 		if len(call.call.Arguments) != 0 {
-			diagnostics = compilerTypes.Diagnostics{typeErrorAt(call.callee.Property, name+" expects no arguments")}
+			diagnostics = compilerTypes.Diagnostics{messageAt(call.callee.Property, diagnosticsPkg.NoArgumentsExpected(name))}
 		}
 	}
 	if len(diagnostics) > 0 {
@@ -238,7 +237,7 @@ func checkTcpConnectionMethodCall(call methodCall) checkedExpression {
 		resultUnion = call.ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType})
 	}
 	if resultUnion == (compilerTypes.Type{}) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property, "could not construct the "+name+" result union"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property))}
 	}
 	checked := networkMethodNode("tcp_"+name, call.receiver.source.Node, arguments, compilerTypes.TcpConnectionType, resultUnion, call.callee.Property)
 	if name == "close" && call.ctx.names.cleanupDepth == 0 {

@@ -8,7 +8,6 @@ package generator
 
 import (
 	"embed"
-	"fmt"
 	"io"
 	"slices"
 	"strings"
@@ -16,7 +15,6 @@ import (
 
 	"hexal/compiler/corelib"
 	"hexal/compiler/specdata"
-	compilerTypes "hexal/compiler/types"
 )
 
 //go:embed packages/*.h packages/*.c
@@ -87,17 +85,17 @@ func parseComponentTemplates() map[string]*template.Template {
 func renderComponent(component componentArtifact) (string, error) {
 	instance, ok := componentTemplates[component.template]
 	if !ok {
-		return "", compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("missing embedded component template %s", component.template)}
+		return "", generatorDiagnostic()
 	}
 	var result strings.Builder
 	if component.block != "" {
 		if err := instance.ExecuteTemplate(&result, component.block, component.model); err != nil {
-			return "", compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("component %s block %s render failed: %v", component.key, component.block, err)}
+			return "", generatorDiagnostic()
 		}
 		return result.String(), nil
 	}
 	if err := instance.Execute(&result, component.model); err != nil {
-		return "", compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("component %s render failed: %v", component.key, err)}
+		return "", generatorDiagnostic()
 	}
 	return result.String(), nil
 }
@@ -108,10 +106,10 @@ func renderComponent(component componentArtifact) (string, error) {
 func renderInto(dst io.Writer, templateName, block string, model any) error {
 	instance, ok := componentTemplates[templateName]
 	if !ok {
-		return compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("missing embedded component template %s", templateName)}
+		return generatorDiagnostic()
 	}
 	if err := instance.ExecuteTemplate(dst, block, model); err != nil {
-		return compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("template %s block %s render failed: %v", templateName, block, err)}
+		return generatorDiagnostic()
 	}
 	return nil
 }
@@ -218,12 +216,12 @@ func renderComponentArtifacts(merged *programEmission, config Config) (map[strin
 func validateArtifactOwnership(ids []specdata.ComponentID, key string) error {
 	owner, ok := specdata.FileOwner(key)
 	if !ok {
-		return compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("generated artifact %s is owned by no registered component", key)}
+		return generatorDiagnostic()
 	}
 	for _, id := range ids {
 		if id == owner {
 			return nil
 		}
 	}
-	return compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: fmt.Sprintf("component %s emitted artifact %s owned by another component", owner, key)}
+	return generatorDiagnostic()
 }

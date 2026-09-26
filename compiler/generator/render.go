@@ -153,12 +153,12 @@ func renderOperandWithState(source checker.Operand, state *expressionValidation)
 	switch source.Kind {
 	case checker.ObjectOperand:
 		if source.Object == nil || !compilerTypes.Equal(source.Type, source.Object.Type) {
-			return "", unknownExpressionDiagnostic("object operand has mismatched checked types")
+			return "", unknownExpressionDiagnostic()
 		}
 		return objectLiteralWithState(source.Object, state)
 	case checker.VariableOperand, checker.ExpressionOperand:
 		if expressionType, ok := expressionResultType(source.Node); ok && !compilerTypes.Equal(source.Type, expressionType) && !compilerTypes.WidensTo(expressionType, source.Type) {
-			return "", unknownExpressionDiagnostic("operand expression type does not match its checked type")
+			return "", unknownExpressionDiagnostic()
 		}
 		return renderExpressionExpectedWithState(source.Node, &source.Type, state)
 	case checker.ConstantOperand:
@@ -183,24 +183,24 @@ func renderOperandWithState(source checker.Operand, state *expressionValidation)
 			return "((hex_heap)0)", nil
 		}
 		if source.Constant == nil {
-			return "", unknownExpressionDiagnostic("constant operand without a checked value")
+			return "", unknownExpressionDiagnostic()
 		}
 		switch source.Type.ScalarKind {
 		case compilerTypes.ScalarBool:
 			if !compilerTypes.Equal(source.Type, compilerTypes.Bool) || source.Constant.Kind() != constant.Bool {
-				return "", unknownExpressionDiagnostic("invalid checked Bool constant")
+				return "", unknownExpressionDiagnostic()
 			}
 		case compilerTypes.ScalarUnsignedInteger, compilerTypes.ScalarSignedInteger:
 			if _, ok := unsignedCName(source.Type); !ok || source.Constant.Kind() != constant.Int {
-				return "", unknownExpressionDiagnostic("invalid checked integer constant")
+				return "", unknownExpressionDiagnostic()
 			}
 		case compilerTypes.ScalarFloat:
 			return renderFloatLiteral(source)
 		default:
-			return "", unknownExpressionDiagnostic("unsupported checked constant type")
+			return "", unknownExpressionDiagnostic()
 		}
 	default:
-		return "", unknownExpressionDiagnostic("unsupported checked operand")
+		return "", unknownExpressionDiagnostic()
 	}
 	switch source.Type.ScalarKind {
 	case compilerTypes.ScalarBool:
@@ -210,11 +210,7 @@ func renderOperandWithState(source checker.Operand, state *expressionValidation)
 	case compilerTypes.ScalarFloat:
 		return renderFloatLiteral(source)
 	default:
-		return "", compilerTypes.Diagnostic{
-			Category: compilerTypes.UnknownError,
-			Stage:    "generator",
-			Message:  "unsupported checked scalar type " + source.Type.Name,
-		}
+		return "", generatorDiagnostic()
 	}
 }
 
@@ -229,7 +225,7 @@ func objectLiteralWithState(value *checker.ObjectValue, state *expressionValidat
 	byMemberIndex := make(map[*compilerTypes.ObjectMember]int, len(value.Initializers))
 	for index, initializer := range value.Initializers {
 		if initializer.Member == nil {
-			return "", unknownExpressionDiagnostic("object initializer without a checked member")
+			return "", unknownExpressionDiagnostic()
 		}
 		byMemberIndex[initializer.Member] = index
 	}
@@ -238,7 +234,7 @@ func objectLiteralWithState(value *checker.ObjectValue, state *expressionValidat
 		member := &value.Type.Object.Members[index]
 		sourceIndex, ok := byMemberIndex[member]
 		if !ok {
-			return "", unknownExpressionDiagnostic("incomplete checked object value")
+			return "", unknownExpressionDiagnostic()
 		}
 		rendered, err := renderHoistedOperand(&value.Initializers[sourceIndex].Source.Node, value.Initializers[sourceIndex].Source, state)
 		if err != nil {
@@ -295,12 +291,12 @@ func integerLiteral(source checker.Operand) (string, error) {
 	}
 	unsigned, ok := constant.Uint64Val(value)
 	if !ok {
-		return "", unknownExpressionDiagnostic("checked integer does not fit uint64")
+		return "", unknownExpressionDiagnostic()
 	}
 	if compilerTypes.IsSignedInteger(source.Type) {
 		limit := uint64(1) << (source.Type.Bits - 1)
 		if unsigned > limit || (!negative && unsigned == limit) {
-			return "", unknownExpressionDiagnostic("checked integer does not fit its signed type")
+			return "", unknownExpressionDiagnostic()
 		}
 	} else {
 		limit := ^uint64(0)
@@ -308,7 +304,7 @@ func integerLiteral(source checker.Operand) (string, error) {
 			limit = uint64(1)<<source.Type.Bits - 1
 		}
 		if unsigned > limit {
-			return "", unknownExpressionDiagnostic("checked integer does not fit its unsigned type")
+			return "", unknownExpressionDiagnostic()
 		}
 	}
 	if negative && unsigned == uint64(1)<<(source.Type.Bits-1) && compilerTypes.IsSignedInteger(source.Type) {
@@ -345,7 +341,7 @@ func signedMinimumMacro(typ compilerTypes.Type) (string, error) {
 	case compilerTypes.Int64.Name:
 		return "INT64_MIN", nil
 	default:
-		return "", unknownExpressionDiagnostic("no minimum macro for signed integer type " + typ.Name)
+		return "", unknownExpressionDiagnostic()
 	}
 }
 

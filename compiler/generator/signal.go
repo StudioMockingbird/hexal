@@ -147,7 +147,7 @@ func signalAdtTag(tags *tagRegistry, index int) string {
 func signalErrorArm(tags *tagRegistry, literals *literalRegistry, union compilerTypes.Type, status, payload string) (string, error) {
 	handle, ok := literals.Lookup(payload)
 	if !ok {
-		return "", unknownExpressionDiagnostic("signal failure message is missing from the literal registry: " + payload)
+		return "", unknownExpressionDiagnostic()
 	}
 	tag, field := streamMemberRef(tags, union, compilerTypes.ErrorType)
 	return fmt.Sprintf("(%s){ .tag = %s, .payload.%s = hex_signal_error(line, column, %s, &%s) }",

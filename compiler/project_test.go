@@ -107,7 +107,7 @@ func TestCompileRejectsUnknownTargetBeforeLexing(t *testing.T) {
 	if result.ExitCode != ExitFailure {
 		t.Fatalf("unqualified target compiled successfully")
 	}
-	if len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], "[Configuration Error] unknown target profile aarch64-macos-none") {
+	if len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], "[Configuration Error configuration.unknown-target-profile] unknown target profile aarch64-macos-none") {
 		t.Fatalf("stderr %q lacks the lone Configuration Error diagnostic", result.Stderr)
 	}
 	if len(result.Files) != 0 {
@@ -122,7 +122,7 @@ func TestCompileRejectsInvalidProject(t *testing.T) {
 	if result.ExitCode != ExitFailure {
 		t.Fatalf("invalid project compiled successfully")
 	}
-	if len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], "[Configuration Error] TaskStackReserve 4097 is not a multiple of 4096") {
+	if len(result.Stderr) != 1 || !strings.Contains(result.Stderr[0], "[Configuration Error configuration.task-stack-reserve-alignment] TaskStackReserve 4097 is not a multiple of 4096") {
 		t.Fatalf("stderr %q lacks the Configuration Error diagnostic", result.Stderr)
 	}
 	if len(result.Files) != 0 {

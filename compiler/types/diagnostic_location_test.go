@@ -3,6 +3,7 @@ package types
 import (
 	"testing"
 
+	diagnostics "hexal/compiler/diagnostics"
 	"hexal/compiler/span"
 )
 
@@ -53,13 +54,7 @@ func TestDiagnosticLocationAgreesWithItsSpan(t *testing.T) {
 			if testCase.wantLocation && resolved != testCase.position {
 				t.Fatalf("span resolves to %+v, but the diagnostic names %+v", resolved, testCase.position)
 			}
-			diagnostic := Diagnostic{
-				Category: UnknownError,
-				Stage:    "test",
-				Span:     testCase.s,
-				Position: testCase.position,
-				Message:  "probe",
-			}
+			diagnostic := At(diagnostics.UnknownCompiler(), testCase.s, testCase.position)
 			if diagnostic.Position.Line != testCase.wantLine || diagnostic.Position.Column != testCase.wantColumn {
 				t.Fatalf("diagnostic position = %d:%d, want %d:%d",
 					diagnostic.Position.Line, diagnostic.Position.Column, testCase.wantLine, testCase.wantColumn)

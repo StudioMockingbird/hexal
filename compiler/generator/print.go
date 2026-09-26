@@ -443,7 +443,7 @@ func printNestedFragment(typ compilerTypes.Type, tags *tagRegistry) (string, any
 // own builder, which commits once and releases any grown storage.
 func renderPrintStatement(body *strings.Builder, node checker.Expression, state *expressionValidation, indent string) error {
 	if len(node.Arguments) == 0 {
-		return unknownExpressionDiagnostic("print without arguments")
+		return unknownExpressionDiagnostic()
 	}
 	names := make([]string, 0, len(node.Arguments))
 	for _, argument := range node.Arguments {
@@ -540,12 +540,12 @@ func writePrintArgument(body *strings.Builder, typ compilerTypes.Type, name, buf
 // commit happen here, so a deferred call is one transaction like any other.
 func renderDeferredPrint(body *strings.Builder, action checker.DeferredAction, state *expressionValidation, indent string) error {
 	if action.Call == nil || action.Call.Node.Kind != checker.PrintExpression {
-		return unknownExpressionDiagnostic("deferred print action without a checked print call")
+		return unknownExpressionDiagnostic()
 	}
 	node := action.Call.Node
 	captured, ok := state.captures[action.Call]
 	if !ok || len(captured) != len(node.Arguments) {
-		return unknownExpressionDiagnostic("deferred print action without captured arguments")
+		return unknownExpressionDiagnostic()
 	}
 	types := make([]compilerTypes.Type, 0, len(node.Arguments))
 	for _, argument := range node.Arguments {

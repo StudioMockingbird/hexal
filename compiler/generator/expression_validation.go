@@ -10,7 +10,7 @@ import (
 
 func validateExpressionNode(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	if expected != nil && !supportedGeneratedTypeWithState(*expected, state) {
-		return unknownExpressionDiagnostic("expression has an unsupported expected type")
+		return unknownExpressionDiagnostic()
 	}
 	if err := validateViewProvenance(node); err != nil {
 		return err
@@ -18,12 +18,12 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 	switch node.Kind {
 	case checker.NilExpression:
 		if !compilerTypes.IsNil(node.ResultType) || expected != nil && !compilerTypes.IsNil(*expected) {
-			return unknownExpressionDiagnostic("nil expression has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		return nil
 	case checker.EosExpression:
 		if !compilerTypes.IsEoS(node.ResultType) || expected != nil && !compilerTypes.IsEoS(*expected) {
-			return unknownExpressionDiagnostic("eos expression has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		return nil
 	case checker.VariableExpression:
@@ -148,16 +148,16 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 	case checker.StringCompareExpression:
 		return validateStringCompareExpression(node, expected, state)
 	default:
-		return unknownExpressionDiagnostic("unsupported checked expression")
+		return unknownExpressionDiagnostic()
 	}
 }
 
 func validateExpressionChildWithState(child *checker.Expression, expected compilerTypes.Type, state *expressionValidation) error {
 	if child == nil {
-		return unknownExpressionDiagnostic("operation without a checked child")
+		return unknownExpressionDiagnostic()
 	}
 	if state.expressions[child] {
-		return unknownExpressionDiagnostic("cyclic checked expression")
+		return unknownExpressionDiagnostic()
 	}
 	state.expressions[child] = true
 	defer delete(state.expressions, child)

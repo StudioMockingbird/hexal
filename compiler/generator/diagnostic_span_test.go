@@ -16,7 +16,7 @@ func TestSourceAnchoredGeneratorFailureRendersItsLocation(t *testing.T) {
 	state := newExpressionValidation()
 	state.table = table
 
-	diagnostic, ok := unknownExpressionDiagnosticAt(state, at, "spawn expression has invalid checked metadata").(compilerTypes.Diagnostic)
+	diagnostic, ok := unknownExpressionDiagnosticAt(state, at).(compilerTypes.Diagnostic)
 	if !ok {
 		t.Fatal("source-anchored generator failure did not build a Diagnostic")
 	}
@@ -24,20 +24,20 @@ func TestSourceAnchoredGeneratorFailureRendersItsLocation(t *testing.T) {
 		t.Fatalf("source location = %s:%d:%d, want app.hex:3:1", diagnostic.Module, diagnostic.Position.Line, diagnostic.Position.Column)
 	}
 	rendered := diagnostic.Error()
-	want := "[Unknown Error] spawn expression has invalid checked metadata at app.hex:3:1"
+	want := "[Unknown Error internal.generator-invariant] internal compiler error at app.hex:3:1"
 	if rendered != want {
 		t.Fatalf("rendered = %q, want %q", rendered, want)
 	}
 
 	// A node with no span keeps the historical whole-compilation location.
-	whole, ok := unknownExpressionDiagnosticAt(state, span.Span{}, "whole compilation").(compilerTypes.Diagnostic)
+	whole, ok := unknownExpressionDiagnosticAt(state, span.Span{}).(compilerTypes.Diagnostic)
 	if !ok {
 		t.Fatal("zero-span generator failure did not build a Diagnostic")
 	}
 	if whole.Position.Line != 0 || whole.Module != "" {
 		t.Fatalf("zero-span location = %q:%d, want empty:0", whole.Module, whole.Position.Line)
 	}
-	if got := whole.Error(); got != "[Unknown Error] whole compilation" {
+	if got := whole.Error(); got != "[Unknown Error internal.generator-invariant] internal compiler error" {
 		t.Fatalf("zero-span rendered = %q, want no location", got)
 	}
 }

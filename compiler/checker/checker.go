@@ -535,11 +535,11 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 				// A resolved graph always publishes every edge's target; a
 				// missing entry is an internal inconsistency, so it fails
 				// closed instead of binding an empty module id.
-				diagnostics = append(diagnostics, unknownAt(entry.Alias, "import alias "+entry.Alias.Lexeme+" has no resolved module target"))
+				diagnostics = append(diagnostics, unknownAt(entry.Alias))
 				continue
 			}
 			if !environment.define(entry.Alias.Lexeme, binding{kind: aliasBinding, moduleID: target}) {
-				diagnostics = append(diagnostics, nameErrorAt(entry.Alias, "import alias "+entry.Alias.Lexeme+" conflicts with an existing name"))
+				diagnostics = append(diagnostics, importAliasConflictDiagnostic(entry.Alias, entry.Alias.Lexeme))
 			}
 		}
 	}
@@ -710,7 +710,7 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			// is never an executable statement.
 			if _, isDeclaration := item.(parser.Declaration); !isDeclaration {
 				if token, executable := executableItemToken(item); executable {
-					diagnostics = append(diagnostics, moduleErrorAt(token, "imported module "+moduleID+" contains executable statements"))
+					diagnostics = append(diagnostics, importedModuleExecutableDiagnostic(token, moduleID))
 					continue
 				}
 			}
@@ -871,7 +871,7 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 			// Exhaustive over parser.TopLevelItem today; a new item form
 			// reaching this default is a compiler inconsistency and reports
 			// [Unknown Error], never a user category.
-			diagnostics = append(diagnostics, unknownAt(lexer.Token{Line: 1, Column: 1}, "unsupported top-level item"))
+			diagnostics = append(diagnostics, unknownAt(lexer.Token{Line: 1, Column: 1}))
 		}
 	}
 	for index := range items {

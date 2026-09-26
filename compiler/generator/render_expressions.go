@@ -69,11 +69,11 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return "((hex_eos){ 0 })", nil
 	case checker.VariableExpression:
 		if node.Name == "" {
-			return "", unknownExpressionDiagnostic("variable without a source name")
+			return "", unknownExpressionDiagnostic()
 		}
 		name, ok := state.cNameFor(node)
 		if !ok {
-			return "", unknownExpressionDiagnostic("variable binding is not active")
+			return "", unknownExpressionDiagnostic()
 		}
 		return name, nil
 	case checker.FunctionReferenceExpression:
@@ -81,12 +81,12 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			return localHelperCName(node.LocalHelperOrdinal), nil
 		}
 		if node.Name == "" {
-			return "", unknownExpressionDiagnostic("function reference without a source name")
+			return "", unknownExpressionDiagnostic()
 		}
 		return privateCName(functionNameKind, node.Name, moduleOwner(node.Module, state.owner)), nil
 	case checker.ModuleValueExpression:
 		if node.Name == "" {
-			return "", unknownExpressionDiagnostic("module value without a source name")
+			return "", unknownExpressionDiagnostic()
 		}
 		return moduleValueCName(node.Name, moduleOwner(node.Module, state.owner)), nil
 	case checker.ForeignFunctionReferenceExpression, checker.ForeignConstantExpression, checker.ForeignGlobalExpression:
@@ -94,17 +94,17 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		// forwarding wrapper is generated to rename it, so the name is
 		// emitted verbatim.
 		if node.ForeignCName == "" {
-			return "", unknownExpressionDiagnostic("foreign reference without a C spelling")
+			return "", unknownExpressionDiagnostic()
 		}
 		return node.ForeignCName, nil
 	case checker.FunctionLiteralExpression:
 		if node.LocalHelperOrdinal == 0 {
-			return "", unknownExpressionDiagnostic("function literal without an assigned helper ordinal")
+			return "", unknownExpressionDiagnostic()
 		}
 		return localHelperCName(node.LocalHelperOrdinal), nil
 	case checker.CallExpression:
 		if node.Operand == nil {
-			return "", unknownExpressionDiagnostic("call without a checked callee")
+			return "", unknownExpressionDiagnostic()
 		}
 		callee, atomic, err := renderHoistedExpressionNode(node.Operand, &node.OperandType, state)
 		if err != nil {
@@ -133,7 +133,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		arguments = renderRestSliceArgument(&node, arguments)
 		if node.Operand.Kind == checker.FunctionReferenceExpression && node.Operand.Name != "" && state.envFunctions[node.Operand.Name] {
 			if state.envPointer == "" {
-				return "", unknownExpressionDiagnostic("call to an environment-dependent function without an environment")
+				return "", unknownExpressionDiagnostic()
 			}
 			arguments = append([]string{state.envPointer}, arguments...)
 		}
@@ -148,7 +148,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return call, nil
 	case checker.MethodCallExpression:
 		if node.Owner == nil || node.Operand == nil {
-			return "", unknownExpressionDiagnostic("method call without a checked receiver")
+			return "", unknownExpressionDiagnostic()
 		}
 		var receiver string
 		if name, ok := hoistedSequenceValue(state, node.Operand); ok {
@@ -176,14 +176,14 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		allArguments := append([]string{receiver}, arguments...)
 		if state.envMethods[node.Name] {
 			if state.envPointer == "" {
-				return "", unknownExpressionDiagnostic("call to an environment-dependent method without an environment")
+				return "", unknownExpressionDiagnostic()
 			}
 			allArguments = append([]string{state.envPointer}, allArguments...)
 		}
 		return methodCName(node.Owner, node.Name, moduleOwner(node.Owner.ModuleID, state.owner)) + "(" + strings.Join(allArguments, ", ") + ")", nil
 	case checker.AddressOfExpression:
 		if node.Operand == nil {
-			return "", unknownExpressionDiagnostic("address-of without an operand")
+			return "", unknownExpressionDiagnostic()
 		}
 		operandType, hasOperandType := node.OperandType, node.OperandType != (compilerTypes.Type{})
 		if !hasOperandType && node.ResultType.Element != nil {
@@ -202,14 +202,14 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return "&(" + operand + ")", nil
 	case checker.DereferenceExpression:
 		if node.Operand == nil {
-			return "", unknownExpressionDiagnostic("dereference without an operand")
+			return "", unknownExpressionDiagnostic()
 		}
 		operandType, ok := expressionTypeWithState(*node.Operand, state)
 		if !ok && node.OperandType != (compilerTypes.Type{}) {
 			operandType, ok = node.OperandType, true
 		}
 		if !ok {
-			return "", unknownExpressionDiagnostic("dereference receiver type is unavailable")
+			return "", unknownExpressionDiagnostic()
 		}
 		operand, atomic, err := renderExpressionNodeWithExpectedState(*node.Operand, &operandType, state)
 		if err != nil {
@@ -228,7 +228,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return renderCollectionConstructor(node, state)
 	case checker.WideningExpression:
 		if node.Operand == nil {
-			return "", unknownExpressionDiagnostic("widening without an operand")
+			return "", unknownExpressionDiagnostic()
 		}
 		operand, atomic, operandErr := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 		if operandErr != nil {
@@ -240,7 +240,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return "(" + node.ResultType.CName + ")(" + operand + ")", nil
 	case checker.DeepEqualityExpression:
 		if node.Left == nil || node.Right == nil {
-			return "", unknownExpressionDiagnostic("deep equality without both operands")
+			return "", unknownExpressionDiagnostic()
 		}
 		if compilerTypes.IsText(node.OperandType) {
 			return renderTextEquality(node, state)
@@ -325,7 +325,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return "(size_t)sizeof(" + typeSpelling(node.OperandType) + ")", nil
 	case checker.VolatileReadExpression:
 		if node.Operand == nil || node.OperandType.Element == nil {
-			return "", unknownExpressionDiagnostic("volatile read without a checked pointer")
+			return "", unknownExpressionDiagnostic()
 		}
 		receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 		if err != nil {
@@ -338,7 +338,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return "*(" + qualifier + typeSpelling(node.Element) + " *)(" + receiver + ")", nil
 	case checker.VolatileWriteExpression:
 		if node.Operand == nil || node.OperandType.Element == nil || len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("volatile write without checked operands")
+			return "", unknownExpressionDiagnostic()
 		}
 		receiver, _, err := renderHoistedExpressionNode(node.Operand, &node.OperandType, state)
 		if err != nil {
@@ -359,14 +359,14 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		return renderSliceBridgeExpression(node, state)
 	case checker.MemberExpression:
 		if node.Operand == nil || node.Member == nil {
-			return "", unknownExpressionDiagnostic("member selection without a receiver or member")
+			return "", unknownExpressionDiagnostic()
 		}
 		receiverType, ok := expressionTypeWithState(*node.Operand, state)
 		if !ok && node.OperandType != (compilerTypes.Type{}) {
 			receiverType, ok = node.OperandType, true
 		}
 		if !ok {
-			return "", unknownExpressionDiagnostic("member receiver type is unavailable")
+			return "", unknownExpressionDiagnostic()
 		}
 		receiver, err := renderReceiver(node.Operand, receiverType, state)
 		if err != nil {
@@ -382,7 +382,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		// The nullable union shares its base pointer's null niche, so the
 		// test lowers to the ordinary C null pointer comparison.
 		if node.Operand == nil {
-			return "", unknownExpressionDiagnostic("null test without a checked operand")
+			return "", unknownExpressionDiagnostic()
 		}
 		operator := "=="
 		if node.Operator == checker.NotEqualOperator {
@@ -429,15 +429,15 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 	case checker.ErrorKindHeaderExpression:
 		return renderErrorKindHeader(node, state)
 	case checker.MatchExpression:
-		return "", unknownExpressionDiagnostic("match expressions lower at statement level")
+		return "", unknownExpressionDiagnostic()
 	case checker.PrintExpression:
-		return "", unknownExpressionDiagnostic("print expressions lower at statement level")
+		return "", unknownExpressionDiagnostic()
 	case checker.ObjectExpression:
 		return objectLiteralWithState(node.Object, state)
 	case checker.ConstantExpression, checker.UnaryOperationExpression, checker.BinaryOperationExpression:
 		return renderOperationWithState(node, state)
 	default:
-		return "", unknownExpressionDiagnostic("unsupported checked expression")
+		return "", unknownExpressionDiagnostic()
 	}
 }
 
@@ -464,7 +464,7 @@ func renderExpressionNodeWithExpectedState(node checker.Expression, expected *co
 // the operand present.
 func renderReceiver(operand *checker.Expression, expected compilerTypes.Type, state *expressionValidation) (string, error) {
 	if operand == nil {
-		return "", unknownExpressionDiagnostic("receiver expression is missing")
+		return "", unknownExpressionDiagnostic()
 	}
 	receiver, atomic, err := renderExpressionNodeWithExpectedState(*operand, &expected, state)
 	if err != nil {

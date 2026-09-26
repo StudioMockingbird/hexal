@@ -134,7 +134,7 @@ func TestWeakeningDeclarationAndAssignment(t *testing.T) {
 	}
 
 	invalid := compileSource("let answer: Int32 = 42 let look: Ptr<Int32> = @answer let promoted: Ptr<mut Int32> = look")
-	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) != 1 || invalid.Stderr[0] != "[Type Error] expected Ptr<mut Int32> initializer; got Ptr<Int32> at app.hex:1:86" {
+	if invalid.ExitCode != compiler.ExitFailure || len(invalid.Stderr) != 1 || invalid.Stderr[0] != "[Type Error type.initializer-type-mismatch] expected Ptr<mut Int32> initializer; got Ptr<Int32> at app.hex:1:86" {
 		t.Fatalf("reverse weakening = %#v, want type mismatch", invalid.Stderr)
 	}
 }
@@ -311,7 +311,7 @@ func TestBindingsAreConstantUnlessMutable(t *testing.T) {
 	}
 
 	result = compileSource("let x: Int32 = 13 x = 14")
-	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || result.Stderr[0] != "[Type Error] cannot assign to constant x at app.hex:1:19" {
+	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || result.Stderr[0] != "[Type Error type.cannot-assign-to-constant] cannot assign to constant x at app.hex:1:19" {
 		t.Fatalf("Compile returned %#v, want constant-binding diagnostic", result)
 	}
 }
@@ -321,12 +321,12 @@ func TestPointerDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"let p: Ptr<Int32> = 13", "[Type Error] expected Ptr<Int32> initializer; got Int32 at app.hex:1:21"},
-		{"let x: Int32 = 13 let p: Ptr<Int32> = ^x", "[Type Error] cannot dereference Int32; ^ requires Ptr<T> at app.hex:1:39"},
-		{"let mut x: Int32 = 13 let p: Ptr<Int32> = @x let q: Ptr<Bool> = p", "[Type Error] expected Ptr<Bool> initializer; got Ptr<Int32> at app.hex:1:65"},
-		{"let mut x: Int32 = 13 let p: Ptr<Int32> = @x let q: Ptr<Int32> = @42", "[Syntax Error] expected a place identifier at app.hex:1:67"},
-		{"let mut x: Int32 = 13 let p: Ptr<Int32> = @x ^p = 42", "[Type Error] cannot write through a read-only pointer ^p at app.hex:1:46"},
-		{"let x: Int32 = 13 let p: Ptr<Int32> = mut @x", "[Syntax Error] mut is not valid on the right-hand side; use @value at app.hex:1:39"},
+		{"let p: Ptr<Int32> = 13", "[Type Error type.initializer-type-mismatch] expected Ptr<Int32> initializer; got Int32 at app.hex:1:21"},
+		{"let x: Int32 = 13 let p: Ptr<Int32> = ^x", "[Type Error type.dereference-requires-pointer] cannot dereference Int32; ^ requires Ptr<T> at app.hex:1:39"},
+		{"let mut x: Int32 = 13 let p: Ptr<Int32> = @x let q: Ptr<Bool> = p", "[Type Error type.initializer-type-mismatch] expected Ptr<Bool> initializer; got Ptr<Int32> at app.hex:1:65"},
+		{"let mut x: Int32 = 13 let p: Ptr<Int32> = @x let q: Ptr<Int32> = @42", "[Syntax Error syntax.expected-token] expected a place identifier at app.hex:1:67"},
+		{"let mut x: Int32 = 13 let p: Ptr<Int32> = @x ^p = 42", "[Type Error type.cannot-write-through-read-only-pointer] cannot write through a read-only pointer ^p at app.hex:1:46"},
+		{"let x: Int32 = 13 let p: Ptr<Int32> = mut @x", "[Syntax Error syntax.mut-right-hand-side] mut is not valid on the right-hand side; use @value at app.hex:1:39"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || result.Stderr[0] != testCase.want {

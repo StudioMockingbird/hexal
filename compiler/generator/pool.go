@@ -67,7 +67,7 @@ func poolDestroyHelper(pool compilerTypes.Type) (string, error) {
 
 func renderPoolConstructor(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.OperandType.Pool == nil || len(node.Arguments) != 1 {
-		return "", unknownExpressionDiagnostic("pool constructor has invalid checked metadata")
+		return "", unknownExpressionDiagnostic()
 	}
 	capacity, err := renderOperandWithState(node.Arguments[0], state)
 	if err != nil {
@@ -78,7 +78,7 @@ func renderPoolConstructor(node checker.Expression, state *expressionValidation)
 
 func renderPoolMethod(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil || node.OperandType.Pool == nil {
-		return "", unknownExpressionDiagnostic("pool method has invalid checked metadata")
+		return "", unknownExpressionDiagnostic()
 	}
 	receiver, err := renderReceiver(node.Operand, node.OperandType, state)
 	if err != nil {
@@ -87,7 +87,7 @@ func renderPoolMethod(node checker.Expression, state *expressionValidation) (str
 	switch node.Name {
 	case "allocate":
 		if len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("pool allocate has invalid checked metadata")
+			return "", unknownExpressionDiagnostic()
 		}
 		initial, err := renderOperandWithState(node.Arguments[0], state)
 		if err != nil {
@@ -100,7 +100,7 @@ func renderPoolMethod(node checker.Expression, state *expressionValidation) (str
 		return symbol + "(" + receiver + ", " + initial + ")", nil
 	case "free":
 		if len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("pool free has invalid checked metadata")
+			return "", unknownExpressionDiagnostic()
 		}
 		pointer, err := renderOperandWithState(node.Arguments[0], state)
 		if err != nil {
@@ -118,7 +118,7 @@ func renderPoolMethod(node checker.Expression, state *expressionValidation) (str
 		}
 		return symbol + "(" + receiver + ")", nil
 	default:
-		return "", unknownExpressionDiagnostic("unknown pool method " + node.Name)
+		return "", unknownExpressionDiagnostic()
 	}
 }
 
@@ -128,34 +128,34 @@ func validatePoolExpression(node checker.Expression, expected *compilerTypes.Typ
 	switch node.Kind {
 	case checker.PoolConstructorExpression:
 		if node.OperandType.Pool == nil || len(node.Arguments) != 1 || !compilerTypes.Equal(node.Element, node.OperandType.Pool.Element) || !compilerTypes.Equal(node.ResultType, node.OperandType) {
-			return unknownExpressionDiagnostic("pool constructor has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("pool constructor result type does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
 	case checker.PoolMethodCallExpression:
 		if node.Operand == nil || node.OperandType.Pool == nil || !compilerTypes.Equal(node.Element, node.OperandType.Pool.Element) {
-			return unknownExpressionDiagnostic("pool method has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		switch node.Name {
 		case "allocate":
 			if len(node.Arguments) != 1 || node.ResultType.Element == nil || !node.ResultType.PointeeWritable || !compilerTypes.Equal(*node.ResultType.Element, node.Element) {
-				return unknownExpressionDiagnostic("pool allocate has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "free":
 			if len(node.Arguments) != 1 || node.ResultType != (compilerTypes.Type{}) {
-				return unknownExpressionDiagnostic("pool free has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "destroy":
 			if len(node.Arguments) != 0 || node.ResultType != (compilerTypes.Type{}) {
-				return unknownExpressionDiagnostic("pool destroy has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		default:
-			return unknownExpressionDiagnostic("unknown pool method " + node.Name)
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("pool method result type does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
 			return err
@@ -167,5 +167,5 @@ func validatePoolExpression(node checker.Expression, expected *compilerTypes.Typ
 		}
 		return nil
 	}
-	return unknownExpressionDiagnostic("unknown pool expression kind")
+	return unknownExpressionDiagnostic()
 }

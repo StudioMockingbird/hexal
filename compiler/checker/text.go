@@ -1,8 +1,7 @@
 package checker
 
 import (
-	"fmt"
-
+	diagnosticsPkg "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -42,8 +41,7 @@ func checkedStringLiteralValue(payload []byte, expected compilerTypes.Type, toke
 	if compilerTypes.IsInlineString(expected) {
 		capacity := expected.InlineString.Capacity
 		if uint64(len(payload)) > capacity {
-			message := fmt.Sprintf("%s literal exceeds %d UTF-8 bytes", expected.Name, capacity)
-			return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, message))}
+			return checkedExpression{token: token, diagnostic: diagnosticAt(messageAt(token, diagnosticsPkg.InlineTextLiteralCapacity(expected.Name, capacity)))}
 		}
 		resultType = expected
 	}
@@ -83,8 +81,7 @@ func checkBoundedText(expression parser.Expression, destination compilerTypes.Ty
 	if literalToken.Line != 0 {
 		capacity := destination.InlineString.Capacity
 		if uint64(len(literal)) > capacity {
-			message := fmt.Sprintf("%s literal exceeds %d UTF-8 bytes", label, capacity)
-			return checkedExpression{token: literalToken, diagnostic: diagnosticAt(typeErrorAt(literalToken, message))}
+			return checkedExpression{token: literalToken, diagnostic: diagnosticAt(messageAt(literalToken, diagnosticsPkg.InlineTextLiteralCapacity(label, capacity)))}
 		}
 		return checkedStringLiteralValue(literal, destination, literalToken)
 	}
@@ -93,7 +90,7 @@ func checkBoundedText(expression parser.Expression, destination compilerTypes.Ty
 		return checkedExpression{token: tokenOf(expression), diagnostics: diagnostics}
 	}
 	if !compilerTypes.IsText(value.typ) {
-		return checkedExpression{token: value.token, diagnostic: diagnosticAt(typeErrorAt(value.token, label+" requires text; got "+value.typ.Name))}
+		return checkedExpression{token: value.token, diagnostic: diagnosticAt(messageAt(value.token, diagnosticsPkg.TextValueRequired(label, value.typ.Name)))}
 	}
 	if compilerTypes.Equal(value.typ, destination) {
 		return value
@@ -114,10 +111,6 @@ func checkBoundedText(expression parser.Expression, destination compilerTypes.Ty
 	return checkedExpression{source: source, typ: destination, token: value.token}
 }
 
-// stringTypeCallUsage is the shared "no such operation" diagnostic text for
-// every unrecognized String.<name>(...) call.
-const stringTypeCallUsage = "String has no such operation; use String.from_bytes(heap, view), String.from_runes(heap, runes), or String.interpolate(heap, template)"
-
 // checkStringTypeCall resolves a call written as String.<name>(...) or
 // String<N>.<name>(...): the built-in constructors from_bytes, concat, and
 // interpolate. The heap form takes a Heap first; the inline form names its
@@ -126,7 +119,7 @@ func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, ctx che
 	name := call.Callee.(parser.PropertyExpression).Property.Lexeme
 	if len(call.TypeArguments) != 0 {
 		if len(call.TypeArguments) != 1 {
-			return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "String takes at most one capacity argument"))}
+			return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diagnosticsPkg.InlineStringCapacityArity()))}
 		}
 		capacity, diagnostic := inlineStringCapacity(call.TypeArguments[0], callee)
 		if diagnostic != nil {
@@ -142,7 +135,7 @@ func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, ctx che
 	case "from_runes":
 		return checkHeapFromRunes(call, callee, ctx)
 	}
-	return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, stringTypeCallUsage))}
+	return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diagnosticsPkg.UnknownStringConstructor()))}
 }
 
 // textFailureUnion is the `success | Error` result of every text operation
@@ -150,7 +143,7 @@ func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, ctx che
 func textFailureUnion(success compilerTypes.Type, callee lexer.Token, ctx checkContext) (compilerTypes.Type, *checkedExpression) {
 	union := ctx.typeEnvironment.UnionType([]compilerTypes.Type{success, compilerTypes.ErrorType})
 	if union == (compilerTypes.Type{}) {
-		diagnostic := typeErrorAt(callee, success.Name+" has no result union with Error")
+		diagnostic := messageAt(callee, diagnosticsPkg.TextResultUnionUnavailable(success.Name))
 		return compilerTypes.Type{}, &checkedExpression{token: callee, diagnostic: &diagnostic}
 	}
 	return union, nil
@@ -164,7 +157,7 @@ func checkByteView(argument parser.Expression, label string, ctx checkContext) (
 		return checkedExpression{}, &view
 	}
 	if view.typ.Slice == nil || !compilerTypes.Equal(view.typ.Slice.Element, compilerTypes.UInt8) {
-		diagnostic := typeErrorAt(view.token, label+" requires Slice<Byte>; got "+view.typ.Name)
+		diagnostic := messageAt(view.token, diagnosticsPkg.ByteViewRequired(label, view.typ.Name))
 		return checkedExpression{}, &checkedExpression{token: view.token, diagnostic: &diagnostic}
 	}
 	return view, nil
@@ -173,14 +166,14 @@ func checkByteView(argument parser.Expression, label string, ctx checkContext) (
 // checkHeapFromBytes resolves String.from_bytes(heap, bytes).
 func checkHeapFromBytes(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	if len(call.Arguments) != 2 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, stringTypeCallUsage))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diagnosticsPkg.UnknownStringConstructor()))}
 	}
 	heap := checkValue(call.Arguments[0], ctx)
 	if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 		return heap
 	}
 	if !compilerTypes.IsHeap(heap.typ) {
-		diagnostic := typeErrorAt(heap.token, "String.from_bytes requires a Heap; got "+heap.typ.Name)
+		diagnostic := messageAt(heap.token, diagnosticsPkg.StringConstructorRequiresHeap("String.from_bytes", heap.typ.Name))
 		return checkedExpression{token: heap.token, diagnostic: &diagnostic}
 	}
 	view, failure := checkByteView(call.Arguments[1], "String.from_bytes", ctx)
@@ -208,14 +201,14 @@ func checkHeapFromBytes(call parser.CallExpression, callee lexer.Token, ctx chec
 // above U+10FFFF as InvalidInput.
 func checkHeapFromRunes(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	if len(call.Arguments) != 2 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, stringTypeCallUsage))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diagnosticsPkg.UnknownStringConstructor()))}
 	}
 	heap := checkValue(call.Arguments[0], ctx)
 	if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 		return heap
 	}
 	if !compilerTypes.IsHeap(heap.typ) {
-		diagnostic := typeErrorAt(heap.token, "String.from_runes requires a Heap; got "+heap.typ.Name)
+		diagnostic := messageAt(heap.token, diagnosticsPkg.StringConstructorRequiresHeap("String.from_runes", heap.typ.Name))
 		return checkedExpression{token: heap.token, diagnostic: &diagnostic}
 	}
 	runes := checkValue(call.Arguments[1], ctx)
@@ -223,7 +216,7 @@ func checkHeapFromRunes(call parser.CallExpression, callee lexer.Token, ctx chec
 		return runes
 	}
 	if runes.typ.Slice == nil || !compilerTypes.Equal(runes.typ.Slice.Element, compilerTypes.Rune) {
-		diagnostic := typeErrorAt(runes.token, "String.from_runes requires Slice<Rune>; got "+runes.typ.Name)
+		diagnostic := messageAt(runes.token, diagnosticsPkg.StringFromRunesRequiresRuneSlice(runes.typ.Name))
 		return checkedExpression{token: runes.token, diagnostic: &diagnostic}
 	}
 	union, failure := textFailureUnion(compilerTypes.StringType, callee, ctx)
@@ -247,8 +240,6 @@ func checkHeapFromRunes(call parser.CallExpression, callee lexer.Token, ctx chec
 // yields String<N> | Error, since the operands may not fit or may not be
 // well-formed. None takes a Heap: no allocation happens.
 func checkInlineStringTypeCall(call parser.CallExpression, callee lexer.Token, name string, destination compilerTypes.Type, ctx checkContext) checkedExpression {
-	usage := destination.Name + " has no such operation; use " + destination.Name + ".from_bytes(view), " +
-		destination.Name + ".concat(left, right), or " + destination.Name + ".interpolate(template)"
 	label := destination.Name + "." + name
 	var arguments []Operand
 	var segments []InterpolationSegment
@@ -259,7 +250,7 @@ func checkInlineStringTypeCall(call parser.CallExpression, callee lexer.Token, n
 			want = 2
 		}
 		if len(call.Arguments) != want {
-			diagnostic := typeErrorAt(callee, fmt.Sprintf("%s expects %d arguments; got %d", label, want, len(call.Arguments)))
+			diagnostic := messageAt(callee, diagnosticsPkg.InlineStringConstructorArity(label, want, len(call.Arguments)))
 			return checkedExpression{token: callee, diagnostic: &diagnostic}
 		}
 		for _, argument := range call.Arguments {
@@ -271,7 +262,7 @@ func checkInlineStringTypeCall(call parser.CallExpression, callee lexer.Token, n
 		}
 	case "interpolate":
 		if len(call.Arguments) != 1 {
-			diagnostic := typeErrorAt(callee, fmt.Sprintf("%s expects 1 argument; got %d", label, len(call.Arguments)))
+			diagnostic := messageAt(callee, diagnosticsPkg.InlineInterpolationConstructorArity(label, len(call.Arguments)))
 			return checkedExpression{token: callee, diagnostic: &diagnostic}
 		}
 		checked, failure := checkInterpolationTemplate(call.Arguments[0], label, callee, ctx)
@@ -280,7 +271,7 @@ func checkInlineStringTypeCall(call parser.CallExpression, callee lexer.Token, n
 		}
 		segments = checked
 	default:
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, usage))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diagnosticsPkg.UnknownInlineStringOperation(destination.Name)))}
 	}
 	union, failure := textFailureUnion(destination, callee, ctx)
 	if failure != nil {
@@ -326,10 +317,10 @@ func checkInterpolationTemplate(argument parser.Expression, label string, callee
 	template, isTemplate := argument.(parser.InterpolationTemplateExpression)
 	if !isTemplate {
 		if _, isPlainString := argument.(parser.StringLiteral); isPlainString {
-			diagnostic := typeErrorAt(callee, label+" requires at least one interpolation")
+			diagnostic := messageAt(callee, diagnosticsPkg.InterpolationNeedsEmbeddedValue(label))
 			return nil, &checkedExpression{token: callee, diagnostic: &diagnostic}
 		}
-		diagnostic := typeErrorAt(callee, label+" requires an interpreted interpolation template")
+		diagnostic := messageAt(callee, diagnosticsPkg.InterpolationRequiresInterpretedTemplate(label))
 		return nil, &checkedExpression{token: callee, diagnostic: &diagnostic}
 	}
 	segments := make([]InterpolationSegment, 0, len(template.Segments))
@@ -337,8 +328,8 @@ func checkInterpolationTemplate(argument parser.Expression, label string, callee
 	for _, segment := range template.Segments {
 		if segment.Text != nil {
 			payload, message := lexer.DecodeLiteralBody(segment.Text.Lexeme, lexer.StringEscapes)
-			if message != "" {
-				diagnostics = append(diagnostics, typeErrorAt(*segment.Text, message))
+			if !message.IsZero() {
+				diagnostics = append(diagnostics, messageAt(*segment.Text, message))
 				continue
 			}
 			segments = append(segments, InterpolationSegment{Text: string(payload)})
@@ -350,7 +341,7 @@ func checkInterpolationTemplate(argument parser.Expression, label string, callee
 			continue
 		}
 		if !interpolationSupportedType(value.typ) {
-			diagnostics = append(diagnostics, typeErrorAt(value.token, "string interpolation does not support "+value.typ.Name))
+			diagnostics = append(diagnostics, messageAt(value.token, diagnosticsPkg.InterpolationTypeUnsupported(value.typ.Name)))
 			continue
 		}
 		segments = append(segments, InterpolationSegment{IsValue: true, Value: value.source})
@@ -368,7 +359,7 @@ func checkInterpolationTemplate(argument parser.Expression, label string, callee
 // right. Nothing in it can fail, so the result is a plain String.
 func checkStringInterpolate(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	if len(call.Arguments) != 2 {
-		diagnostic := typeErrorAt(callee, fmt.Sprintf("String.interpolate expects 2 arguments; got %d", len(call.Arguments)))
+		diagnostic := messageAt(callee, diagnosticsPkg.StringInterpolateArity(len(call.Arguments)))
 		return checkedExpression{token: callee, diagnostic: &diagnostic}
 	}
 	heap := checkValue(call.Arguments[0], ctx)
@@ -376,7 +367,7 @@ func checkStringInterpolate(call parser.CallExpression, callee lexer.Token, ctx 
 		return heap
 	}
 	if !compilerTypes.IsHeap(heap.typ) {
-		diagnostic := typeErrorAt(heap.token, "String.interpolate requires a Heap; got "+heap.typ.Name)
+		diagnostic := messageAt(heap.token, diagnosticsPkg.StringConstructorRequiresHeap("String.interpolate", heap.typ.Name))
 		return checkedExpression{token: heap.token, diagnostic: &diagnostic}
 	}
 	segments, failure := checkInterpolationTemplate(call.Arguments[1], "String.interpolate", callee, ctx)
@@ -417,8 +408,8 @@ func checkTextMethodCall(call methodCall) checkedExpression {
 	name := call.callee.Property.Lexeme
 	property := call.callee.Property
 	inline := compilerTypes.IsInlineString(call.receiver.typ)
-	fail := func(message string) checkedExpression {
-		diagnostic := typeErrorAt(property, message)
+	fail := func(message diagnosticsPkg.Message) checkedExpression {
+		diagnostic := messageAt(property, message)
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	checkHeap := func(argument parser.Expression, label string) (checkedExpression, *checkedExpression) {
@@ -427,7 +418,7 @@ func checkTextMethodCall(call methodCall) checkedExpression {
 			return checkedExpression{}, &heap
 		}
 		if !compilerTypes.IsHeap(heap.typ) {
-			diagnostic := typeErrorAt(heap.token, label+" requires a Heap; got "+heap.typ.Name)
+			diagnostic := messageAt(heap.token, diagnosticsPkg.StringMethodHeapRequired(label, heap.typ.Name))
 			return checkedExpression{}, &checkedExpression{token: heap.token, diagnostic: &diagnostic}
 		}
 		return heap, nil
@@ -438,63 +429,63 @@ func checkTextMethodCall(call methodCall) checkedExpression {
 	// the switch below has no case for -- free and c_pointer on the inline form,
 	// widen on the heap form -- with the identical diagnostic.
 	if !hasBuiltinMethod(call.receiver.typ, name) {
-		return fail(call.receiver.typ.Name + " has no method " + name)
+		return fail(diagnosticsPkg.UnknownTextMethod(call.receiver.typ.Name, name))
 	}
 	switch name {
 	case "length":
 		if len(call.call.Arguments) != 0 {
-			return fail("length expects no arguments")
+			return fail(diagnosticsPkg.TextMethodNoArguments("length"))
 		}
 		return textMethodNode(name, call.receiver, nil, compilerTypes.SizeType, property)
 	case "rune_length":
 		if len(call.call.Arguments) != 0 {
-			return fail("rune_length expects no arguments")
+			return fail(diagnosticsPkg.TextMethodNoArguments("rune_length"))
 		}
 		return textMethodNode(name, call.receiver, nil, compilerTypes.SizeType, property)
 	case "grapheme_length":
 		if len(call.call.Arguments) != 0 {
-			return fail("grapheme_length expects no arguments")
+			return fail(diagnosticsPkg.TextMethodNoArguments("grapheme_length"))
 		}
 		return textMethodNode(name, call.receiver, nil, compilerTypes.SizeType, property)
 	case "byte_cursor":
 		if len(call.call.Arguments) != 0 {
-			return fail("byte_cursor expects no arguments")
+			return fail(diagnosticsPkg.TextMethodNoArguments("byte_cursor"))
 		}
 		if inline && !call.receiver.source.Addressable {
-			return fail("a cursor cannot be rooted in a temporary " + call.receiver.typ.Name)
+			return fail(diagnosticsPkg.TemporaryCannotRootTextView("cursor", call.receiver.typ.Name))
 		}
 		return textMethodNode(name, call.receiver, nil, compilerTypes.ByteCursorType, property)
 	case "rune_cursor":
 		if len(call.call.Arguments) != 0 {
-			return fail("rune_cursor expects no arguments")
+			return fail(diagnosticsPkg.TextMethodNoArguments("rune_cursor"))
 		}
 		if inline && !call.receiver.source.Addressable {
-			return fail("a cursor cannot be rooted in a temporary " + call.receiver.typ.Name)
+			return fail(diagnosticsPkg.TemporaryCannotRootTextView("cursor", call.receiver.typ.Name))
 		}
 		return textMethodNode(name, call.receiver, nil, compilerTypes.RuneCursorType, property)
 	case "grapheme_cursor":
 		if len(call.call.Arguments) != 0 {
-			return fail("grapheme_cursor expects no arguments")
+			return fail(diagnosticsPkg.TextMethodNoArguments("grapheme_cursor"))
 		}
 		if inline && !call.receiver.source.Addressable {
-			return fail("a cursor cannot be rooted in a temporary " + call.receiver.typ.Name)
+			return fail(diagnosticsPkg.TemporaryCannotRootTextView("cursor", call.receiver.typ.Name))
 		}
 		return textMethodNode(name, call.receiver, nil, compilerTypes.GraphemeCursorType, property)
 	case "bytes":
 		if len(call.call.Arguments) != 0 {
-			return fail("bytes expects no arguments")
+			return fail(diagnosticsPkg.TextMethodNoArguments("bytes"))
 		}
 		if inline && !call.receiver.source.Addressable {
-			return fail("a Slice cannot be rooted in a temporary " + call.receiver.typ.Name)
+			return fail(diagnosticsPkg.TemporaryCannotRootTextView("Slice", call.receiver.typ.Name))
 		}
 		slice := call.ctx.typeEnvironment.SliceType(compilerTypes.UInt8, false)
 		return textMethodNode(name, call.receiver, nil, slice, property)
 	case "slice":
 		if len(call.call.Arguments) != 2 {
-			return fail(fmt.Sprintf("slice expects 2 arguments; got %d", len(call.call.Arguments)))
+			return fail(diagnosticsPkg.TextMethodArity("slice", 2, len(call.call.Arguments)))
 		}
 		if inline && !call.receiver.source.Addressable {
-			return fail("a Slice cannot be rooted in a temporary " + call.receiver.typ.Name)
+			return fail(diagnosticsPkg.TemporaryCannotRootTextView("Slice", call.receiver.typ.Name))
 		}
 		start, _, diagnostic := checkArrayIndex(call.call.Arguments[0], property, call.ctx)
 		if diagnostic != nil {
@@ -508,7 +499,7 @@ func checkTextMethodCall(call methodCall) checkedExpression {
 		return textMethodNode(name, call.receiver, []Operand{start, end}, slice, property)
 	case "copy":
 		if len(call.call.Arguments) != 1 {
-			return fail(fmt.Sprintf("copy expects 1 argument; got %d", len(call.call.Arguments)))
+			return fail(diagnosticsPkg.TextMethodArity("copy", 1, len(call.call.Arguments)))
 		}
 		heap, failure := checkHeap(call.call.Arguments[0], "copy")
 		if failure != nil {
@@ -517,7 +508,7 @@ func checkTextMethodCall(call methodCall) checkedExpression {
 		return textMethodNode(name, call.receiver, []Operand{heap.source}, compilerTypes.StringType, property)
 	case "casefold":
 		if len(call.call.Arguments) != 1 {
-			return fail(fmt.Sprintf("casefold expects 1 argument; got %d", len(call.call.Arguments)))
+			return fail(diagnosticsPkg.TextMethodArity("casefold", 1, len(call.call.Arguments)))
 		}
 		heap, failure := checkHeap(call.call.Arguments[0], "casefold")
 		if failure != nil {
@@ -532,7 +523,7 @@ func checkTextMethodCall(call methodCall) checkedExpression {
 		return result
 	case "normalize":
 		if len(call.call.Arguments) != 2 {
-			return fail(fmt.Sprintf("normalize expects 2 arguments; got %d", len(call.call.Arguments)))
+			return fail(diagnosticsPkg.TextMethodArity("normalize", 2, len(call.call.Arguments)))
 		}
 		heap, failure := checkHeap(call.call.Arguments[0], "normalize")
 		if failure != nil {
@@ -543,7 +534,7 @@ func checkTextMethodCall(call methodCall) checkedExpression {
 			return checkedExpression{token: form.token, diagnostics: diagnostics}
 		}
 		if !compilerTypes.IsNormalizationForm(form.typ) {
-			return fail("normalize requires a NormalizationForm; got " + form.typ.Name)
+			return fail(diagnosticsPkg.NormalizeRequiresForm(form.typ.Name))
 		}
 		union, failure := textFailureUnion(compilerTypes.StringType, property, call.ctx)
 		if failure != nil {
@@ -554,7 +545,7 @@ func checkTextMethodCall(call methodCall) checkedExpression {
 		return result
 	case "concat":
 		if len(call.call.Arguments) != 2 {
-			return fail(fmt.Sprintf("concat expects 2 arguments; got %d", len(call.call.Arguments)))
+			return fail(diagnosticsPkg.TextMethodArity("concat", 2, len(call.call.Arguments)))
 		}
 		heap, failure := checkHeap(call.call.Arguments[0], "concat")
 		if failure != nil {
@@ -573,54 +564,54 @@ func checkTextMethodCall(call methodCall) checkedExpression {
 		return result
 	case "widen":
 		if !inline {
-			return fail(call.receiver.typ.Name + " has no method widen")
+			return fail(diagnosticsPkg.WidenRequiresInlineString(call.receiver.typ.Name))
 		}
 		if len(call.call.TypeArguments) != 1 {
-			return fail("widen requires exactly one capacity argument")
+			return fail(diagnosticsPkg.WidenRequiresCapacityArgument())
 		}
 		if len(call.call.Arguments) != 0 {
-			return fail("widen expects no arguments")
+			return fail(diagnosticsPkg.TextMethodNoArguments("widen"))
 		}
 		capacity, diagnostic := inlineStringCapacity(call.call.TypeArguments[0], property)
 		if diagnostic != nil {
 			return checkedExpression{token: property, diagnostic: diagnostic}
 		}
 		if capacity < call.receiver.typ.InlineString.Capacity {
-			return fail("widen<M> requires M greater than or equal to N")
+			return fail(diagnosticsPkg.WidenCapacityMustNotShrink())
 		}
 		return textMethodNode(name, call.receiver, nil, call.ctx.typeEnvironment.InlineStringType(capacity), property)
 	case "free":
 		if inline {
-			return fail(call.receiver.typ.Name + " has no method free")
+			return fail(diagnosticsPkg.UnknownTextMethod(call.receiver.typ.Name, "free"))
 		}
 		if len(call.call.Arguments) != 1 {
-			return fail(fmt.Sprintf("free expects 1 argument; got %d", len(call.call.Arguments)))
+			return fail(diagnosticsPkg.TextMethodArity("free", 1, len(call.call.Arguments)))
 		}
 		heap, failure := checkHeap(call.call.Arguments[0], "free")
 		if failure != nil {
 			return *failure
 		}
 		if origins := stringOriginOf(call.receiver.source.Node, call.ctx); origins&stringOriginStatic != 0 {
-			return fail("cannot free a String literal")
+			return fail(diagnosticsPkg.CannotFreeStringLiteral())
 		}
 		return textMethodNode(name, call.receiver, []Operand{heap.source}, compilerTypes.Type{}, property)
 	case "c_pointer":
 		if inline {
-			return fail(call.receiver.typ.Name + " has no method c_pointer")
+			return fail(diagnosticsPkg.CStringPointerRequiresHeapString(call.receiver.typ.Name))
 		}
 		if len(call.call.Arguments) != 0 {
-			return fail("c_pointer expects no arguments")
+			return fail(diagnosticsPkg.TextMethodNoArguments("c_pointer"))
 		}
 		pointer := call.ctx.typeEnvironment.PtrType(compilerTypes.UInt8)
 		if pointer == (compilerTypes.Type{}) {
-			return fail("String.c_pointer has no pointer result")
+			return fail(diagnosticsPkg.CStringPointerResultUnavailable())
 		}
 		// The address may outlive the String allocation, so the operation
 		// carries the unsafe contract.
-		if diagnostic := requireUnsafe(call.ctx, property, unsafeStringCPointer); diagnostic != nil {
+		if diagnostic := requireUnsafe(call.ctx, property, unsafeStringCPointer, ""); diagnostic != nil {
 			return checkedExpression{token: property, diagnostic: diagnostic}
 		}
 		return textMethodNode(name, call.receiver, nil, pointer, property)
 	}
-	return fail(call.receiver.typ.Name + " has no method " + name)
+	return fail(diagnosticsPkg.UnknownTextMethod(call.receiver.typ.Name, name))
 }

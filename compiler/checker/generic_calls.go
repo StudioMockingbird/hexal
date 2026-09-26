@@ -4,8 +4,7 @@
 package checker
 
 import (
-	"fmt"
-
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -40,10 +39,10 @@ func inferTypeArguments(open *openGenericFunction, actual []compilerTypes.Type, 
 	if rest {
 		fixed--
 		if len(actual) < fixed {
-			return nil, diagnosticAt(typeErrorAt(open.Declaration.Name, fmt.Sprintf("%s expects at least %d arguments; got %d", open.Name, fixed, len(actual))))
+			return nil, diagnosticAt(messageAt(open.Declaration.Name, diag.FunctionArity(open.Name, fixed, len(actual), true)))
 		}
 	} else if len(expected) != len(actual) {
-		return nil, diagnosticAt(typeErrorAt(open.Declaration.Name, fmt.Sprintf("%s expects %d arguments; got %d", open.Name, len(expected), len(actual))))
+		return nil, diagnosticAt(messageAt(open.Declaration.Name, diag.FunctionArity(open.Name, len(expected), len(actual), false)))
 	}
 	bindings := make([]compilerTypes.Type, open.Generic.Arity)
 	for index := range actual {
@@ -63,15 +62,15 @@ func inferTypeArguments(open *openGenericFunction, actual []compilerTypes.Type, 
 					}
 				}
 			}
-			return nil, diagnosticAt(typeErrorAt(open.Declaration.Name, fmt.Sprintf("conflicting inferred types for generic parameter %s", conflictingLexeme)))
+			return nil, diagnosticAt(messageAt(open.Declaration.Name, diag.ConflictingInferredTypes(conflictingLexeme)))
 		}
 	}
 	for index, binding := range bindings {
 		if binding == (compilerTypes.Type{}) {
-			return nil, diagnosticAt(typeErrorAt(open.Declaration.Name, fmt.Sprintf("cannot infer generic parameter %s for %s", open.Parameters[index].Lexeme, open.Name)))
+			return nil, diagnosticAt(messageAt(open.Declaration.Name, diag.GenericParameterCannotBeInferred(open.Parameters[index].Lexeme, open.Name)))
 		}
 		if compilerTypes.ContainsTypeParameter(binding) {
-			return nil, diagnosticAt(typeErrorAt(open.Declaration.Name, fmt.Sprintf("cannot specialize %s with unresolved type arguments", open.Name)))
+			return nil, diagnosticAt(messageAt(open.Declaration.Name, diag.GenericSpecializationHasUnresolvedArguments(open.Name)))
 		}
 	}
 	return bindings, nil
@@ -225,7 +224,7 @@ func unionTypeMembers(typ compilerTypes.Type) ([]compilerTypes.Type, bool) {
 func checkGenericCall(call parser.CallExpression, bound binding, name string, token lexer.Token, ctx checkContext) checkedExpression {
 	open := bound.genericFunction
 	if open == nil {
-		diagnostic := unknownAt(token, "generic function binding without an open template")
+		diagnostic := unknownAt(token)
 		return checkedExpression{token: token, diagnostic: &diagnostic}
 	}
 	var arguments []compilerTypes.Type
@@ -239,7 +238,7 @@ func checkGenericCall(call parser.CallExpression, bound binding, name string, to
 			arguments = append(arguments, argumentUse.Type)
 		}
 		if len(arguments) != open.Generic.Arity {
-			return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, "explicit generic argument count does not match declaration"))}
+			return checkedExpression{token: token, diagnostic: diagnosticAt(messageAt(token, diag.ExplicitGenericArgumentCountMismatch()))}
 		}
 		// A nested specialization whose own arguments are open type
 		// parameters is substitution-dependent; defer it.
@@ -254,7 +253,7 @@ func checkGenericCall(call parser.CallExpression, bound binding, name string, to
 				return checkedExpression{token: token, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 			}
 			if checked.typ == (compilerTypes.Type{}) {
-				return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, fmt.Sprintf("cannot infer generic parameter for %s", name)))}
+				return checkedExpression{token: token, diagnostic: diagnosticAt(messageAt(token, diag.GenericCallCannotInferParameter(name)))}
 			}
 			argumentTypes = append(argumentTypes, checked.typ)
 		}
@@ -281,7 +280,7 @@ func checkGenericCall(call parser.CallExpression, bound binding, name string, to
 func buildConcreteCall(call parser.CallExpression, specialized FunctionDeclaration, ctx checkContext, token lexer.Token) checkedExpression {
 	signature := specialized.Type.Signature
 	if !aritySatisfied(signature, len(call.Arguments)) {
-		return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, arityDiagnostic(specialized.Name, signature, len(call.Arguments))))}
+		return checkedExpression{token: token, diagnostic: diagnosticAt(messageAt(token, arityDiagnostic(specialized.Name, signature, len(call.Arguments))))}
 	}
 	parameterUses := make([]compilerTypes.TypeUse, 0, len(specialized.Parameters))
 	for _, parameter := range specialized.Parameters {
@@ -326,7 +325,7 @@ func lookupGenericMethod(names *scope, object *compilerTypes.ObjectType, name st
 func checkGenericMethodCall(call parser.CallExpression, callee parser.PropertyExpression, open *openGenericMethod, object *compilerTypes.ObjectType, receiver checkedExpression, ctx checkContext) checkedExpression {
 	receiverArguments := ctx.names.generics.objectArguments[object]
 	if receiverArguments == nil {
-		diagnostic := unknownAt(callee.Property, "generic method call without receiver arguments")
+		diagnostic := unknownAt(callee.Property)
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 	var methodArguments []compilerTypes.Type
@@ -340,7 +339,7 @@ func checkGenericMethodCall(call parser.CallExpression, callee parser.PropertyEx
 			methodArguments = append(methodArguments, argumentUse.Type)
 		}
 		if len(methodArguments) != open.Generic.Arity {
-			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, "explicit generic argument count does not match declaration"))}
+			return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(messageAt(callee.Property, diag.ExplicitGenericArgumentCountMismatch()))}
 		}
 	} else {
 		inferred, diagnostic := inferMethodArguments(open, receiverArguments, call.Arguments, callee.Property, ctx)
@@ -394,10 +393,10 @@ func inferMethodArguments(open *openGenericMethod, receiverArguments []compilerT
 	if rest {
 		fixed--
 		if len(written) < fixed {
-			return nil, diagnosticAt(typeErrorAt(token, fmt.Sprintf("%s expects at least %d arguments; got %d", open.Name, fixed, len(written))))
+			return nil, diagnosticAt(messageAt(token, diag.FunctionArity(open.Name, fixed, len(written), true)))
 		}
 	} else if len(expected) != len(written) {
-		return nil, diagnosticAt(typeErrorAt(token, fmt.Sprintf("%s expects %d arguments; got %d", open.Name, len(expected), len(written))))
+		return nil, diagnosticAt(messageAt(token, diag.FunctionArity(open.Name, len(expected), len(written), false)))
 	}
 	actual := make([]compilerTypes.Type, 0, len(written))
 	for _, argument := range written {
@@ -414,15 +413,15 @@ func inferMethodArguments(open *openGenericMethod, receiverArguments []compilerT
 			expectedIndex = fixed
 		}
 		if !unifyTypes(expected[expectedIndex], actual[index], bindings, open.Generic) {
-			return nil, diagnosticAt(typeErrorAt(token, fmt.Sprintf("conflicting inferred types for generic parameter %s", open.Parameters[expectedIndex].Lexeme)))
+			return nil, diagnosticAt(messageAt(token, diag.ConflictingInferredTypes(open.Parameters[expectedIndex].Lexeme)))
 		}
 	}
 	for index, binding := range bindings {
 		if binding == (compilerTypes.Type{}) {
-			return nil, diagnosticAt(typeErrorAt(token, fmt.Sprintf("cannot infer generic parameter %s for method %s", open.Parameters[index].Lexeme, open.Name)))
+			return nil, diagnosticAt(messageAt(token, diag.GenericMethodParameterCannotBeInferred(open.Parameters[index].Lexeme, open.Name)))
 		}
 		if compilerTypes.ContainsTypeParameter(binding) {
-			return nil, diagnosticAt(typeErrorAt(token, fmt.Sprintf("cannot specialize %s with unresolved type arguments", open.Name)))
+			return nil, diagnosticAt(messageAt(token, diag.GenericSpecializationHasUnresolvedArguments(open.Name)))
 		}
 	}
 	return bindings, nil
@@ -432,7 +431,7 @@ func inferMethodArguments(open *openGenericMethod, receiverArguments []compilerT
 // builds the checked method-call node.
 func buildConcreteMethodCall(call parser.CallExpression, callee parser.PropertyExpression, specialized MethodDeclaration, receiver checkedExpression, ctx checkContext) checkedExpression {
 	if !parameterAritySatisfied(specialized.Parameters, len(call.Arguments)) {
-		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(typeErrorAt(callee.Property, parameterArityDiagnostic(specialized.Name, specialized.Parameters, len(call.Arguments))))}
+		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(messageAt(callee.Property, parameterArityDiagnostic(specialized.Name, specialized.Parameters, len(call.Arguments))))}
 	}
 	adapted, diagnostic := adaptReceiver(receiver, specialized, callee, ctx.typeEnvironment, ctx.names.flow)
 	if diagnostic != nil {

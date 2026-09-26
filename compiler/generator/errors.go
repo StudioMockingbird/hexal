@@ -102,7 +102,7 @@ func hoistTryInStatement(statement checker.Statement, body *strings.Builder, sta
 		// and leaf statements none; nested bodies hoist at their own
 		// statement list.
 	default:
-		return unknownExpressionDiagnostic("unsupported checked statement")
+		return unknownExpressionDiagnostic()
 	}
 	return nil
 }
@@ -134,7 +134,7 @@ type tryArmModel struct {
 // temporary yields the active success value.
 func hoistTry(node checker.Expression, body *strings.Builder, state *expressionValidation, result *compilerTypes.Type, indent string) error {
 	if node.Operand == nil || node.Element == (compilerTypes.Type{}) || node.MemberIndex < 0 {
-		return unknownExpressionDiagnostic("try expression has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	state.tryCounter++
 	temp := fmt.Sprintf("hex_try_%d", state.tryCounter)
@@ -171,7 +171,7 @@ func hoistTry(node checker.Expression, body *strings.Builder, state *expressionV
 	} else {
 		resultErrorIndex = unionMemberIndex(resultType, compilerTypes.ErrorType)
 		if resultErrorIndex < 0 {
-			return unknownExpressionDiagnostic("try result does not accept Error")
+			return unknownExpressionDiagnostic()
 		}
 		if err := renderInto(&builder, "module.c", "tag_test_open", tryGuardModel{Indent: indent, Temp: temp, Tag: state.tags.unionMemberTag(errorMember)}); err != nil {
 			return err
@@ -203,7 +203,7 @@ func hoistTry(node checker.Expression, body *strings.Builder, state *expressionV
 		// Single success member: the try renders as its active payload.
 		successIndex := unionMemberIndex(operandUnion, success)
 		if successIndex < 0 {
-			return unknownExpressionDiagnostic("try success member is missing from its source union")
+			return unknownExpressionDiagnostic()
 		}
 		successSourceMember, _ := operandMembers.At(successIndex)
 		state.hoistedTries[node.Operand] = fmt.Sprintf("%s.payload.%s", temp, state.tags.unionPayloadField(successSourceMember))
@@ -226,7 +226,7 @@ func hoistTry(node checker.Expression, body *strings.Builder, state *expressionV
 	if !compilerTypes.IsError(resultType) {
 		resultErrorIndex = unionMemberIndex(resultType, compilerTypes.ErrorType)
 		if resultErrorIndex < 0 {
-			return unknownExpressionDiagnostic("try result does not accept Error")
+			return unknownExpressionDiagnostic()
 		}
 	}
 	if err := renderInto(&builder, "module.c", "tag_test_open", tryGuardModel{Indent: indent, Temp: temp, Tag: state.tags.unionMemberTag(errorMember)}); err != nil {
@@ -266,7 +266,7 @@ func hoistTry(node checker.Expression, body *strings.Builder, state *expressionV
 		successMember, _ := successMembers.At(index)
 		sourceIndex := unionMemberIndex(operandUnion, successMember)
 		if sourceIndex < 0 {
-			return unknownExpressionDiagnostic("try success member is missing from its source union")
+			return unknownExpressionDiagnostic()
 		}
 		targetSourceMember, _ := operandMembers.At(sourceIndex)
 		if err := renderInto(&builder, "module.c", "case_tag", tryGuardModel{Indent: indent, Tag: state.tags.unionMemberTag(successMember)}); err != nil {
@@ -302,7 +302,7 @@ func hoistTry(node checker.Expression, body *strings.Builder, state *expressionV
 func renderTryExpression(node checker.Expression, state *expressionValidation) (string, error) {
 	name, ok := state.hoistedTries[node.Operand]
 	if !ok {
-		return "", unknownExpressionDiagnostic("try expression reached generation without hoisting")
+		return "", unknownExpressionDiagnostic()
 	}
 	return name, nil
 }
@@ -311,7 +311,7 @@ func renderTryExpression(node checker.Expression, state *expressionValidation) (
 // derived from the receiver's stored kind.
 func renderErrorHeader(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil || !compilerTypes.IsError(node.OperandType) {
-		return "", unknownExpressionDiagnostic("Error.header has invalid checked metadata")
+		return "", unknownExpressionDiagnostic()
 	}
 	receiver, err := renderReceiver(node.Operand, node.OperandType, state)
 	if err != nil {
@@ -324,7 +324,7 @@ func renderErrorHeader(node checker.Expression, state *expressionValidation) (st
 // called directly on a classification value.
 func renderErrorKindHeader(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil || !compilerTypes.IsErrorKind(node.OperandType) {
-		return "", unknownExpressionDiagnostic("ErrorKind.header has invalid checked metadata")
+		return "", unknownExpressionDiagnostic()
 	}
 	receiver, err := renderReceiver(node.Operand, node.OperandType, state)
 	if err != nil {

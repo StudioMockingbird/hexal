@@ -1,9 +1,9 @@
 package checker
 
 import (
-	"fmt"
 	"go/constant"
 
+	diagnosticsPkg "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -14,7 +14,7 @@ import (
 // for HeapAllocation -- the same eligibility Heap.allocate<T> enforces.
 func resolvePoolTypeUse(expression parser.GenericTypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	if len(expression.Arguments) != 1 {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, "Pool requires exactly one element type"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diagnosticsPkg.AllocatorRequiresElementType("Pool")))
 	}
 	elementUse, diagnostic := resolveTypeUse(expression.Arguments[0], fallback, typeEnvironment, generics)
 	if diagnostic != nil {
@@ -22,7 +22,7 @@ func resolvePoolTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 	}
 	pool := typeEnvironment.PoolType(elementUse.Type)
 	if pool == (compilerTypes.Type{}) {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, "Pool element type must be complete, finite, and valid for allocation; got "+elementUse.Type.Name))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diagnosticsPkg.AllocatorElementMustBeAllocatable("Pool", elementUse.Type.Name)))
 	}
 	return compilerTypes.NewTypeUse(pool), nil
 }
@@ -36,18 +36,18 @@ func checkPoolTypeCall(call parser.CallExpression, callee lexer.Token, ctx check
 		return checkedExpression{token: callee, diagnostic: diagnostic}
 	}
 	if len(call.Arguments) != 1 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Pool requires 1 argument (capacity); use Pool<T>(capacity)"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diagnosticsPkg.PoolConstructorUsage()))}
 	}
 	capacity := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.SizeType), tokenOf(call.Arguments[0]), ctx)
 	if diagnostics := initializerDiagnostics(capacity); len(diagnostics) > 0 {
 		return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
 	}
 	if !assignable(compilerTypes.SizeType, capacity.typ) {
-		return checkedExpression{token: capacity.token, diagnostic: diagnosticAt(typeErrorAt(capacity.token, "Pool capacity must be a Size"))}
+		return checkedExpression{token: capacity.token, diagnostic: diagnosticAt(messageAt(capacity.token, diagnosticsPkg.PoolCapacityMustBeSize()))}
 	}
 	if capacity.known != nil && capacity.known.Constant != nil {
 		if value, exact := constant.Uint64Val(capacity.known.Constant); exact && value == 0 {
-			return checkedExpression{token: capacity.token, diagnostic: diagnosticAt(typeErrorAt(capacity.token, "Pool capacity must be positive"))}
+			return checkedExpression{token: capacity.token, diagnostic: diagnosticAt(messageAt(capacity.token, diagnosticsPkg.PoolCapacityMustBePositive()))}
 		}
 	}
 	node := Expression{Kind: PoolConstructorExpression, Operand: &capacity.source.Node, Arguments: []Operand{capacity.source}, OperandType: poolUse.Type, ResultType: poolUse.Type, Element: poolUse.Type.Pool.Element}
@@ -65,22 +65,22 @@ func checkPoolMethodCall(call methodCall) checkedExpression {
 		return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 	}
 	if !hasBuiltinMethod(poolType, name) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Pool has no method "+name+"; use allocate, free, or destroy"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.UnknownPoolMethod(name)))}
 	}
 	switch name {
 	case "allocate":
 		if len(call.call.TypeArguments) != 0 {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Pool allocation accepts no type arguments; its element type is fixed by the receiver"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.FixedElementAllocatorRejectsTypeArguments("Pool")))}
 		}
 		if len(call.call.Arguments) != 1 {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "allocate expects 1 argument"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.AllocationRequiresOneArgument("allocate")))}
 		}
 		initial := checkInitializer(call.call.Arguments[0], compilerTypes.NewTypeUse(element), tokenOf(call.call.Arguments[0]), call.ctx)
 		if diagnostics := initializerDiagnostics(initial); len(diagnostics) > 0 {
 			return checkedExpression{token: tokenOf(call.call.Arguments[0]), diagnostics: diagnostics}
 		}
 		if !assignable(element, initial.typ) {
-			return checkedExpression{token: initial.token, diagnostic: diagnosticAt(typeErrorAt(initial.token, fmt.Sprintf("Pool allocation initializer requires %s; got %s", element.Name, initial.typ.Name)))}
+			return checkedExpression{token: initial.token, diagnostic: diagnosticAt(messageAt(initial.token, diagnosticsPkg.AllocationInitializerType("Pool", element.Name, initial.typ.Name)))}
 		}
 		result := call.ctx.typeEnvironment.MutPtrType(element)
 		node := Expression{Kind: PoolMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, Arguments: []Operand{initial.source}, OperandType: poolType, ResultType: result, Element: element}
@@ -88,14 +88,14 @@ func checkPoolMethodCall(call methodCall) checkedExpression {
 		return checkedExpression{source: source, typ: result, token: call.callee.Property}
 	case "free":
 		if len(call.call.Arguments) != 1 || len(call.call.TypeArguments) != 0 {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "free expects 1 argument (pointer)"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.PoolFreeRequiresPointer()))}
 		}
 		pointer := checkInitializer(call.call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.Type{}), tokenOf(call.call.Arguments[0]), call.ctx)
 		if diagnostics := initializerDiagnostics(pointer); len(diagnostics) > 0 {
 			return checkedExpression{token: tokenOf(call.call.Arguments[0]), diagnostics: diagnostics}
 		}
 		if pointer.typ.Element == nil || !compilerTypes.Equal(*pointer.typ.Element, element) {
-			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(typeErrorAt(pointer.token, fmt.Sprintf("Pool free requires Ptr<%s> or Ptr<mut %s>; got %s", element.Name, element.Name, pointer.typ.Name)))}
+			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(messageAt(pointer.token, diagnosticsPkg.PoolFreePointerType(element.Name, pointer.typ.Name)))}
 		}
 		switch call.ctx.names.flow.allocatorKindOf(receiverVariableBinding(pointer.source)) {
 		case heapAllocator:
@@ -106,7 +106,7 @@ func checkPoolMethodCall(call methodCall) checkedExpression {
 		receiverBinding := receiverVariableBinding(call.receiver.source)
 		if pointerBinding := receiverVariableBinding(pointer.source); pointerBinding != 0 {
 			if source, ok := call.ctx.names.flow.provenance[pointerBinding]; ok && source != 0 && source != receiverBinding {
-				return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(typeErrorAt(pointer.token, "pointer was allocated from a different Pool"))}
+				return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(messageAt(pointer.token, diagnosticsPkg.PoolPointerFromDifferentPool()))}
 			}
 		}
 		if call.ctx.names.cleanupDepth == 0 {
@@ -119,11 +119,11 @@ func checkPoolMethodCall(call methodCall) checkedExpression {
 		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 	case "destroy":
 		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "destroy expects no arguments"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.AllocatorOperationNoArguments("destroy")))}
 		}
 		if call.ctx.names.cleanupDepth == 0 {
 			if call.ctx.names.flow.hasLiveTrackedAllocation(receiverVariableBinding(call.receiver.source)) {
-				return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Pool cannot be destroyed while a locally tracked slot is live"))}
+				return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.PoolHasLiveTrackedSlot()))}
 			}
 			if diagnostic := checkTrackedHeapFreeInState(call.receiver.source, call.callee.Property, call.ctx.names.flow); diagnostic != nil {
 				return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}

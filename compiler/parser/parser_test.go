@@ -177,14 +177,14 @@ func TestParseDeclarationDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"x := 5", "[Syntax Error] ':=' is not a declaration operator; use 'let name = value' at 1:3"},
-		{"x : = 5", "[Syntax Error] ':=' is not a declaration operator; use 'let name = value' at 1:3"},
-		{"x: Int32 := 5", "[Syntax Error] ':=' is not a declaration operator; use 'let name = value' at 1:10"},
-		{"let x := 5", "[Syntax Error] expected a type after ':' in a 'let' declaration at 1:7"},
-		{"let x : = 5", "[Syntax Error] expected a type after ':' in a 'let' declaration at 1:7"},
-		{"let x mut = 1", "[Syntax Error] 'mut' appears only immediately after 'let' in a declaration at 1:7"},
-		{"let x: Int32", "[Syntax Error] expected '=' in a 'let' declaration at 1:13"},
-		{"x: Int32 = 5", "[Syntax Error] declarations require 'let' at 1:1"},
+		{"x := 5", "[Syntax Error syntax.deprecated-colon-equals] ':=' is not a declaration operator; use 'let name = value' at 1:3"},
+		{"x : = 5", "[Syntax Error syntax.deprecated-colon-equals] ':=' is not a declaration operator; use 'let name = value' at 1:3"},
+		{"x: Int32 := 5", "[Syntax Error syntax.deprecated-colon-equals] ':=' is not a declaration operator; use 'let name = value' at 1:10"},
+		{"let x := 5", "[Syntax Error syntax.type-after-colon] expected a type after ':' in a 'let' declaration at 1:7"},
+		{"let x : = 5", "[Syntax Error syntax.type-after-colon] expected a type after ':' in a 'let' declaration at 1:7"},
+		{"let x mut = 1", "[Syntax Error syntax.mut-after-let] 'mut' appears only immediately after 'let' in a declaration at 1:7"},
+		{"let x: Int32", "[Syntax Error syntax.expected-token] expected '=' in a 'let' declaration at 1:13"},
+		{"x: Int32 = 5", "[Syntax Error syntax.declaration-needs-let] declarations require 'let' at 1:1"},
 	} {
 		tokens, err := lexer.Lex("test.hex", testCase.source)
 		if err != nil {
@@ -250,7 +250,7 @@ func TestParseRejectsExpressionSideMut(t *testing.T) {
 			t.Fatalf("Lex(%q) returned an error: %v", testCase.source, err)
 		}
 		_, err = Parse(tokens)
-		want := fmt.Sprintf("[Syntax Error] mut is not valid on the right-hand side; use @value at 1:%d", testCase.column)
+		want := fmt.Sprintf("[Syntax Error syntax.mut-right-hand-side] mut is not valid on the right-hand side; use @value at 1:%d", testCase.column)
 		if err == nil || err.Error() != want {
 			t.Fatalf("Parse(%q) error = %v, want %q", testCase.source, err, want)
 		}
@@ -289,7 +289,7 @@ func TestParseRejectsMissingDottedMemberName(t *testing.T) {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
 	_, err = Parse(tokens)
-	if err == nil || err.Error() != "[Syntax Error] expected an identifier after '.' at 1:22" {
+	if err == nil || err.Error() != "[Syntax Error syntax.expected-token] expected an identifier after '.' at 1:22" {
 		t.Fatalf("Parse error = %v, want missing member-name diagnostic", err)
 	}
 }
@@ -304,7 +304,7 @@ func TestParseReportsExpectedDeclaredTypeValue(t *testing.T) {
 	if err == nil {
 		t.Fatal("Parse accepted a missing initializer")
 	}
-	if got, want := err.Error(), "[Syntax Error] expected a value at 1:16"; got != want {
+	if got, want := err.Error(), "[Syntax Error syntax.expected-value] expected a value at 1:16"; got != want {
 		t.Fatalf("Parse error = %q, want %q", got, want)
 	}
 }

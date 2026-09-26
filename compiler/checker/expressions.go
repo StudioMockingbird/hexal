@@ -1,10 +1,10 @@
 package checker
 
 import (
-	"fmt"
 	"go/constant"
 
 	"hexal/compiler/corelib"
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -82,7 +82,7 @@ func checkInitializerRest(initializer parser.Expression, expectedUse compilerTyp
 		checked.token = fallback
 	}
 	if !allowRestBacked && checked.source.RestBacked && len(initializerDiagnostics(checked)) == 0 {
-		diagnostic := typeErrorAt(checked.token, "rest-backed Slice cannot escape its function invocation")
+		diagnostic := messageAt(checked.token, diag.RestBackedSliceCannotEscape())
 		checked.diagnostics = append(checked.diagnostics, diagnostic)
 		checked.diagnostic = &checked.diagnostics[0]
 	}
@@ -119,12 +119,12 @@ func checkStructConstructorCall(call parser.CallExpression, typeName lexer.Token
 				}
 			}
 			if !ok {
-				return initializerValue{token: typeName, diagnostic: diagnosticAt(typeErrorAt(typeName, fmt.Sprintf("cannot infer generic parameter for %s", typeName.Lexeme)))}
+				return initializerValue{token: typeName, diagnostic: diagnosticAt(messageAt(typeName, diag.GenericCallCannotInferParameter(typeName.Lexeme)))}
 			}
 		}
 	}
 	if !ok {
-		return initializerValue{token: typeName, diagnostic: diagnosticAt(typeErrorAt(typeName, unknownTypeMessage(typeName.Lexeme)))}
+		return initializerValue{token: typeName, diagnostic: diagnosticAt(messageAt(typeName, diag.UnknownType(typeName.Lexeme)))}
 	}
 	return checkObjectConstructorFields(call, typeName, literalType, expectedType, ctx)
 }
@@ -156,13 +156,13 @@ func liveMemberType(memberType compilerTypes.Type, typeEnvironment *compilerType
 // from the target module's exported interface instead).
 func checkObjectConstructorFields(call parser.CallExpression, typeName lexer.Token, literalType compilerTypes.Type, expectedType compilerTypes.Type, ctx checkContext) initializerValue {
 	if literalType.Object == nil {
-		return initializerValue{typ: literalType, token: typeName, diagnostic: diagnosticAt(typeErrorAt(typeName, typeName.Lexeme+" is not a constructible type"))}
+		return initializerValue{typ: literalType, token: typeName, diagnostic: diagnosticAt(messageAt(typeName, diag.TypeIsNotConstructible(typeName.Lexeme)))}
 	}
 	if compilerTypes.ForeignRecordIncomplete(literalType) {
 		return initializerValue{typ: literalType, token: typeName, diagnostic: foreignIncompletePlacementDiagnostic(literalType, typeName, "a construction position")}
 	}
 	if expectedType.Name != "" && !compilerTypes.Assignable(expectedType, literalType) {
-		return initializerValue{typ: literalType, token: typeName, diagnostic: diagnosticAt(typeErrorAt(typeName, fmt.Sprintf("expected %s; got %s", expectedType.Name, literalType.Name)))}
+		return initializerValue{typ: literalType, token: typeName, diagnostic: diagnosticAt(messageAt(typeName, diag.ExpectedTypeGot(expectedType.Name, literalType.Name)))}
 	}
 
 	values := make([]ObjectMemberValue, 0, len(call.Arguments))
@@ -171,16 +171,16 @@ func checkObjectConstructorFields(call parser.CallExpression, typeName lexer.Tok
 	for index, argument := range call.Arguments {
 		label := call.ArgumentLabels[index]
 		if label == nil {
-			diagnostics = append(diagnostics, typeErrorAt(tokenOf(argument), "constructor arguments must be named"))
+			diagnostics = append(diagnostics, messageAt(tokenOf(argument), diag.ConstructorArgumentsMustBeNamed()))
 			continue
 		}
 		member, exists := literalType.Object.Member(label.Lexeme)
 		if !exists {
-			diagnostics = append(diagnostics, typeErrorAt(*label, fmt.Sprintf("%s has no member %s", literalType.Name, label.Lexeme)))
+			diagnostics = append(diagnostics, messageAt(*label, diag.TypeHasNoMember(literalType.Name, label.Lexeme)))
 			continue
 		}
 		if seen[member.Name] {
-			diagnostics = append(diagnostics, typeErrorAt(*label, fmt.Sprintf("%s constructor initializes member %s more than once", literalType.Name, member.Name)))
+			diagnostics = append(diagnostics, messageAt(*label, diag.DuplicateConstructorMember(literalType.Name, member.Name)))
 			continue
 		}
 		seen[member.Name] = true
@@ -207,7 +207,7 @@ func checkObjectConstructorFields(call parser.CallExpression, typeName lexer.Tok
 	for index := range literalType.Object.Members {
 		member := &literalType.Object.Members[index]
 		if !seen[member.Name] {
-			diagnostics = append(diagnostics, typeErrorAt(typeName, fmt.Sprintf("%s constructor is missing member %s", literalType.Name, member.Name)))
+			diagnostics = append(diagnostics, messageAt(typeName, diag.MissingConstructorMember(literalType.Name, member.Name)))
 		}
 	}
 	value := &ObjectValue{Type: literalType, Initializers: values}
@@ -257,7 +257,7 @@ func checkQualifiedTypeConstructorCall(call parser.CallExpression, property lexe
 	}
 	definingCtx, ok := ctx.names.registry.definingContext(target)
 	if !ok {
-		diagnostic := unknownAt(property, "defining module specialization environment is unavailable for "+target)
+		diagnostic := unknownAt(property)
 		return initializerValue{token: property, diagnostic: &diagnostic}, true
 	}
 	var literalType compilerTypes.Type
@@ -285,7 +285,7 @@ func checkQualifiedTypeConstructorCall(call parser.CallExpression, property lexe
 		}
 	}
 	if literalType.Object == nil {
-		diagnostic := typeErrorAt(property, fmt.Sprintf("cannot infer generic parameter for %s", name))
+		diagnostic := messageAt(property, diag.GenericCallCannotInferParameter(name))
 		return initializerValue{token: property, diagnostic: &diagnostic}, true
 	}
 	return checkObjectConstructorFields(call, property, literalType, expectedType, ctx), true
@@ -350,7 +350,7 @@ func checkExpression(expression parser.Expression, context expressionContext, ct
 			(compilerTypes.IsUnion(expected) && compilerTypes.ContainsUnionMember(expected, compilerTypes.Nil)) {
 			return checkedExpression{source: source, typ: compilerTypes.Nil, token: expression.Token, known: &known}
 		}
-		diagnostic := typeErrorAt(expression.Token, "nil requires an expected union containing Nil")
+		diagnostic := messageAt(expression.Token, diag.NilRequiresExpectedNullableUnion())
 		return checkedExpression{token: expression.Token, diagnostic: &diagnostic}
 	case parser.EosLiteral:
 		source := eosOperand(expression.Token.Lexeme)
@@ -361,7 +361,7 @@ func checkExpression(expression parser.Expression, context expressionContext, ct
 	case parser.RawStringLiteral:
 		return checkRawStringLiteral(expression, context.expected.Type)
 	case parser.InterpolationTemplateExpression:
-		diagnostic := typeErrorAt(expression.Start, "string interpolation requires String.interpolate(heap, template)")
+		diagnostic := messageAt(expression.Start, diag.StringInterpolationRequiresAPI())
 		return checkedExpression{token: expression.Start, diagnostic: &diagnostic}
 	case parser.ByteLiteral:
 		return checkByteLiteral(expression)
@@ -407,7 +407,7 @@ func checkExpression(expression parser.Expression, context expressionContext, ct
 		return checkUnionTypeTest(expression, ctx)
 	default:
 		return checkedExpression{
-			diagnostic: diagnosticAt(unknownAt(lexer.Token{Line: 1, Column: 1}, "unsupported expression")),
+			diagnostic: diagnosticAt(unknownAt(lexer.Token{Line: 1, Column: 1})),
 		}
 	}
 }

@@ -23,7 +23,7 @@ var builtinMethodRecord = specdata.Method
 func builtinMethodCallSymbol(owner specdata.TypePattern, name, suffix string) (string, error) {
 	method, ok := builtinMethodRecord(owner, name)
 	if !ok || method.RuntimeSymbol == "" {
-		return "", unknownExpressionDiagnostic("built-in method " + name + " has no recorded runtime symbol")
+		return "", unknownExpressionDiagnostic()
 	}
 	// The registry writes the generator's own %s placeholder exactly where
 	// the generator writes a suffix, so this is a literal substitution, never
@@ -199,10 +199,10 @@ func validateCollectionConstructor(node checker.Expression, expected *compilerTy
 	switch node.Kind {
 	case checker.ListNewExpression:
 		if node.Operand == nil || len(node.Arguments) != 1 || node.ResultType.List == nil || !compilerTypes.Equal(node.Element, node.ResultType.List.Element) || !compilerTypes.IsHeap(node.OperandType) || !supportedGeneratedTypeWithState(node.ResultType, state) {
-			return unknownExpressionDiagnostic("List<T>.new has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("List<T>.new result does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		if err := validateExpressionChildWithState(node.Operand, compilerTypes.Heap, state); err != nil {
 			return err
@@ -210,40 +210,40 @@ func validateCollectionConstructor(node checker.Expression, expected *compilerTy
 		return validateCheckedOperandWithState(node.Arguments[0], state)
 	case checker.DictNewExpression:
 		if node.Operand == nil || len(node.Arguments) != 1 || node.ResultType.Dict == nil || !compilerTypes.Equal(node.Element, node.ResultType.Dict.Value) || !compilerTypes.IsHeap(node.OperandType) || !supportedGeneratedTypeWithState(node.ResultType, state) {
-			return unknownExpressionDiagnostic("Dict<K, V>.new has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("Dict<K, V>.new result does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		if err := validateExpressionChildWithState(node.Operand, compilerTypes.Heap, state); err != nil {
 			return err
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
 	}
-	return unknownExpressionDiagnostic("unsupported collection constructor")
+	return unknownExpressionDiagnostic()
 }
 
 func validateCollectionExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	switch node.Kind {
 	case checker.ArrayLiteralExpression:
 		if node.ResultType.Array == nil || !compilerTypes.Equal(node.OperandType, node.ResultType.Array.Element) || len(node.Arguments) != int(node.ResultType.Array.Length) || !supportedGeneratedTypeWithState(node.ResultType, state) {
-			return unknownExpressionDiagnostic("array literal has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("array literal type does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		for _, element := range node.Arguments {
 			if err := validateCheckedOperandWithState(element, state); err != nil {
 				return err
 			}
 			if !generatedAssignable(node.OperandType, element.Type) {
-				return unknownExpressionDiagnostic("array literal element does not match its element type")
+				return unknownExpressionDiagnostic()
 			}
 		}
 		return nil
 	case checker.IndexExpression:
 		if node.Operand == nil || len(node.Arguments) != 1 || node.OperandType.Array == nil && node.OperandType.Slice == nil && node.OperandType.List == nil || !supportedGeneratedTypeWithState(node.OperandType, state) {
-			return unknownExpressionDiagnostic("index expression has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		var element compilerTypes.Type
 		if node.OperandType.Array != nil {
@@ -254,10 +254,10 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 			element = node.OperandType.List.Element
 		}
 		if !compilerTypes.Equal(node.ResultType, element) {
-			return unknownExpressionDiagnostic("index expression has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("index expression type does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
 			return err
@@ -265,7 +265,7 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 		return validateCheckedOperandWithState(node.Arguments[0], state)
 	case checker.CollectionMethodCallExpression:
 		if node.Operand == nil || node.OperandType.Array == nil && node.OperandType.Slice == nil && node.OperandType.List == nil && node.OperandType.Dict == nil || !supportedGeneratedTypeWithState(node.OperandType, state) {
-			return unknownExpressionDiagnostic("collection method call has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		element := node.Element
 		if node.OperandType.Array != nil {
@@ -282,44 +282,44 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 			// Slice only: the result is the receiver's element pointer, made
 			// nullable, with the receiver's access mode preserved.
 			if node.OperandType.Slice == nil || len(node.Arguments) != 0 {
-				return unknownExpressionDiagnostic("slice pointer call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 			nullable := node.ResultType
 			if !compilerTypes.IsNullable(nullable) || nullable.Element == nil || !compilerTypes.Equal(*nullable.Element, element) {
-				return unknownExpressionDiagnostic("slice pointer call has invalid result type")
+				return unknownExpressionDiagnostic()
 			}
 		case "length":
 			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.SizeType) && !compilerTypes.Equal(node.ResultType, compilerTypes.UInt64) {
-				return unknownExpressionDiagnostic("collection length call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "push":
 			if node.OperandType.List == nil || len(node.Arguments) != 1 || node.ResultType != (compilerTypes.Type{}) {
-				return unknownExpressionDiagnostic("list push call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 			if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
 				return err
 			}
 		case "clear":
 			if node.OperandType.List == nil || len(node.Arguments) != 0 || node.ResultType != (compilerTypes.Type{}) {
-				return unknownExpressionDiagnostic("list clear call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "pop":
 			if node.OperandType.List == nil || len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, element) {
-				return unknownExpressionDiagnostic("list pop call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "free":
 			if len(node.Arguments) != 1 || node.ResultType != (compilerTypes.Type{}) || node.OperandType.List == nil && node.OperandType.Dict == nil {
-				return unknownExpressionDiagnostic("collection free call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 			if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
 				return err
 			}
 			if expected != nil {
-				return unknownExpressionDiagnostic("collection free produces no value")
+				return unknownExpressionDiagnostic()
 			}
 		case "insert":
 			if node.OperandType.Dict == nil || len(node.Arguments) != 2 || node.ResultType != (compilerTypes.Type{}) {
-				return unknownExpressionDiagnostic("dictionary insert call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 			for _, argument := range node.Arguments {
 				if err := validateCheckedOperandWithState(argument, state); err != nil {
@@ -328,35 +328,35 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 			}
 		case "get", "remove":
 			if node.OperandType.Dict == nil || len(node.Arguments) != 1 || !compilerTypes.Equal(node.ResultType, element) {
-				return unknownExpressionDiagnostic("dictionary lookup call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 			if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
 				return err
 			}
 		case "find":
 			if node.OperandType.Dict == nil || len(node.Arguments) != 1 || !compilerTypes.IsUnion(node.ResultType) || !compilerTypes.ContainsUnionMember(node.ResultType, compilerTypes.Nil) || !findValueFitsResult(element, node.ResultType) {
-				return unknownExpressionDiagnostic("dictionary find call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 			if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
 				return err
 			}
 		case "contains":
 			if node.OperandType.Dict == nil || len(node.Arguments) != 1 || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) {
-				return unknownExpressionDiagnostic("dictionary contains call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 			if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
 				return err
 			}
 		default:
-			return unknownExpressionDiagnostic("unknown collection method")
+			return unknownExpressionDiagnostic()
 		}
 		if node.Name != "free" && node.Name != "insert" && expected != nil && !compilerTypes.Equal(*expected, node.ResultType) && !compilerTypes.Assignable(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("collection method result does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.CollectionSliceExpression:
 		if node.Operand == nil || len(node.Arguments) != 2 || node.ResultType.Slice == nil || !compilerTypes.Equal(node.ResultType.Slice.Element, node.Element) || node.OperandType.Array == nil && node.OperandType.Slice == nil && node.OperandType.List == nil || !supportedGeneratedTypeWithState(node.OperandType, state) || !supportedGeneratedTypeWithState(node.ResultType, state) {
-			return unknownExpressionDiagnostic("collection slice has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		var element compilerTypes.Type
 		if node.OperandType.Array != nil {
@@ -367,10 +367,10 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 			element = node.OperandType.List.Element
 		}
 		if !compilerTypes.Equal(node.Element, element) {
-			return unknownExpressionDiagnostic("collection slice element does not match its receiver")
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("collection slice result does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
 			return err
@@ -382,7 +382,7 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 		}
 		return nil
 	}
-	return unknownExpressionDiagnostic("unsupported collection expression")
+	return unknownExpressionDiagnostic()
 }
 
 func findValueFitsResult(value, result compilerTypes.Type) bool {
@@ -402,7 +402,7 @@ func renderCollectionConstructor(node checker.Expression, state *expressionValid
 	switch node.Kind {
 	case checker.ListNewExpression:
 		if node.Operand == nil || len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("List<T>.new without a checked heap")
+			return "", unknownExpressionDiagnostic()
 		}
 		heap, _, heapErr := renderExpressionNodeWithExpectedState(*node.Operand, &compilerTypes.Heap, state)
 		if heapErr != nil {
@@ -411,7 +411,7 @@ func renderCollectionConstructor(node checker.Expression, state *expressionValid
 		return "hex_list_new_" + listSuffix(node.ResultType) + "(" + heap + ")", nil
 	case checker.DictNewExpression:
 		if node.Operand == nil || len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("Dict<K, V>.new without a checked heap")
+			return "", unknownExpressionDiagnostic()
 		}
 		heap, _, heapErr := renderExpressionNodeWithExpectedState(*node.Operand, &compilerTypes.Heap, state)
 		if heapErr != nil {
@@ -419,7 +419,7 @@ func renderCollectionConstructor(node checker.Expression, state *expressionValid
 		}
 		return "hex_dict_new_" + dictSuffix(node.ResultType) + "(" + heap + ")", nil
 	}
-	return "", unknownExpressionDiagnostic("unsupported collection constructor")
+	return "", unknownExpressionDiagnostic()
 }
 
 func renderCollectionExpression(node checker.Expression, state *expressionValidation) (string, error) {
@@ -459,7 +459,7 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 		return "*" + arrayAccessorCName(node.OperandType, place.writable) + "(&" + receiver + ", (size_t)(" + index + "))", nil
 	case checker.ArrayLiteralExpression:
 		if node.ResultType.Array == nil {
-			return "", unknownExpressionDiagnostic("array literal without a checked array type")
+			return "", unknownExpressionDiagnostic()
 		}
 		elements := make([]string, len(node.Arguments))
 		for index, element := range node.Arguments {
@@ -476,7 +476,7 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 		switch node.Name {
 		case "pointer":
 			if node.Operand == nil || node.OperandType.Slice == nil {
-				return "", unknownExpressionDiagnostic("slice pointer without a checked slice receiver")
+				return "", unknownExpressionDiagnostic()
 			}
 			receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
 			if receiverErr != nil {
@@ -501,7 +501,7 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 			return "(" + receiver + ").length", nil
 		case "push", "clear", "pop":
 			if node.Operand == nil || node.OperandType.List == nil {
-				return "", unknownExpressionDiagnostic("list mutation without a checked list receiver")
+				return "", unknownExpressionDiagnostic()
 			}
 			receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
 			if receiverErr != nil {
@@ -515,7 +515,7 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 			switch node.Name {
 			case "push":
 				if len(node.Arguments) != 1 {
-					return "", unknownExpressionDiagnostic("list push without a checked value")
+					return "", unknownExpressionDiagnostic()
 				}
 				value, valueErr := renderOperandWithState(node.Arguments[0], state)
 				if valueErr != nil {
@@ -529,7 +529,7 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 			}
 		case "free":
 			if node.Operand == nil || len(node.Arguments) != 1 {
-				return "", unknownExpressionDiagnostic("collection free without a checked heap")
+				return "", unknownExpressionDiagnostic()
 			}
 			receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
 			if receiverErr != nil {
@@ -553,10 +553,10 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 				}
 				return symbol + "(" + heap + ", " + receiver + ")", nil
 			}
-			return "", unknownExpressionDiagnostic("collection free without a list or dictionary receiver")
+			return "", unknownExpressionDiagnostic()
 		case "insert", "get", "find", "contains", "remove":
 			if node.Operand == nil || node.OperandType.Dict == nil {
-				return "", unknownExpressionDiagnostic("dictionary operation without a checked dictionary receiver")
+				return "", unknownExpressionDiagnostic()
 			}
 			receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
 			if receiverErr != nil {
@@ -566,7 +566,7 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 			switch node.Name {
 			case "insert":
 				if len(node.Arguments) != 2 {
-					return "", unknownExpressionDiagnostic("dictionary insert without checked operands")
+					return "", unknownExpressionDiagnostic()
 				}
 				key, keyErr := renderOperandWithState(node.Arguments[0], state)
 				if keyErr != nil {
@@ -583,7 +583,7 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 				return symbol + "(" + receiver + ", " + key + ", " + value + ")", nil
 			case "get", "remove":
 				if len(node.Arguments) != 1 {
-					return "", unknownExpressionDiagnostic("dictionary lookup without a checked key")
+					return "", unknownExpressionDiagnostic()
 				}
 				key, keyErr := renderOperandWithState(node.Arguments[0], state)
 				if keyErr != nil {
@@ -598,7 +598,7 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 				return renderDictFindExpression(node, state)
 			case "contains":
 				if len(node.Arguments) != 1 {
-					return "", unknownExpressionDiagnostic("dictionary contains without a checked key")
+					return "", unknownExpressionDiagnostic()
 				}
 				key, keyErr := renderOperandWithState(node.Arguments[0], state)
 				if keyErr != nil {
@@ -611,10 +611,10 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 				return symbol + "(" + receiver + ", " + key + ")", nil
 			}
 		}
-		return "", unknownExpressionDiagnostic("unknown collection method")
+		return "", unknownExpressionDiagnostic()
 	case checker.CollectionSliceExpression:
 		if node.Operand == nil || len(node.Arguments) != 2 {
-			return "", unknownExpressionDiagnostic("collection slice without checked bounds")
+			return "", unknownExpressionDiagnostic()
 		}
 		receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
 		if receiverErr != nil {
@@ -655,7 +655,7 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 		}
 		return symbol + "(&" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
 	}
-	return "", unknownExpressionDiagnostic("unsupported collection expression")
+	return "", unknownExpressionDiagnostic()
 }
 
 // collectionsNeedSlice reports whether any reachable Array or List

@@ -1,9 +1,9 @@
 package checker
 
 import (
-	"fmt"
 	"go/constant"
 
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	"hexal/compiler/span"
@@ -103,7 +103,7 @@ func trackedReleaseTarget(node Expression) (Operand, bool) {
 // canonical constructor.
 func checkHeapTypeCall(call parser.CallExpression, token parser.VariableExpression, ctx checkContext) checkedExpression {
 	if len(call.Arguments) != 0 {
-		return checkedExpression{token: token.Name, diagnostic: diagnosticAt(typeErrorAt(token.Name, "Heap takes no arguments; use Heap()"))}
+		return checkedExpression{token: token.Name, diagnostic: diagnosticAt(messageAt(token.Name, diag.HeapConstructorNoArguments()))}
 	}
 	source := constantOperand(compilerTypes.Heap, nil, "")
 	source.Node = constantNode(source)
@@ -114,14 +114,13 @@ func checkHeapTypeCall(call parser.CallExpression, token parser.VariableExpressi
 // HeapAllocateExpression returning Ptr<mut T>.
 func checkHeapAllocate(call methodCall) checkedExpression {
 	if len(call.call.Arguments) != 1 {
-		message := "allocation requires an explicit initializer"
-		if len(call.call.Arguments) > 1 {
-			message = "allocate expects 1 argument; got " + fmt.Sprint(len(call.call.Arguments))
+		if len(call.call.Arguments) == 0 {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.AllocationInitializerRequired()))}
 		}
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, message))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.AllocateArgumentCount(len(call.call.Arguments))))}
 	}
 	if len(call.call.TypeArguments) != 1 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "allocate requires exactly one type argument"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.AllocateTypeArgumentCount()))}
 	}
 	elementUse, diagnostic := resolveTypeUse(call.call.TypeArguments[0], call.callee.Property, call.ctx.typeEnvironment, call.ctx.names.generics)
 	if diagnostic != nil {
@@ -129,14 +128,14 @@ func checkHeapAllocate(call methodCall) checkedExpression {
 	}
 	element := elementUse.Type
 	if !compilerTypes.Eligible(element, compilerTypes.PositionHeapAllocation) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "allocation requires a complete finite type"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.AllocationTypeIncomplete()))}
 	}
 	initial := checkInitializer(call.call.Arguments[0], elementUse, call.callee.Property, call.ctx)
 	if diagnostics := initializerDiagnostics(initial); len(diagnostics) > 0 {
 		return checkedExpression{token: call.callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
 	if initial.typ != (compilerTypes.Type{}) && !assignable(element, initial.typ) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, fmt.Sprintf("allocation initializer requires %s; got %s", element.Name, initial.typ.Name)))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.AllocationInitializerMismatch(element.Name, initial.typ.Name)))}
 	}
 	receiverNode := expressionNode(call.receiver.source)
 	result := call.ctx.typeEnvironment.MutPtrType(element)
@@ -158,10 +157,10 @@ func checkHeapAllocate(call methodCall) checkedExpression {
 // alignment, which the target C compiler owns.
 func checkHeapAllocateAligned(call methodCall) checkedExpression {
 	if len(call.call.Arguments) != 2 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "allocate_aligned expects 2 arguments (initial, alignment)"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.AlignedAllocationArgumentCount()))}
 	}
 	if len(call.call.TypeArguments) != 1 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "allocate_aligned requires exactly one type argument"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.AlignedAllocationTypeArgumentCount()))}
 	}
 	elementUse, diagnostic := resolveTypeUse(call.call.TypeArguments[0], call.callee.Property, call.ctx.typeEnvironment, call.ctx.names.generics)
 	if diagnostic != nil {
@@ -169,27 +168,27 @@ func checkHeapAllocateAligned(call methodCall) checkedExpression {
 	}
 	element := elementUse.Type
 	if !compilerTypes.Eligible(element, compilerTypes.PositionHeapAllocation) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "allocation requires a complete finite type"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.AllocationTypeIncomplete()))}
 	}
 	initial := checkInitializer(call.call.Arguments[0], elementUse, call.callee.Property, call.ctx)
 	if diagnostics := initializerDiagnostics(initial); len(diagnostics) > 0 {
 		return checkedExpression{token: call.callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
 	if initial.typ != (compilerTypes.Type{}) && !assignable(element, initial.typ) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, fmt.Sprintf("allocation initializer requires %s; got %s", element.Name, initial.typ.Name)))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.AllocationInitializerMismatch(element.Name, initial.typ.Name)))}
 	}
 	alignment := checkInitializer(call.call.Arguments[1], compilerTypes.NewTypeUse(compilerTypes.SizeType), tokenOf(call.call.Arguments[1]), call.ctx)
 	if diagnostics := initializerDiagnostics(alignment); len(diagnostics) > 0 {
 		return checkedExpression{token: tokenOf(call.call.Arguments[1]), diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
 	if !assignable(compilerTypes.SizeType, alignment.typ) {
-		return checkedExpression{token: alignment.token, diagnostic: diagnosticAt(typeErrorAt(alignment.token, fmt.Sprintf("allocate_aligned requires Size; got %s", alignment.typ.Name)))}
+		return checkedExpression{token: alignment.token, diagnostic: diagnosticAt(messageAt(alignment.token, diag.AlignedAllocationAlignmentType(alignment.typ.Name)))}
 	}
 	// A compile-time-known alignment is decided here; a dynamic one is
 	// validated by the allocation primitive before it reaches mimalloc.
 	if alignment.known != nil && alignment.known.Constant != nil {
 		if value, exact := constant.Uint64Val(alignment.known.Constant); exact && (value == 0 || value&(value-1) != 0) {
-			return checkedExpression{token: alignment.token, diagnostic: diagnosticAt(typeErrorAt(alignment.token, fmt.Sprintf("alignment must be a non-zero power of two; got %d", value)))}
+			return checkedExpression{token: alignment.token, diagnostic: diagnosticAt(messageAt(alignment.token, diag.InvalidAllocationAlignment(value)))}
 		}
 	}
 	receiverNode := expressionNode(call.receiver.source)
@@ -210,14 +209,14 @@ func checkHeapAllocateAligned(call methodCall) checkedExpression {
 // HeapFreeExpression. The value may be Ptr<T> or Ptr<mut T>.
 func checkHeapFree(call methodCall) checkedExpression {
 	if len(call.call.Arguments) != 1 || len(call.call.TypeArguments) != 0 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "free expects exactly one pointer argument"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.HeapFreeArgumentCount()))}
 	}
 	value := checkInitializer(call.call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.Type{}), call.callee.Property, call.ctx)
 	if diagnostics := initializerDiagnostics(value); len(diagnostics) > 0 {
 		return checkedExpression{token: call.callee.Property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
 	if value.typ.Element == nil {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "value is not an allocation produced by this Heap"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.HeapFreeNonAllocation()))}
 	}
 	if nodeTracesToRef(&value.source.Node, call.ctx.names) {
 		diagnostic := freeLocalStorageDiagnostic(call.callee.Property)
@@ -309,7 +308,7 @@ func validateDeferredActions(names *scope, normal bool) compilerTypes.Diagnostic
 	seen := make(map[diagnosticKey]bool)
 	appendUnique := func(actions []DeferredAction, state *flowState) {
 		for _, diagnostic := range validateDeferredActionsInState(actions, state, names.table) {
-			key := diagnosticKey{line: diagnostic.Position.Line, column: diagnostic.Position.Column, message: diagnostic.Message}
+			key := diagnosticKey{line: diagnostic.Position.Line, column: diagnostic.Position.Column, message: diagnostic.Message.Text()}
 			if seen[key] {
 				continue
 			}

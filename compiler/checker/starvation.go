@@ -175,7 +175,7 @@ func (scanner *starvationScanner) diagnoseStatements(statements []Statement) {
 		case WhileStatement:
 			if isLiteralTrue(statement.Condition, statement.ConditionKnown) && loopMayRepeatWithoutYield(statement.Body) {
 				token := tokenAt(scanner.table, statement.Span)
-				scanner.diagnostics = append(scanner.diagnostics, semanticErrorAt(token, "while true loop must execute Task.yield() on every repeating path"))
+				scanner.diagnostics = append(scanner.diagnostics, loopMustYieldDiagnostic(token))
 			}
 			scanner.diagnoseStatements(statement.Body)
 		case IfStatement:

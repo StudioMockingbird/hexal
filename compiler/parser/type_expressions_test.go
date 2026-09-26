@@ -294,7 +294,7 @@ func TestParseRejectsMutOutsidePtrAndSlice(t *testing.T) {
 		t.Fatalf("Lex returned an error: %v", err)
 	}
 	_, err = Parse(tokens)
-	if err == nil || err.Error() != "[Syntax Error] mut is only allowed immediately inside Ptr<...> or Slice<...> at 1:8" {
+	if err == nil || err.Error() != "[Syntax Error syntax.mut-inside-ptr] mut is only allowed immediately inside Ptr<...> or Slice<...> at 1:8" {
 		t.Fatalf("Parse error = %v, want focused mut-placement diagnostic", err)
 	}
 }

@@ -65,7 +65,7 @@ func TestGenerateCheckedFailsClosedForUnknownExpression(t *testing.T) {
 		},
 	}}
 	_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{SourceTable: testSpanTable})
-	if err == nil || !strings.Contains(err.Error(), "[Unknown Error]") {
+	if err == nil || !strings.Contains(err.Error(), "[Unknown Error ") {
 		t.Fatalf("GenerateChecked error = %v, want structured Unknown Error", err)
 	}
 }
@@ -266,7 +266,7 @@ func TestWriteStatementsRejectsNestedDeclarationsInModuleBlocks(t *testing.T) {
 func TestGenerateCheckedFailsClosedForUnknownTypeDeclaration(t *testing.T) {
 	program := checker.Program{TypeDeclarations: []checker.TypeDeclaration{{Name: "Alias"}}}
 	_, err := GenerateChecked(appModuleGraph(), map[string]checker.Program{"app.hex": program}, Config{SourceTable: testSpanTable})
-	if err == nil || !strings.Contains(err.Error(), "[Unknown Error]") {
+	if err == nil || !strings.Contains(err.Error(), "[Unknown Error ") {
 		t.Fatalf("GenerateChecked error = %v, want structured Unknown Error", err)
 	}
 }
@@ -302,7 +302,7 @@ func TestGenerateCheckedRejectsForgedTopLevelScalarMetadata(t *testing.T) {
 			t.Errorf("case %d error = %T %v, want compilerTypes.Diagnostic", index, err, err)
 			continue
 		}
-		if diagnostic.Category != compilerTypes.UnknownError || diagnostic.Stage != "generator" {
+		if diagnostic.Message.Category() != compilerTypes.UnknownError || diagnostic.Message.Stage() != "generator" {
 			t.Errorf("case %d diagnostic = %#v, want generator Unknown Error", index, diagnostic)
 		}
 		if rootC != "" || rootH != "" {

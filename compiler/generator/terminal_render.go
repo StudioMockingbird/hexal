@@ -27,7 +27,7 @@ func renderTerminalExpression(node checker.Expression, state *expressionValidati
 		}
 		return fmt.Sprintf("hex_terminal_size_%s(%s, %s)", suffix, stream, site), nil
 	}
-	return "", unknownExpressionDiagnostic("unknown terminal operation " + node.Name)
+	return "", unknownExpressionDiagnostic()
 }
 
 // validateTerminalExpression checks one Terminal operation fail-closed: a
@@ -36,13 +36,13 @@ func validateTerminalExpression(node checker.Expression, state *expressionValida
 	switch node.Name {
 	case "terminal_is_attached", "terminal_size":
 	default:
-		return unknownExpressionDiagnostic("unknown terminal operation " + node.Name)
+		return unknownExpressionDiagnostic()
 	}
 	if len(node.Arguments) != 1 {
-		return unknownExpressionDiagnostic("terminal operation has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	if node.Operand != nil {
-		return unknownExpressionDiagnostic("terminal static operation has an unexpected checked receiver")
+		return unknownExpressionDiagnostic()
 	}
 	for _, argument := range node.Arguments {
 		if err := validateCheckedOperandWithState(argument, state); err != nil {

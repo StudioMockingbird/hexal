@@ -1,8 +1,7 @@
 package checker
 
 import (
-	"fmt"
-
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -38,10 +37,10 @@ func endianEligibleType(typ compilerTypes.Type) bool {
 // source and destination must be same-width eligible scalars.
 func checkBitCastCall(call methodCall) checkedExpression {
 	if len(call.call.TypeArguments) != 1 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "bit_cast requires exactly 1 explicit type argument"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.BitCastTypeArgumentCount()))}
 	}
 	if len(call.call.Arguments) != 0 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "bit_cast accepts no value arguments"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.BitCastValueArgumentCount()))}
 	}
 	targetUse, diagnostic := resolveTypeUse(call.call.TypeArguments[0], call.call.OpenParen, call.ctx.typeEnvironment, call.ctx.names.generics)
 	if diagnostic != nil {
@@ -49,10 +48,10 @@ func checkBitCastCall(call methodCall) checkedExpression {
 	}
 	target := targetUse.Type
 	if !bitCastEligibleType(call.receiver.typ) || !bitCastEligibleType(target) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "bit_cast requires equal-width eligible scalar types; got "+call.receiver.typ.Name+" and "+target.Name))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.BitCastIneligibleTypes(call.receiver.typ.Name, target.Name)))}
 	}
 	if call.receiver.typ.Bits != target.Bits {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, fmt.Sprintf("bit_cast requires equal-width eligible scalar types; got %s and %s", call.receiver.typ.Name, target.Name)))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.BitCastWidthMismatch(call.receiver.typ.Name, target.Name)))}
 	}
 	node := Expression{Kind: BitCastExpression, Operand: &call.receiver.source.Node, OperandType: call.receiver.typ, ResultType: target}
 	source := Operand{Kind: ExpressionOperand, Type: target, Name: "bit_cast", Node: node}
@@ -63,14 +62,14 @@ func checkBitCastCall(call methodCall) checkedExpression {
 // `value.to_be_bytes()`. The result is Array<Byte, width / 8>.
 func checkEndianToBytesCall(call methodCall) checkedExpression {
 	if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, call.callee.Property.Lexeme+" takes no arguments"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.EndianConversionNoArguments(call.callee.Property.Lexeme)))}
 	}
 	if !endianEligibleType(call.receiver.typ) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, call.callee.Property.Lexeme+" requires a fixed-width integer receiver; got "+call.receiver.typ.Name))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.EndianConversionInvalidReceiver(call.callee.Property.Lexeme, call.receiver.typ.Name)))}
 	}
 	array := call.ctx.typeEnvironment.ArrayType(compilerTypes.UInt8, uint64(call.receiver.typ.Bits/8))
 	if array == (compilerTypes.Type{}) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property, "could not construct the endian byte array type"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property))}
 	}
 	memberIndex := 0
 	if call.callee.Property.Lexeme == "to_be_bytes" {
@@ -88,21 +87,21 @@ func checkEndianFromBytesCall(call parser.CallExpression, callee lexer.Token, ct
 	property := call.Callee.(parser.PropertyExpression).Property
 	integerType, ok := ctx.typeEnvironment.Lookup(callee.Lexeme)
 	if !ok || !endianEligibleType(integerType) {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, callee.Lexeme+" has no such operation; from_le_bytes and from_be_bytes require a fixed-width integer type"))}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.EndianFromBytesInvalidType(callee.Lexeme)))}
 	}
 	if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, property.Lexeme+" expects exactly 1 argument"))}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.EndianFromBytesArgumentCount(property.Lexeme)))}
 	}
 	array := ctx.typeEnvironment.ArrayType(compilerTypes.UInt8, uint64(integerType.Bits/8))
 	if array == (compilerTypes.Type{}) {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property, "could not construct the endian byte array type"))}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property))}
 	}
 	bytes := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(array), tokenOf(call.Arguments[0]), ctx)
 	if diagnostics := initializerDiagnostics(bytes); len(diagnostics) > 0 {
 		return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
 	}
 	if !compilerTypes.Equal(bytes.typ, array) {
-		return checkedExpression{token: bytes.token, diagnostic: diagnosticAt(typeErrorAt(bytes.token, fmt.Sprintf("%s.from_%s expects Array<Byte, %d>; got %s", callee.Lexeme, endianOrderName(property.Lexeme), integerType.Bits/8, bytes.typ.Name)))}
+		return checkedExpression{token: bytes.token, diagnostic: diagnosticAt(messageAt(bytes.token, diag.EndianFromBytesTypeMismatch(callee.Lexeme, endianOrderName(property.Lexeme), integerType.Bits/8, bytes.typ.Name)))}
 	}
 	memberIndex := 0
 	if property.Lexeme == "from_be_bytes" {

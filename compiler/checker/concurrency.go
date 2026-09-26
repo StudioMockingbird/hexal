@@ -1,10 +1,10 @@
 package checker
 
 import (
-	"fmt"
 	"go/constant"
 
 	"hexal/compiler/corelib"
+	diagnosticsPkg "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -16,7 +16,7 @@ import (
 // resolveTaskTypeUse resolves Task<R>.
 func resolveTaskTypeUse(expression parser.GenericTypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	if len(expression.Arguments) != 1 {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, "Task requires exactly one result type"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diagnosticsPkg.TaskRequiresOneResultType()))
 	}
 	resultUse, diagnostic := resolveTypeUse(expression.Arguments[0], fallback, typeEnvironment, generics)
 	if diagnostic != nil {
@@ -24,7 +24,7 @@ func resolveTaskTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 	}
 	task := typeEnvironment.TaskType(resultUse.Type)
 	if task == (compilerTypes.Type{}) {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, "Task result type must be complete and shallow-copyable; got "+resultUse.Type.Name))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diagnosticsPkg.TaskResultNotCopyable(resultUse.Type.Name)))
 	}
 	return compilerTypes.NewTypeUse(task), nil
 }
@@ -32,7 +32,7 @@ func resolveTaskTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 // resolveChannelTypeUse resolves Channel<T>.
 func resolveChannelTypeUse(expression parser.GenericTypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	if len(expression.Arguments) != 1 {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, "Channel requires exactly one element type"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diagnosticsPkg.ChannelRequiresOneElementType()))
 	}
 	elementUse, diagnostic := resolveTypeUse(expression.Arguments[0], fallback, typeEnvironment, generics)
 	if diagnostic != nil {
@@ -40,14 +40,14 @@ func resolveChannelTypeUse(expression parser.GenericTypeExpression, fallback lex
 	}
 	element := elementUse.Type
 	if compilerTypes.IsEoS(element) || compilerTypes.UnionContainsEoS(element) {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, "Channel element cannot be or include EoS as a top-level member"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diagnosticsPkg.ChannelCannotCarryEOS()))
 	}
 	if compilerTypes.ContainsAtomic(element) {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, "Channel element contains a non-copyable Atomic value"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diagnosticsPkg.ChannelContainsNonCopyableAtomic()))
 	}
 	channel := typeEnvironment.ChannelType(element)
 	if channel == (compilerTypes.Type{}) {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, "Channel element must be complete and shallow-copyable; got "+element.Name))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diagnosticsPkg.ChannelElementNotCopyable(element.Name)))
 	}
 	return compilerTypes.NewTypeUse(channel), nil
 }
@@ -55,7 +55,7 @@ func resolveChannelTypeUse(expression parser.GenericTypeExpression, fallback lex
 // resolveAtomicTypeUse resolves Atomic<T>.
 func resolveAtomicTypeUse(expression parser.GenericTypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	if len(expression.Arguments) != 1 {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, "Atomic requires exactly one element type"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diagnosticsPkg.AtomicRequiresOneElementType()))
 	}
 	elementUse, diagnostic := resolveTypeUse(expression.Arguments[0], fallback, typeEnvironment, generics)
 	if diagnostic != nil {
@@ -63,7 +63,7 @@ func resolveAtomicTypeUse(expression parser.GenericTypeExpression, fallback lexe
 	}
 	atomic := typeEnvironment.AtomicType(elementUse.Type)
 	if atomic == (compilerTypes.Type{}) {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, "Atomic element type is not supported; use Bool, Int32, UInt32, Int64, UInt64, or Size"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diagnosticsPkg.AtomicElementTypeUnsupported()))
 	}
 	return compilerTypes.NewTypeUse(atomic), nil
 }
@@ -72,36 +72,36 @@ func resolveAtomicTypeUse(expression parser.GenericTypeExpression, fallback lexe
 // named function whose execution becomes a new Task<R>.
 func checkSpawnExpression(expression parser.SpawnExpression, ctx checkContext) checkedExpression {
 	if ctx.names.cleanupDepth > 0 {
-		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "spawn is not permitted inside defer or errdefer"))}
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(messageAt(expression.Keyword, diagnosticsPkg.SpawnForbiddenDuringCleanup()))}
 	}
 	call, ok := expression.Operand.(parser.CallExpression)
 	if !ok {
-		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "spawn requires a direct call to a named function"))}
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(messageAt(expression.Keyword, diagnosticsPkg.SpawnRequiresNamedFunctionCall()))}
 	}
 	if _, isProperty := call.Callee.(parser.PropertyExpression); isProperty {
-		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "spawn requires a direct call to a named function"))}
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(messageAt(expression.Keyword, diagnosticsPkg.SpawnRequiresNamedFunctionCall()))}
 	}
 	checked := checkCallValue(call, compilerTypes.Type{}, ctx)
 	if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 		if checked.typ == (compilerTypes.Type{}) {
 			// A no-result callee cannot form a Task<R>, and Hexal does not
 			// manufacture a hidden unit value for it.
-			return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "spawn requires a function with a result"))}
+			return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(messageAt(expression.Keyword, diagnosticsPkg.SpawnFunctionRequiresResult()))}
 		}
 		return checkedExpression{token: expression.Keyword, diagnostics: diagnostics}
 	}
 	if checked.source.Node.Kind != CallExpression || checked.source.Node.Operand == nil || checked.source.Node.Operand.Kind != FunctionReferenceExpression {
-		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "spawn requires a direct call to a named function"))}
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(messageAt(expression.Keyword, diagnosticsPkg.SpawnRequiresNamedFunctionCall()))}
 	}
 	if ctx.names.envDependent[checked.source.Node.Operand.Name] {
-		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "function "+checked.source.Node.Operand.Name+" uses the entry environment and is valid only as a direct entry-module call"))}
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(messageAt(expression.Keyword, diagnosticsPkg.SpawnEntryEnvironmentFunction(checked.source.Node.Operand.Name)))}
 	}
 	// Spawn arguments are copied into the task frame and then into the entry
 	// function, so each argument must be eligible in both positions.
 	for _, argument := range checked.source.Node.Arguments {
 		if !compilerTypes.Eligible(argument.Type, compilerTypes.PositionTaskArgument) ||
 			!compilerTypes.Eligible(argument.Type, compilerTypes.PositionFunctionParam) {
-			return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "task entry arguments must be complete and shallow-copyable"))}
+			return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(messageAt(expression.Keyword, diagnosticsPkg.TaskEntryArgumentsNotCopyable()))}
 		}
 	}
 	resultType := checked.typ
@@ -112,11 +112,11 @@ func checkSpawnExpression(expression parser.SpawnExpression, ctx checkContext) c
 	// task frame, so it must be eligible in both positions.
 	if !compilerTypes.Eligible(resultType, compilerTypes.PositionFunctionResult) ||
 		!compilerTypes.Eligible(resultType, compilerTypes.PositionTaskResult) {
-		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "Task result type must be complete and shallow-copyable"))}
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(messageAt(expression.Keyword, diagnosticsPkg.TaskResultMustBeCopyable()))}
 	}
 	task := ctx.typeEnvironment.TaskType(resultType)
 	if task == (compilerTypes.Type{}) {
-		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(typeErrorAt(expression.Keyword, "Task result type must be complete and shallow-copyable"))}
+		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(messageAt(expression.Keyword, diagnosticsPkg.TaskResultMustBeCopyable()))}
 	}
 	spawnError := ctx.typeEnvironment.UnionType([]compilerTypes.Type{task, compilerTypes.ErrorType})
 	node := Expression{Kind: SpawnExpression, Operand: &checked.source.Node, OperandType: task, ResultType: spawnError, Element: resultType, Span: expression.Keyword.Span}
@@ -129,15 +129,15 @@ func checkTaskTypeCall(call parser.CallExpression, callee lexer.Token, ctx check
 	property := call.Callee.(parser.PropertyExpression).Property
 	if property.Lexeme == "sleep" {
 		if hint, moved := corelib.OperationHint("Task", "sleep"); moved {
-			diagnostic := nameErrorAt(callee, hint)
+			diagnostic := coreOperationMigrationDiagnostic(callee, hint)
 			return checkedExpression{token: callee, diagnostic: &diagnostic}
 		}
 	}
 	if property.Lexeme != "yield" || len(call.Arguments) != 0 || len(call.TypeArguments) != 0 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Task has no such operation; use Task.yield()"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diagnosticsPkg.UnknownTaskOperation()))}
 	}
 	if !ctx.names.inFunction() {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Task.yield() is valid only inside a function"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diagnosticsPkg.TaskYieldOutsideFunction()))}
 	}
 	node := Expression{Kind: TaskYieldExpression, ResultType: compilerTypes.Type{}}
 	source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Node: node}
@@ -150,19 +150,19 @@ func checkTaskMethodCall(call methodCall) checkedExpression {
 	taskType := call.receiver.typ
 	resultType := taskType.Task.Result
 	if !hasBuiltinMethod(taskType, name) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Task has no method "+name+"; use join or detach"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.UnknownTaskMethod(name)))}
 	}
 	switch name {
 	case "join":
 		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "join expects no arguments"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.NoArgumentsExpected("join")))}
 		}
 		node := Expression{Kind: TaskMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: taskType, ResultType: resultType, Element: resultType}
 		source := Operand{Kind: ExpressionOperand, Type: resultType, Name: name, Node: node}
 		return checkedExpression{source: source, typ: resultType, token: call.callee.Property}
 	case "detach":
 		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "detach expects no arguments"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.NoArgumentsExpected("detach")))}
 		}
 		node := Expression{Kind: TaskMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: taskType, ResultType: compilerTypes.Type{}, Element: resultType}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
@@ -179,25 +179,25 @@ func checkChannelTypeCall(call parser.CallExpression, callee lexer.Token, ctx ch
 		return checkedExpression{token: callee, diagnostic: diagnostic}
 	}
 	if len(call.Arguments) != 2 || len(call.TypeArguments) != 1 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Channel requires 2 arguments (heap, capacity); use Channel<T>(heap, capacity)"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diagnosticsPkg.ChannelConstructorUsage()))}
 	}
 	heap := checkValue(call.Arguments[0], ctx)
 	if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 		return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
 	}
 	if !compilerTypes.IsHeap(heap.typ) {
-		return checkedExpression{token: heap.token, diagnostic: diagnosticAt(typeErrorAt(heap.token, "Channel.new requires a Heap allocator; got "+heap.typ.Name))}
+		return checkedExpression{token: heap.token, diagnostic: diagnosticAt(messageAt(heap.token, diagnosticsPkg.ChannelRequiresHeap(heap.typ.Name)))}
 	}
 	capacity := checkInitializer(call.Arguments[1], compilerTypes.NewTypeUse(compilerTypes.SizeType), tokenOf(call.Arguments[1]), ctx)
 	if diagnostics := initializerDiagnostics(capacity); len(diagnostics) > 0 {
 		return checkedExpression{token: tokenOf(call.Arguments[1]), diagnostics: diagnostics}
 	}
 	if !assignable(compilerTypes.SizeType, capacity.typ) {
-		return checkedExpression{token: capacity.token, diagnostic: diagnosticAt(typeErrorAt(capacity.token, "Channel capacity must be a Size"))}
+		return checkedExpression{token: capacity.token, diagnostic: diagnosticAt(messageAt(capacity.token, diagnosticsPkg.ChannelCapacityMustBeSize()))}
 	}
 	if capacity.known != nil && capacity.known.Constant != nil {
 		if value, exact := constant.Uint64Val(capacity.known.Constant); exact && value == 0 {
-			return checkedExpression{token: capacity.token, diagnostic: diagnosticAt(typeErrorAt(capacity.token, "compile-time Channel capacity must be positive"))}
+			return checkedExpression{token: capacity.token, diagnostic: diagnosticAt(messageAt(capacity.token, diagnosticsPkg.ChannelCapacityMustBePositive()))}
 		}
 	}
 	result := ctx.typeEnvironment.UnionType([]compilerTypes.Type{channelUse.Type, compilerTypes.ErrorType})
@@ -212,19 +212,19 @@ func checkChannelMethodCall(call methodCall) checkedExpression {
 	channelType := call.receiver.typ
 	element := channelType.Channel.Element
 	if !hasBuiltinMethod(channelType, name) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Channel has no method "+name+"; use send, receive, close, length, capacity, is_closed, or free"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.UnknownChannelMethod(name)))}
 	}
 	switch name {
 	case "send":
 		if len(call.call.Arguments) != 1 || len(call.call.TypeArguments) != 0 {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "send expects 1 argument"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.AllocationRequiresOneArgument("send")))}
 		}
 		value := checkInitializer(call.call.Arguments[0], compilerTypes.NewTypeUse(element), tokenOf(call.call.Arguments[0]), call.ctx)
 		if diagnostics := initializerDiagnostics(value); len(diagnostics) > 0 {
 			return checkedExpression{token: tokenOf(call.call.Arguments[0]), diagnostics: diagnostics}
 		}
 		if !assignable(element, value.typ) {
-			return checkedExpression{token: value.token, diagnostic: diagnosticAt(typeErrorAt(value.token, fmt.Sprintf("Channel send requires %s; got %s", element.Name, value.typ.Name)))}
+			return checkedExpression{token: value.token, diagnostic: diagnosticAt(messageAt(value.token, diagnosticsPkg.ChannelSendRequires(element.Name, value.typ.Name)))}
 		}
 		result := call.ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType})
 		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, Arguments: []Operand{value.source}, OperandType: channelType, ResultType: result, Element: element, Span: call.callee.Property.Span}
@@ -232,7 +232,7 @@ func checkChannelMethodCall(call methodCall) checkedExpression {
 		return checkedExpression{source: source, typ: result, token: call.callee.Property}
 	case "receive":
 		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "receive expects no arguments"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.NoArgumentsExpected("receive")))}
 		}
 		result := call.ctx.typeEnvironment.UnionType([]compilerTypes.Type{element, compilerTypes.EoS})
 		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: channelType, ResultType: result, Element: element}
@@ -240,35 +240,35 @@ func checkChannelMethodCall(call methodCall) checkedExpression {
 		return checkedExpression{source: source, typ: result, token: call.callee.Property}
 	case "close":
 		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "close expects no arguments"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.NoArgumentsExpected("close")))}
 		}
 		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: channelType, ResultType: compilerTypes.Type{}, Element: element}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 	case "length", "capacity":
 		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, name+" expects no arguments"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.NoArgumentsExpected(name)))}
 		}
 		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: channelType, ResultType: compilerTypes.SizeType, Element: element}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.SizeType, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: call.callee.Property}
 	case "is_closed":
 		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "is_closed expects no arguments"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.NoArgumentsExpected("is_closed")))}
 		}
 		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: channelType, ResultType: compilerTypes.Bool, Element: element}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Bool, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.Bool, token: call.callee.Property}
 	case "free":
 		if len(call.call.Arguments) != 1 || len(call.call.TypeArguments) != 0 {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "free expects 1 argument (allocator)"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.FreeRequiresAllocatorArgument()))}
 		}
 		heap := checkValue(call.call.Arguments[0], call.ctx)
 		if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 			return heap
 		}
 		if !compilerTypes.IsHeap(heap.typ) {
-			return checkedExpression{token: heap.token, diagnostic: diagnosticAt(typeErrorAt(heap.token, "free requires a Heap; got "+heap.typ.Name))}
+			return checkedExpression{token: heap.token, diagnostic: diagnosticAt(messageAt(heap.token, diagnosticsPkg.FreeRequiresHeap(heap.typ.Name)))}
 		}
 		node := Expression{Kind: ChannelMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, Arguments: []Operand{heap.source}, OperandType: channelType, ResultType: compilerTypes.Type{}, Element: element}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
@@ -281,14 +281,14 @@ func checkChannelMethodCall(call methodCall) checkedExpression {
 // checkMutexTypeCall resolves Mutex(heap).
 func checkMutexTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Mutex requires 1 argument (heap); use Mutex(heap)"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diagnosticsPkg.MutexConstructorUsage()))}
 	}
 	heap := checkValue(call.Arguments[0], ctx)
 	if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 		return heap
 	}
 	if !compilerTypes.IsHeap(heap.typ) {
-		return checkedExpression{token: heap.token, diagnostic: diagnosticAt(typeErrorAt(heap.token, "Mutex.new requires a Heap allocator; got "+heap.typ.Name))}
+		return checkedExpression{token: heap.token, diagnostic: diagnosticAt(messageAt(heap.token, diagnosticsPkg.MutexRequiresHeap(heap.typ.Name)))}
 	}
 	result := ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.MutexType, compilerTypes.ErrorType})
 	node := Expression{Kind: MutexConstructorExpression, Arguments: []Operand{heap.source}, OperandType: compilerTypes.MutexType, ResultType: result, Span: callee.Span}
@@ -301,26 +301,26 @@ func checkMutexMethodCall(call methodCall) checkedExpression {
 	name := call.callee.Property.Lexeme
 	mutexType := call.receiver.typ
 	if !hasBuiltinMethod(mutexType, name) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Mutex has no method "+name+"; use lock, unlock, or free"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.UnknownMutexMethod(name)))}
 	}
 	switch name {
 	case "lock", "unlock":
 		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, name+" expects no arguments"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.NoArgumentsExpected(name)))}
 		}
 		node := Expression{Kind: MutexMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: compilerTypes.MutexType, ResultType: compilerTypes.Type{}}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 	case "free":
 		if len(call.call.Arguments) != 1 || len(call.call.TypeArguments) != 0 {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "free expects 1 argument (allocator)"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.FreeRequiresAllocatorArgument()))}
 		}
 		heap := checkValue(call.call.Arguments[0], call.ctx)
 		if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
 			return heap
 		}
 		if !compilerTypes.IsHeap(heap.typ) {
-			return checkedExpression{token: heap.token, diagnostic: diagnosticAt(typeErrorAt(heap.token, "free requires a Heap; got "+heap.typ.Name))}
+			return checkedExpression{token: heap.token, diagnostic: diagnosticAt(messageAt(heap.token, diagnosticsPkg.FreeRequiresHeap(heap.typ.Name)))}
 		}
 		node := Expression{Kind: MutexMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, Arguments: []Operand{heap.source}, OperandType: compilerTypes.MutexType, ResultType: compilerTypes.Type{}}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
@@ -337,7 +337,7 @@ func checkAtomicTypeCall(call parser.CallExpression, callee lexer.Token, ctx che
 		return checkedExpression{token: callee, diagnostic: diagnostic}
 	}
 	if len(call.Arguments) != 1 || len(call.TypeArguments) != 1 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Atomic requires 1 argument (initial); use Atomic<T>(initial)"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diagnosticsPkg.AtomicConstructorUsage()))}
 	}
 	element := atomicUse.Type.Atomic.Element
 	initial := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(element), tokenOf(call.Arguments[0]), ctx)
@@ -345,7 +345,7 @@ func checkAtomicTypeCall(call parser.CallExpression, callee lexer.Token, ctx che
 		return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
 	}
 	if !assignable(element, initial.typ) {
-		return checkedExpression{token: initial.token, diagnostic: diagnosticAt(typeErrorAt(initial.token, fmt.Sprintf("Atomic.new requires %s; got %s", element.Name, initial.typ.Name)))}
+		return checkedExpression{token: initial.token, diagnostic: diagnosticAt(messageAt(initial.token, diagnosticsPkg.AtomicInitializerType(element.Name, initial.typ.Name)))}
 	}
 	node := Expression{Kind: AtomicConstructorExpression, Arguments: []Operand{initial.source}, OperandType: atomicUse.Type, ResultType: atomicUse.Type, Element: element}
 	source := Operand{Kind: ExpressionOperand, Type: atomicUse.Type, Name: "new", Node: node}
@@ -358,7 +358,7 @@ func checkAtomicMethodCall(call methodCall) checkedExpression {
 	atomicType := call.receiver.typ
 	element := atomicType.Atomic.Element
 	if !hasBuiltinMethod(atomicType, name) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, fmt.Sprintf("%s has no method named %s", atomicType.Name, name)))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.AtomicMethodMissing(atomicType.Name, name)))}
 	}
 	argumentCount := 1
 	if name == "load" {
@@ -368,11 +368,11 @@ func checkAtomicMethodCall(call methodCall) checkedExpression {
 		argumentCount = 2
 	}
 	if len(call.call.Arguments) != argumentCount || len(call.call.TypeArguments) != 0 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, name+" expects "+fmt.Sprint(argumentCount)+" argument(s)"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.AtomicMethodArity(name, argumentCount)))}
 	}
 	if name == "fetch_add" || name == "fetch_sub" {
 		if compilerTypes.Equal(element, compilerTypes.Bool) {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, name+" is unavailable for Bool"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.AtomicMethodUnavailableForBool(name)))}
 		}
 	}
 	resultType := element
@@ -389,7 +389,7 @@ func checkAtomicMethodCall(call methodCall) checkedExpression {
 			return checkedExpression{token: tokenOf(argument), diagnostics: diagnostics}
 		}
 		if !assignable(element, value.typ) {
-			return checkedExpression{token: value.token, diagnostic: diagnosticAt(typeErrorAt(value.token, fmt.Sprintf("%s requires %s; got %s", name, element.Name, value.typ.Name)))}
+			return checkedExpression{token: value.token, diagnostic: diagnosticAt(messageAt(value.token, diagnosticsPkg.AtomicOperationType(name, element.Name, value.typ.Name)))}
 		}
 		arguments = append(arguments, value.source)
 	}

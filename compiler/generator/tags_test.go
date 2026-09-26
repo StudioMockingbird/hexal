@@ -1,7 +1,6 @@
 package generator
 
 import (
-	"strings"
 	"testing"
 
 	compilerTypes "hexal/compiler/types"
@@ -20,10 +19,10 @@ func TestRegistryMissingLookupFailsClosed(t *testing.T) {
 	}
 	err := registry.settled()
 	diagnostic, ok := err.(compilerTypes.Diagnostic)
-	if !ok || diagnostic.Category != compilerTypes.UnknownError {
+	if !ok || diagnostic.Message.Category() != compilerTypes.UnknownError {
 		t.Fatalf("settled() = %v, want an UnknownError diagnostic", err)
 	}
-	if !strings.Contains(diagnostic.Message, "missing from the program-wide registry") {
-		t.Fatalf("message = %q", diagnostic.Message)
+	if diagnostic.Message.ID() != "internal.generator-invariant" {
+		t.Fatalf("identity = %q", diagnostic.Message.ID())
 	}
 }

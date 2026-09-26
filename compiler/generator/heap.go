@@ -32,7 +32,7 @@ func discoverHeapHelpers(program checker.Program) (*heapHelpers, error) {
 		Expression: func(node checker.Expression) error {
 			if node.Kind == checker.HeapAllocateExpression || node.Kind == checker.HeapAllocateAlignedExpression {
 				if node.Element == (compilerTypes.Type{}) || !compilerTypes.IsCompleteValue(node.Element) {
-					return unknownExpressionDiagnostic("heap allocation without a complete checked element type")
+					return unknownExpressionDiagnostic()
 				}
 				if node.Kind == checker.HeapAllocateAlignedExpression {
 					if !state.alignedSeen[node.Element.Name] {
@@ -112,7 +112,7 @@ func heapAllocateAlignedHelper(element compilerTypes.Type) string {
 
 func renderHeapAllocate(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil || len(node.Arguments) != 1 || node.Element == (compilerTypes.Type{}) {
-		return "", unknownExpressionDiagnostic("heap allocation has invalid checked metadata")
+		return "", unknownExpressionDiagnostic()
 	}
 	receiver, err := renderExpressionExpectedWithState(*node.Operand, &compilerTypes.Heap, state)
 	if err != nil {
@@ -127,7 +127,7 @@ func renderHeapAllocate(node checker.Expression, state *expressionValidation) (s
 
 func renderHeapAllocateAligned(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil || len(node.Arguments) != 2 || node.Element == (compilerTypes.Type{}) {
-		return "", unknownExpressionDiagnostic("aligned heap allocation has invalid checked metadata")
+		return "", unknownExpressionDiagnostic()
 	}
 	receiver, err := renderHoistedReceiver(node.Operand, compilerTypes.Heap, state)
 	if err != nil {
@@ -146,7 +146,7 @@ func renderHeapAllocateAligned(node checker.Expression, state *expressionValidat
 
 func renderHeapFree(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil || len(node.Arguments) != 1 {
-		return "", unknownExpressionDiagnostic("heap free has invalid checked metadata")
+		return "", unknownExpressionDiagnostic()
 	}
 	receiver, err := renderExpressionExpectedWithState(*node.Operand, &compilerTypes.Heap, state)
 	if err != nil {

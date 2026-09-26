@@ -131,13 +131,13 @@ func TestOperatorDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"let result: Int32 = 1 / 0", "[Type Error] division by zero at app.hex:1:23"},
-		{"let mut total: Int32 = 10 let bad: Int32 = total / 0", "[Type Error] division by zero at app.hex:1:50"},
-		{"let mut total: Int32 = 10 let bad: Int32 = total % 0", "[Type Error] division by zero at app.hex:1:50"},
-		{"let mut total: Int32 = 10 let bad: Int32 = total / (2 - 2)", "[Type Error] division by zero at app.hex:1:50"},
-		{"let value: Float64 = 1.0 let bad: Float64 = value % 2.0", "[Type Error] operator % requires integer operands; got Float64 at app.hex:1:51"},
-		{"let left: Bool = true let right: Bool = false let bad: Bool = left < right", "[Type Error] ordering is unavailable for Bool values at app.hex:1:68"},
-		{"let count: UInt32 = 5 let bad: Int32 = -count", "[Type Error] negation requires a signed type; got UInt32 at app.hex:1:40"},
+		{"let result: Int32 = 1 / 0", "[Type Error type.division-by-zero] division by zero at app.hex:1:23"},
+		{"let mut total: Int32 = 10 let bad: Int32 = total / 0", "[Type Error type.division-by-zero] division by zero at app.hex:1:50"},
+		{"let mut total: Int32 = 10 let bad: Int32 = total % 0", "[Type Error type.division-by-zero] division by zero at app.hex:1:50"},
+		{"let mut total: Int32 = 10 let bad: Int32 = total / (2 - 2)", "[Type Error type.division-by-zero] division by zero at app.hex:1:50"},
+		{"let value: Float64 = 1.0 let bad: Float64 = value % 2.0", "[Type Error type.remainder-requires-integer] operator % requires integer operands; got Float64 at app.hex:1:51"},
+		{"let left: Bool = true let right: Bool = false let bad: Bool = left < right", "[Type Error type.ordering-unavailable-for] ordering is unavailable for Bool values at app.hex:1:68"},
+		{"let count: UInt32 = 5 let bad: Int32 = -count", "[Type Error type.negation-requires-signed-type] negation requires a signed type; got UInt32 at app.hex:1:40"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 || result.Stderr[0] != testCase.want {

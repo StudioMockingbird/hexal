@@ -23,7 +23,7 @@ func TestParseRecoversAtNextStatement(t *testing.T) {
 	if err == nil {
 		t.Fatal("Parse accepted an invalid statement")
 	}
-	if got, want := err.Error(), "[Syntax Error] expected '=' for an assignment at 1:21"; got != want {
+	if got, want := err.Error(), "[Syntax Error syntax.assignment-equals] expected '=' for an assignment at 1:21"; got != want {
 		t.Fatalf("Parse error = %q, want %q", got, want)
 	}
 	if got, want := len(program.Statements), 2; got != want {
@@ -124,14 +124,14 @@ func TestParseRejectsImportAfterTopLevelItem(t *testing.T) {
 			}
 			var positioned *compilerTypes.Diagnostic
 			for index := range diagnostics {
-				if diagnostics[index].Message == "import block must be the first top-level construct" {
+				if diagnostics[index].Message.Text() == "import block must be the first top-level construct" {
 					positioned = &diagnostics[index]
 				}
 			}
 			if positioned == nil {
 				t.Fatalf("diagnostics = %v, want the misplaced-import error", diagnostics)
 			}
-			if positioned.Category != compilerTypes.SyntaxError || positioned.Position.Line != testCase.importLine || positioned.Position.Column == 0 {
+			if positioned.Message.Category() != compilerTypes.SyntaxError || positioned.Position.Line != testCase.importLine || positioned.Position.Column == 0 {
 				t.Fatalf("misplaced-import diagnostic = %#v, want Syntax Error at line %d", positioned, testCase.importLine)
 			}
 		})
@@ -184,7 +184,7 @@ func TestParseModuleReferenceForms(t *testing.T) {
 		}
 		var found *compilerTypes.Diagnostic
 		for index := range diagnostics {
-			if diagnostics[index].Message == testCase.message {
+			if diagnostics[index].Message.Text() == testCase.message {
 				found = &diagnostics[index]
 				break
 			}
@@ -193,7 +193,7 @@ func TestParseModuleReferenceForms(t *testing.T) {
 			t.Errorf("Parse(%q) diagnostics = %v, want message %q", testCase.source, diagnostics, testCase.message)
 			continue
 		}
-		if found.Category != compilerTypes.SyntaxError || found.Position.Line != testCase.line || found.Position.Column != testCase.column {
+		if found.Message.Category() != compilerTypes.SyntaxError || found.Position.Line != testCase.line || found.Position.Column != testCase.column {
 			t.Errorf("Parse(%q) diagnostic = %#v, want Syntax Error at %d:%d", testCase.source, found, testCase.line, testCase.column)
 		}
 	}

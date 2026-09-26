@@ -1,9 +1,8 @@
 package checker
 
 import (
-	"fmt"
-
 	"hexal/compiler/corelib"
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -18,7 +17,7 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		// position (aliases, bindings, parameters, results, members,
 		// payloads, collection positions, generic arguments). Union members
 		// and match type patterns resolve through resolveUnionMemberUse.
-		diagnostic := typeErrorAt(expression.Token, "Nil is valid only as a member of a union with a non-Nil type")
+		diagnostic := messageAt(expression.Token, diag.NilOutsideUnion())
 		return compilerTypes.TypeUse{}, &diagnostic
 	case parser.UnknownTypeExpression:
 		return compilerTypes.NewTypeUse(compilerTypes.Unknown), nil
@@ -31,12 +30,9 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		resolved, ok := typeEnvironment.LookupUse(expression.Name.Lexeme)
 		if !ok {
 			if hint, moved := corelib.TypeHint(expression.Name.Lexeme); moved {
-				// An unresolved former capability type name keeps the exact
-				// migration hint.
-				return compilerTypes.TypeUse{}, diagnosticAt(moduleErrorAt(expression.Name, hint))
+				return compilerTypes.TypeUse{}, diagnosticAt(coreTypeMigrationDiagnostic(expression.Name, hint, true))
 			}
-			message := unknownTypeMessage(expression.Name.Lexeme)
-			return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, message))
+			return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diag.UnknownType(expression.Name.Lexeme)))
 		}
 		return resolved, nil
 	case parser.QualifiedTypeExpression:
@@ -62,8 +58,7 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 				return use, nil
 			}
 		}
-		message := "unknown module alias " + expression.Module.Lexeme
-		return compilerTypes.TypeUse{}, diagnosticAt(moduleErrorAt(expression.Module, message))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Module, diag.UnknownModuleAlias(expression.Module.Lexeme)))
 	case parser.QualifiedGenericTypeExpression:
 		return resolveQualifiedGenericTypeUse(expression, typeEnvironment, generics)
 	case parser.GenericTypeExpression:
@@ -96,7 +91,7 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 	case parser.StringTypeExpression:
 		return resolveStringTypeUse(expression, typeEnvironment)
 	case parser.LiteralTypeArgument:
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Token, "a numeric literal is only valid as a String capacity"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Token, diag.NumericLiteralOnlyStringCapacity()))
 	case parser.PtrTypeExpression:
 		elementUse, diagnostic := resolveTypeUse(expression.Element, expression.Keyword, typeEnvironment, generics)
 		if diagnostic != nil {
@@ -110,7 +105,7 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 			if expression.Writable {
 				spelling = "Ptr<mut " + element.Name + ">"
 			}
-			diagnostic := typeErrorAt(expression.Keyword, spelling+" is not supported")
+			diagnostic := messageAt(expression.Keyword, diag.UnsupportedTypeSpelling(spelling))
 			return compilerTypes.TypeUse{}, &diagnostic
 		}
 		var pointer compilerTypes.Type
@@ -129,7 +124,7 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		// A `mut` marking survives parsing only at a call site; only the
 		// Slice bridge consumes it, so any other generic position rejects
 		// it where the marking would otherwise be silently dropped.
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(fallback, "mut is only allowed immediately inside Ptr<...> or Slice<...>"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(fallback, diag.MutTypeArgumentPosition()))
 	case parser.FunctionTypeExpression:
 		return resolveFunctionTypeUse(expression, typeEnvironment, generics)
 	case parser.UnionTypeExpression:
@@ -147,7 +142,7 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 			for _, candidate := range typeUseCandidates(member) {
 				for _, existing := range canonical {
 					if compilerTypes.Equal(existing, candidate.Type) {
-						diagnostic := typeErrorAt(typeExpressionToken(memberExpression, fallback), fmt.Sprintf("union member %s appears more than once", candidate.Type.Name))
+						diagnostic := messageAt(typeExpressionToken(memberExpression, fallback), diag.DuplicateUnionMember(candidate.Type.Name))
 						return compilerTypes.TypeUse{}, &diagnostic
 					}
 				}
@@ -159,11 +154,11 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		if union == (compilerTypes.Type{}) {
 			for _, member := range members {
 				if compilerTypes.IsUnknown(member.Type) {
-					diagnostic := typeErrorAt(typeExpressionToken(expression, fallback), "Unknown | Nil is not a value type; use Ptr<Unknown> | Nil")
+					diagnostic := messageAt(typeExpressionToken(expression, fallback), diag.UnknownNilUnion())
 					return compilerTypes.TypeUse{}, &diagnostic
 				}
 			}
-			diagnostic := typeErrorAt(typeExpressionToken(expression, fallback), "could not construct union type")
+			diagnostic := messageAt(typeExpressionToken(expression, fallback), diag.InvalidUnionType())
 			return compilerTypes.TypeUse{}, &diagnostic
 		}
 		return compilerTypes.UnionTypeUse(union, members), nil
@@ -172,7 +167,7 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		// mistake: every concrete kind the parser can build is cased above, so
 		// reaching here means a new syntax kind arrived without a resolution
 		// path. Classifying it as a user Type Error would blame the program.
-		return compilerTypes.TypeUse{}, diagnosticAt(unknownAt(fallback, "unsupported type expression"))
+		return compilerTypes.TypeUse{}, diagnosticAt(unknownAt(fallback))
 	}
 }
 
@@ -200,7 +195,7 @@ func resolveUnionMemberUse(expression parser.TypeExpression, fallback lexer.Toke
 }
 
 func typeErrorPointerConstruction(token lexer.Token) *compilerTypes.Diagnostic {
-	diagnostic := typeErrorAt(token, "could not construct pointer type")
+	diagnostic := messageAt(token, diag.InvalidPointerType())
 	return &diagnostic
 }
 
@@ -208,7 +203,7 @@ func valueTypeDiagnostic(expression parser.TypeExpression, fallback lexer.Token,
 	if !compilerTypes.IsUnknown(typ) {
 		return nil
 	}
-	diagnostic := typeErrorAt(typeExpressionToken(expression, fallback), "Unknown has no known size or layout; it may only be used behind a pointer")
+	diagnostic := messageAt(typeExpressionToken(expression, fallback), diag.UnknownNeedsPointer())
 	return &diagnostic
 }
 
@@ -276,14 +271,14 @@ func resolveFunctionTypeUse(expression parser.FunctionTypeExpression, typeEnviro
 		}
 		resolved := resolvedUse.Type
 		if !compilerTypes.Eligible(resolved, compilerTypes.PositionFunctionResult) {
-			return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Keyword, "function result "+resolved.Name+" is not storable"))
+			return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Keyword, diag.FunctionResultNotStorable(resolved.Name)))
 		}
 		result = &resolved
 		resultUse = &resolvedUse
 	}
 	functionType := typeEnvironment.FunTypeRest(parameters, result, rest)
 	if functionType.Signature == nil {
-		return compilerTypes.TypeUse{}, diagnosticAt(unknownAt(expression.Keyword, "could not construct a Fun type"))
+		return compilerTypes.TypeUse{}, diagnosticAt(unknownAt(expression.Keyword))
 	}
 	return compilerTypes.FunctionTypeUse(functionType, parameterUses, resultUse), nil
 }
@@ -294,7 +289,7 @@ func resolveFunctionTypeUse(expression parser.FunctionTypeExpression, typeEnviro
 func resolveRestElement(written parser.TypeExpression, fallback lexer.Token, resolvedUse compilerTypes.TypeUse, ellipsis lexer.Token, typeEnvironment *compilerTypes.Environment) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	if typeEnvironment.SliceType(resolvedUse.Type, false) == (compilerTypes.Type{}) ||
 		!compilerTypes.Eligible(resolvedUse.Type, compilerTypes.PositionFunctionParam) {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(ellipsis, resolvedUse.Type.Name+" is not a valid rest element type"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(ellipsis, diag.InvalidRestElementType(resolvedUse.Type.Name)))
 	}
 	return resolvedUse, nil
 }

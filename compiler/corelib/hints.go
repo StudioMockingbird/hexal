@@ -1,9 +1,25 @@
 package corelib
 
-import (
-	"fmt"
-	"strings"
+import "strings"
+
+type MigrationHintKind uint8
+
+const (
+	MovedTypeHint MigrationHintKind = iota + 1
+	RemovedNamespaceHint
+	MovedOperationHint
+	MovedConstructorHint
 )
+
+type MigrationHint struct {
+	Kind      MigrationHintKind
+	Name      string
+	Owner     string
+	Operation string
+	Module    string
+	Alias     string
+	Function  string
+}
 
 // MovedType is one former protected type name's new standard-library home.
 type MovedType struct {
@@ -91,34 +107,32 @@ func Dotted(path string) string {
 
 // TypeHint returns the migration diagnostic for an unresolved former
 // protected type name, or a removed namespace-only name.
-func TypeHint(name string) (string, bool) {
+func TypeHint(name string) (MigrationHint, bool) {
 	if moved, ok := movedTypes[name]; ok {
-		return fmt.Sprintf("%s is declared in %s; add `%s from %s` to the import block", name, moved.Module, moved.Alias, Dotted(moved.Module)), true
+		return MigrationHint{Kind: MovedTypeHint, Name: name, Module: moved.Module, Alias: moved.Alias}, true
 	}
 	if removed, ok := removedNamespaces[name]; ok {
-		return fmt.Sprintf("%s is removed; %s is a function in %s", name, removed.Function, removed.Module), true
+		return MigrationHint{Kind: RemovedNamespaceHint, Name: name, Module: removed.Module, Alias: removed.Alias, Function: removed.Function}, true
 	}
-	return "", false
+	return MigrationHint{}, false
 }
 
 // OperationHint returns the migration diagnostic for an unresolved former
 // static operation.
-func OperationHint(owner, operation string) (string, bool) {
+func OperationHint(owner, operation string) (MigrationHint, bool) {
 	moved, ok := movedOperations[owner+"."+operation]
 	if !ok {
-		return "", false
+		return MigrationHint{}, false
 	}
-	return fmt.Sprintf("%s.%s is now %s in %s; add `%s from %s` and call `%s.%s`",
-		owner, operation, moved.Function, moved.Module, moved.Alias, Dotted(moved.Module), moved.Alias, moved.Function), true
+	return MigrationHint{Kind: MovedOperationHint, Owner: owner, Operation: operation, Module: moved.Module, Alias: moved.Alias, Function: moved.Function}, true
 }
 
 // ConstructorHint returns the migration diagnostic for an unresolved former
 // fallible constructor such as Signals(...).
-func ConstructorHint(name string) (string, bool) {
+func ConstructorHint(name string) (MigrationHint, bool) {
 	moved, ok := movedConstructors[name]
 	if !ok {
-		return "", false
+		return MigrationHint{}, false
 	}
-	return fmt.Sprintf("%s is now %s in %s; add `%s from %s` and call `%s.%s`",
-		name, moved.Function, moved.Module, moved.Alias, Dotted(moved.Module), moved.Alias, moved.Function), true
+	return MigrationHint{Kind: MovedConstructorHint, Name: name, Module: moved.Module, Alias: moved.Alias, Function: moved.Function}, true
 }

@@ -6,13 +6,13 @@ package compiler
 
 import (
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"hexal/compiler/checker"
 	"hexal/compiler/corelib"
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/generator"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
@@ -107,8 +107,7 @@ func Compile(sources map[string]string, entrypoint string, project Project) (res
 		if recovered := recover(); recovered != nil {
 			stats := CompilationStats{}
 			finalizeStats(&stats, compileStarted)
-			diagnostic := compilerTypes.NewDiagnostic(compilerTypes.UnknownError, "compile", 0, 0,
-				"internal compiler error")
+			diagnostic := compilerTypes.Locationless(diag.UnknownCompiler())
 			result = CompilationResult{
 				Files:             map[string]string{},
 				Dependencies:      []RuntimeDependency{},
@@ -136,12 +135,11 @@ func compilePipeline(sources map[string]string, entrypoint string, project Proje
 	}
 
 	if _, ok := sources[entrypoint]; !ok {
-		err := compilerTypes.NewDiagnostic(compilerTypes.ModuleError, "compile", 1, 1,
-			"entrypoint "+entrypoint+" was not found in the supplied sources")
+		err := compilerTypes.At(diag.MissingEntrypoint(entrypoint), span.Span{}, span.Position{Line: 1, Column: 1})
 		return failureResult(err, stats, compileStarted)
 	}
-	if err := validateLogicalKey(entrypoint); err != nil {
-		diagnostic := compilerTypes.NewDiagnostic(compilerTypes.ModuleError, "compile", 1, 1, err.Error())
+	if message := validateLogicalKey(entrypoint); !message.IsZero() {
+		diagnostic := compilerTypes.At(message, span.Span{}, span.Position{Line: 1, Column: 1})
 		return failureResult(diagnostic, stats, compileStarted)
 	}
 
@@ -210,35 +208,34 @@ func canonicalFromLogicalKey(logicalKey string) string {
 // paths, so this is deliberately narrower than what a filesystem would
 // accept: it closes preprocessor injection and path traversal through a
 // crafted key by construction rather than by blocking specific characters.
-func validateLogicalKey(key string) error {
-	const rule = `a logical key must be relative, use "/" as its only separator, end in exactly one ".hex" extension, and have every path component be a Hexal identifier`
+func validateLogicalKey(key string) diag.Message {
 	const suffix = ".hex"
 	if !strings.HasSuffix(key, suffix) {
-		return fmt.Errorf("logical key %q is invalid: %s", key, rule)
+		return diag.InvalidLogicalKey(key, diag.LogicalKeyInvalid)
 	}
 	stem := key[:len(key)-len(suffix)]
 	if first, _, _ := strings.Cut(stem, "/"); first == "std" {
 		// The std collection is compiler-owned; reserving the logical-key
 		// prefix keeps a user module from claiming a stdlib canonical
 		// identity (a core library's std/<path> or a source module's).
-		return fmt.Errorf("logical key %q is invalid: the %q path prefix is reserved for the standard library", key, "std")
+		return diag.InvalidLogicalKey(key, diag.LogicalKeyReservedStd)
 	} else if first == "hexalc" {
 		// hexalc holds only compiler-derived prepared C bindings, which the
 		// resolver marks before visiting; a user key there would let project
 		// source impersonate a prepared binding.
-		return fmt.Errorf("logical key %q is invalid: the %q path prefix is reserved for prepared C bindings", key, "hexalc")
+		return diag.InvalidLogicalKey(key, diag.LogicalKeyReservedCBindings)
 	}
 	for _, component := range strings.Split(stem, "/") {
 		if component == "" || !lexer.IsIdentifierStart(component[0]) {
-			return fmt.Errorf("logical key %q is invalid: %s", key, rule)
+			return diag.InvalidLogicalKey(key, diag.LogicalKeyInvalid)
 		}
 		for i := 1; i < len(component); i++ {
 			if !lexer.IsIdentifierPart(component[i]) {
-				return fmt.Errorf("logical key %q is invalid: %s", key, rule)
+				return diag.InvalidLogicalKey(key, diag.LogicalKeyInvalid)
 			}
 		}
 	}
-	return nil
+	return diag.Message{}
 }
 
 // resolveImportPath resolves a relative quoted module-path literal relative to
@@ -258,13 +255,13 @@ func validateLogicalKey(key string) error {
 //     ".hex" on the path is stripped and the result is the canonical id.
 //
 // The caller attaches the offending reference token's line/column to the error.
-func resolveImportPath(fromModule, rawPath string) (string, error) {
+func resolveImportPath(fromModule, rawPath string) (string, diag.Message) {
 	path := rawPath
 	if len(path) >= 2 && path[0] == '"' && path[len(path)-1] == '"' {
 		path = path[1 : len(path)-1]
 	}
 	if !strings.HasPrefix(path, "./") && !strings.HasPrefix(path, "../") {
-		return "", fmt.Errorf("import path %s is not relative", rawPath)
+		return "", diag.ImportPathError(diag.ImportPathNotRelative, rawPath, "")
 	}
 	dir := ""
 	if slash := strings.LastIndex(fromModule, "/"); slash >= 0 {
@@ -273,7 +270,7 @@ func resolveImportPath(fromModule, rawPath string) (string, error) {
 	rest := path
 	for strings.HasPrefix(rest, "../") {
 		if dir == "" {
-			return "", fmt.Errorf("import resolves above the logical source-map root")
+			return "", diag.ImportPathError(diag.ImportPathAboveRoot, rawPath, "")
 		}
 		if slash := strings.LastIndex(dir, "/"); slash >= 0 {
 			dir = dir[:slash]
@@ -297,18 +294,18 @@ func resolveImportPath(fromModule, rawPath string) (string, error) {
 			continue
 		}
 		if component == "" || !lexer.IsIdentifierStart(component[0]) {
-			return "", fmt.Errorf("invalid component %s in import path %s", component, rawPath)
+			return "", diag.ImportPathError(diag.ImportPathInvalidComponent, rawPath, component)
 		}
 		for i := 1; i < len(component); i++ {
 			if !lexer.IsIdentifierPart(component[i]) {
-				return "", fmt.Errorf("invalid component %s in import path %s", component, rawPath)
+				return "", diag.ImportPathError(diag.ImportPathInvalidComponent, rawPath, component)
 			}
 		}
 	}
 	if dir != "" {
 		rest = dir + "/" + rest
 	}
-	return canonicalFromLogicalKey(rest), nil
+	return canonicalFromLogicalKey(rest), diag.Message{}
 }
 
 // resolveStdlibPath joins one dotted standard-library reference's components
@@ -467,7 +464,7 @@ func (s *reachState) validatePreparedBindings() {
 		if preparedModuleNamesHeader(node.Program, expectation.request) {
 			continue
 		}
-		s.recordCategory(expectation.fromModule, expectation.line, expectation.column, compilerTypes.ConfigurationError, "prepared C binding missing for "+expectation.display)
+		s.record(expectation.fromModule, expectation.line, expectation.column, diag.PreparedBindingMissing(expectation.display))
 	}
 }
 
@@ -505,8 +502,8 @@ func (s *reachState) visit(canonical string) error {
 	if !s.prepared[canonical] {
 		// A prepared C binding legitimately uses the reserved hexalc
 		// namespace; every other module keeps the ordinary key rules.
-		if err := validateLogicalKey(key); err != nil {
-			diagnostic := compilerTypes.NewDiagnostic(compilerTypes.ModuleError, "compile", 1, 1, err.Error()).InModule(key)
+		if message := validateLogicalKey(key); !message.IsZero() {
+			diagnostic := compilerTypes.At(message, span.Span{}, span.Position{Line: 1, Column: 1}).InModule(key)
 			return diagnostic
 		}
 	}
@@ -555,9 +552,9 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportEn
 	switch importDecl.Reference.Kind {
 	case parser.RelativeImportReference:
 		rawPath := importDecl.Reference.RelativePath.Lexeme
-		resolved, err := resolveImportPath(fromModule, rawPath)
-		if err != nil {
-			s.record(fromModule, line, column, err.Error())
+		resolved, message := resolveImportPath(fromModule, rawPath)
+		if !message.IsZero() {
+			s.record(fromModule, line, column, message)
 			return nil
 		}
 		target = resolved
@@ -570,12 +567,12 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportEn
 			return nil
 		}
 		if s.target == "" {
-			s.recordCategory(fromModule, line, column, compilerTypes.ConfigurationError, "C interoperability requires a qualified target")
+			s.record(fromModule, line, column, diag.CInteropNeedsTarget())
 			return nil
 		}
 		key := CBindingKey(s.target, request)
 		if _, present := s.sources[key]; !present {
-			s.recordCategory(fromModule, line, column, compilerTypes.ConfigurationError, "prepared C binding missing for "+importDecl.Reference.DisplaySpelling)
+			s.record(fromModule, line, column, diag.PreparedBindingMissing(importDecl.Reference.DisplaySpelling))
 			return nil
 		}
 		target = strings.TrimSuffix(key, ".hex")
@@ -590,7 +587,7 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportEn
 	default:
 		// The parser is the only reference producer; an unknown kind is an
 		// internal contract break, never a silently resolved import.
-		s.record(fromModule, line, column, "unknown import reference kind")
+		s.record(fromModule, line, column, diag.UnknownImportReference())
 		return nil
 	}
 	// The edge is the resolution result, recorded in source order for every
@@ -612,7 +609,7 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportEn
 			// table. It still shares the one canonical import identity, so a
 			// second alias naming it is the ordinary duplicate diagnostic.
 			if imported[target] {
-				s.record(fromModule, line, column, "duplicate import of canonical module "+target)
+				s.record(fromModule, line, column, diag.DuplicateImport(target))
 				return nil
 			}
 			imported[target] = true
@@ -620,31 +617,31 @@ func (s *reachState) resolveImport(fromModule string, importDecl parser.ImportEn
 		}
 		if stdlib.IsSourceModule(target) {
 			if imported[target] {
-				s.record(fromModule, line, column, "duplicate import of canonical module "+target)
+				s.record(fromModule, line, column, diag.DuplicateImport(target))
 				return nil
 			}
 			imported[target] = true
 			if cycle, ok := s.walk.Cycle(target); ok {
-				s.record(fromModule, line, column, "import cycle: "+strings.Join(cycle, " -> "))
+				s.record(fromModule, line, column, diag.ImportCycle(strings.Join(cycle, " -> ")))
 				return nil
 			}
 			return s.visit(target)
 		}
-		s.record(fromModule, line, column, "unknown stdlib module "+importDecl.Reference.DisplaySpelling)
+		s.record(fromModule, line, column, diag.UnknownStdlibModule(importDecl.Reference.DisplaySpelling))
 		return nil
 	default:
 	}
 	if len(s.sourceKeyFor(target)) == 0 {
-		s.record(fromModule, line, column, "imported module "+importDecl.Reference.DisplaySpelling+" was not found")
+		s.record(fromModule, line, column, diag.ImportedModuleNotFound(importDecl.Reference.DisplaySpelling))
 		return nil
 	}
 	if imported[target] {
-		s.record(fromModule, line, column, "duplicate import of canonical module "+target)
+		s.record(fromModule, line, column, diag.DuplicateImport(target))
 		return nil
 	}
 	imported[target] = true
 	if cycle, ok := s.walk.Cycle(target); ok {
-		s.record(fromModule, line, column, "import cycle: "+strings.Join(cycle, " -> "))
+		s.record(fromModule, line, column, diag.ImportCycle(strings.Join(cycle, " -> ")))
 		return nil
 	}
 	return s.visit(target)
@@ -709,7 +706,7 @@ func (s *reachState) sourceFor(canonical string) (string, string, bool) {
 		if userKeys := s.sourceKeyFor(canonical); len(userKeys) > 0 {
 			// A user key cannot shadow a stdlib canonical identity even
 			// though the std module wins resolution.
-			s.record(canonical, 1, 1, fmt.Sprintf("logical key %q is invalid: the %q path prefix is reserved for the standard library", userKeys[0], "std"))
+			s.record(canonical, 1, 1, diag.InvalidLogicalKey(userKeys[0], diag.LogicalKeyReservedStd))
 		}
 		return stdlib.SourceKey(canonical), text, true
 	}
@@ -718,8 +715,7 @@ func (s *reachState) sourceFor(canonical string) (string, string, bool) {
 		return "", "", false
 	}
 	if len(keys) > 1 {
-		s.record(canonical, 1, 1,
-			fmt.Sprintf("sources contain both %s and %s for module %s", keys[0], keys[1], canonical))
+		s.record(canonical, 1, 1, diag.DuplicateSourceKeys(keys[0], keys[1], canonical))
 	}
 	return keys[0], s.sources[keys[0]], true
 }
@@ -727,14 +723,7 @@ func (s *reachState) sourceFor(canonical string) (string, string, bool) {
 // record appends one resolution diagnostic to its module's bucket, with the
 // position normalized to 1-based source coordinates. It is recordCategory
 // with the ModuleError category every ordinary resolution failure carries.
-func (s *reachState) record(moduleID string, line, column int, message string) {
-	s.recordCategory(moduleID, line, column, compilerTypes.ModuleError, message)
-}
-
-// recordCategory appends one resolution diagnostic with an explicit category:
-// Configuration Errors a C import raises before ordinary checking, and the
-// ModuleError that record delegates for ordinary resolution failures.
-func (s *reachState) recordCategory(moduleID string, line, column int, category compilerTypes.ErrorCategory, message string) {
+func (s *reachState) record(moduleID string, line, column int, message diag.Message) {
 	if line < 1 {
 		line = 1
 	}
@@ -747,13 +736,8 @@ func (s *reachState) recordCategory(moduleID string, line, column int, category 
 	} else if keys := s.sourceKeyFor(moduleID); len(keys) > 0 {
 		logicalKey = keys[0]
 	}
-	s.byModule[moduleID] = append(s.byModule[moduleID], compilerTypes.Diagnostic{
-		Category: category,
-		Stage:    "compile",
-		Module:   logicalKey,
-		Position: span.Position{Line: line, Column: column},
-		Message:  message,
-	})
+	s.byModule[moduleID] = append(s.byModule[moduleID], compilerTypes.At(
+		message, span.Span{}, span.Position{Line: line, Column: column}).InModule(logicalKey))
 }
 
 // mergeDiagnostics folds every stage error into one sorted diagnostic set. It
@@ -776,10 +760,7 @@ func mergeDiagnostics(stageErrors ...error) error {
 			diagnostics = append(diagnostics, one)
 			continue
 		}
-		diagnostics = append(diagnostics, compilerTypes.Diagnostic{
-			Category: compilerTypes.UnknownError,
-			Message:  err.Error(),
-		})
+		diagnostics = append(diagnostics, compilerTypes.Locationless(diag.UnknownCompiler()))
 	}
 	if len(diagnostics) == 0 {
 		return nil

@@ -1,8 +1,7 @@
 package checker
 
 import (
-	"fmt"
-
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	"hexal/compiler/span"
@@ -138,12 +137,12 @@ func checkStatement(statement parser.Statement, ctx checkContext, loopDepth int)
 		return checked, binding{}, false, diagnostics
 	case parser.BreakStatement:
 		if loopDepth == 0 {
-			return BreakStatement{}, binding{}, false, compilerTypes.Diagnostics{typeErrorAt(statement.Keyword, "break is only valid inside a loop")}
+			return BreakStatement{}, binding{}, false, compilerTypes.Diagnostics{messageAt(statement.Keyword, diag.BreakOutsideLoop())}
 		}
 		return BreakStatement{Span: statement.Keyword.Span}, binding{}, false, nil
 	case parser.ContinueStatement:
 		if loopDepth == 0 {
-			return ContinueStatement{}, binding{}, false, compilerTypes.Diagnostics{typeErrorAt(statement.Keyword, "continue is only valid inside a loop")}
+			return ContinueStatement{}, binding{}, false, compilerTypes.Diagnostics{messageAt(statement.Keyword, diag.ContinueOutsideLoop())}
 		}
 		return ContinueStatement{Span: statement.Keyword.Span}, binding{}, false, nil
 	case parser.DeferStatement:
@@ -168,7 +167,7 @@ func checkStatement(statement parser.Statement, ctx checkContext, loopDepth int)
 		// reaching this default is a compiler inconsistency and reports
 		// [Unknown Error], never a user category.
 		return nil, binding{}, false, compilerTypes.Diagnostics{
-			unknownAt(lexer.Token{Line: 1, Column: 1}, "unsupported checked control-flow statement"),
+			unknownAt(lexer.Token{Line: 1, Column: 1}),
 		}
 	}
 }
@@ -406,7 +405,7 @@ func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDept
 	seen := make(map[string]bool, len(statement.Binders))
 	for _, binder := range statement.Binders {
 		if seen[binder.Name.Lexeme] {
-			diagnostics = append(diagnostics, nameErrorAt(binder.Name, "duplicate loop binder name "+binder.Name.Lexeme))
+			diagnostics = append(diagnostics, duplicateLoopBinderDiagnostic(binder.Name, binder.Name.Lexeme))
 		}
 		seen[binder.Name.Lexeme] = true
 	}
@@ -437,7 +436,7 @@ func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDept
 		return checked, append(diagnostics, *arityDiagnostic)
 	}
 	if len(binderTypes) != len(statement.Binders) {
-		return checked, append(diagnostics, typeErrorAt(statement.Keyword, "for-in binder count does not match the source type"))
+		return checked, append(diagnostics, messageAt(statement.Keyword, diag.ForBinderCountMismatch()))
 	}
 	if compilerTypes.IsText(source.typ) {
 		// Text iteration's element type belongs to the binder annotation:
@@ -517,7 +516,7 @@ func forBinderTypes(source compilerTypes.Type, binders []lexer.Token) ([]compile
 		case 2:
 			return []compilerTypes.Type{compilerTypes.SizeType, element}, nil
 		default:
-			diagnostic := typeErrorAt(binders[0], "sequence iteration requires one value binder or index and value binders")
+			diagnostic := messageAt(binders[0], diag.SequenceIterationBinderCount())
 			return nil, &diagnostic
 		}
 	case compilerTypes.IsText(source):
@@ -527,7 +526,7 @@ func forBinderTypes(source compilerTypes.Type, binders []lexer.Token) ([]compile
 		case 2:
 			return []compilerTypes.Type{compilerTypes.SizeType, compilerTypes.UInt8}, nil
 		default:
-			diagnostic := typeErrorAt(binders[0], "sequence iteration requires one value binder or index and value binders")
+			diagnostic := messageAt(binders[0], diag.SequenceIterationBinderCount())
 			return nil, &diagnostic
 		}
 	case source.Dict != nil:
@@ -537,11 +536,11 @@ func forBinderTypes(source compilerTypes.Type, binders []lexer.Token) ([]compile
 		case 3:
 			return []compilerTypes.Type{compilerTypes.SizeType, source.Dict.Key, source.Dict.Value}, nil
 		default:
-			diagnostic := typeErrorAt(binders[0], "dictionary iteration requires key and value binders or index, key, and value binders")
+			diagnostic := messageAt(binders[0], diag.DictIterationBinderCount())
 			return nil, &diagnostic
 		}
 	default:
-		diagnostic := typeErrorAt(binders[0], "value of type "+source.Name+" is not iterable")
+		diagnostic := messageAt(binders[0], diag.ValueNotIterable(source.Name))
 		return nil, &diagnostic
 	}
 }
@@ -570,8 +569,8 @@ type iterationMutationScanner struct {
 	table          *span.Table
 }
 
-func (scanner *iterationMutationScanner) report(s span.Span, message string) {
-	scanner.diagnostics = append(scanner.diagnostics, typeErrorAt(tokenAt(scanner.table, s), message))
+func (scanner *iterationMutationScanner) report(s span.Span, kind diag.IterationMutationKind) {
+	scanner.diagnostics = append(scanner.diagnostics, messageAt(tokenAt(scanner.table, s), diag.IterationMutation(kind)))
 }
 
 func (scanner *iterationMutationScanner) walkStatements(statements []Statement) {
@@ -637,16 +636,16 @@ func (scanner *iterationMutationScanner) walkExpression(node *Expression, s span
 		if receiverRoot == scanner.sourceRoot && node.OperandType == scanner.collectionType {
 			switch node.Name {
 			case "free":
-				scanner.report(s, "cannot free collection during iteration")
+				scanner.report(s, diag.FreeCollectionDuringIteration)
 			case "push", "pop", "clear", "insert", "remove":
 				if baseBindingID(node.Operand) == scanner.sourceBinding {
-					scanner.report(s, "cannot mutate collection during iteration")
+					scanner.report(s, diag.MutateCollectionDuringIteration)
 				}
 			}
 		}
 	case CallExpression, MethodCallExpression:
 		if scanner.callReceivesSource(node) {
-			scanner.report(s, "cannot pass traversed collection to call during iteration")
+			scanner.report(s, diag.PassCollectionDuringIteration)
 		}
 	}
 
@@ -727,20 +726,20 @@ func checkWhileStatement(statement parser.WhileStatement, ctx checkContext, loop
 func checkReturnStatement(statement parser.ReturnStatement, ctx checkContext) (Statement, compilerTypes.Diagnostics) {
 	if !ctx.names.inFunction() {
 		if !ctx.names.isEntryModule() {
-			return ReturnStatement{}, compilerTypes.Diagnostics{typeErrorAt(statement.Keyword, "return is valid only in the entry module or a function body")}
+			return ReturnStatement{}, compilerTypes.Diagnostics{messageAt(statement.Keyword, diag.ReturnOutsideFunctionContext())}
 		}
 		return checkRootReturnStatement(statement, ctx)
 	}
 	checked := ReturnStatement{Span: statement.Keyword.Span}
 	if statement.Value == nil {
 		if ctx.names.result != nil {
-			return checked, compilerTypes.Diagnostics{typeErrorAt(statement.Keyword,
-				fmt.Sprintf("return requires a value; %s declares %s", ctx.names.owner, ctx.names.result.Name))}
+			return checked, compilerTypes.Diagnostics{messageAt(statement.Keyword,
+				diag.ReturnValueRequired(ctx.names.owner, ctx.names.result.Name))}
 		}
 		return checked, nil
 	}
 	if ctx.names.result == nil {
-		return checked, compilerTypes.Diagnostics{typeErrorAt(statement.Keyword, ctx.names.owner+" returns no value; use a bare return")}
+		return checked, compilerTypes.Diagnostics{messageAt(statement.Keyword, diag.FunctionReturnsNoValue(ctx.names.owner))}
 	}
 
 	resultUse := compilerTypes.NewTypeUse(*ctx.names.result)
@@ -752,8 +751,8 @@ func checkReturnStatement(statement parser.ReturnStatement, ctx checkContext) (S
 		return checked, valueDiagnostics
 	}
 	if value.typ != (compilerTypes.Type{}) && !assignable(*ctx.names.result, value.typ) {
-		return checked, compilerTypes.Diagnostics{typeErrorAt(value.token,
-			fmt.Sprintf("%s returns %s; got %s", ctx.names.owner, ctx.names.result.Name, value.typ.Name)+textMismatchHint(*ctx.names.result, value.typ))}
+		return checked, compilerTypes.Diagnostics{messageAt(value.token,
+			diag.FunctionReturnTypeMismatch(ctx.names.owner, ctx.names.result.Name, value.typ.Name, textMismatchDetails(*ctx.names.result, value.typ)))}
 	}
 	if diagnostic := restEscapeDiagnostic(value.source, value.token); diagnostic != nil {
 		return checked, compilerTypes.Diagnostics{*diagnostic}
@@ -792,7 +791,7 @@ func checkRootReturnStatement(statement parser.ReturnStatement, ctx checkContext
 		return checked, valueDiagnostics
 	}
 	if !compilerTypes.Equal(value.typ, compilerTypes.UInt8) {
-		return checked, compilerTypes.Diagnostics{typeErrorAt(value.token, fmt.Sprintf("entry-module return requires UInt8; got %s", value.typ.Name))}
+		return checked, compilerTypes.Diagnostics{messageAt(value.token, diag.EntryReturnTypeMismatch(value.typ.Name))}
 	}
 	source := value.source
 	checked.Value = &source
@@ -838,9 +837,7 @@ func checkForBinderAnnotations(binders []parser.ForBinder, binderTypes []compile
 		valueBinder := index == len(binders)-1
 		if binder.Type == nil {
 			if textSource && valueBinder {
-				diagnostics = append(diagnostics, typeErrorAt(binder.Name, fmt.Sprintf(
-					"for binder %s over %s has an ambiguous element type; annotate it, for example for %s: Byte in ...",
-					binder.Name.Lexeme, source.Name, binder.Name.Lexeme)))
+				diagnostics = append(diagnostics, messageAt(binder.Name, diag.TextForBinderTypeAmbiguous(binder.Name.Lexeme, source.Name)))
 			}
 			continue
 		}
@@ -850,9 +847,7 @@ func checkForBinderAnnotations(binders []parser.ForBinder, binderTypes []compile
 			continue
 		}
 		if !compilerTypes.Equal(use.Type, binderTypes[index]) {
-			diagnostics = append(diagnostics, typeErrorAt(binder.Name, fmt.Sprintf(
-				"for binder %s is annotated %s, but %s yields %s there",
-				binder.Name.Lexeme, use.Type.Name, source.Name, binderTypes[index].Name)))
+			diagnostics = append(diagnostics, messageAt(binder.Name, diag.ForBinderAnnotationMismatch(binder.Name.Lexeme, use.Type.Name, source.Name, binderTypes[index].Name)))
 		}
 	}
 	return diagnostics

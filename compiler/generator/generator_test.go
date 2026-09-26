@@ -37,9 +37,8 @@ func TestGenerateInt32Declaration(t *testing.T) {
 	}
 }
 
-// An induced checked-tree inconsistency surfaces as a fail-closed
-// [Unknown Error] return from GenerateChecked, never as a panic and never as
-// a user-facing category.
+// An induced checked-tree inconsistency surfaces as a fail-closed internal
+// compiler error, never as a panic or a user-facing category.
 func TestGenerateCheckedReportsInvariantBreakAsUnknownError(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun answer(value: Int32): Int32 do\n    return value * 3\nend\nlet started: Int32 = answer(6)\n")
 	tampered := false
@@ -69,8 +68,8 @@ func TestGenerateCheckedReportsInvariantBreakAsUnknownError(t *testing.T) {
 	}
 	messages := compilerTypes.ErrorMessages(err)
 	joined := strings.Join(messages, "\n")
-	if !strings.Contains(joined, "[Unknown Error]") {
-		t.Fatalf("error messages = %q, want an [Unknown Error] entry", joined)
+	if !strings.Contains(joined, "[Unknown Error ") {
+		t.Fatalf("error messages = %q, want an [Unknown Error internal.*] entry", joined)
 	}
 }
 
@@ -400,7 +399,7 @@ func assertGeneratorUnknownError(t *testing.T, err error) {
 	if !ok {
 		t.Fatalf("error = %T %v, want compilerTypes.Diagnostic", err, err)
 	}
-	if diagnostic.Category != compilerTypes.UnknownError || diagnostic.Stage != "generator" {
+	if diagnostic.Message.Category() != compilerTypes.UnknownError || diagnostic.Message.Stage() != "generator" {
 		t.Fatalf("diagnostic = %#v, want generator Unknown Error", diagnostic)
 	}
 }

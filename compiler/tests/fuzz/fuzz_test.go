@@ -106,7 +106,7 @@ func FuzzParse(f *testing.F) {
 			return
 		}
 		for _, diagnostic := range parseDiagnostics(err) {
-			if strings.TrimSpace(diagnostic.Message) == "" {
+			if strings.TrimSpace(diagnostic.Message.Text()) == "" {
 				t.Fatalf("parse diagnostic has an empty message: %+v", diagnostic)
 			}
 			if diagnostic.Position.Line <= 0 || diagnostic.Position.Column <= 0 {

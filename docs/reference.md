@@ -2238,6 +2238,11 @@ Ptr<mut T>.write_volatile(value: T) -> no value
   — a compiler defect rather than a rejection of the program. It is derived from the structured
   diagnostics before rendering, is false on success and for every ordinary rejection, and lets the
   driver attribute a bug without parsing message text.
+- Each compiler diagnostic in `CompilationResult.Stderr` renders as
+  `[<Category> <stable-key>] <message>` followed, when positioned, by `at <logical-module>:<line>:<column>`
+  or `at <line>:<column>` when no logical module is known. Locationless diagnostics omit the
+  suffix. The public result remains `[]string`, with one rendered diagnostic per entry in unchanged
+  order.
 - A successful compilation produces exactly `hexal.h`, one C/header pair per reachable module
   under `modules/<canonical-path>.c/.h`, and the demand-driven component artifacts under
   `hexal/` that the reachable program selects; it returns `ExitSuccess` and has empty `Stderr`. A

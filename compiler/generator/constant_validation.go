@@ -34,16 +34,16 @@ func validateConstantOperand(source checker.Operand) error {
 		return nil
 	}
 	if source.Constant == nil {
-		return unknownExpressionDiagnostic("constant operand without a checked value")
+		return unknownExpressionDiagnostic()
 	}
 	switch source.Type.ScalarKind {
 	case compilerTypes.ScalarBool:
 		if !compilerTypes.Equal(source.Type, compilerTypes.Bool) || source.Constant.Kind() != constant.Bool {
-			return unknownExpressionDiagnostic("invalid checked Bool constant")
+			return unknownExpressionDiagnostic()
 		}
 	case compilerTypes.ScalarUnsignedInteger, compilerTypes.ScalarSignedInteger:
 		if !supportedGeneratedScalarType(source.Type) || source.Constant.Kind() != constant.Int {
-			return unknownExpressionDiagnostic("invalid checked integer constant")
+			return unknownExpressionDiagnostic()
 		}
 		if _, err := integerLiteral(source); err != nil {
 			return err
@@ -51,7 +51,7 @@ func validateConstantOperand(source checker.Operand) error {
 	case compilerTypes.ScalarFloat:
 		return validateFloatConstant(source)
 	default:
-		return unknownExpressionDiagnostic("unsupported checked constant type")
+		return unknownExpressionDiagnostic()
 	}
 	return nil
 }
@@ -61,10 +61,10 @@ func validateFloatConstant(source checker.Operand) error {
 	if compilerTypes.Equal(source.Type, compilerTypes.Float32) {
 		bitSize = 32
 	} else if !compilerTypes.Equal(source.Type, compilerTypes.Float64) {
-		return unknownExpressionDiagnostic("invalid checked float constant")
+		return unknownExpressionDiagnostic()
 	}
 	if bitSize == 32 && source.FloatBits > math.MaxUint32 {
-		return unknownExpressionDiagnostic("Float32 constant has bits outside its declared width")
+		return unknownExpressionDiagnostic()
 	}
 
 	bits := source.FloatBits
@@ -73,42 +73,42 @@ func validateFloatConstant(source checker.Operand) error {
 	}
 	signBit, special := floatSignAndSpecial(bits, bitSize)
 	if source.Negative != signBit {
-		return unknownExpressionDiagnostic("float sign metadata does not match its checked value")
+		return unknownExpressionDiagnostic()
 	}
 	if source.Constant == nil {
-		return unknownExpressionDiagnostic("float constant without a checked value")
+		return unknownExpressionDiagnostic()
 	}
 
 	if special {
 		if source.Constant.Kind() != constant.Unknown || source.Literal != "" {
-			return unknownExpressionDiagnostic("special float constant has malformed metadata")
+			return unknownExpressionDiagnostic()
 		}
 		return nil
 	}
 	if source.Constant.Kind() != constant.Int && source.Constant.Kind() != constant.Float {
-		return unknownExpressionDiagnostic("float constant is not numeric")
+		return unknownExpressionDiagnostic()
 	}
 
 	if source.Literal != "" {
 		literal := strings.ReplaceAll(source.Literal, "_", "")
 		if strings.HasPrefix(literal, "+") || strings.HasPrefix(literal, "-") {
-			return unknownExpressionDiagnostic("float literal sign is stored in malformed metadata")
+			return unknownExpressionDiagnostic()
 		}
 		literalValue := constant.MakeFromLiteral(literal, gotoken.FLOAT, 0)
 		if literalValue == nil || literalValue.Kind() == constant.Unknown || (literalValue.Kind() != constant.Int && literalValue.Kind() != constant.Float) || constant.Sign(source.Constant) < 0 || !constant.Compare(source.Constant, gotoken.EQL, literalValue) {
-			return unknownExpressionDiagnostic("checked float literal does not match its value")
+			return unknownExpressionDiagnostic()
 		}
 		if floatBitsForConstant(literalValue, bitSize, source.Negative) != bits {
-			return unknownExpressionDiagnostic("checked float literal does not match its rounded bits")
+			return unknownExpressionDiagnostic()
 		}
 		return nil
 	}
 	if floatBitsForConstant(source.Constant, bitSize, source.Negative) != bits {
-		return unknownExpressionDiagnostic("checked float does not match its rounded bits")
+		return unknownExpressionDiagnostic()
 	}
 	valueSign := constant.Sign(source.Constant)
 	if valueSign < 0 && !signBit || valueSign > 0 && signBit {
-		return unknownExpressionDiagnostic("float sign metadata does not match its checked value")
+		return unknownExpressionDiagnostic()
 	}
 	return nil
 }
@@ -140,10 +140,10 @@ func floatBitsForConstant(value constant.Value, bitSize int, negative bool) uint
 
 func validateObjectValue(value *checker.ObjectValue, state *expressionValidation) error {
 	if value == nil || value.Type.Object == nil || !supportedGeneratedTypeWithState(value.Type, state) {
-		return unknownExpressionDiagnostic("object operand without a checked object value")
+		return unknownExpressionDiagnostic()
 	}
 	if state.objects[value] {
-		return unknownExpressionDiagnostic("cyclic checked object value")
+		return unknownExpressionDiagnostic()
 	}
 	state.objects[value] = true
 	defer delete(state.objects, value)
@@ -151,22 +151,22 @@ func validateObjectValue(value *checker.ObjectValue, state *expressionValidation
 	seen := make(map[*compilerTypes.ObjectMember]bool, len(value.Initializers))
 	for _, initializer := range value.Initializers {
 		if initializer.Member == nil {
-			return unknownExpressionDiagnostic("object initializer without a checked member")
+			return unknownExpressionDiagnostic()
 		}
 		canonical, ok := objectMember(value.Type.Object, initializer.Member)
 		if !ok || seen[initializer.Member] || !compilerTypes.Equal(canonical.Type, initializer.Member.Type) {
-			return unknownExpressionDiagnostic("object initializer has a forged checked member")
+			return unknownExpressionDiagnostic()
 		}
 		seen[initializer.Member] = true
 		if !generatedAssignable(canonical.Type, initializer.Source.Type) {
-			return unknownExpressionDiagnostic("object initializer type does not match its checked member")
+			return unknownExpressionDiagnostic()
 		}
 		if err := validateCheckedOperandWithState(initializer.Source, state); err != nil {
 			return err
 		}
 	}
 	if len(seen) != len(value.Type.Object.Members) {
-		return unknownExpressionDiagnostic("incomplete checked object value")
+		return unknownExpressionDiagnostic()
 	}
 	return nil
 }
@@ -193,12 +193,12 @@ func generatedAssignable(target, source compilerTypes.Type) bool {
 
 func validateCheckedOperandWithState(source checker.Operand, state *expressionValidation) error {
 	if !supportedGeneratedTypeWithState(source.Type, state) {
-		return unknownExpressionDiagnostic("operand has an unsupported checked type")
+		return unknownExpressionDiagnostic()
 	}
 	switch source.Kind {
 	case checker.ObjectOperand:
 		if source.Object == nil || !compilerTypes.Equal(source.Type, source.Object.Type) {
-			return unknownExpressionDiagnostic("object operand has mismatched checked types")
+			return unknownExpressionDiagnostic()
 		}
 		return validateObjectValue(source.Object, state)
 	case checker.VariableOperand, checker.ExpressionOperand:
@@ -206,30 +206,30 @@ func validateCheckedOperandWithState(source checker.Operand, state *expressionVa
 			return err
 		}
 		if expressionType, ok := expressionResultType(source.Node); ok && !compilerTypes.Equal(source.Type, expressionType) && !compilerTypes.WidensTo(expressionType, source.Type) {
-			return unknownExpressionDiagnostic("operand expression type does not match its checked type")
+			return unknownExpressionDiagnostic()
 		}
 	case checker.ConstantOperand:
 		return validateConstantOperand(source)
 	default:
-		return unknownExpressionDiagnostic("unsupported checked operand")
+		return unknownExpressionDiagnostic()
 	}
 	return nil
 }
 
 func validateIntegerConstant(source checker.Operand) error {
 	if source.Kind != checker.ConstantOperand || source.Constant == nil || source.Constant.Kind() != constant.Int || !supportedGeneratedScalarType(source.Type) || !compilerTypes.IsInteger(source.Type) {
-		return unknownExpressionDiagnostic("invalid checked integer constant")
+		return unknownExpressionDiagnostic()
 	}
 	if source.Radix < checker.DecimalRadix || source.Radix > checker.OctalRadix {
-		return unknownExpressionDiagnostic("checked integer has an invalid radix")
+		return unknownExpressionDiagnostic()
 	}
 	value := source.Constant
 	sign := constant.Sign(value)
 	if compilerTypes.IsUnsignedInteger(source.Type) && (source.Negative || sign < 0) {
-		return unknownExpressionDiagnostic("negative value for an unsigned integer constant")
+		return unknownExpressionDiagnostic()
 	}
 	if source.Negative && sign > 0 || !source.Negative && sign < 0 {
-		return unknownExpressionDiagnostic("integer sign metadata does not match its checked value")
+		return unknownExpressionDiagnostic()
 	}
 	// Folded constants carry no literal text; only original literals are
 	// re-validated against their value.
@@ -238,18 +238,18 @@ func validateIntegerConstant(source checker.Operand) error {
 	}
 	magnitude, literalNegative, ok := parseIntegerLiteral(source.Literal, source.Radix)
 	if !ok {
-		return unknownExpressionDiagnostic("checked integer has an invalid literal value")
+		return unknownExpressionDiagnostic()
 	}
 	if literalNegative && !source.Negative {
-		return unknownExpressionDiagnostic("integer literal sign does not match its checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	if source.Negative {
 		literalValue := constant.UnaryOp(gotoken.SUB, magnitude, 0)
 		if !constant.Compare(value, gotoken.EQL, literalValue) {
-			return unknownExpressionDiagnostic("checked integer literal does not match its value")
+			return unknownExpressionDiagnostic()
 		}
 	} else if !constant.Compare(value, gotoken.EQL, magnitude) {
-		return unknownExpressionDiagnostic("checked integer literal does not match its value")
+		return unknownExpressionDiagnostic()
 	}
 	return nil
 }

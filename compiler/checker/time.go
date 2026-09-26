@@ -7,8 +7,7 @@ package checker
 // Arguments carry every operand in written order, receiver first.
 
 import (
-	"fmt"
-
+	diagnosticsPkg "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -34,15 +33,15 @@ func checkTimeTypeCall(call parser.CallExpression, variable parser.VariableExpre
 	property := call.Callee.(parser.PropertyExpression).Property
 	name := property.Lexeme
 	if len(call.TypeArguments) != 0 {
-		return timeError(property, variable.Name.Lexeme+" operations take no type arguments")
+		return timeMessage(property, diagnosticsPkg.TimeOperationsNoTypeArguments(variable.Name.Lexeme))
 	}
 	switch variable.Name.Lexeme {
 	case "Duration":
 		if _, ok := durationUnits[name]; !ok {
-			return timeError(property, "Duration has no such operation; use Duration.nanoseconds, microseconds, milliseconds, or seconds")
+			return timeMessage(property, diagnosticsPkg.UnknownDurationOperation())
 		}
 		if len(call.Arguments) != 1 {
-			return timeError(property, fmt.Sprintf("Duration.%s expects 1 argument (value: UInt64); got %d", name, len(call.Arguments)))
+			return timeMessage(property, diagnosticsPkg.DurationConstructorArity(name, len(call.Arguments)))
 		}
 		value, diagnostics := checkTimeArgument(call.Arguments[0], compilerTypes.UInt64, ctx)
 		if len(diagnostics) > 0 {
@@ -51,16 +50,16 @@ func checkTimeTypeCall(call parser.CallExpression, variable parser.VariableExpre
 		return timeNode("duration_"+name, []Operand{value}, compilerTypes.DurationType, compilerTypes.DurationType, property)
 	case "Instant":
 		if name != "now" || len(call.Arguments) != 0 {
-			return timeError(property, "Instant has no such operation; use Instant.now()")
+			return timeMessage(property, diagnosticsPkg.UnknownInstantOperation())
 		}
 		return timeNode("instant_now", nil, compilerTypes.InstantType, compilerTypes.InstantType, property)
 	default:
 		if name != "now" || len(call.Arguments) != 0 {
-			return timeError(property, "WallTime has no such operation; use WallTime.now()")
+			return timeMessage(property, diagnosticsPkg.UnknownWallTimeOperation())
 		}
 		result := ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.WallTimeType, compilerTypes.ErrorType})
 		if result == (compilerTypes.Type{}) {
-			return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property, "could not construct the WallTime | Error result union"))}
+			return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property))}
 		}
 		checked := timeNode("wall_now", nil, compilerTypes.WallTimeType, result, property)
 		checked.source.Node.Span = property.Span
@@ -72,7 +71,7 @@ func checkTimeTypeCall(call parser.CallExpression, variable parser.VariableExpre
 // current Task; it is a blocking operation but never an explicit yield.
 func checkTaskSleepCall(call parser.CallExpression, property lexer.Token, ctx checkContext) checkedExpression {
 	if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
-		return timeError(property, fmt.Sprintf("Task.sleep expects 1 argument (duration: Duration); got %d", len(call.Arguments)))
+		return timeMessage(property, diagnosticsPkg.TaskSleepArity(len(call.Arguments)))
 	}
 	duration, diagnostics := checkTimeArgument(call.Arguments[0], compilerTypes.DurationType, ctx)
 	if len(diagnostics) > 0 {
@@ -86,7 +85,7 @@ func checkTimeMethodCall(call methodCall) checkedExpression {
 	property := call.callee.Property
 	name := property.Lexeme
 	if len(call.call.TypeArguments) != 0 {
-		return timeError(property, call.receiver.typ.Name+" has no generic method "+name+"; convert through its named accessors")
+		return timeMessage(property, diagnosticsPkg.GenericTimeMethodUnsupported(call.receiver.typ.Name, name))
 	}
 	// A union binding narrowed to its time member reads through its payload.
 	call.receiver = valueFromPlace(call.receiver)
@@ -94,22 +93,22 @@ func checkTimeMethodCall(call methodCall) checkedExpression {
 	case compilerTypes.IsDuration(call.receiver.typ):
 		unit, ok := durationAccessorUnit(name)
 		if !ok {
-			return timeError(property, "Duration has no method "+name+"; use as_nanoseconds, as_microseconds, as_milliseconds, or as_seconds")
+			return timeMessage(property, diagnosticsPkg.UnknownDurationMethod(name))
 		}
 		if len(call.call.Arguments) != 0 {
-			return timeError(property, name+" expects no arguments")
+			return timeMessage(property, diagnosticsPkg.NoArgumentsExpected(name))
 		}
 		return timeNode("duration_as_"+unit, []Operand{call.receiver.source}, compilerTypes.DurationType, compilerTypes.UInt64, property)
 	case compilerTypes.IsInstant(call.receiver.typ):
 		switch name {
 		case "elapsed":
 			if len(call.call.Arguments) != 0 {
-				return timeError(property, "elapsed expects no arguments")
+				return timeMessage(property, diagnosticsPkg.NoArgumentsExpected("elapsed"))
 			}
 			return timeNode("instant_elapsed", []Operand{call.receiver.source}, compilerTypes.InstantType, compilerTypes.DurationType, property)
 		case "duration_since":
 			if len(call.call.Arguments) != 1 {
-				return timeError(property, fmt.Sprintf("duration_since expects 1 argument (earlier: Instant); got %d", len(call.call.Arguments)))
+				return timeMessage(property, diagnosticsPkg.InstantDurationSinceArity(len(call.call.Arguments)))
 			}
 			earlier, diagnostics := checkTimeArgument(call.call.Arguments[0], compilerTypes.InstantType, call.ctx)
 			if len(diagnostics) > 0 {
@@ -117,10 +116,10 @@ func checkTimeMethodCall(call methodCall) checkedExpression {
 			}
 			return timeNode("instant_since", []Operand{call.receiver.source, earlier}, compilerTypes.InstantType, compilerTypes.DurationType, property)
 		}
-		return timeError(property, "Instant has no method "+name+"; use elapsed or duration_since")
+		return timeMessage(property, diagnosticsPkg.UnknownInstantMethod(name))
 	default:
 		if len(call.call.Arguments) != 0 {
-			return timeError(property, name+" expects no arguments")
+			return timeMessage(property, diagnosticsPkg.NoArgumentsExpected(name))
 		}
 		switch name {
 		case "seconds":
@@ -128,7 +127,7 @@ func checkTimeMethodCall(call methodCall) checkedExpression {
 		case "nanosecond":
 			return timeNode("wall_nanosecond", []Operand{call.receiver.source}, compilerTypes.WallTimeType, compilerTypes.UInt32, property)
 		}
-		return timeError(property, "WallTime has no method "+name+"; use seconds or nanosecond")
+		return timeMessage(property, diagnosticsPkg.UnknownWallTimeMethod(name))
 	}
 }
 
@@ -137,7 +136,7 @@ func checkTimeMethodCall(call methodCall) checkedExpression {
 // subtracts to Duration; Instant subtracts to Duration.
 func checkTimeBinary(operator Operator, left, right checkedExpression, token lexer.Token) checkedExpression {
 	if !compilerTypes.Equal(left.typ, right.typ) {
-		return timeError(token, fmt.Sprintf("operator %s requires identical operand types; got %s and %s", operator, left.typ.Name, right.typ.Name))
+		return timeMessage(token, diagnosticsPkg.TimeOperatorRequiresIdenticalTypes(operator.String(), left.typ.Name, right.typ.Name))
 	}
 	operands := []Operand{left.source, right.source}
 	switch operator {
@@ -157,7 +156,7 @@ func checkTimeBinary(operator Operator, left, right checkedExpression, token lex
 			return timeNode("instant_since", operands, left.typ, compilerTypes.DurationType, token)
 		}
 	}
-	return timeError(token, fmt.Sprintf("operator %s is not defined for %s", operator, left.typ.Name))
+	return timeMessage(token, diagnosticsPkg.TimeOperatorUndefined(operator.String(), left.typ.Name))
 }
 
 // durationAccessorUnit maps as_<unit> to its unit spelling.
@@ -190,6 +189,6 @@ func timeNode(name string, arguments []Operand, operandType, resultType compiler
 	return checkedExpression{source: source, typ: resultType, token: token}
 }
 
-func timeError(token lexer.Token, message string) checkedExpression {
-	return checkedExpression{token: token, diagnostic: diagnosticAt(typeErrorAt(token, message))}
+func timeMessage(token lexer.Token, message diagnosticsPkg.Message) checkedExpression {
+	return checkedExpression{token: token, diagnostic: diagnosticAt(messageAt(token, message))}
 }

@@ -180,7 +180,7 @@ func textPlace(node *checker.Expression) bool {
 // receiver rather than a copy of it (the checker admits only a place there).
 func textView(operand *checker.Expression, typ compilerTypes.Type, address bool, state *expressionValidation) (string, error) {
 	if operand == nil {
-		return "", unknownExpressionDiagnostic("text operand is missing")
+		return "", unknownExpressionDiagnostic()
 	}
 	rendered, _, err := renderHoistedExpressionNode(operand, &typ, state)
 	if err != nil {
@@ -190,7 +190,7 @@ func textView(operand *checker.Expression, typ compilerTypes.Type, address bool,
 		return "hex_text_heap(" + rendered + ")", nil
 	}
 	if !compilerTypes.IsInlineString(typ) {
-		return "", unknownExpressionDiagnostic("text view over a non-text operand")
+		return "", unknownExpressionDiagnostic()
 	}
 	if address || textPlace(operand) {
 		return "hex_text_inline(&(" + rendered + "))", nil
@@ -237,56 +237,56 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 	switch node.Kind {
 	case checker.StringLiteralExpression:
 		if !compilerTypes.IsText(node.ResultType) {
-			return unknownExpressionDiagnostic("string literal has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("string literal type does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		if compilerTypes.IsInlineString(node.ResultType) && uint64(len(node.Name)) > node.ResultType.InlineString.Capacity {
-			return unknownExpressionDiagnostic("string literal exceeds its inline capacity")
+			return unknownExpressionDiagnostic()
 		}
 		return nil
 	case checker.StringMethodCallExpression:
 		if node.Operand == nil || !compilerTypes.IsText(node.OperandType) || !supportedGeneratedTypeWithState(node.OperandType, state) {
-			return unknownExpressionDiagnostic("string method call has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		inline := compilerTypes.IsInlineString(node.OperandType)
 		switch node.Name {
 		case "c_pointer":
 			if inline || len(node.Arguments) != 0 || node.ResultType.Element == nil || !compilerTypes.Equal(*node.ResultType.Element, compilerTypes.UInt8) {
-				return unknownExpressionDiagnostic("string c_pointer call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "length":
 			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.SizeType) {
-				return unknownExpressionDiagnostic("text length call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "rune_length":
 			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.SizeType) {
-				return unknownExpressionDiagnostic("text rune length call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "grapheme_length":
 			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.SizeType) {
-				return unknownExpressionDiagnostic("text grapheme length call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "byte_cursor":
 			if len(node.Arguments) != 0 || !compilerTypes.IsByteCursor(node.ResultType) {
-				return unknownExpressionDiagnostic("text byte_cursor call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "rune_cursor":
 			if len(node.Arguments) != 0 || !compilerTypes.IsRuneCursor(node.ResultType) {
-				return unknownExpressionDiagnostic("text rune_cursor call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "grapheme_cursor":
 			if len(node.Arguments) != 0 || !compilerTypes.IsGraphemeCursor(node.ResultType) {
-				return unknownExpressionDiagnostic("text grapheme_cursor call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "bytes":
 			if len(node.Arguments) != 0 || node.ResultType.Slice == nil || !compilerTypes.Equal(node.Element, compilerTypes.UInt8) {
-				return unknownExpressionDiagnostic("string bytes call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "slice":
 			if len(node.Arguments) != 2 || node.ResultType.Slice == nil || !compilerTypes.Equal(node.Element, compilerTypes.UInt8) {
-				return unknownExpressionDiagnostic("string slice call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 			for _, argument := range node.Arguments {
 				if err := validateCheckedOperandWithState(argument, state); err != nil {
@@ -295,7 +295,7 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 			}
 		case "copy":
 			if len(node.Arguments) != 1 || !compilerTypes.IsString(node.ResultType) {
-				return unknownExpressionDiagnostic("text copy call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 			if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
 				return err
@@ -303,11 +303,11 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 		case "widen":
 			if !inline || len(node.Arguments) != 0 || !compilerTypes.IsInlineString(node.ResultType) ||
 				node.ResultType.InlineString.Capacity < node.OperandType.InlineString.Capacity {
-				return unknownExpressionDiagnostic("text widen call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "concat":
 			if len(node.Arguments) != 2 || state.line(node.Span) == 0 || !textFailureResult(node.ResultType, compilerTypes.StringType) {
-				return unknownExpressionDiagnostic("string concat call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 			for _, argument := range node.Arguments {
 				if err := validateCheckedOperandWithState(argument, state); err != nil {
@@ -316,7 +316,7 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 			}
 		case "casefold":
 			if len(node.Arguments) != 1 || state.line(node.Span) == 0 || !textFailureResult(node.ResultType, compilerTypes.StringType) {
-				return unknownExpressionDiagnostic("string casefold call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 			for _, argument := range node.Arguments {
 				if err := validateCheckedOperandWithState(argument, state); err != nil {
@@ -325,7 +325,7 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 			}
 		case "normalize":
 			if len(node.Arguments) != 2 || state.line(node.Span) == 0 || !textFailureResult(node.ResultType, compilerTypes.StringType) {
-				return unknownExpressionDiagnostic("string normalize call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 			for _, argument := range node.Arguments {
 				if err := validateCheckedOperandWithState(argument, state); err != nil {
@@ -334,28 +334,28 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 			}
 		case "free":
 			if inline || len(node.Arguments) != 1 || node.ResultType != (compilerTypes.Type{}) {
-				return unknownExpressionDiagnostic("string free call has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 			if expected != nil {
-				return unknownExpressionDiagnostic("string free produces no value")
+				return unknownExpressionDiagnostic()
 			}
 			if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
 				return err
 			}
 		default:
-			return unknownExpressionDiagnostic("unknown text method")
+			return unknownExpressionDiagnostic()
 		}
 		if node.Name != "free" && expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("text method result does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.StringFromBytesExpression:
 		if node.Operand == nil || len(node.Arguments) != 1 || state.line(node.Span) == 0 || !compilerTypes.IsHeap(node.OperandType) ||
 			!textFailureResult(node.ResultType, compilerTypes.StringType) || node.Arguments[0].Type.Slice == nil {
-			return unknownExpressionDiagnostic("String.from_bytes has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("String.from_bytes result does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		if err := validateExpressionChildWithState(node.Operand, compilerTypes.Heap, state); err != nil {
 			return err
@@ -365,10 +365,10 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 		if node.Operand == nil || len(node.Arguments) != 1 || state.line(node.Span) == 0 || !compilerTypes.IsHeap(node.OperandType) ||
 			!textFailureResult(node.ResultType, compilerTypes.StringType) || node.Arguments[0].Type.Slice == nil ||
 			!compilerTypes.Equal(node.Arguments[0].Type.Slice.Element, compilerTypes.Rune) {
-			return unknownExpressionDiagnostic("String.from_runes has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("String.from_runes result does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		if err := validateExpressionChildWithState(node.Operand, compilerTypes.Heap, state); err != nil {
 			return err
@@ -376,28 +376,28 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 		return validateCheckedOperandWithState(node.Arguments[0], state)
 	case checker.InlineStringConstructExpression:
 		if !compilerTypes.IsInlineString(node.OperandType) || state.line(node.Span) == 0 || !textFailureResult(node.ResultType, node.OperandType) {
-			return unknownExpressionDiagnostic("inline string constructor has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("inline string constructor result does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		switch node.Name {
 		case "from_bytes":
 			if len(node.Arguments) != 1 {
-				return unknownExpressionDiagnostic("inline from_bytes has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "concat":
 			if len(node.Arguments) != 2 {
-				return unknownExpressionDiagnostic("inline concat has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "interpolate":
 			return validateInterpolationSegments(node, "String<N>.interpolate", state)
 		default:
-			return unknownExpressionDiagnostic("unknown inline string constructor " + node.Name)
+			return unknownExpressionDiagnostic()
 		}
 		for _, argument := range node.Arguments {
 			if argument.Type.Slice == nil {
-				return unknownExpressionDiagnostic("inline string constructor operand is not a byte slice")
+				return unknownExpressionDiagnostic()
 			}
 			if err := validateCheckedOperandWithState(argument, state); err != nil {
 				return err
@@ -406,25 +406,25 @@ func validateTextExpression(node checker.Expression, expected *compilerTypes.Typ
 		return nil
 	case checker.TextCoerceExpression:
 		if _, known := boundedTextTraps[node.Name]; node.Operand == nil || !compilerTypes.IsText(node.OperandType) || !compilerTypes.IsInlineString(node.ResultType) || !known {
-			return unknownExpressionDiagnostic("text coercion has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("text coercion result does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.StringInterpolateExpression:
 		if node.Operand == nil || !compilerTypes.IsHeap(node.OperandType) || !compilerTypes.IsString(node.ResultType) {
-			return unknownExpressionDiagnostic("String.interpolate has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("String.interpolate result does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		if err := validateExpressionChildWithState(node.Operand, compilerTypes.Heap, state); err != nil {
 			return err
 		}
 		return validateInterpolationSegments(node, "String.interpolate", state)
 	}
-	return unknownExpressionDiagnostic("unsupported text expression")
+	return unknownExpressionDiagnostic()
 }
 
 // textFailureResult reports whether typ is exactly `success | Error`.
@@ -440,7 +440,7 @@ func textFailureResult(typ, success compilerTypes.Type) bool {
 // least one value, each of a supported checked type.
 func validateInterpolationSegments(node checker.Expression, label string, state *expressionValidation) error {
 	if len(node.InterpolationSegments) == 0 {
-		return unknownExpressionDiagnostic(label + " has no checked segments")
+		return unknownExpressionDiagnostic()
 	}
 	hasValue := false
 	for _, segment := range node.InterpolationSegments {
@@ -449,14 +449,14 @@ func validateInterpolationSegments(node checker.Expression, label string, state 
 		}
 		hasValue = true
 		if !supportedInterpolationValueType(segment.Value.Type) {
-			return unknownExpressionDiagnostic(label + " segment has an unsupported checked type")
+			return unknownExpressionDiagnostic()
 		}
 		if err := validateCheckedOperandWithState(segment.Value, state); err != nil {
 			return err
 		}
 	}
 	if !hasValue {
-		return unknownExpressionDiagnostic(label + " has no checked value segment")
+		return unknownExpressionDiagnostic()
 	}
 	return nil
 }
@@ -467,7 +467,7 @@ func renderTextComparison(node checker.Expression, state *expressionValidation) 
 	switch node.Kind {
 	case checker.StringCompareExpression:
 		if node.Left == nil || node.Right == nil {
-			return "", unknownExpressionDiagnostic("text ordering without both operands")
+			return "", unknownExpressionDiagnostic()
 		}
 		left, leftErr := textView(node.Left, node.OperandType, false, state)
 		if leftErr != nil {
@@ -488,13 +488,13 @@ func renderTextComparison(node checker.Expression, state *expressionValidation) 
 		}
 		return "(hex_compare_text(" + left + ", " + right + ")" + comparison + ")", nil
 	}
-	return "", unknownExpressionDiagnostic("unsupported text comparison")
+	return "", unknownExpressionDiagnostic()
 }
 
 // renderTextEquality renders == and != over two text operands of any forms.
 func renderTextEquality(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Left == nil || node.Right == nil {
-		return "", unknownExpressionDiagnostic("text equality without both operands")
+		return "", unknownExpressionDiagnostic()
 	}
 	left, leftErr := textView(node.Left, node.OperandType, false, state)
 	if leftErr != nil {
@@ -533,18 +533,18 @@ func renderTextExpression(node checker.Expression, state *expressionValidation) 
 		if state.strings == nil {
 			// A registry-less state reaching String rendering is a generator
 			// defect; it fails closed here instead of dereferencing nil.
-			return "", unknownExpressionDiagnostic("string literal rendering requires a literal registry")
+			return "", unknownExpressionDiagnostic()
 		}
 		handle, ok := state.strings.Lookup(node.Name)
 		if !ok {
-			return "", unknownExpressionDiagnostic("string literal is missing from the checked literal registry: " + node.Name)
+			return "", unknownExpressionDiagnostic()
 		}
 		return "&" + state.strings.CName(handle), nil
 	case checker.StringMethodCallExpression:
 		return renderTextMethod(node, state)
 	case checker.StringFromBytesExpression:
 		if node.Operand == nil || len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("String.from_bytes without checked operands")
+			return "", unknownExpressionDiagnostic()
 		}
 		heap, _, heapErr := renderExpressionNodeWithExpectedState(*node.Operand, &compilerTypes.Heap, state)
 		if heapErr != nil {
@@ -557,7 +557,7 @@ func renderTextExpression(node checker.Expression, state *expressionValidation) 
 		return fmt.Sprintf("hex_string_from_bytes_%s(%s, %s, %d, %d)", streamAdapterSuffix(node.ResultType), heap, bytes, state.line(node.Span), state.column(node.Span)), nil
 	case checker.StringFromRunesExpression:
 		if node.Operand == nil || len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("String.from_runes without checked operands")
+			return "", unknownExpressionDiagnostic()
 		}
 		heap, _, heapErr := renderExpressionNodeWithExpectedState(*node.Operand, &compilerTypes.Heap, state)
 		if heapErr != nil {
@@ -579,7 +579,7 @@ func renderTextExpression(node checker.Expression, state *expressionValidation) 
 		if node.MemberIndex == 1 {
 			var known bool
 			if message, known = boundedTextTraps[node.Name]; !known {
-				return "", unknownExpressionDiagnostic("text coercion names an unknown bounded destination: " + node.Name)
+				return "", unknownExpressionDiagnostic()
 			}
 		}
 		if message == "" {
@@ -595,13 +595,13 @@ func renderTextExpression(node checker.Expression, state *expressionValidation) 
 	case checker.StringInterpolateExpression:
 		return renderStringInterpolate(node, state)
 	}
-	return "", unknownExpressionDiagnostic("unsupported text expression")
+	return "", unknownExpressionDiagnostic()
 }
 
 // renderTextMethod renders one method call on either text form.
 func renderTextMethod(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil {
-		return "", unknownExpressionDiagnostic("string method without a checked receiver")
+		return "", unknownExpressionDiagnostic()
 	}
 	if node.Name == "c_pointer" {
 		receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
@@ -754,7 +754,7 @@ func renderTextMethod(node checker.Expression, state *expressionValidation) (str
 		}
 		return fmt.Sprintf("%s(%s, %s, (%s).tag, %d, %d)", symbol, heap, view, form, state.line(node.Span), state.column(node.Span)), nil
 	}
-	return "", unknownExpressionDiagnostic("unknown string method")
+	return "", unknownExpressionDiagnostic()
 }
 
 // renderInlineStringConstruct renders String<N>.from_bytes and .concat through
@@ -774,7 +774,7 @@ func renderInlineStringConstruct(node checker.Expression, state *expressionValid
 	case "interpolate":
 		return renderStringInterpolate(node, state)
 	}
-	return "", unknownExpressionDiagnostic("unknown inline string constructor " + node.Name)
+	return "", unknownExpressionDiagnostic()
 }
 
 // generatedTextState records one module's text operations that can fail and
@@ -966,7 +966,7 @@ func discoverInlineInterpolation(program checker.Program) bool {
 func textErrorArm(union compilerTypes.Type, kind, message, file, line, column string, literals *literalRegistry, tags *tagRegistry) (string, error) {
 	handle, ok := literals.Lookup(message)
 	if !ok {
-		return "", unknownExpressionDiagnostic("text failure message is missing from the literal registry: " + message)
+		return "", unknownExpressionDiagnostic()
 	}
 	tag, field := streamMemberRef(tags, union, compilerTypes.ErrorType)
 	return fmt.Sprintf("(%s){ .tag = %s, .payload.%s = hex_error_make((hex_t_ErrorKind){ .tag = %s }, %s, %s, &%s, &%s) }",
@@ -1188,7 +1188,7 @@ func writeTextInlineHelpers(result *strings.Builder, state *generatedTextState, 
 			}
 		}
 		if !compilerTypes.IsInlineString(destination) {
-			return destination, "", "", "", "", unknownExpressionDiagnostic("inline text result union has no String<N> member")
+			return destination, "", "", "", "", unknownExpressionDiagnostic()
 		}
 		tag, field = streamMemberRef(tags, union, destination)
 		if invalid, err = textErrorArm(union, "InvalidInput", textMessageInvalidUTF8, fileName, "line", "column", literals, tags); err != nil {

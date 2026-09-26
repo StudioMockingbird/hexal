@@ -316,7 +316,7 @@ func TestRenderOperationsRejectMismatchedNestedChildTypes(t *testing.T) {
 			t.Errorf("case %d error = %T %v, want compilerTypes.Diagnostic", index, err, err)
 			continue
 		}
-		if diagnostic.Category != compilerTypes.UnknownError || diagnostic.Stage != "generator" {
+		if diagnostic.Message.Category() != compilerTypes.UnknownError || diagnostic.Message.Stage() != "generator" {
 			t.Errorf("case %d diagnostic = %#v, want generator Unknown Error", index, diagnostic)
 		}
 	}
@@ -329,7 +329,7 @@ func TestRenderOperandRejectsMismatchedRootExpressionType(t *testing.T) {
 	if !ok {
 		t.Fatalf("error = %T %v, want compilerTypes.Diagnostic", err, err)
 	}
-	if diagnostic.Category != compilerTypes.UnknownError || diagnostic.Stage != "generator" {
+	if diagnostic.Message.Category() != compilerTypes.UnknownError || diagnostic.Message.Stage() != "generator" {
 		t.Fatalf("diagnostic = %#v, want generator Unknown Error", diagnostic)
 	}
 }
@@ -354,7 +354,7 @@ func TestRenderMalformedIntegerConstantsFailsClosed(t *testing.T) {
 			if !ok {
 				t.Fatalf("error = %T %v, want compilerTypes.Diagnostic", err, err)
 			}
-			if diagnostic.Category != compilerTypes.UnknownError || diagnostic.Stage != "generator" {
+			if diagnostic.Message.Category() != compilerTypes.UnknownError || diagnostic.Message.Stage() != "generator" {
 				t.Fatalf("diagnostic = %#v, want generator Unknown Error", diagnostic)
 			}
 		})
@@ -610,7 +610,7 @@ func TestRenderMalformedOperationFailsClosed(t *testing.T) {
 	}
 	for index, node := range testCases {
 		_, err := renderExpression(node, newLiteralRegistry())
-		if err == nil || !strings.Contains(err.Error(), "[Unknown Error]") {
+		if err == nil || !strings.Contains(err.Error(), "[Unknown Error ") {
 			t.Errorf("malformed operation %d error = %v, want structured Unknown Error", index, err)
 		}
 	}
@@ -637,7 +637,7 @@ func TestRenderBinaryOperationRejectsInvalidMetadata(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		_, err := renderExpression(testCase.node, newLiteralRegistry())
-		if err == nil || !strings.Contains(err.Error(), "[Unknown Error]") {
+		if err == nil || !strings.Contains(err.Error(), "[Unknown Error ") {
 			t.Errorf("%s error = %v, want structured Unknown Error", testCase.name, err)
 		}
 	}
@@ -686,11 +686,11 @@ func TestRenderOperationsRejectMalformedScalarMetadata(t *testing.T) {
 			if !ok {
 				t.Fatalf("error = %T %v, want compilerTypes.Diagnostic", err, err)
 			}
-			if diagnostic.Category != compilerTypes.UnknownError {
-				t.Errorf("diagnostic category = %q, want %q", diagnostic.Category, compilerTypes.UnknownError)
+			if diagnostic.Message.Category() != compilerTypes.UnknownError {
+				t.Errorf("diagnostic category = %q, want %q", diagnostic.Message.Category(), compilerTypes.UnknownError)
 			}
-			if diagnostic.Stage != "generator" {
-				t.Errorf("diagnostic stage = %q, want generator", diagnostic.Stage)
+			if diagnostic.Message.Stage() != "generator" {
+				t.Errorf("diagnostic stage = %q, want generator", diagnostic.Message.Stage())
 			}
 		})
 	}

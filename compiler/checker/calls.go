@@ -1,11 +1,11 @@
 package checker
 
 import (
-	"fmt"
 	"maps"
 	"slices"
 
 	"hexal/compiler/corelib"
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	"hexal/compiler/specdata"
@@ -73,12 +73,10 @@ func checkCall(call parser.CallExpression, expectedType compilerTypes.Type, ctx 
 	switch status {
 	case nameMissing:
 		if hint, moved := corelib.ConstructorHint(name); moved {
-			// An unresolved former fallible constructor keeps its exact
-			// migration hint.
-			diagnostic := nameErrorAt(callee.Name, hint)
+			diagnostic := coreConstructorMigrationDiagnostic(callee.Name, hint)
 			return checkedExpression{token: callee.Name, diagnostic: &diagnostic}
 		}
-		diagnostic := typeErrorAt(callee.Name, "unknown function "+name+"; functions must be declared before use")
+		diagnostic := messageAt(callee.Name, diag.UnknownFunction(name))
 		return checkedExpression{token: callee.Name, diagnostic: &diagnostic}
 	case nameModuleData:
 		diagnostic := moduleDataDiagnostic(ctx.names.owner, name, callee.Name)
@@ -91,7 +89,7 @@ func checkCall(call parser.CallExpression, expectedType compilerTypes.Type, ctx 
 	if !ctx.names.inFunction() && bound.kind == functionBinding && ctx.names.envDependent[name] {
 		for _, capture := range slices.Sorted(maps.Keys(ctx.names.envCaptures[name])) {
 			if !ctx.names.initializedRoots[capture] {
-				diagnostic := typeErrorAt(callee.Name, "function "+name+" may access entry binding "+capture+" before "+capture+" is initialized")
+				diagnostic := messageAt(callee.Name, diag.FunctionCapturesUninitializedBinding(name, capture))
 				return checkedExpression{token: callee.Name, diagnostic: &diagnostic}
 			}
 		}
@@ -120,17 +118,17 @@ func checkCall(call parser.CallExpression, expectedType compilerTypes.Type, ctx 
 	}
 	signature := calleeType.Signature
 	if signature == nil {
-		diagnostic := typeErrorAt(callee.Name, name+" is not callable")
+		diagnostic := messageAt(callee.Name, diag.ValueNotCallable(name))
 		return checkedExpression{token: callee.Name, diagnostic: &diagnostic}
 	}
 	if compilerTypes.IsNullable(calleeType) {
 		// A nullable function pointer holds a Fun member only after a null
 		// test proved it; calling the union itself could jump through nil.
-		diagnostic := typeErrorAt(callee.Name, calleeType.Name+" may be Nil; narrow it before calling it")
+		diagnostic := messageAt(callee.Name, diag.NullableFunctionNeedsNarrowing(calleeType.Name))
 		return checkedExpression{token: callee.Name, diagnostic: &diagnostic}
 	}
 	if !aritySatisfied(signature, len(call.Arguments)) {
-		diagnostic := typeErrorAt(callee.Name, arityDiagnostic(name, signature, len(call.Arguments)))
+		diagnostic := messageAt(callee.Name, arityDiagnostic(name, signature, len(call.Arguments)))
 		return checkedExpression{token: callee.Name, diagnostic: &diagnostic}
 	}
 
@@ -150,7 +148,7 @@ func checkCall(call parser.CallExpression, expectedType compilerTypes.Type, ctx 
 	// The gate runs after ordinary resolution so an invalid argument, result,
 	// or name keeps its earlier diagnostic.
 	if bound.kind == foreignFunctionBinding {
-		if diagnostic := requireUnsafe(ctx, callee.Name, unsafeOperation("foreign call "+name)); diagnostic != nil {
+		if diagnostic := requireUnsafe(ctx, callee.Name, unsafeForeignCall, name); diagnostic != nil {
 			return checkedExpression{token: callee.Name, diagnostic: diagnostic}
 		}
 	}
@@ -198,9 +196,9 @@ func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token
 			return checkQualifiedGenericCall(call, open, property, target, ctx)
 		}
 		if display, isCImport := ctx.names.registry.cImportHeader(target); isCImport {
-			diagnostic := nameErrorAt(property, "C import "+display+" has no automatically imported declaration "+property.Lexeme+"; check the C name, use a handwritten binding, or expose a C wrapper")
+			diagnostic := missingCImportDeclarationDiagnostic(property, display, property.Lexeme)
 			if mapped, mappedOK := ctx.names.registry.mappedCName(target, property.Lexeme); mappedOK {
-				diagnostic = nameErrorAt(property, "C declaration "+property.Lexeme+" is imported as "+mapped)
+				diagnostic = mappedCDeclarationDiagnostic(property, property.Lexeme, mapped)
 			}
 			return checkedExpression{token: property, diagnostic: &diagnostic}
 		}
@@ -209,11 +207,11 @@ func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token
 	}
 	signature := function.Type.Signature
 	if signature == nil {
-		diagnostic := unknownAt(property, "exported function record without a signature")
+		diagnostic := unknownAt(property)
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	if !aritySatisfied(signature, len(call.Arguments)) {
-		diagnostic := typeErrorAt(property, arityDiagnostic(function.Name, signature, len(call.Arguments)))
+		diagnostic := messageAt(property, arityDiagnostic(function.Name, signature, len(call.Arguments)))
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	parameterUses := make([]compilerTypes.TypeUse, 0, len(function.Parameters))
@@ -251,14 +249,14 @@ func checkQualifiedFunctionCall(call parser.CallExpression, property lexer.Token
 func checkQualifiedForeignCall(call parser.CallExpression, function ForeignFunctionDeclaration, property lexer.Token, target string, ctx checkContext) checkedExpression {
 	signature := function.Type.Signature
 	if signature == nil {
-		diagnostic := unknownAt(property, "exported foreign function record without a signature")
+		diagnostic := unknownAt(property)
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	if diagnostic := rejectNamedArguments(call); diagnostic != nil {
 		return checkedExpression{token: property, diagnostic: diagnostic}
 	}
 	if len(call.Arguments) != len(signature.Parameters) {
-		diagnostic := typeErrorAt(property, fmt.Sprintf("%s expects %d arguments; got %d", function.Name, len(signature.Parameters), len(call.Arguments)))
+		diagnostic := messageAt(property, diag.FunctionArity(function.Name, len(signature.Parameters), len(call.Arguments), false))
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	parameterUses := make([]compilerTypes.TypeUse, 0, len(function.Parameters))
@@ -269,7 +267,7 @@ func checkQualifiedForeignCall(call parser.CallExpression, function ForeignFunct
 	if len(diagnostics) > 0 {
 		return checkedExpression{token: property, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
-	if diagnostic := requireUnsafe(ctx, property, unsafeOperation("foreign call "+function.Name)); diagnostic != nil {
+	if diagnostic := requireUnsafe(ctx, property, unsafeForeignCall, function.Name); diagnostic != nil {
 		return checkedExpression{token: property, diagnostic: diagnostic}
 	}
 	var resultType compilerTypes.Type
@@ -309,7 +307,7 @@ func checkQualifiedGenericCall(call parser.CallExpression, open *openGenericFunc
 			arguments = append(arguments, argumentUse.Type)
 		}
 		if len(arguments) != open.Generic.Arity {
-			diagnostic := typeErrorAt(property, "explicit generic argument count does not match declaration")
+			diagnostic := messageAt(property, diag.ExplicitGenericArgumentCountMismatch())
 			return checkedExpression{token: property, diagnostic: &diagnostic}
 		}
 	} else {
@@ -329,7 +327,7 @@ func checkQualifiedGenericCall(call parser.CallExpression, open *openGenericFunc
 	}
 	definingCtx, ok := ctx.names.registry.definingContext(target)
 	if !ok {
-		diagnostic := unknownAt(property, "defining module specialization environment is unavailable for "+target)
+		diagnostic := unknownAt(property)
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	specialized, diagnostic := specializeFunctionIn(open, arguments, definingCtx, ctx.names.registry.specializationStore(target))
@@ -339,11 +337,11 @@ func checkQualifiedGenericCall(call parser.CallExpression, open *openGenericFunc
 	}
 	signature := specialized.Type.Signature
 	if signature == nil {
-		diagnostic := unknownAt(property, "specialized function record without a signature")
+		diagnostic := unknownAt(property)
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	if !aritySatisfied(signature, len(call.Arguments)) {
-		diagnostic := typeErrorAt(property, arityDiagnostic(specialized.Name, signature, len(call.Arguments)))
+		diagnostic := messageAt(property, arityDiagnostic(specialized.Name, signature, len(call.Arguments)))
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
 	parameterUses := make([]compilerTypes.TypeUse, 0, len(specialized.Parameters))
@@ -403,16 +401,16 @@ func checkIndirectCall(call parser.CallExpression, ctx checkContext) checkedExpr
 		return checkedExpression{typ: funType, token: call.OpenParen}
 	}
 	if isNullableFun(funType) {
-		diagnostic := typeErrorAt(call.OpenParen, funType.Name+" may be Nil; narrow it before calling it")
+		diagnostic := messageAt(call.OpenParen, diag.NullableFunctionNeedsNarrowing(funType.Name))
 		return checkedExpression{token: call.OpenParen, diagnostic: &diagnostic}
 	}
 	signature := funType.Signature
 	if signature == nil {
-		diagnostic := typeErrorAt(call.OpenParen, "a call's callee must be a function name or a method selection")
+		diagnostic := messageAt(call.OpenParen, diag.IndirectCalleeInvalid())
 		return checkedExpression{token: call.OpenParen, diagnostic: &diagnostic}
 	}
 	if !aritySatisfied(signature, len(call.Arguments)) {
-		diagnostic := typeErrorAt(call.OpenParen, arityDiagnostic("the called function", signature, len(call.Arguments)))
+		diagnostic := messageAt(call.OpenParen, arityDiagnostic("the called function", signature, len(call.Arguments)))
 		return checkedExpression{token: call.OpenParen, diagnostic: &diagnostic}
 	}
 	parameterUses := make([]compilerTypes.TypeUse, len(signature.Parameters))
@@ -470,8 +468,8 @@ func checkArgumentsWithRest(callee string, expected []compilerTypes.TypeUse, wri
 			continue
 		}
 		if checked.typ != (compilerTypes.Type{}) && !assignable(want.Type, checked.typ) {
-			diagnostics = append(diagnostics, typeErrorAt(checked.token,
-				fmt.Sprintf("%s argument %d requires %s; got %s", callee, index+1, want.Type.Name, checked.typ.Name)+textMismatchHint(want.Type, checked.typ)))
+			diagnostics = append(diagnostics, messageAt(checked.token,
+				diag.FunctionArgumentTypeMismatch(callee, index+1, want.Type.Name, checked.typ.Name, textMismatchDetails(want.Type, checked.typ))))
 			continue
 		}
 		if diagnostic := restEscapeDiagnostic(checked.source, checked.token); diagnostic != nil {
@@ -531,11 +529,12 @@ func aritySatisfied(signature *compilerTypes.FunSignature, got int) bool {
 }
 
 // arityDiagnostic renders the one arity error for a failed call.
-func arityDiagnostic(name string, signature *compilerTypes.FunSignature, got int) string {
+func arityDiagnostic(name string, signature *compilerTypes.FunSignature, got int) diag.Message {
+	expected := len(signature.Parameters)
 	if signature.Rest {
-		return fmt.Sprintf("%s expects at least %d arguments; got %d", name, restFixedCount(signature), got)
+		expected = restFixedCount(signature)
 	}
-	return fmt.Sprintf("%s expects %d arguments; got %d", name, len(signature.Parameters), got)
+	return diag.FunctionArity(name, expected, got, signature.Rest)
 }
 
 // parameterRestFixed returns a resolved parameter list's fixed count and
@@ -559,12 +558,9 @@ func parameterAritySatisfied(parameters []FunctionParameter, got int) bool {
 
 // parameterArityDiagnostic renders the arity error for a resolved parameter
 // list.
-func parameterArityDiagnostic(name string, parameters []FunctionParameter, got int) string {
+func parameterArityDiagnostic(name string, parameters []FunctionParameter, got int) diag.Message {
 	fixed, rest := parameterRestFixed(parameters)
-	if rest {
-		return fmt.Sprintf("%s expects at least %d arguments; got %d", name, fixed, got)
-	}
-	return fmt.Sprintf("%s expects %d arguments; got %d", name, fixed, got)
+	return diag.FunctionArity(name, fixed, got, rest)
 }
 
 // checkBareConstructorCall recognizes and checks a bare Type(...) call: one of
@@ -601,7 +597,7 @@ func checkBareConstructorCall(call parser.CallExpression, callee parser.Variable
 			// A name the registry marks constructible but this dispatch has
 			// no case for cannot lower; it is a compiler defect, not a user
 			// error, so it fails closed.
-			diagnostic := unknownAt(callee.Name, "built-in constructor "+callee.Name.Lexeme+" has a registry record but no checker dispatch")
+			diagnostic := unknownAt(callee.Name)
 			return checkedExpression{token: callee.Name, diagnostic: &diagnostic}, true
 		}
 	}
@@ -623,7 +619,7 @@ func checkBareConstructorCall(call parser.CallExpression, callee parser.Variable
 func rejectNamedArguments(call parser.CallExpression) *compilerTypes.Diagnostic {
 	for _, label := range call.ArgumentLabels {
 		if label != nil {
-			diagnostic := typeErrorAt(*label, "named arguments are valid only for struct and ADT constructors")
+			diagnostic := messageAt(*label, diag.NamedArgumentsRequireConstructor())
 			return &diagnostic
 		}
 	}
@@ -640,7 +636,7 @@ func checkCallValue(call parser.CallExpression, expectedType compilerTypes.Type,
 		return checked
 	}
 	if checked.typ.Name == "" {
-		diagnostic := typeErrorAt(checked.token, checked.token.Lexeme+" produces no value")
+		diagnostic := messageAt(checked.token, diag.CallProducesNoValue(checked.token.Lexeme))
 		return checkedExpression{token: checked.token, diagnostic: &diagnostic}
 	}
 	return checked

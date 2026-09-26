@@ -3,6 +3,7 @@ package checker
 import (
 	"go/constant"
 
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
@@ -680,7 +681,7 @@ func restEscapeDiagnostic(operand Operand, token lexer.Token) *compilerTypes.Dia
 	if !operand.RestBacked {
 		return nil
 	}
-	diagnostic := typeErrorAt(token, "rest-backed Slice cannot escape its function invocation")
+	diagnostic := messageAt(token, diag.RestBackedSliceEscape())
 	return &diagnostic
 }
 

@@ -72,7 +72,7 @@ func TestUnknownErrorGuardFires(t *testing.T) {
 	recorder := &recordingFailer{}
 	assertNoUnknownError(recorder, compiler.CompilationResult{
 		ExitCode: compiler.ExitFailure,
-		Stderr:   []string{"[Unknown Error] a violated internal invariant"},
+		Stderr:   []string{"[Unknown Error internal.compiler-error] internal compiler error"},
 	})
 	if !recorder.fired {
 		t.Fatal("assertNoUnknownError did not fire on a result carrying an Unknown Error")
@@ -123,9 +123,9 @@ func TestWellFormedDiagnosticsGuardFires(t *testing.T) {
 		line string
 	}{
 		{"empty line", ""},
-		{"zero line", "[Syntax Error] bad at app.hex:0:1"},
-		{"zero column", "[Syntax Error] bad at app.hex:1:0"},
-		{"unknown module", "[Syntax Error] bad at other.hex:1:1"},
+		{"zero line", "[Syntax Error syntax.expected-value] expected a value at app.hex:0:1"},
+		{"zero column", "[Syntax Error syntax.expected-value] expected a value at app.hex:1:0"},
+		{"unknown module", "[Syntax Error syntax.expected-value] expected a value at other.hex:1:1"},
 	} {
 		recorder := &recordingFailer{}
 		assertWellFormedDiagnostics(recorder, []string{testCase.line}, sourceKeys)

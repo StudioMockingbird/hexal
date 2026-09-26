@@ -1,8 +1,7 @@
 package checker
 
 import (
-	"fmt"
-
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -35,15 +34,11 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, ctx checkContext, 
 	previousUse, hadPreviousUse := ctx.typeEnvironment.LookupUse(name)
 	functionIndex, declaredAsFunction := functionIndexByName[name]
 	if compilerTypes.IsProtectedTypeName(name) {
-		message := "built-in type " + name + " cannot be redeclared"
-		if name == "Ptr" || name == "MutPtr" {
-			message = "built-in type constructor " + name + " cannot be redeclared"
-		}
-		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, message))
+		diagnostics = append(diagnostics, messageAt(declaration.Name, diag.BuiltinTypeCannotBeRedeclared(name, name == "Ptr" || name == "MutPtr")))
 	} else if ctx.typeEnvironment.Contains(name) {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "type "+name+" is already declared"))
+		diagnostics = append(diagnostics, messageAt(declaration.Name, diag.TypeAlreadyDeclared(name)))
 	} else if ctx.names.declaredHere(name) || (declaredAsFunction && functionIndex < itemIndex) {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "type "+name+" is already declared as a value"))
+		diagnostics = append(diagnostics, messageAt(declaration.Name, diag.TypeAlreadyDeclaredAsValue(name)))
 	}
 
 	if len(declaration.Parameters) > 0 {
@@ -71,11 +66,7 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, ctx checkContext, 
 		if len(diagnostics) == 0 {
 			resolved := ctx.typeEnvironment.CompleteObject(name, members)
 			if !compilerTypes.Equal(resolved, beginResult) {
-				return TypeDeclaration{Name: name, Span: declaration.Name.Span}, compilerTypes.Diagnostics{{
-					Category: compilerTypes.UnknownError,
-					Stage:    "checker",
-					Message:  "object identity mismatch after member resolution",
-				}}
+				return TypeDeclaration{Name: name, Span: declaration.Name.Span}, compilerTypes.Diagnostics{compilerTypes.Locationless(diag.CheckerFailure())}
 			}
 			return TypeDeclaration{
 				Name:    name,
@@ -97,7 +88,7 @@ func checkTypeDeclaration(declaration parser.TypeDeclaration, ctx checkContext, 
 	}
 
 	if containsTypeName(declaration.Target, name) {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "type alias "+name+" cannot reference itself"))
+		diagnostics = append(diagnostics, messageAt(declaration.Name, diag.TypeAliasCannotReferenceItself(name)))
 	} else if resolvedUse, diagnostic := resolveTypeUse(declaration.Target, declaration.Name, ctx.typeEnvironment, ctx.names.generics); diagnostic != nil {
 		diagnostics = append(diagnostics, *diagnostic)
 	} else if len(diagnostics) == 0 {
@@ -121,13 +112,13 @@ func resolveObjectMembers(objectName string, expression parser.ObjectTypeExpress
 	seen := make(map[string]bool, len(expression.Members))
 	for _, declaration := range expression.Members {
 		if seen[declaration.Name.Lexeme] {
-			diagnostics = append(diagnostics, typeErrorAt(declaration.Name, fmt.Sprintf("object type %s declares member %s more than once", objectName, declaration.Name.Lexeme)))
+			diagnostics = append(diagnostics, messageAt(declaration.Name, diag.DuplicateObjectMember(objectName, declaration.Name.Lexeme)))
 			continue
 		}
 		seen[declaration.Name.Lexeme] = true
 
 		if containsTypeName(declaration.Type, objectName) && !containsPointerType(declaration.Type) {
-			diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "object type "+objectName+" cannot contain itself by value"))
+			diagnostics = append(diagnostics, messageAt(declaration.Name, diag.ObjectCannotContainItselfByValue(objectName)))
 			continue
 		}
 
@@ -146,7 +137,7 @@ func resolveObjectMembers(objectName string, expression parser.ObjectTypeExpress
 		// as an object member for explicit dispatch tables. An open type
 		// parameter defers to specialization rechecking.
 		if !compilerTypes.ContainsTypeParameter(resolved) && !compilerTypes.Storable(resolved, compilerTypes.PositionObjectMember) {
-			diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "unsupported object member type "+resolved.Name))
+			diagnostics = append(diagnostics, messageAt(declaration.Name, diag.UnsupportedObjectMemberType(resolved.Name)))
 			continue
 		}
 		members = append(members, compilerTypes.ObjectMember{
@@ -294,12 +285,12 @@ func registerGenericTypeDeclaration(declaration parser.TypeDeclaration, ctx chec
 	parameterNames := make([]string, 0, len(declaration.Parameters))
 	for _, parameter := range declaration.Parameters {
 		if seen[parameter.Lexeme] {
-			diagnostics = append(diagnostics, typeErrorAt(parameter, "generic parameter "+parameter.Lexeme+" is declared more than once"))
+			diagnostics = append(diagnostics, messageAt(parameter, diag.DuplicateGenericParameter(parameter.Lexeme)))
 			continue
 		}
 		seen[parameter.Lexeme] = true
 		if compilerTypes.IsProtectedTypeName(parameter.Lexeme) {
-			diagnostics = append(diagnostics, typeErrorAt(parameter, "generic parameter "+parameter.Lexeme+" is a protected type name"))
+			diagnostics = append(diagnostics, messageAt(parameter, diag.ProtectedGenericParameter(parameter.Lexeme)))
 			continue
 		}
 		parameterNames = append(parameterNames, parameter.Lexeme)
@@ -309,14 +300,14 @@ func registerGenericTypeDeclaration(declaration parser.TypeDeclaration, ctx chec
 	}
 	generic := ctx.typeEnvironment.DeclareGeneric(name, len(declaration.Parameters), parameterNames)
 	if generic == nil {
-		return compilerTypes.Diagnostics{typeErrorAt(declaration.Name, "type "+name+" is already declared")}
+		return compilerTypes.Diagnostics{messageAt(declaration.Name, diag.TypeAlreadyDeclared(name))}
 	}
 	if _, objectTarget := declaration.Target.(parser.ObjectTypeExpression); objectTarget {
 		if containsTypeName(declaration.Target, name) && !containsPointerType(declaration.Target) {
-			return compilerTypes.Diagnostics{typeErrorAt(declaration.Name, "object type "+name+" cannot contain itself by value")}
+			return compilerTypes.Diagnostics{messageAt(declaration.Name, diag.ObjectCannotContainItselfByValue(name))}
 		}
 	} else if containsTypeName(declaration.Target, name) {
-		return compilerTypes.Diagnostics{typeErrorAt(declaration.Name, "type alias "+name+" cannot reference itself")}
+		return compilerTypes.Diagnostics{messageAt(declaration.Name, diag.TypeAliasCannotReferenceItself(name))}
 	}
 	ctx.names.generics.types[name] = &openGenericType{
 		Name:        name,
@@ -334,7 +325,7 @@ func checkDeclaration(declaration parser.Declaration, ctx checkContext, itemInde
 	var declaredUse compilerTypes.TypeUse
 	if declaration.Type != nil {
 		if token, tooLate := firstTypeNameDeclaredAtOrAfter(declaration.Type, itemIndex, typeIndexByName); tooLate {
-			diagnostics = append(diagnostics, typeErrorAt(token, unknownTypeMessage(token.Lexeme)))
+			diagnostics = append(diagnostics, messageAt(token, diag.UnknownType(token.Lexeme)))
 		} else {
 			resolved, typeDiagnostic := resolveTypeUse(declaration.Type, declaration.Name, ctx.typeEnvironment, ctx.names.generics)
 			declaredUse = resolved
@@ -349,24 +340,24 @@ func checkDeclaration(declaration parser.Declaration, ctx checkContext, itemInde
 	if declaration.Name.Lexeme == "print" {
 		// The protected builtin name cannot be bound by a local or
 		// module declaration.
-		diagnostics = append(diagnostics, nameErrorAt(declaration.Name, "print is a protected built-in name"))
+		diagnostics = append(diagnostics, protectedBindingNameDiagnostic(declaration.Name, "print"))
 	}
 	if layoutBuiltins[declaration.Name.Lexeme] {
 		// The layout query names cannot be bound by a local or
 		// module declaration.
-		diagnostics = append(diagnostics, nameErrorAt(declaration.Name, declaration.Name.Lexeme+" is a protected built-in name"))
+		diagnostics = append(diagnostics, protectedBindingNameDiagnostic(declaration.Name, declaration.Name.Lexeme))
 	}
 	if compilerTypes.IsProtectedTypeName(declaration.Name.Lexeme) {
-		message := "value " + declaration.Name.Lexeme + " is already declared as a type"
 		if declaration.Name.Lexeme == "Ptr" || declaration.Name.Lexeme == "MutPtr" {
-			message = "built-in type constructor " + declaration.Name.Lexeme + " cannot be redeclared"
+			diagnostics = append(diagnostics, messageAt(declaration.Name, diag.BuiltinTypeCannotBeRedeclared(declaration.Name.Lexeme, true)))
+		} else {
+			diagnostics = append(diagnostics, messageAt(declaration.Name, diag.ValueNameConflictsWithType(declaration.Name.Lexeme)))
 		}
-		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, message))
 	} else if ctx.typeEnvironment.Contains(declaration.Name.Lexeme) {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "value "+declaration.Name.Lexeme+" is already declared as a type"))
+		diagnostics = append(diagnostics, messageAt(declaration.Name, diag.ValueNameConflictsWithType(declaration.Name.Lexeme)))
 	}
 	if ctx.names.declaredHere(declaration.Name.Lexeme) {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "variable "+declaration.Name.Lexeme+" is already declared in this scope; use '=' for reassignment"))
+		diagnostics = append(diagnostics, messageAt(declaration.Name, diag.VariableAlreadyDeclaredInScope(declaration.Name.Lexeme)))
 	}
 
 	// An inferred binding has no destination context. A contextual initializer
@@ -374,8 +365,7 @@ func checkDeclaration(declaration parser.Declaration, ctx checkContext, itemInde
 	// checking can select one.
 	inferred := declaration.Type == nil
 	if inferred && isContextualForInference(declaration.Initializer) {
-		diagnostics = append(diagnostics, typeErrorAt(declaration.Keyword,
-			"`let` requires an initializer whose type does not depend on context; annotate the binding instead"))
+		diagnostics = append(diagnostics, messageAt(declaration.Keyword, diag.ContextualInitializerNeedsAnnotation()))
 	}
 
 	initializer := checkInitializerRest(declaration.Initializer, declaredUse, declaration.Name, ctx, true)
@@ -411,7 +401,7 @@ func checkDeclaration(declaration parser.Declaration, ctx checkContext, itemInde
 		// alias; the alias inherits the provenance so its own uses stay
 		// restricted.
 		if declaration.Mutable {
-			diagnostics = append(diagnostics, typeErrorAt(declaration.Name, "rest-backed Slice requires a fixed local alias"))
+			diagnostics = append(diagnostics, messageAt(declaration.Name, diag.RestBackedSliceRequiresFixedAlias()))
 		} else {
 			declaredBinding.restBacked = true
 		}
@@ -470,16 +460,14 @@ func checkAssignment(assignment parser.Assignment, ctx checkContext) (Assignment
 	case target.self:
 		// Method rule 3: only the binding itself is fixed. A write through
 		// self, such as self.x, is a member place and is checked as one.
-		diagnostics = append(diagnostics, typeErrorAt(nameToken, "cannot assign to self; self is a fixed binding"))
+		diagnostics = append(diagnostics, messageAt(nameToken, diag.CannotAssignToSelf()))
 	case target.function:
 		// A function declaration names code, not a replaceable storage slot.
-		diagnostics = append(diagnostics, typeErrorAt(nameToken, "cannot assign to function "+nameToken.Lexeme))
+		diagnostics = append(diagnostics, messageAt(nameToken, diag.CannotAssignToFunction(nameToken.Lexeme)))
 	case target.parameter:
-		diagnostics = append(diagnostics, typeErrorAt(nameToken,
-			"cannot assign to parameter "+nameToken.Lexeme+"; parameters are fixed bindings"))
+		diagnostics = append(diagnostics, messageAt(nameToken, diag.CannotAssignToParameter(nameToken.Lexeme)))
 	case target.loopBinder:
-		diagnostics = append(diagnostics, typeErrorAt(nameToken,
-			"loop binder "+nameToken.Lexeme+" is immutable"))
+		diagnostics = append(diagnostics, messageAt(nameToken, diag.LoopBinderIsImmutable(nameToken.Lexeme)))
 	case !target.source.Writable:
 		diagnostics = append(diagnostics, assignmentTargetDiagnostic(assignment.Target, nameToken))
 	}
@@ -551,10 +539,10 @@ func checkAssignment(assignment parser.Assignment, ctx checkContext) (Assignment
 
 func assignmentTargetDiagnostic(target parser.Expression, fallback lexer.Token) compilerTypes.Diagnostic {
 	if variable, ok := target.(parser.VariableExpression); ok {
-		return typeErrorAt(variable.Name, "cannot assign to constant "+variable.Name.Lexeme)
+		return messageAt(variable.Name, diag.CannotAssignToConstant(variable.Name.Lexeme))
 	}
 	if property, ok := target.(parser.PropertyExpression); ok {
-		return typeErrorAt(property.Property, "cannot assign to read-only member "+placeDescription(target))
+		return messageAt(property.Property, diag.CannotAssignToReadOnlyMember(placeDescription(target)))
 	}
 	at := fallback
 	if at == (lexer.Token{}) {
@@ -562,38 +550,36 @@ func assignmentTargetDiagnostic(target parser.Expression, fallback lexer.Token) 
 		// token, so the diagnostic points at the target's own operator.
 		at = expressionToken(target)
 	}
-	return typeErrorAt(at, "cannot write through a read-only pointer "+placeDescription(target))
+	return messageAt(at, diag.CannotWriteThroughReadOnlyPointer(placeDescription(target)))
 }
 
 // bindingMismatchDiagnostic names the binding for a function-pointer slot,
 // where "expected X initializer" reads poorly against two Fun<...> spellings.
 func bindingMismatchDiagnostic(name string, declaredType, actualType compilerTypes.Type, token lexer.Token) compilerTypes.Diagnostic {
 	if declaredType.Signature != nil || actualType.Signature != nil {
-		return typeErrorAt(token, fmt.Sprintf("%s requires %s; got %s", name, declaredType.Name, actualType.Name))
+		return messageAt(token, diag.FunctionBindingTypeMismatch(name, declaredType.Name, actualType.Name))
 	}
 	return typeMismatchDiagnostic(declaredType, actualType, token)
 }
 
 func typeMismatchDiagnostic(declaredType, actualType compilerTypes.Type, token lexer.Token) compilerTypes.Diagnostic {
-	message := assignabilityMismatchMessage(declaredType, actualType)
-	if message == "" {
-		message = fmt.Sprintf("expected %s initializer; got %s", declaredType.Name, actualType.Name) + textMismatchHint(declaredType, actualType)
-	}
-	return typeErrorAt(token, message)
+	kind, erased := assignabilityMismatch(declaredType, actualType)
+	message := diag.InitializerTypeMismatch(declaredType.Name, actualType.Name, kind, erased, textMismatchDetails(declaredType, actualType))
+	return messageAt(token, message)
 }
 
-func assignabilityMismatchMessage(target, source compilerTypes.Type) string {
+func assignabilityMismatch(target, source compilerTypes.Type) (diag.AssignabilityMismatchKind, string) {
 	if compilerTypes.IsNil(source) || compilerTypes.IsNullable(source) {
 		if !compilerTypes.IsNullable(target) {
-			return fmt.Sprintf("expected %s; got %s", target.Name, source.Name)
+			return diag.NullableSourceMismatch, ""
 		}
 	}
 	if target.Element != nil && source.Element != nil {
 		if target.PointeeWritable && !source.PointeeWritable && compilerTypes.IsUnknown(*source.Element) && !compilerTypes.IsUnknown(*target.Element) {
-			return fmt.Sprintf("%s cannot recover writable access as %s", source.Name, target.Name)
+			return diag.WritablePointerAccessRecovery, ""
 		}
 		if target.Element.Element != nil && compilerTypes.IsUnknown(*target.Element.Element) && source.Element.Element != nil {
-			return fmt.Sprintf("cannot erase a nested pointer slot as %s", target.Name)
+			return diag.NestedPointerSlotErasure, ""
 		}
 		if target.PointeeWritable && source.PointeeWritable &&
 			!compilerTypes.IsUnknown(*target.Element) && !compilerTypes.IsUnknown(*source.Element) &&
@@ -602,8 +588,8 @@ func assignabilityMismatchMessage(target, source compilerTypes.Type) string {
 			if source.PointeeWritable {
 				erased = "Ptr<mut Unknown>"
 			}
-			return fmt.Sprintf("expected %s; got %s; erasure and recovery do not compose, bind %s first", target.Name, source.Name, erased)
+			return diag.PointerErasureRecoveryComposition, erased
 		}
 	}
-	return ""
+	return diag.OrdinaryInitializerMismatch, ""
 }

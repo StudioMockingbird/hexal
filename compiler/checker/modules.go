@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	diagnosticsPkg "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	"hexal/compiler/span"
@@ -251,35 +252,35 @@ func resolveExportEntries(program parser.Program, checked Program) (map[string]b
 			key += "." + entry.Method.Lexeme
 		}
 		if seen[key] {
-			diagnostics = append(diagnostics, nameErrorAt(entry.Name, "export entry "+key+" is listed more than once"))
+			diagnostics = append(diagnostics, duplicateExportEntryDiagnostic(entry.Name, key))
 			continue
 		}
 		seen[key] = true
 		if entry.Method != nil {
 			if !methodOwners[entry.Name.Lexeme][entry.Method.Lexeme] {
-				diagnostics = append(diagnostics, nameErrorAt(*entry.Method, "unknown method "+key+" in this module"))
+				diagnostics = append(diagnostics, unknownExportMethodDiagnostic(*entry.Method, key))
 				continue
 			}
 			if envDependent[entry.Method.Lexeme] {
-				diagnostics = append(diagnostics, nameErrorAt(*entry.Method, "function "+entry.Method.Lexeme+" uses the entry environment and is valid only as a direct entry-module call"))
+				diagnostics = append(diagnostics, entryEnvironmentFunctionDiagnostic(*entry.Method, entry.Method.Lexeme))
 				continue
 			}
 			exports[key] = true
 			continue
 		}
 		if importAliases[entry.Name.Lexeme] {
-			diagnostics = append(diagnostics, nameErrorAt(entry.Name, "cannot export import alias "+entry.Name.Lexeme+"; re-exports are not supported"))
+			diagnostics = append(diagnostics, exportedImportAliasDiagnostic(entry.Name, entry.Name.Lexeme))
 			continue
 		}
 		if envDependent[entry.Name.Lexeme] {
-			diagnostics = append(diagnostics, nameErrorAt(entry.Name, "function "+entry.Name.Lexeme+" uses the entry environment and is valid only as a direct entry-module call"))
+			diagnostics = append(diagnostics, entryEnvironmentFunctionDiagnostic(entry.Name, entry.Name.Lexeme))
 			continue
 		}
 		if typeNames[entry.Name.Lexeme] || functionNames[entry.Name.Lexeme] || moduleValueNames[entry.Name.Lexeme] {
 			exports[entry.Name.Lexeme] = true
 			continue
 		}
-		diagnostics = append(diagnostics, nameErrorAt(entry.Name, "unknown declaration "+entry.Name.Lexeme+" in this module"))
+		diagnostics = append(diagnostics, unknownDeclarationDiagnostic(entry.Name, entry.Name.Lexeme))
 	}
 	return exports, diagnostics
 }
@@ -737,7 +738,7 @@ func (registry *ModuleRegistry) findExportedADTVariant(moduleID, variant string)
 // privateToModuleDiagnostic is the visibility failure for a cross-module use
 // of a name that is private or unknown in its target module.
 func privateToModuleDiagnostic(token lexer.Token, name, target string) compilerTypes.Diagnostic {
-	return nameErrorAt(token, "declaration "+name+" is private to module "+target)
+	return declarationPrivateToModuleDiagnostic(token, name, target)
 }
 
 // checkExportedClosure validates every exported declaration's source-level
@@ -767,7 +768,7 @@ func (registry *ModuleRegistry) checkExportedClosure(moduleID string, checked Pr
 		seenADTs := make(map[*compilerTypes.AdtType]bool)
 		if private := registry.privateTypeInUse(declaration.TypeUse.Type, seenObjects, seenADTs); private != "" {
 			token := tokenAt(table, declaration.Span)
-			diagnostics = append(diagnostics, typeErrorAt(token, "exported function "+declaration.Name+" exposes private type "+private))
+			diagnostics = append(diagnostics, messageAt(token, diagnosticsPkg.ExportedFunctionExposesPrivateType(declaration.Name, private)))
 		}
 	}
 	for _, statement := range checked.Statements {
@@ -782,7 +783,7 @@ func (registry *ModuleRegistry) checkExportedClosure(moduleID string, checked Pr
 			}
 			if private := registry.privateTypeInUse(declaration.Type, seenObjects, seenADTs); private != "" {
 				token := tokenAt(table, declaration.Span)
-				diagnostics = append(diagnostics, typeErrorAt(token, "exported function "+declaration.Name+" exposes private type "+private))
+				diagnostics = append(diagnostics, messageAt(token, diagnosticsPkg.ExportedFunctionExposesPrivateType(declaration.Name, private)))
 			}
 		case MethodDeclaration:
 			if !entry.exports[declaration.Object.Name+"."+declaration.Name] {
@@ -801,7 +802,7 @@ func (registry *ModuleRegistry) checkExportedClosure(moduleID string, checked Pr
 			}
 			if private != "" {
 				token := tokenAt(table, declaration.Span)
-				diagnostics = append(diagnostics, typeErrorAt(token, "exported function "+declaration.Name+" exposes private type "+private))
+				diagnostics = append(diagnostics, messageAt(token, diagnosticsPkg.ExportedFunctionExposesPrivateType(declaration.Name, private)))
 			}
 		}
 	}

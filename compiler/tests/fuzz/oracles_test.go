@@ -46,7 +46,7 @@ func assertFailClosed(t failer, result compiler.CompilationResult) {
 func assertNoUnknownError(t failer, result compiler.CompilationResult) {
 	t.Helper()
 	for _, line := range result.Stderr {
-		if strings.Contains(line, "[Unknown Error]") {
+		if strings.Contains(line, "[Unknown Error ") {
 			t.Fatalf("Unknown Error reached the fuzz oracle: %q", line)
 		}
 	}

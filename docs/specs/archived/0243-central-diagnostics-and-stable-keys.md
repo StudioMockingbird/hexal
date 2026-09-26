@@ -1,8 +1,8 @@
 # RFC 0243: Central Diagnostics and Stable Keys
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; design settled, implementation not started
-- Updated: 2026-09-25
+- Status: Closed; implemented and validated 2026-09-26
+- Updated: 2026-09-26
 - Created: 2026-09-24
 - Origin: RFC 0241's finding T1 and the requirement to move all compiler
   diagnostic wording into one package. Deferred RFC 0242 names

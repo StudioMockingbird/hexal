@@ -1,8 +1,7 @@
 package checker
 
 import (
-	"fmt"
-
+	diagnosticsPkg "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -111,14 +110,14 @@ func checkContextualUnion(expression parser.Expression, expected compilerTypes.T
 	return checkedExpression{
 		token: token,
 		diagnostic: func() *compilerTypes.Diagnostic {
-			diagnostic := typeErrorAt(token, fmt.Sprintf("no member of %s accepts this expression", expected.Type.Name))
+			diagnostic := messageAt(token, diagnosticsPkg.NoUnionMemberAccepts(expected.Type.Name))
 			return &diagnostic
 		}(),
 	}
 }
 
 func noUnionMemberDiagnostic(source checkedExpression, destination compilerTypes.Type) checkedExpression {
-	diagnostic := typeErrorAt(source.token, fmt.Sprintf("no member of %s accepts this expression", destination.Name))
+	diagnostic := messageAt(source.token, diagnosticsPkg.NoUnionMemberAccepts(destination.Name))
 	return checkedExpression{token: source.token, diagnostic: &diagnostic}
 }
 
@@ -226,21 +225,21 @@ func checkUnionTypeTest(expression parser.TypeTestExpression, ctx checkContext) 
 	}
 	query := queryUse.Type
 	if compilerTypes.IsUnion(query) {
-		diagnostic := typeErrorAt(expression.IsToken, fmt.Sprintf("is requires one exact member type; %s is a union", query.Name))
+		diagnostic := messageAt(expression.IsToken, diagnosticsPkg.IsRequiresExactMemberType(query.Name))
 		return checkedExpression{token: expression.IsToken, diagnostic: &diagnostic}
 	}
 	if compilerTypes.IsNil(query) {
-		diagnostic := typeErrorAt(expression.IsToken, "is may not test Nil; use == nil or != nil")
+		diagnostic := messageAt(expression.IsToken, diagnosticsPkg.IsCannotTestNil())
 		return checkedExpression{token: expression.IsToken, diagnostic: &diagnostic}
 	}
 	operandMembers := compilerTypes.UnionMembers(operand.typ)
 	if !compilerTypes.IsUnion(operand.typ) || operandMembers.Len() < 2 {
-		diagnostic := typeErrorAt(expression.IsToken, fmt.Sprintf("is requires a union value; got %s", operand.typ.Name))
+		diagnostic := messageAt(expression.IsToken, diagnosticsPkg.IsRequiresUnionValue(operand.typ.Name))
 		return checkedExpression{token: expression.IsToken, diagnostic: &diagnostic}
 	}
 	if variable, ok := expression.Operand.(parser.VariableExpression); ok && operand.source.Binding != 0 {
 		if fact, escaped := ctx.names.flow.facts[operand.source.Binding]; escaped && fact.escaped {
-			diagnostic := typeErrorAt(expression.IsToken, fmt.Sprintf("%s cannot be narrowed after its mutable address escapes", variable.Name.Lexeme))
+			diagnostic := messageAt(expression.IsToken, diagnosticsPkg.CannotNarrowAfterMutableAddressEscapes(variable.Name.Lexeme))
 			return checkedExpression{token: expression.IsToken, diagnostic: &diagnostic}
 		}
 	}
@@ -252,11 +251,11 @@ func checkUnionTypeTest(expression parser.TypeTestExpression, ctx checkContext) 
 		}
 	}
 	if memberIndex < 0 {
-		diagnostic := typeErrorAt(expression.IsToken, fmt.Sprintf("%s is not a member of %s", query.Name, operand.typ.Name))
+		diagnostic := messageAt(expression.IsToken, diagnosticsPkg.IsTestTypeNotMember(query.Name, operand.typ.Name))
 		return checkedExpression{token: expression.IsToken, diagnostic: &diagnostic}
 	}
 	if operandMembers.Len() == 2 && compilerTypes.ContainsUnionMember(operand.typ, compilerTypes.Nil) {
-		diagnostic := typeErrorAt(expression.IsToken, fmt.Sprintf("is test of %s against %s is redundant; use != nil", query.Name, operand.typ.Name))
+		diagnostic := messageAt(expression.IsToken, diagnosticsPkg.RedundantNilIsTest(query.Name, operand.typ.Name))
 		return checkedExpression{token: expression.IsToken, diagnostic: &diagnostic}
 	}
 	operandNode := expressionNode(operand.source)
@@ -277,14 +276,14 @@ func checkUnionEquality(operator Operator, left, right checkedExpression, token 
 		return nil
 	}
 	if !compilerTypes.IsUnion(left.typ) || !compilerTypes.IsUnion(right.typ) || !compilerTypes.Equal(left.typ, right.typ) {
-		diagnostic := typeErrorAt(token, fmt.Sprintf("union equality requires identical operand types; got %s and %s", left.typ.Name, right.typ.Name))
+		diagnostic := messageAt(token, diagnosticsPkg.UnionEqualityRequiresSameTypes(left.typ.Name, right.typ.Name))
 		return &checkedExpression{token: token, diagnostic: &diagnostic}
 	}
 	leftMembers := compilerTypes.UnionMembers(left.typ)
 	for index := 0; index < leftMembers.Len(); index++ {
 		if member, _ := leftMembers.At(index); !compilerTypes.IsNil(member) {
 			if ok, _ := EqualityAvailable(member); !ok {
-				diagnostic := typeErrorAt(token, fmt.Sprintf("union member %s does not support equality", member.Name))
+				diagnostic := messageAt(token, diagnosticsPkg.UnionMemberDoesNotSupportEquality(member.Name))
 				return &checkedExpression{token: token, diagnostic: &diagnostic}
 			}
 		}

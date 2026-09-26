@@ -1,11 +1,11 @@
 package checker
 
 import (
-	"fmt"
 	"go/constant"
 	gotoken "go/token"
 	"math"
 
+	diagnosticsPkg "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	"hexal/compiler/specdata"
@@ -133,7 +133,7 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 		!compilerTypes.Equal(left.typ, right.typ) {
 		common, ok := compilerTypes.LosslessCommonType(left.typ, right.typ)
 		if !ok {
-			diagnostic := typeErrorAt(expression.Operator, "numeric values have no unique lossless common type")
+			diagnostic := messageAt(expression.Operator, diagnosticsPkg.NumericOperandsNoCommonType())
 			return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
 		}
 		// Remainder is integer-only; a mixed Int/Float pair whose common type
@@ -162,7 +162,7 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 	// it.
 	if isBitwiseArithmetic(operator) {
 		if !isBitwiseEligible(left.typ) || !isBitwiseEligible(right.typ) {
-			diagnostic := typeErrorAt(expression.Operator, fmt.Sprintf("operator %s requires integer operands; got %s and %s", operator, left.typ.Name, right.typ.Name))
+			diagnostic := messageAt(expression.Operator, diagnosticsPkg.OperatorRequiresIntegerOperands(operator.String(), left.typ.Name, right.typ.Name))
 			return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
 		}
 		common := left.typ
@@ -170,7 +170,7 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 			var ok bool
 			common, ok = compilerTypes.LosslessCommonType(left.typ, right.typ)
 			if !ok {
-				diagnostic := typeErrorAt(expression.Operator, "integer operands have no unique lossless common type")
+				diagnostic := messageAt(expression.Operator, diagnosticsPkg.IntegerOperandsNoCommonType())
 				return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
 			}
 		}
@@ -188,17 +188,17 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 	// integer and never participates in common-type selection.
 	if isShiftOperator(operator) {
 		if !isBitwiseEligible(left.typ) {
-			diagnostic := typeErrorAt(expression.Operator, fmt.Sprintf("operator %s requires an integer left operand; got %s", operator, left.typ.Name))
+			diagnostic := messageAt(expression.Operator, diagnosticsPkg.OperatorRequiresIntegerLeft(operator.String(), left.typ.Name))
 			return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
 		}
 		if !compilerTypes.IsInteger(right.typ) {
-			diagnostic := typeErrorAt(expression.Operator, "shift count must be an integer; got "+right.typ.Name)
+			diagnostic := messageAt(expression.Operator, diagnosticsPkg.ShiftCountRequiresInteger(right.typ.Name))
 			return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
 		}
 		if count := staticConstantValue(right); count != nil && count.Kind() == constant.Int {
 			value, exact := constant.Int64Val(count)
 			if exact && (value < 0 || value >= int64(left.typ.Bits)) {
-				diagnostic := typeErrorAt(expression.Operator, fmt.Sprintf("shift count %d is outside the valid range for %s", value, left.typ.Name))
+				diagnostic := messageAt(expression.Operator, diagnosticsPkg.ShiftCountOutOfRange(value, left.typ.Name))
 				return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
 			}
 		}
@@ -244,7 +244,7 @@ func checkBinaryExpression(expression parser.BinaryExpression, context expressio
 	if !compilerTypes.Equal(left.typ, right.typ) && operator != LogicalAndOperator && operator != LogicalOrOperator {
 		return checkedExpression{
 			token:      expression.Operator,
-			diagnostic: diagnosticAt(typeErrorAt(expression.Operator, fmt.Sprintf("operator %s requires identical operand types; got %s and %s", operator, left.typ.Name, right.typ.Name))),
+			diagnostic: diagnosticAt(messageAt(expression.Operator, diagnosticsPkg.OperatorRequiresIdenticalTypes(operator.String(), left.typ.Name, right.typ.Name))),
 		}
 	}
 	resultType := left.typ
@@ -292,7 +292,7 @@ func checkNullTest(operator Operator, left, right checkedExpression, token lexer
 		if operator == EqualOperator {
 			verdict = "false"
 		}
-		diagnostic := typeErrorAt(token, fmt.Sprintf("%s is never Nil; the test is always %s", operand.typ.Name, verdict))
+		diagnostic := messageAt(token, diagnosticsPkg.TypeIsNeverNil(operand.typ.Name, verdict))
 		return &checkedExpression{token: token, diagnostic: &diagnostic}
 	}
 	operandNode := expressionNode(operand.source)
@@ -486,7 +486,7 @@ func staticDivisionDiagnostic(operator Operator, left, right checkedExpression, 
 		return nil
 	}
 	if constant.Sign(divisor) == 0 {
-		return diagnosticAt(typeErrorAt(token, "division by zero"))
+		return diagnosticAt(messageAt(token, diagnosticsPkg.DivisionByZero()))
 	}
 	// Signed minimum divided by -1 wraps to the signed minimum and the
 	// remainder is zero, both at compile time and at runtime.
@@ -599,7 +599,7 @@ func inferExpressionType(expression parser.Expression, expected compilerTypes.Ty
 			token:      expression.Operator,
 		}
 	default:
-		return expressionTypeHint{diagnostic: diagnosticAt(unknownAt(lexer.Token{Line: 1, Column: 1}, "unsupported expression"))}
+		return expressionTypeHint{diagnostic: diagnosticAt(unknownAt(lexer.Token{Line: 1, Column: 1}))}
 	}
 }
 
@@ -796,31 +796,31 @@ func unsupportedOperatorExpression(token lexer.Token) checkedExpression {
 }
 
 func unsupportedOperatorDiagnostic(token lexer.Token) *compilerTypes.Diagnostic {
-	return diagnosticAt(typeErrorAt(token, "unsupported operator "+token.Lexeme))
+	return diagnosticAt(messageAt(token, diagnosticsPkg.UnsupportedOperator(token.Lexeme)))
 }
 
 func unaryOperatorDiagnostic(operator Operator, typ compilerTypes.Type, token lexer.Token) *compilerTypes.Diagnostic {
-	message := fmt.Sprintf("operator %s requires Bool operands; got %s", operator, typ.Name)
+	message := diagnosticsPkg.UnaryOperatorRequiresBool(operator.String(), typ.Name)
 	if operator == NegateOperator {
-		message = fmt.Sprintf("negation requires a signed type; got %s", typ.Name)
+		message = diagnosticsPkg.NegationRequiresSignedType(typ.Name)
 	}
 	if operator == BitwiseNotOperator {
-		message = fmt.Sprintf("operator ~ requires an integer operand; got %s", typ.Name)
+		message = diagnosticsPkg.BitwiseNotRequiresInteger(typ.Name)
 	}
-	return diagnosticAt(typeErrorAt(token, message))
+	return diagnosticAt(messageAt(token, message))
 }
 
 func binaryOperatorDiagnostic(operator Operator, typ compilerTypes.Type, token lexer.Token) *compilerTypes.Diagnostic {
-	message := fmt.Sprintf("operator %s requires numeric operands; got %s", operator, typ.Name)
+	message := diagnosticsPkg.OperatorRequiresNumericOperands(operator.String(), typ.Name)
 	switch operator {
 	case RemainderOperator:
-		message = fmt.Sprintf("operator %% requires integer operands; got %s", typ.Name)
+		message = diagnosticsPkg.RemainderRequiresInteger(typ.Name)
 	case LessOperator, LessEqualOperator, GreaterOperator, GreaterEqualOperator:
-		message = fmt.Sprintf("operator %s requires ordered operands; got %s", operator, typ.Name)
+		message = diagnosticsPkg.OperatorRequiresOrderedOperands(operator.String(), typ.Name)
 	case LogicalAndOperator, LogicalOrOperator:
-		message = fmt.Sprintf("operator %s requires Bool operands; got %s", operator, typ.Name)
+		message = diagnosticsPkg.LogicalOperatorRequiresBool(operator.String(), typ.Name)
 	case EqualOperator, NotEqualOperator:
-		message = fmt.Sprintf("operator %s requires scalar operands; got %s", operator, typ.Name)
+		message = diagnosticsPkg.EqualityOperatorRequiresScalar(operator.String(), typ.Name)
 	}
-	return diagnosticAt(typeErrorAt(token, message))
+	return diagnosticAt(messageAt(token, message))
 }

@@ -34,7 +34,7 @@ func objectDefinitions(program checker.Program) ([]*compilerTypes.ObjectType, er
 				return nil
 			}
 			if previous, exists := seenCNames[object.CName]; exists && previous != object {
-				conflict = unknownExpressionDiagnostic("conflicting generated object C name")
+				conflict = unknownExpressionDiagnostic()
 				return conflict
 			}
 			seenCNames[object.CName] = object

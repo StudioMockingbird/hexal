@@ -254,7 +254,7 @@ func foldWidenedArithmetic(operator Operator, left, right checkedExpression, com
 	}
 	operation, ok := integerConstantOperator(operator)
 	if !ok || left.source.Constant == nil || right.source.Constant == nil {
-		diagnostic := unknownAt(token, "unfoldable widened arithmetic")
+		diagnostic := unknownAt(token)
 		return checkedExpression{typ: common, token: token, diagnostic: &diagnostic}
 	}
 	value := constant.BinaryOp(left.source.Constant, operation, right.source.Constant)

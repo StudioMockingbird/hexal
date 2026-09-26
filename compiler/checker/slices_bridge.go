@@ -1,8 +1,7 @@
 package checker
 
 import (
-	"fmt"
-
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -18,7 +17,7 @@ import (
 func checkSliceBridgeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	property := call.Callee.(parser.PropertyExpression).Property
 	if len(call.TypeArguments) != 1 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Slice requires exactly one element type"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diag.SliceTypeArgumentCount()))}
 	}
 	writable := false
 	argument := call.TypeArguments[0]
@@ -32,42 +31,38 @@ func checkSliceBridgeCall(call parser.CallExpression, callee lexer.Token, ctx ch
 	}
 	slice := ctx.typeEnvironment.SliceType(elementUse.Type, writable)
 	if slice == (compilerTypes.Type{}) {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, elementUse.Type.Name+" is not a valid Slice element type"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diag.InvalidSliceElementType(elementUse.Type.Name)))}
 	}
 	element := elementUse.Type
-	constructor := "Slice"
-	if writable {
-		constructor = "Slice<mut T>"
-	}
 	switch property.Lexeme {
 	case "from_pointer":
 		if len(call.Arguments) != 2 {
-			return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, constructor+".from_pointer expects 2 arguments (pointer, length)"))}
+			return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.SliceFromPointerArgumentCount(writable)))}
 		}
 		pointer := checkValue(call.Arguments[0], ctx)
 		if diagnostics := initializerDiagnostics(pointer); len(diagnostics) > 0 {
 			return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
 		}
 		if pointer.typ.Element == nil || compilerTypes.IsNullable(pointer.typ) {
-			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(typeErrorAt(pointer.token, "nullable pointer must be narrowed before Slice construction"))}
+			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(messageAt(pointer.token, diag.SlicePointerMustBeNarrowed()))}
 		}
 		if !compilerTypes.Equal(*pointer.typ.Element, element) {
-			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(typeErrorAt(pointer.token, fmt.Sprintf("%s.from_pointer requires %s; got %s", constructor, requiredFromPointerMode(element, writable), pointer.typ.Name)))}
+			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(messageAt(pointer.token, diag.SliceFromPointerTypeMismatch(writable, element.Name, pointer.typ.Name)))}
 		}
 		if writable && !pointer.typ.PointeeWritable {
-			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(typeErrorAt(pointer.token, fmt.Sprintf("%s.from_pointer requires %s; got %s", constructor, requiredFromPointerMode(element, writable), pointer.typ.Name)))}
+			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(messageAt(pointer.token, diag.SliceFromPointerTypeMismatch(writable, element.Name, pointer.typ.Name)))}
 		}
 		length := checkInitializer(call.Arguments[1], compilerTypes.NewTypeUse(compilerTypes.SizeType), tokenOf(call.Arguments[1]), ctx)
 		if diagnostics := initializerDiagnostics(length); len(diagnostics) > 0 {
 			return checkedExpression{token: tokenOf(call.Arguments[1]), diagnostics: diagnostics}
 		}
 		if !assignable(compilerTypes.SizeType, length.typ) {
-			return checkedExpression{token: length.token, diagnostic: diagnosticAt(typeErrorAt(length.token, "Slice length cannot be represented as Size"))}
+			return checkedExpression{token: length.token, diagnostic: diagnosticAt(messageAt(length.token, diag.SliceLengthNotRepresentableAsSize()))}
 		}
 		// The region's length, lifetime, alignment, initialization, and
 		// provenance are the caller's assertion; every check above is the part
 		// the compiler can still prove and runs first.
-		if diagnostic := requireUnsafe(ctx, property, unsafeSliceFromPointer); diagnostic != nil {
+		if diagnostic := requireUnsafe(ctx, property, unsafeSliceFromPointer, ""); diagnostic != nil {
 			return checkedExpression{token: property, diagnostic: diagnostic}
 		}
 		node := Expression{Kind: SliceBridgeExpression, Name: "from_pointer", Arguments: []Operand{pointer.source, length.source}, OperandType: slice, ResultType: slice, Element: element}
@@ -75,13 +70,13 @@ func checkSliceBridgeCall(call parser.CallExpression, callee lexer.Token, ctx ch
 		return checkedExpression{source: source, typ: slice, token: property}
 	case "empty":
 		if len(call.Arguments) != 0 {
-			return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, constructor+".empty expects no arguments"))}
+			return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.SliceEmptyArguments(writable)))}
 		}
 		node := Expression{Kind: SliceBridgeExpression, Name: "empty", OperandType: slice, ResultType: slice, Element: element}
 		source := Operand{Kind: ExpressionOperand, Type: slice, Name: "empty", Node: node}
 		return checkedExpression{source: source, typ: slice, token: property}
 	}
-	return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, constructor+" has no such operation; use from_pointer or empty"))}
+	return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.SliceBridgeOperationNotFound(writable)))}
 }
 
 // checkSlicePointer resolves the raw-address bridge `slice.pointer()`. It
@@ -91,11 +86,11 @@ func checkSliceBridgeCall(call parser.CallExpression, callee lexer.Token, ctx ch
 // outlive the Slice.
 func checkSlicePointer(call methodCall) checkedExpression {
 	if call.receiver.typ.Slice == nil {
-		diagnostic := typeErrorAt(call.callee.Property, call.receiver.typ.Name+" has no method pointer")
+		diagnostic := messageAt(call.callee.Property, diag.SlicePointerMethodNotFound(call.receiver.typ.Name))
 		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
 	if len(call.call.Arguments) != 0 {
-		diagnostic := typeErrorAt(call.callee.Property, "pointer expects no arguments")
+		diagnostic := messageAt(call.callee.Property, diag.SlicePointerMethodArguments())
 		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
 	element := call.receiver.typ.Slice.Element
@@ -106,26 +101,16 @@ func checkSlicePointer(call methodCall) checkedExpression {
 		pointer = call.ctx.typeEnvironment.PtrType(element)
 	}
 	if pointer == (compilerTypes.Type{}) {
-		diagnostic := typeErrorAt(call.callee.Property, element.Name+" is not a valid pointer element type")
+		diagnostic := messageAt(call.callee.Property, diag.SlicePointerElementInvalid(element.Name))
 		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
 	nullable := call.ctx.typeEnvironment.NullableType(pointer)
-	if diagnostic := requireUnsafe(call.ctx, call.callee.Property, unsafeSlicePointer); diagnostic != nil {
+	if diagnostic := requireUnsafe(call.ctx, call.callee.Property, unsafeSlicePointer, ""); diagnostic != nil {
 		return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 	}
 	node := Expression{Kind: CollectionMethodCallExpression, Name: "pointer", Operand: &call.receiver.source.Node, OperandType: call.receiver.typ, ResultType: nullable, Element: element}
 	source := Operand{Kind: ExpressionOperand, Type: nullable, Name: "pointer", Node: node}
 	return checkedExpression{source: source, typ: nullable, token: call.callee.Property}
-}
-
-// requiredFromPointerMode spells the accepted pointer mode for one
-// from_pointer constructor: read-only construction accepts either pointer
-// mode, writable construction accepts only the writable mode.
-func requiredFromPointerMode(element compilerTypes.Type, writable bool) string {
-	if writable {
-		return "Ptr<mut " + element.Name + ">"
-	}
-	return "Ptr<" + element.Name + "> or Ptr<mut " + element.Name + ">"
 }
 
 // nodeTracesToRef reports whether a checked node traces to address-taking of// local storage: directly through an address node, or through a binding

@@ -267,14 +267,14 @@ func discoverGeneratedConcurrency(program checker.Program, functions map[string]
 // matches the definition in its own module pair.
 func spawnSiteFor(node checker.Expression, functions map[string]compilerTypes.Type, localModule, localOwner string) (spawnSite, error) {
 	if node.Kind != checker.CallExpression || node.Operand == nil || node.Operand.Kind != checker.FunctionReferenceExpression || node.Operand.Name == "" {
-		return spawnSite{}, unknownExpressionDiagnostic("spawn without a direct checked function call")
+		return spawnSite{}, unknownExpressionDiagnostic()
 	}
 	signature, ok := functions[node.Operand.Name]
 	if !ok || signature.Signature == nil {
-		return spawnSite{}, unknownExpressionDiagnostic("spawn target is not a checked function: " + node.Operand.Name)
+		return spawnSite{}, unknownExpressionDiagnostic()
 	}
 	if node.Rest != signature.Signature.Rest {
-		return spawnSite{}, unknownExpressionDiagnostic("spawn rest metadata does not match its checked signature")
+		return spawnSite{}, unknownExpressionDiagnostic()
 	}
 	module := node.Operand.Module
 	if module == "" {
@@ -797,7 +797,7 @@ func hoistConcurrencyInStatement(statement checker.Statement, body *strings.Buil
 		// and leaf statements none; nested bodies hoist at their own
 		// statement list.
 	default:
-		return unknownExpressionDiagnostic("unsupported checked statement")
+		return unknownExpressionDiagnostic()
 	}
 	return nil
 }
@@ -808,7 +808,7 @@ func hoistConcurrencyInStatement(statement checker.Statement, body *strings.Buil
 // spawn expression renders as the task handle.
 func hoistSpawn(node checker.Expression, body *strings.Builder, state *expressionValidation, indent string) error {
 	if node.Operand == nil || node.OperandType.Task == nil {
-		return unknownExpressionDiagnostic("spawn expression has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	call := node.Operand
 	site, err := spawnSiteFor(*call, state.functions, state.moduleID, state.owner)
@@ -869,16 +869,16 @@ func hoistSpawn(node checker.Expression, body *strings.Builder, state *expressio
 func renderSpawnExpression(node checker.Expression, state *expressionValidation) (string, error) {
 	taskTemp, ok := state.hoistedSpawns[node.Operand]
 	if !ok {
-		return "", unknownExpressionDiagnostic("spawn expression reached generation without hoisting")
+		return "", unknownExpressionDiagnostic()
 	}
 	union := node.ResultType
 	if union == (compilerTypes.Type{}) || union.Union == nil {
-		return "", unknownExpressionDiagnostic("spawn expression has no checked result union")
+		return "", unknownExpressionDiagnostic()
 	}
 	taskIndex := unionMemberIndex(union, node.OperandType)
 	errorIndex := unionMemberIndex(union, compilerTypes.ErrorType)
 	if taskIndex < 0 || errorIndex < 0 {
-		return "", unknownExpressionDiagnostic("spawn result union is missing its Task or Error member")
+		return "", unknownExpressionDiagnostic()
 	}
 	message, err := errorMessageLiteral(state, taskCreationFailed)
 	if err != nil {
@@ -898,11 +898,11 @@ func errorMessageLiteral(state *expressionValidation, payload string) (string, e
 	if state.strings == nil {
 		// A registry-less state reaching concurrency rendering is a generator
 		// defect; it fails closed here instead of dereferencing nil.
-		return "", unknownExpressionDiagnostic("concurrency failure message rendering requires a literal registry")
+		return "", unknownExpressionDiagnostic()
 	}
 	handle, ok := state.strings.Lookup(payload)
 	if !ok {
-		return "", unknownExpressionDiagnostic("concurrency failure message is missing from the literal registry: " + payload)
+		return "", unknownExpressionDiagnostic()
 	}
 	return state.strings.CName(handle), nil
 }
@@ -910,7 +910,7 @@ func errorMessageLiteral(state *expressionValidation, payload string) (string, e
 // renderTaskMethod renders one Task handle method call.
 func renderTaskMethod(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil || node.OperandType.Task == nil {
-		return "", unknownExpressionDiagnostic("task method without a checked receiver")
+		return "", unknownExpressionDiagnostic()
 	}
 	receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 	if err != nil {
@@ -924,14 +924,14 @@ func renderTaskMethod(node checker.Expression, state *expressionValidation) (str
 		}
 		return symbol + "(" + receiver + ")", nil
 	}
-	return "", unknownExpressionDiagnostic("unknown task method " + node.Name)
+	return "", unknownExpressionDiagnostic()
 }
 
 // renderChannelConstructor renders Channel<T>.new(heap, capacity) as its
 // Channel | Error union.
 func renderChannelConstructor(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.OperandType.Channel == nil || len(node.Arguments) != 2 {
-		return "", unknownExpressionDiagnostic("channel constructor without a checked channel type")
+		return "", unknownExpressionDiagnostic()
 	}
 	heap, err := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)
 	if err != nil {
@@ -952,7 +952,7 @@ func renderChannelConstructor(node checker.Expression, state *expressionValidati
 // renderChannelMethod renders one Channel handle method call.
 func renderChannelMethod(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil || node.OperandType.Channel == nil {
-		return "", unknownExpressionDiagnostic("channel method without a checked receiver")
+		return "", unknownExpressionDiagnostic()
 	}
 	receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 	if err != nil {
@@ -962,7 +962,7 @@ func renderChannelMethod(node checker.Expression, state *expressionValidation) (
 	switch node.Name {
 	case "send":
 		if len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("channel send without a checked value")
+			return "", unknownExpressionDiagnostic()
 		}
 		value, valueErr := renderOperandWithState(node.Arguments[0], state)
 		if valueErr != nil {
@@ -1009,7 +1009,7 @@ func renderChannelMethod(node checker.Expression, state *expressionValidation) (
 		return symbol + "(" + receiver + ")", nil
 	case "free":
 		if len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("channel free without a checked heap")
+			return "", unknownExpressionDiagnostic()
 		}
 		heap, heapErr := renderOperandWithState(node.Arguments[0], state)
 		if heapErr != nil {
@@ -1021,13 +1021,13 @@ func renderChannelMethod(node checker.Expression, state *expressionValidation) (
 		}
 		return symbol + "(" + heap + ", " + receiver + ")", nil
 	}
-	return "", unknownExpressionDiagnostic("unknown channel method " + node.Name)
+	return "", unknownExpressionDiagnostic()
 }
 
 // renderMutexConstructor renders Mutex.new(heap) as its Mutex | Error union.
 func renderMutexConstructor(node checker.Expression, state *expressionValidation) (string, error) {
 	if len(node.Arguments) != 1 {
-		return "", unknownExpressionDiagnostic("mutex constructor without a checked heap")
+		return "", unknownExpressionDiagnostic()
 	}
 	heap, err := renderOperandWithState(node.Arguments[0], state)
 	if err != nil {
@@ -1043,7 +1043,7 @@ func renderMutexConstructor(node checker.Expression, state *expressionValidation
 // renderMutexMethod renders one Mutex handle method call.
 func renderMutexMethod(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil || !compilerTypes.IsMutex(node.OperandType) {
-		return "", unknownExpressionDiagnostic("mutex method without a checked receiver")
+		return "", unknownExpressionDiagnostic()
 	}
 	receiver, _, err := renderExpressionNodeWithExpectedState(*node.Operand, &node.OperandType, state)
 	if err != nil {
@@ -1058,7 +1058,7 @@ func renderMutexMethod(node checker.Expression, state *expressionValidation) (st
 		return symbol + "(" + receiver + ")", nil
 	case "free":
 		if len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("mutex free without a checked heap")
+			return "", unknownExpressionDiagnostic()
 		}
 		heap, heapErr := renderOperandWithState(node.Arguments[0], state)
 		if heapErr != nil {
@@ -1070,13 +1070,13 @@ func renderMutexMethod(node checker.Expression, state *expressionValidation) (st
 		}
 		return symbol + "(" + heap + ", " + receiver + ")", nil
 	}
-	return "", unknownExpressionDiagnostic("unknown mutex method " + node.Name)
+	return "", unknownExpressionDiagnostic()
 }
 
 // renderAtomicConstructor renders Atomic<T>.new(initial).
 func renderAtomicConstructor(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.OperandType.Atomic == nil || len(node.Arguments) != 1 {
-		return "", unknownExpressionDiagnostic("atomic constructor without a checked element")
+		return "", unknownExpressionDiagnostic()
 	}
 	initial, err := renderOperandWithState(node.Arguments[0], state)
 	if err != nil {
@@ -1088,7 +1088,7 @@ func renderAtomicConstructor(node checker.Expression, state *expressionValidatio
 // renderAtomicMethod renders one Atomic method on the receiver's address.
 func renderAtomicMethod(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.Operand == nil || node.OperandType.Atomic == nil {
-		return "", unknownExpressionDiagnostic("atomic method without a checked receiver")
+		return "", unknownExpressionDiagnostic()
 	}
 	receiver, _, err := renderHoistedExpressionNode(node.Operand, &node.OperandType, state)
 	if err != nil {
@@ -1103,7 +1103,7 @@ func renderAtomicMethod(node checker.Expression, state *expressionValidation) (s
 		return helper + "(&(" + receiver + "))", nil
 	case "store", "exchange", "fetch_add", "fetch_sub":
 		if len(node.Arguments) != 1 {
-			return "", unknownExpressionDiagnostic("atomic method without a checked value")
+			return "", unknownExpressionDiagnostic()
 		}
 		value, valueErr := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)
 		if valueErr != nil {
@@ -1112,7 +1112,7 @@ func renderAtomicMethod(node checker.Expression, state *expressionValidation) (s
 		return helper + "(&(" + receiver + "), " + value + ")", nil
 	case "compare_exchange":
 		if len(node.Arguments) != 2 {
-			return "", unknownExpressionDiagnostic("atomic compare_exchange without checked operands")
+			return "", unknownExpressionDiagnostic()
 		}
 		expected, expectedErr := renderHoistedOperand(&node.Arguments[0].Node, node.Arguments[0], state)
 		if expectedErr != nil {
@@ -1124,20 +1124,20 @@ func renderAtomicMethod(node checker.Expression, state *expressionValidation) (s
 		}
 		return helper + "(&(" + receiver + "), " + expected + ", " + desired + ")", nil
 	}
-	return "", unknownExpressionDiagnostic("unknown atomic method " + node.Name)
+	return "", unknownExpressionDiagnostic()
 }
 
 func validateConcurrencyExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	switch node.Kind {
 	case checker.SpawnExpression:
 		if node.Operand == nil || node.OperandType.Task == nil || node.OperandType.Task.Result == (compilerTypes.Type{}) || node.ResultType.Union == nil || !compilerTypes.Equal(node.Element, node.OperandType.Task.Result) || state.line(node.Span) <= 0 {
-			return unknownExpressionDiagnosticAt(state, node.Span, "spawn expression has invalid checked metadata")
+			return unknownExpressionDiagnosticAt(state, node.Span)
 		}
 		if unionMemberIndex(node.ResultType, node.OperandType) < 0 || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 {
-			return unknownExpressionDiagnosticAt(state, node.Span, "spawn result union is missing its Task or Error member")
+			return unknownExpressionDiagnosticAt(state, node.Span)
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnosticAt(state, node.Span, "spawn result type does not match its expected type")
+			return unknownExpressionDiagnosticAt(state, node.Span)
 		}
 		if err := validateExpressionChildWithState(node.Operand, compilerTypes.Type{}, state); err != nil {
 			return err
@@ -1145,38 +1145,38 @@ func validateConcurrencyExpression(node checker.Expression, expected *compilerTy
 		return nil
 	case checker.TaskYieldExpression:
 		if node.ResultType != (compilerTypes.Type{}) {
-			return unknownExpressionDiagnostic("Task.yield() result type is not zero")
+			return unknownExpressionDiagnostic()
 		}
 		return nil
 	case checker.TaskMethodCallExpression:
 		if node.Operand == nil || node.OperandType.Task == nil {
-			return unknownExpressionDiagnostic("task method has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		switch node.Name {
 		case "join":
 			if !compilerTypes.Equal(node.Element, node.OperandType.Task.Result) || !compilerTypes.Equal(node.ResultType, node.Element) {
-				return unknownExpressionDiagnostic("task join result does not match its Task result")
+				return unknownExpressionDiagnostic()
 			}
 		case "detach":
 			if node.ResultType != (compilerTypes.Type{}) {
-				return unknownExpressionDiagnostic("task detach result type is not zero")
+				return unknownExpressionDiagnostic()
 			}
 		default:
-			return unknownExpressionDiagnostic("unknown task method " + node.Name)
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("task method result type does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.ChannelConstructorExpression:
 		if node.OperandType.Channel == nil || len(node.Arguments) != 2 || !compilerTypes.Equal(node.Element, node.OperandType.Channel.Element) || node.ResultType.Union == nil || state.line(node.Span) <= 0 {
-			return unknownExpressionDiagnosticAt(state, node.Span, "channel constructor has invalid checked metadata")
+			return unknownExpressionDiagnosticAt(state, node.Span)
 		}
 		if unionMemberIndex(node.ResultType, node.OperandType) < 0 || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 {
-			return unknownExpressionDiagnosticAt(state, node.Span, "channel constructor union is missing its Channel or Error member")
+			return unknownExpressionDiagnosticAt(state, node.Span)
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnosticAt(state, node.Span, "channel constructor result type does not match its expected type")
+			return unknownExpressionDiagnosticAt(state, node.Span)
 		}
 		if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
 			return err
@@ -1184,38 +1184,38 @@ func validateConcurrencyExpression(node checker.Expression, expected *compilerTy
 		return validateCheckedOperandWithState(node.Arguments[1], state)
 	case checker.ChannelMethodCallExpression:
 		if node.Operand == nil || node.OperandType.Channel == nil || !compilerTypes.Equal(node.Element, node.OperandType.Channel.Element) {
-			return unknownExpressionDiagnostic("channel method has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		switch node.Name {
 		case "send":
 			if len(node.Arguments) != 1 || node.ResultType.Union == nil || unionMemberIndex(node.ResultType, compilerTypes.Nil) < 0 || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 || state.line(node.Span) <= 0 {
-				return unknownExpressionDiagnosticAt(state, node.Span, "channel send has invalid checked metadata")
+				return unknownExpressionDiagnosticAt(state, node.Span)
 			}
 		case "receive":
 			if len(node.Arguments) != 0 || node.ResultType.Union == nil || unionMemberIndex(node.ResultType, node.Element) < 0 || unionMemberIndex(node.ResultType, compilerTypes.EoS) < 0 {
-				return unknownExpressionDiagnostic("channel receive has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "close":
 			if len(node.Arguments) != 0 || node.ResultType != (compilerTypes.Type{}) {
-				return unknownExpressionDiagnostic("channel close has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "length", "capacity":
 			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.SizeType) {
-				return unknownExpressionDiagnostic("channel " + node.Name + " has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "is_closed":
 			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) {
-				return unknownExpressionDiagnostic("channel is_closed has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "free":
 			if len(node.Arguments) != 1 || node.ResultType != (compilerTypes.Type{}) {
-				return unknownExpressionDiagnostic("channel free has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		default:
-			return unknownExpressionDiagnostic("unknown channel method " + node.Name)
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("channel method result type does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
 			return err
@@ -1228,33 +1228,33 @@ func validateConcurrencyExpression(node checker.Expression, expected *compilerTy
 		return nil
 	case checker.MutexConstructorExpression:
 		if len(node.Arguments) != 1 || !compilerTypes.IsMutex(node.OperandType) || node.ResultType.Union == nil || state.line(node.Span) <= 0 {
-			return unknownExpressionDiagnosticAt(state, node.Span, "mutex constructor has invalid checked metadata")
+			return unknownExpressionDiagnosticAt(state, node.Span)
 		}
 		if unionMemberIndex(node.ResultType, compilerTypes.MutexType) < 0 || unionMemberIndex(node.ResultType, compilerTypes.ErrorType) < 0 {
-			return unknownExpressionDiagnosticAt(state, node.Span, "mutex constructor union is missing its Mutex or Error member")
+			return unknownExpressionDiagnosticAt(state, node.Span)
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnosticAt(state, node.Span, "mutex constructor result type does not match its expected type")
+			return unknownExpressionDiagnosticAt(state, node.Span)
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
 	case checker.MutexMethodCallExpression:
 		if node.Operand == nil || !compilerTypes.IsMutex(node.OperandType) || node.ResultType != (compilerTypes.Type{}) {
-			return unknownExpressionDiagnostic("mutex method has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		switch node.Name {
 		case "lock", "unlock":
 			if len(node.Arguments) != 0 {
-				return unknownExpressionDiagnostic("mutex " + node.Name + " expects no arguments")
+				return unknownExpressionDiagnostic()
 			}
 		case "free":
 			if len(node.Arguments) != 1 {
-				return unknownExpressionDiagnostic("mutex free expects one argument")
+				return unknownExpressionDiagnostic()
 			}
 		default:
-			return unknownExpressionDiagnostic("unknown mutex method " + node.Name)
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("mutex method result type does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
 			return err
@@ -1267,38 +1267,38 @@ func validateConcurrencyExpression(node checker.Expression, expected *compilerTy
 		return nil
 	case checker.AtomicConstructorExpression:
 		if node.OperandType.Atomic == nil || len(node.Arguments) != 1 || !compilerTypes.Equal(node.Element, node.OperandType.Atomic.Element) || !compilerTypes.Equal(node.ResultType, node.OperandType) {
-			return unknownExpressionDiagnostic("atomic constructor has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("atomic constructor result type does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
 	case checker.AtomicMethodCallExpression:
 		if node.Operand == nil || node.OperandType.Atomic == nil || !compilerTypes.Equal(node.Element, node.OperandType.Atomic.Element) {
-			return unknownExpressionDiagnostic("atomic method has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		switch node.Name {
 		case "load":
 			if len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, node.Element) {
-				return unknownExpressionDiagnostic("atomic load has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "store":
 			if len(node.Arguments) != 1 || node.ResultType != (compilerTypes.Type{}) {
-				return unknownExpressionDiagnostic("atomic store has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "exchange", "fetch_add", "fetch_sub":
 			if len(node.Arguments) != 1 || !compilerTypes.Equal(node.ResultType, node.Element) {
-				return unknownExpressionDiagnostic("atomic " + node.Name + " has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		case "compare_exchange":
 			if len(node.Arguments) != 2 || !compilerTypes.Equal(node.ResultType, compilerTypes.Bool) {
-				return unknownExpressionDiagnostic("atomic compare_exchange has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 		default:
-			return unknownExpressionDiagnostic("unknown atomic method " + node.Name)
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("atomic method result type does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
 			return err
@@ -1310,5 +1310,5 @@ func validateConcurrencyExpression(node checker.Expression, expected *compilerTy
 		}
 		return nil
 	}
-	return unknownExpressionDiagnostic("unsupported concurrency expression")
+	return unknownExpressionDiagnostic()
 }

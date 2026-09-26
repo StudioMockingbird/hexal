@@ -4,17 +4,14 @@ import (
 	"testing"
 
 	"hexal/compiler/config"
+	diagnostics "hexal/compiler/diagnostics"
 	"hexal/compiler/span"
 )
 
 func TestDiagnosticFormatsCategoryBeforeDescription(t *testing.T) {
-	diagnostic := Diagnostic{
-		Category: SyntaxError,
-		Position: span.Position{Line: 2, Column: 3},
-		Message:  "expected an identifier",
-	}
+	diagnostic := At(diagnostics.ParserExpectedToken("identifier"), span.Span{}, span.Position{Line: 2, Column: 3})
 
-	if got, want := diagnostic.Error(), "[Syntax Error] expected an identifier at 2:3"; got != want {
+	if got, want := diagnostic.Error(), "[Syntax Error syntax.expected-token] expected identifier at 2:3"; got != want {
 		t.Fatalf("diagnostic = %q, want %q", got, want)
 	}
 }
@@ -23,9 +20,9 @@ func TestDiagnosticFormatsCategoryBeforeDescription(t *testing.T) {
 // messages are distinguishable and never read as one interleaved list. Stamping
 // is idempotent: an inner stage's attribution survives an outer stage's stamp.
 func TestDiagnosticQualifiesPositionWithItsModule(t *testing.T) {
-	diagnostic := Diagnostic{Category: TypeError, Position: span.Position{Line: 5, Column: 3}, Message: "mismatch"}
+	diagnostic := At(diagnostics.DivisionByZero(), span.Span{}, span.Position{Line: 5, Column: 3})
 	stamped := diagnostic.InModule("graphics/shapes.hex")
-	if got, want := stamped.Error(), "[Type Error] mismatch at graphics/shapes.hex:5:3"; got != want {
+	if got, want := stamped.Error(), "[Type Error type.division-by-zero] division by zero at graphics/shapes.hex:5:3"; got != want {
 		t.Fatalf("stamped diagnostic = %q, want %q", got, want)
 	}
 	if got := stamped.InModule("other.hex").Module; got != "graphics/shapes.hex" {
@@ -34,21 +31,18 @@ func TestDiagnosticQualifiesPositionWithItsModule(t *testing.T) {
 	if got := diagnostic.Module; got != "" {
 		t.Fatalf("InModule mutated its receiver: module := %q", got)
 	}
-	set := Diagnostics{diagnostic, {Category: NameError, Position: span.Position{Line: 1, Column: 1}, Message: "unknown"}}.InModule("app.hex")
+	set := Diagnostics{diagnostic, At(diagnostics.UnknownVariable("unknown"), span.Span{}, span.Position{Line: 1, Column: 1})}.InModule("app.hex")
 	for _, entry := range set {
 		if entry.Module != "app.hex" {
-			t.Fatalf("set entry %q was not stamped", entry.Message)
+			t.Fatalf("set entry %q was not stamped", entry.Message.Text())
 		}
 	}
 }
 
-// An empty category renders visibly as "[]" rather than being masked as a
-// compiler Unknown Error; omitting the category at a construction site must
-// surface the defect, never a user error wearing the compiler's label.
-func TestDiagnosticErrorNeverMasksEmptyCategory(t *testing.T) {
-	diagnostic := Diagnostic{Message: "value without a category"}
+func TestUnknownErrorUsesDedicatedCompilerIdentity(t *testing.T) {
+	diagnostic := Locationless(diagnostics.UnknownCompiler())
 	rendered := diagnostic.Error()
-	if got, want := rendered, "[] value without a category"; got != want {
+	if got, want := rendered, "[Unknown Error internal.compiler-error] internal compiler error"; got != want {
 		t.Fatalf("diagnostic = %q, want %q", got, want)
 	}
 }

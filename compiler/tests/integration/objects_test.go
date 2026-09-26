@@ -139,7 +139,7 @@ func TestAddrMemberAndTemporaryRead(t *testing.T) {
 	}
 
 	legacy := compileSource("let x: Int32 = 1 let y: Int32 = x.addr")
-	if legacy.ExitCode != compiler.ExitFailure || len(legacy.Stderr) != 1 || legacy.Stderr[0] != "[Type Error] cannot access .addr on Int32; expected Ptr<T> or an object member at app.hex:1:35" {
+	if legacy.ExitCode != compiler.ExitFailure || len(legacy.Stderr) != 1 || legacy.Stderr[0] != "[Type Error type.property-requires-object-member] cannot access .addr on Int32; expected Ptr<T> or an object member at app.hex:1:35" {
 		t.Fatalf(".addr diagnostic = %#v", legacy.Stderr)
 	}
 }

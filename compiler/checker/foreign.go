@@ -14,6 +14,7 @@ package checker
 import (
 	"strings"
 
+	diagnosticsPkg "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	"hexal/compiler/span"
@@ -99,7 +100,7 @@ func checkForeignDeclarations(blocks []parser.ExternBlock, ctx checkContext, che
 	if target == "" {
 		// Every foreign ABI fact is target-dependent, so an unqualified target
 		// cannot be checked. Report once, at the first block.
-		diagnostics = append(diagnostics, configurationErrorAt(blocks[0].Keyword, "C interoperability requires a qualified target"))
+		diagnostics = append(diagnostics, checkerCInteropTargetDiagnostic(blocks[0].Keyword))
 		return diagnostics
 	}
 	seenHeaders := make(map[ForeignHeader]bool)
@@ -123,7 +124,7 @@ func checkForeignDeclarations(blocks []parser.ExternBlock, ctx checkContext, che
 			default:
 				// The parser admits only the four declaration forms, so an
 				// unknown one is a compiler-contract break.
-				diagnostics = append(diagnostics, unknownAt(block.Keyword, "unrecognized foreign declaration"))
+				diagnostics = append(diagnostics, unknownAt(block.Keyword))
 			}
 		}
 	}
@@ -179,7 +180,7 @@ func checkForeignTypeDeclaration(declaration parser.ExternType, header ForeignHe
 		members = resolved
 	}
 	if existed && !foreignRecordCompatible(record, members) {
-		*diagnostics = append(*diagnostics, typeErrorAt(declaration.Name, "conflicting foreign declarations for C symbol "+cName))
+		*diagnostics = append(*diagnostics, messageAt(declaration.Name, diagnosticsPkg.ConflictingForeignCSymbol(cName)))
 		return
 	}
 	if members != nil {
@@ -208,11 +209,11 @@ func checkForeignFunctionDeclaration(declaration parser.ExternFunction, header F
 		cName = declaration.CName.Lexeme
 	}
 	if !foreignIdentifier(cName) {
-		*diagnostics = append(*diagnostics, typeErrorAt(declaration.Name, "invalid C spelling "+cName))
+		*diagnostics = append(*diagnostics, messageAt(declaration.Name, diagnosticsPkg.InvalidForeignCSpelling(cName)))
 		return
 	}
 	if _, exists := cSymbols[cName]; exists {
-		*diagnostics = append(*diagnostics, typeErrorAt(declaration.Name, "conflicting foreign declarations for C symbol "+cName))
+		*diagnostics = append(*diagnostics, messageAt(declaration.Name, diagnosticsPkg.ConflictingForeignCSymbol(cName)))
 		return
 	}
 
@@ -305,11 +306,11 @@ func checkForeignConstantDeclaration(declaration parser.ExternConstant, header F
 		cName = declaration.CName.Lexeme
 	}
 	if !foreignIdentifier(cName) {
-		*diagnostics = append(*diagnostics, typeErrorAt(declaration.Name, "invalid C spelling "+cName))
+		*diagnostics = append(*diagnostics, messageAt(declaration.Name, diagnosticsPkg.InvalidForeignCSpelling(cName)))
 		return
 	}
 	if _, exists := cSymbols[cName]; exists {
-		*diagnostics = append(*diagnostics, typeErrorAt(declaration.Name, "conflicting foreign declarations for C symbol "+cName))
+		*diagnostics = append(*diagnostics, messageAt(declaration.Name, diagnosticsPkg.ConflictingForeignCSymbol(cName)))
 		return
 	}
 	use, diagnostic := resolveTypeUse(declaration.Type, declaration.Name, ctx.typeEnvironment, ctx.names.generics)
@@ -326,7 +327,7 @@ func checkForeignConstantDeclaration(declaration parser.ExternConstant, header F
 	// pointer, an opaque record, or an aggregate without a value
 	// representation does not.
 	if !foreignConstantTypeAllowed(use.Type) {
-		*diagnostics = append(*diagnostics, typeErrorAt(declaration.Name, use.Type.Name+" has no supported C ABI mapping for target "+string(target)))
+		*diagnostics = append(*diagnostics, messageAt(declaration.Name, diagnosticsPkg.UnsupportedForeignABIMapping(use.Type.Name, string(target))))
 		return
 	}
 	cSymbols[cName] = "constant"
@@ -383,11 +384,11 @@ func checkForeignGlobalDeclaration(declaration parser.ExternGlobal, header Forei
 		cName = declaration.CName.Lexeme
 	}
 	if !foreignIdentifier(cName) {
-		*diagnostics = append(*diagnostics, typeErrorAt(declaration.Name, "invalid C spelling "+cName))
+		*diagnostics = append(*diagnostics, messageAt(declaration.Name, diagnosticsPkg.InvalidForeignCSpelling(cName)))
 		return
 	}
 	if _, exists := cSymbols[cName]; exists {
-		*diagnostics = append(*diagnostics, typeErrorAt(declaration.Name, "conflicting foreign declarations for C symbol "+cName))
+		*diagnostics = append(*diagnostics, messageAt(declaration.Name, diagnosticsPkg.ConflictingForeignCSymbol(cName)))
 		return
 	}
 	use, diagnostic := resolveTypeUse(declaration.Type, declaration.Name, ctx.typeEnvironment, ctx.names.generics)
@@ -420,11 +421,11 @@ func checkForeignGlobalDeclaration(declaration parser.ExternGlobal, header Forei
 // records the ordinary duplicate-name diagnostic otherwise.
 func (ctx checkContext) foreignNameAvailable(name string, token lexer.Token, diagnostics *compilerTypes.Diagnostics) bool {
 	if _, exists := ctx.names.module[name]; exists {
-		*diagnostics = append(*diagnostics, typeErrorAt(token, name+" is already declared"))
+		*diagnostics = append(*diagnostics, messageAt(token, diagnosticsPkg.ForeignNameAlreadyDeclared(name)))
 		return false
 	}
 	if compilerTypes.IsProtectedTypeName(name) || ctx.typeEnvironment.Contains(name) {
-		*diagnostics = append(*diagnostics, typeErrorAt(token, "value "+name+" is already declared as a type"))
+		*diagnostics = append(*diagnostics, messageAt(token, diagnosticsPkg.ValueNameConflictsWithType(name)))
 		return false
 	}
 	return true
@@ -440,7 +441,7 @@ func checkForeignMembers(declaration parser.ExternType, ctx checkContext, target
 	for _, member := range declaration.Members {
 		name := member.Name.Lexeme
 		if seen[name] {
-			diagnostics = append(diagnostics, typeErrorAt(member.Name, "member "+name+" is declared more than once"))
+			diagnostics = append(diagnostics, messageAt(member.Name, diagnosticsPkg.ForeignMemberAlreadyDeclared(name)))
 			continue
 		}
 		seen[name] = true
@@ -461,7 +462,7 @@ func checkForeignMembers(declaration parser.ExternType, ctx checkContext, target
 		if member.CName != nil {
 			cName = member.CName.Lexeme
 			if !foreignIdentifier(cName) {
-				diagnostics = append(diagnostics, typeErrorAt(member.Name, "invalid C spelling "+cName))
+				diagnostics = append(diagnostics, messageAt(member.Name, diagnosticsPkg.InvalidForeignCSpelling(cName)))
 				continue
 			}
 		}
@@ -486,7 +487,7 @@ func foreignRecordCName(declaration parser.ExternType, name string, diagnostics 
 	}
 	cName := declaration.CName.Lexeme
 	if !foreignRecordSpelling(cName) {
-		*diagnostics = append(*diagnostics, typeErrorAt(declaration.Name, "invalid C spelling "+cName))
+		*diagnostics = append(*diagnostics, messageAt(declaration.Name, diagnosticsPkg.InvalidForeignCSpelling(cName)))
 		return "", false
 	}
 	return cName, true
@@ -531,8 +532,7 @@ func checkForeignABIPosition(typ compilerTypes.Type, spelling *lexer.Token, toke
 		return nil
 	}
 	if !foreignCSpellingCompatible(typ, spelling.Lexeme, target) {
-		diagnostic := typeErrorAt(token,
-			"C spelling "+spelling.Lexeme+" cannot be proven in a handwritten binding; use an automatic C import or expose a C wrapper")
+		diagnostic := messageAt(token, diagnosticsPkg.ForeignCSpellingCannotBeProven(spelling.Lexeme))
 		return compilerTypes.Diagnostics{diagnostic}
 	}
 	return nil
@@ -542,7 +542,7 @@ func checkForeignABIPosition(typ compilerTypes.Type, spelling *lexer.Token, toke
 // where a complete value is required. The position names the forbidden
 // operation so the diagnostic matches the exact contract form.
 func foreignIncompletePlacementDiagnostic(record compilerTypes.Type, token lexer.Token, position string) *compilerTypes.Diagnostic {
-	diagnostic := typeErrorAt(token, "foreign type "+record.Name+" is incomplete in "+position)
+	diagnostic := messageAt(token, diagnosticsPkg.ForeignTypeIncomplete(record.Name, position))
 	return &diagnostic
 }
 
@@ -558,18 +558,18 @@ func checkForeignValueType(typ compilerTypes.Type, token lexer.Token, target com
 		return nil
 	}
 	if typ.Signature != nil {
-		return diagnosticAt(typeErrorAt(token, typ.Name+" has no supported C ABI mapping for target "+string(target)))
+		return diagnosticAt(messageAt(token, diagnosticsPkg.UnsupportedForeignABIMapping(typ.Name, string(target))))
 	}
 	if typ.Object != nil {
 		if compilerTypes.ForeignRecordIncomplete(typ) {
-			return diagnosticAt(typeErrorAt(token, "foreign type "+typ.Name+" is incomplete in a value position"))
+			return diagnosticAt(messageAt(token, diagnosticsPkg.ForeignTypeIncompleteValue(typ.Name)))
 		}
 		return nil
 	}
 	if compilerTypes.IsInteger(typ) || compilerTypes.IsFloat(typ) || isBool(typ) || compilerTypes.IsSize(typ) {
 		return nil
 	}
-	return diagnosticAt(typeErrorAt(token, typ.Name+" has no supported C ABI mapping for target "+string(target)))
+	return diagnosticAt(messageAt(token, diagnosticsPkg.UnsupportedForeignABIMapping(typ.Name, string(target))))
 }
 
 // foreignCSpellingCompatible reports whether one restricted C spelling matches
@@ -762,9 +762,6 @@ func foreignRecordIdentity(cName string, target compilerTypes.TargetProfileID) s
 
 // configurationErrorAt reports a compilation configuration failure owned by
 // the checker's foreign surface.
-func configurationErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
-	return checkerDiagnostic(compilerTypes.ConfigurationError, token, message)
-}
 
 func isBool(typ compilerTypes.Type) bool {
 	return compilerTypes.Equal(typ, compilerTypes.Bool)

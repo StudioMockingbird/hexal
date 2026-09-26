@@ -81,25 +81,25 @@ func declaredFunctions(program checker.Program) (map[string]compilerTypes.Type, 
 			continue
 		}
 		if !validSourceName(declared.Name) {
-			return nil, unknownExpressionDiagnostic("invalid checked function declaration name")
+			return nil, unknownExpressionDiagnostic()
 		}
 		if _, exists := functions[declared.Name]; exists {
-			return nil, unknownExpressionDiagnostic("duplicate checked function declaration name")
+			return nil, unknownExpressionDiagnostic()
 		}
 		if declared.Type.Signature == nil {
-			return nil, unknownExpressionDiagnostic("function declaration without a checked Fun type")
+			return nil, unknownExpressionDiagnostic()
 		}
 		functions[declared.Name] = declared.Type
 	}
 	for _, declared := range program.SpecializedFunctions {
 		if !validSourceName(declared.Name) {
-			return nil, unknownExpressionDiagnostic("invalid checked function declaration name")
+			return nil, unknownExpressionDiagnostic()
 		}
 		if _, exists := functions[declared.Name]; exists {
-			return nil, unknownExpressionDiagnostic("duplicate checked function declaration name")
+			return nil, unknownExpressionDiagnostic()
 		}
 		if declared.Type.Signature == nil {
-			return nil, unknownExpressionDiagnostic("function declaration without a checked Fun type")
+			return nil, unknownExpressionDiagnostic()
 		}
 		functions[declared.Name] = declared.Type
 	}
@@ -118,21 +118,21 @@ func declaredMethods(program checker.Program) (map[string]checker.MethodDeclarat
 			continue
 		}
 		if declared.Object == nil || !validSourceName(compilerTypes.SanitizeIdentifier(declared.Object.Name)) || !validSourceName(declared.Name) {
-			return nil, unknownExpressionDiagnostic("invalid checked method declaration name")
+			return nil, unknownExpressionDiagnostic()
 		}
 		key := methodKey(declared.Object, declared.Name)
 		if _, exists := methods[key]; exists {
-			return nil, unknownExpressionDiagnostic("duplicate checked method declaration")
+			return nil, unknownExpressionDiagnostic()
 		}
 		methods[key] = declared
 	}
 	for _, declared := range program.SpecializedMethods {
 		if declared.Object == nil || !validSourceName(compilerTypes.SanitizeIdentifier(declared.Object.Name)) || !validSourceName(declared.Name) {
-			return nil, unknownExpressionDiagnostic("invalid checked method declaration name")
+			return nil, unknownExpressionDiagnostic()
 		}
 		key := methodKey(declared.Object, declared.Name)
 		if _, exists := methods[key]; exists {
-			return nil, unknownExpressionDiagnostic("duplicate checked method declaration")
+			return nil, unknownExpressionDiagnostic()
 		}
 		methods[key] = declared
 	}
@@ -185,25 +185,25 @@ func (ctx definitionContext) line(s span.Span) int {
 func (ctx definitionContext) writeFunctionDefinition(declared checker.FunctionDeclaration, external bool) error {
 	signature := declared.Type.Signature
 	if signature == nil || !validateGeneratedType(declared.Type, ctx.typeState, false) {
-		return unknownExpressionDiagnostic("function declaration without a checked Fun type")
+		return unknownExpressionDiagnostic()
 	}
 	if len(signature.Parameters) != len(declared.Parameters) {
-		return unknownExpressionDiagnostic("function declaration parameter count does not match its checked type")
+		return unknownExpressionDiagnostic()
 	}
 	resultSpelling := "void"
 	if declared.Result != nil {
 		if !validateGeneratedType(*declared.Result, ctx.typeState, false) {
-			return unknownExpressionDiagnostic("unsupported checked function result type")
+			return unknownExpressionDiagnostic()
 		}
 		if signature.Result == nil || !compilerTypes.Equal(*signature.Result, *declared.Result) {
-			return unknownExpressionDiagnostic("function result does not match its checked type")
+			return unknownExpressionDiagnostic()
 		}
 		resultSpelling = standaloneResultSpelling(*declared.Result)
 	} else if signature.Result != nil {
-		return unknownExpressionDiagnostic("function result does not match its checked type")
+		return unknownExpressionDiagnostic()
 	}
 	if declared.Result != nil && checker.FallsThrough(declared.Body) {
-		return unknownExpressionDiagnostic("checked returning function may fall through without returning")
+		return unknownExpressionDiagnostic()
 	}
 
 	state := newExpressionValidation()
@@ -229,10 +229,10 @@ func (ctx definitionContext) writeFunctionDefinition(declared checker.FunctionDe
 	}
 	for index, parameter := range declared.Parameters {
 		if !validSourceName(parameter.Name) {
-			return unknownExpressionDiagnostic("invalid checked function parameter name")
+			return unknownExpressionDiagnostic()
 		}
 		if !validateGeneratedType(parameter.Type, ctx.typeState, false) {
-			return unknownExpressionDiagnostic("unsupported checked function parameter type")
+			return unknownExpressionDiagnostic()
 		}
 		expected := signature.Parameters[index]
 		if signature.Rest && index == len(signature.Parameters)-1 {
@@ -241,7 +241,7 @@ func (ctx definitionContext) writeFunctionDefinition(declared checker.FunctionDe
 			expected = signature.RestSlice
 		}
 		if !compilerTypes.Equal(expected, parameter.Type) {
-			return unknownExpressionDiagnostic("function parameter does not match its checked type")
+			return unknownExpressionDiagnostic()
 		}
 		name, nameErr := state.allocateBinding(parameter.Binding, parameter.Name, parameter.Type, false)
 		if nameErr != nil {
@@ -277,23 +277,23 @@ func (ctx definitionContext) writeFunctionDefinition(declared checker.FunctionDe
 // structure copy.
 func (ctx definitionContext) writeMethodDefinition(declared checker.MethodDeclaration) error {
 	if declared.Object == nil || declared.SelfBinding == 0 || !validSourceName(declared.Name) {
-		return unknownExpressionDiagnostic("method declaration is missing checked receiver metadata")
+		return unknownExpressionDiagnostic()
 	}
 	if !validateGeneratedType(declared.SelfType, ctx.typeState, false) {
-		return unknownExpressionDiagnostic("unsupported checked method receiver type")
+		return unknownExpressionDiagnostic()
 	}
 	if declared.SelfType.Object != declared.Object && (declared.SelfType.Element == nil || declared.SelfType.Element.Object != declared.Object) {
-		return unknownExpressionDiagnostic("method receiver does not match its checked owner")
+		return unknownExpressionDiagnostic()
 	}
 	resultSpelling := "void"
 	if declared.Result != nil {
 		if !validateGeneratedType(*declared.Result, ctx.typeState, false) {
-			return unknownExpressionDiagnostic("unsupported checked method result type")
+			return unknownExpressionDiagnostic()
 		}
 		resultSpelling = standaloneResultSpelling(*declared.Result)
 	}
 	if declared.Result != nil && checker.FallsThrough(declared.Body) {
-		return unknownExpressionDiagnostic("checked returning method may fall through without returning")
+		return unknownExpressionDiagnostic()
 	}
 
 	state := newExpressionValidation()
@@ -324,7 +324,7 @@ func (ctx definitionContext) writeMethodDefinition(declared checker.MethodDeclar
 	parameters = append(parameters, declaration(declared.SelfType, selfName, false))
 	for _, parameter := range declared.Parameters {
 		if !validSourceName(parameter.Name) || parameter.Binding == 0 || !validateGeneratedType(parameter.Type, ctx.typeState, false) {
-			return unknownExpressionDiagnostic("invalid checked method parameter")
+			return unknownExpressionDiagnostic()
 		}
 		name, nameErr := state.allocateBinding(parameter.Binding, parameter.Name, parameter.Type, false)
 		if nameErr != nil {
@@ -590,12 +590,12 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 	for _, declared := range functions {
 		signature := declared.Type.Signature
 		if signature == nil || !validateGeneratedType(declared.Type, typeState, false) {
-			return unknownExpressionDiagnostic("specialized function without a checked Fun type")
+			return unknownExpressionDiagnostic()
 		}
 		resultSpelling := "void"
 		if declared.Result != nil {
 			if !validateGeneratedType(*declared.Result, typeState, false) {
-				return unknownExpressionDiagnostic("unsupported specialized function result type")
+				return unknownExpressionDiagnostic()
 			}
 			resultSpelling = standaloneResultSpelling(*declared.Result)
 		}
@@ -605,7 +605,7 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 		}
 		for _, parameter := range declared.Parameters {
 			if !validateGeneratedType(parameter.Type, typeState, false) {
-				return unknownExpressionDiagnostic("unsupported specialized function parameter type")
+				return unknownExpressionDiagnostic()
 			}
 			parameters = append(parameters, typeSpelling(parameter.Type))
 		}
@@ -625,12 +625,12 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 	}
 	for _, declared := range methods {
 		if declared.Object == nil || !validateGeneratedType(declared.SelfType, typeState, false) {
-			return unknownExpressionDiagnostic("specialized method without checked receiver metadata")
+			return unknownExpressionDiagnostic()
 		}
 		resultSpelling := "void"
 		if declared.Result != nil {
 			if !validateGeneratedType(*declared.Result, typeState, false) {
-				return unknownExpressionDiagnostic("unsupported specialized method result type")
+				return unknownExpressionDiagnostic()
 			}
 			resultSpelling = standaloneResultSpelling(*declared.Result)
 		}
@@ -641,7 +641,7 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 		parameters = append(parameters, typeSpelling(declared.SelfType))
 		for _, parameter := range declared.Parameters {
 			if !validateGeneratedType(parameter.Type, typeState, false) {
-				return unknownExpressionDiagnostic("unsupported specialized method parameter type")
+				return unknownExpressionDiagnostic()
 			}
 			parameters = append(parameters, typeSpelling(parameter.Type))
 		}

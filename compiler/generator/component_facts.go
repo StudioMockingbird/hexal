@@ -8,14 +8,13 @@ package generator
 
 import (
 	"hexal/compiler/specdata"
-	compilerTypes "hexal/compiler/types"
 )
 
 // unknownComponentDiagnostic reports a builder/registry disagreement: a
 // component identity with no record is a compiler-development failure, never a
 // silently omitted contribution.
 func unknownComponentDiagnostic(id specdata.ComponentID) error {
-	return compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: "no component record for " + string(id)}
+	return generatorDiagnostic()
 }
 
 // addComponentHeaders adds a registered component's unconditional standard
@@ -47,7 +46,7 @@ func (requirements *cHeaderRequirements) addConditionalComponentHeaders(id specd
 		}
 		return nil
 	}
-	return compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: "component " + string(id) + " records no header condition " + string(condition)}
+	return generatorDiagnostic()
 }
 
 // nativeDependencyDemand pairs one declared native input with the explicit Go
@@ -94,7 +93,7 @@ func selectedRuntimeDependencies(selected map[specdata.ComponentID]bool, merged 
 			continue
 		}
 		if !recorded[demand.dependency] {
-			return nil, compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: "no selected component records native dependency " + string(demand.dependency)}
+			return nil, generatorDiagnostic()
 		}
 		dependencies = append(dependencies, string(demand.dependency))
 	}
@@ -110,7 +109,7 @@ func selectedComponentIDs(artifacts map[string]string) (map[specdata.ComponentID
 	for key := range artifacts {
 		owner, ok := specdata.FileOwner(key)
 		if !ok {
-			return nil, compilerTypes.Diagnostic{Category: compilerTypes.UnknownError, Stage: "generator", Message: "generated artifact " + key + " is owned by no registered component"}
+			return nil, generatorDiagnostic()
 		}
 		selected[owner] = true
 	}

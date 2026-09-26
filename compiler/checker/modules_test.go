@@ -22,7 +22,7 @@ func requireMessage(t *testing.T, err error, want string) {
 		t.Fatalf("error type = %T, want Diagnostics", err)
 	}
 	for _, diagnostic := range diagnostics {
-		if diagnostic.Message == want {
+		if diagnostic.Message.Text() == want {
 			return
 		}
 	}

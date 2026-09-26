@@ -128,7 +128,7 @@ func renderNetworkExpression(node checker.Expression, state *expressionValidatio
 		}
 		return fmt.Sprintf("hex_tcp_no_delay_%s(%s, %s, %s)", suffix, receiver, enabled, site), nil
 	}
-	return "", unknownExpressionDiagnostic("unknown network operation " + node.Name)
+	return "", unknownExpressionDiagnostic()
 }
 
 // validateNetworkExpression checks one networking operation fail-closed: a
@@ -136,7 +136,7 @@ func renderNetworkExpression(node checker.Expression, state *expressionValidatio
 // operand validity.
 func validateNetworkExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-		return unknownExpressionDiagnostic("network operation result does not match its expected type")
+		return unknownExpressionDiagnostic()
 	}
 	if isProcessOperation(node.Name) {
 		return validateProcessExpression(node, state)
@@ -167,20 +167,20 @@ func validateNetworkExpression(node checker.Expression, expected *compilerTypes.
 	case "tcp_write", "tcp_no_delay":
 		wantArguments, wantOperand = 1, true
 	default:
-		return unknownExpressionDiagnostic("unknown network operation " + node.Name)
+		return unknownExpressionDiagnostic()
 	}
 	if len(node.Arguments) != wantArguments {
-		return unknownExpressionDiagnostic("network operation has invalid checked metadata")
+		return unknownExpressionDiagnostic()
 	}
 	if wantOperand {
 		if node.Operand == nil {
-			return unknownExpressionDiagnostic("network method operation has no checked receiver")
+			return unknownExpressionDiagnostic()
 		}
 		if err := validateExpressionChildWithState(node.Operand, node.OperandType, state); err != nil {
 			return err
 		}
 	} else if node.Operand != nil {
-		return unknownExpressionDiagnostic("network static operation has an unexpected checked receiver")
+		return unknownExpressionDiagnostic()
 	}
 	for _, argument := range node.Arguments {
 		if err := validateCheckedOperandWithState(argument, state); err != nil {

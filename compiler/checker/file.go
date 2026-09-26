@@ -7,8 +7,7 @@ package checker
 // representation and operation set.
 
 import (
-	"fmt"
-
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
 )
@@ -17,10 +16,10 @@ import (
 func checkFileTypeCall(call parser.CallExpression, variable parser.VariableExpression, ctx checkContext) checkedExpression {
 	property := call.Callee.(parser.PropertyExpression).Property
 	if property.Lexeme != "open" || len(call.TypeArguments) != 0 {
-		return checkedExpression{token: variable.Name, diagnostic: diagnosticAt(typeErrorAt(variable.Name, "File has no such operation; use File.open(path, mode)"))}
+		return checkedExpression{token: variable.Name, diagnostic: diagnosticAt(messageAt(variable.Name, diag.FileOperationUnsupported()))}
 	}
 	if len(call.Arguments) != 2 {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, fmt.Sprintf("open expects 2 arguments (path: String, mode: FileMode); got %d", len(call.Arguments))))}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.FileOpenArity(len(call.Arguments))))}
 	}
 	var arguments []Operand
 	for index, expected := range []compilerTypes.Type{compilerTypes.StringType, compilerTypes.FileModeType} {
@@ -35,7 +34,7 @@ func checkFileTypeCall(call parser.CallExpression, variable parser.VariableExpre
 	}
 	resultUnion := ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.FileType, compilerTypes.ErrorType})
 	if resultUnion == (compilerTypes.Type{}) {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property, "could not construct the File | Error result union"))}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property))}
 	}
 	node := Expression{
 		Kind:        StreamConstructorExpression,
@@ -55,13 +54,13 @@ func checkFileMethodCall(call methodCall) checkedExpression {
 	switch name {
 	case "read", "write", "seek", "flush", "close":
 	default:
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "File has no method "+name+"; use read, write, seek, flush, or close"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.FileMethodNotFound(name)))}
 	}
 	if len(call.call.TypeArguments) != 0 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, name+" takes no type arguments"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.FileMethodNoTypeArguments(name)))}
 	}
 	if call.ctx.names.cleanupDepth > 0 && name != "close" {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "only File.close() may be deferred on a file"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.OnlyFileCloseMayBeDeferred()))}
 	}
 	call.receiver = valueFromPlace(call.receiver)
 	if diagnostic := streamClosedDiagnostic(call.receiver.source, call.callee.Property, call.ctx.names.flow); diagnostic != nil {
@@ -88,7 +87,7 @@ func checkFileMethodCall(call methodCall) checkedExpression {
 		arguments, diagnostics = checkStreamSeekArguments(call)
 	default:
 		if len(call.call.Arguments) != 0 {
-			diagnostics = compilerTypes.Diagnostics{typeErrorAt(call.callee.Property, name+" expects no arguments")}
+			diagnostics = compilerTypes.Diagnostics{messageAt(call.callee.Property, diag.CollectionMethodNoArguments(name))}
 		}
 	}
 	if len(diagnostics) > 0 {
@@ -100,7 +99,7 @@ func checkFileMethodCall(call methodCall) checkedExpression {
 	}
 	resultUnion := streamResultUnion(resultName, call.ctx.typeEnvironment)
 	if resultUnion == (compilerTypes.Type{}) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property, "could not construct the "+name+" result union"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property))}
 	}
 	node := Expression{
 		Kind:        StreamMethodCallExpression,

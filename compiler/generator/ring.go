@@ -9,7 +9,7 @@ import (
 
 func renderSignedWrap(operator checker.Operator, typ compilerTypes.Type, left, right string) (string, error) {
 	if !compilerTypes.IsSignedInteger(typ) {
-		return "", unknownExpressionDiagnostic("signed wrapping requires a signed integer type")
+		return "", unknownExpressionDiagnostic()
 	}
 	var name string
 	switch operator {
@@ -25,19 +25,19 @@ func renderSignedWrap(operator checker.Operator, typ compilerTypes.Type, left, r
 		checker.RemainderOperator, checker.EqualOperator, checker.NotEqualOperator,
 		checker.LessOperator, checker.LessEqualOperator, checker.GreaterOperator,
 		checker.GreaterEqualOperator, checker.LogicalAndOperator, checker.LogicalOrOperator:
-		return "", unknownExpressionDiagnostic("operator is not signed wrapping arithmetic")
+		return "", unknownExpressionDiagnostic()
 	default:
-		return "", unknownExpressionDiagnostic("unknown signed wrapping operator")
+		return "", unknownExpressionDiagnostic()
 	}
 	helper := wrapHelperName(wrapOperation{name: name, typ: typ})
 	if name == "neg" {
 		if right == "" {
-			return "", unknownExpressionDiagnostic("signed negation without an operand")
+			return "", unknownExpressionDiagnostic()
 		}
 		return helper + "(" + right + ")", nil
 	}
 	if left == "" || right == "" {
-		return "", unknownExpressionDiagnostic("signed operation without both operands")
+		return "", unknownExpressionDiagnostic()
 	}
 	return helper + "(" + left + ", " + right + ")", nil
 }
@@ -74,7 +74,7 @@ func isUnsignedRingOperation(node checker.Expression) bool {
 func renderUnsignedRingTree(node checker.Expression, state *expressionValidation) (string, error) {
 	unsigned, ok := unsignedCName(node.OperandType)
 	if !ok {
-		return "", unknownExpressionDiagnostic("unsigned arithmetic has an invalid width")
+		return "", unknownExpressionDiagnostic()
 	}
 	wide, err := renderRingWide(node, state)
 	if err != nil {
@@ -88,7 +88,7 @@ func renderUnsignedRingTree(node checker.Expression, state *expressionValidation
 // ordinary binary path so a malformed node still fails closed.
 func renderRingWide(node checker.Expression, state *expressionValidation) (string, error) {
 	if !supportedGeneratedScalarType(node.OperandType) || !supportedGeneratedScalarType(node.ResultType) {
-		return "", unknownExpressionDiagnostic("binary operation with an unsupported type")
+		return "", unknownExpressionDiagnostic()
 	}
 	if err := validateExpressionChildWithState(node.Left, node.OperandType, state); err != nil {
 		return "", err
@@ -98,7 +98,7 @@ func renderRingWide(node checker.Expression, state *expressionValidation) (strin
 	}
 	operator, ok := binaryCOperator(node.Operator)
 	if !ok {
-		return "", unknownExpressionDiagnostic("unknown binary operator")
+		return "", unknownExpressionDiagnostic()
 	}
 	left, err := renderRingOperand(*node.Left, &node, true, state)
 	if err != nil {

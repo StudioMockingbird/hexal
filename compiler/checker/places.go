@@ -1,12 +1,13 @@
 package checker
 
 import (
-	"fmt"
 	"go/constant"
 
 	"hexal/compiler/corelib"
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
+	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -23,14 +24,13 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 		switch status {
 		case nameMissing:
 			if hint, moved := corelib.TypeHint(expression.Name.Lexeme); moved && !ctx.typeEnvironment.Contains(expression.Name.Lexeme) {
-				// An unresolved former capability name keeps the exact
-				// migration hint rather than a bare unknown-variable error.
-				diagnostic := nameErrorAt(expression.Name, hint)
+				diagnostic := coreTypeMigrationDiagnostic(expression.Name, hint, false)
 				return checkedExpression{token: expression.Name, diagnostic: &diagnostic}
 			}
 			return checkedExpression{
-				token:      expression.Name,
-				diagnostic: diagnosticAt(typeErrorAt(expression.Name, "unknown variable "+expression.Name.Lexeme)),
+				token: expression.Name,
+				diagnostic: diagnosticAt(compilerTypes.At(diag.UnknownVariable(expression.Name.Lexeme), expression.Name.Span,
+					span.Position{Line: expression.Name.Line, Column: expression.Name.Column})),
 			}
 		case nameModuleData:
 			// Module storage lives in generated main and is unreachable from
@@ -43,7 +43,7 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 			// target of a call; a value position would expose it without its
 			// environment.
 			if ctx.names.envDependent[expression.Name.Lexeme] {
-				diagnostic := typeErrorAt(expression.Name, "function "+expression.Name.Lexeme+" uses the entry environment and is valid only as a direct entry-module call")
+				diagnostic := messageAt(expression.Name, diag.EntryEnvironmentFunctionNotCallableAsValue(expression.Name.Lexeme))
 				return checkedExpression{token: expression.Name, diagnostic: &diagnostic}
 			}
 			// A declared function is not storage: it is neither addressable nor
@@ -81,7 +81,7 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 		if binding.kind == genericFunctionBinding {
 			// A generic function is not a value without a Fun<...> target to
 			// infer its arguments from.
-			return checkedExpression{token: expression.Name, diagnostic: diagnosticAt(typeErrorAt(expression.Name, "cannot infer generic parameter for "+expression.Name.Lexeme))}
+			return checkedExpression{token: expression.Name, diagnostic: diagnosticAt(messageAt(expression.Name, diag.GenericFunctionValueNeedsContext(expression.Name.Lexeme)))}
 		}
 		if binding.kind == foreignConstantBinding {
 			// A foreign constant is a typed, non-addressable C expression. It
@@ -103,7 +103,7 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 			// Reading or writing foreign storage needs lexical permission. The
 			// gate runs after ordinary resolution, so an invalid name keeps its
 			// earlier diagnostic.
-			if diagnostic := requireUnsafe(ctx, expression.Name, unsafeOperation("foreign global "+expression.Name.Lexeme)); diagnostic != nil {
+			if diagnostic := requireUnsafe(ctx, expression.Name, unsafeForeignGlobal, expression.Name.Lexeme); diagnostic != nil {
 				return checkedExpression{token: expression.Name, diagnostic: diagnostic}
 			}
 			return checkedExpression{
@@ -201,8 +201,7 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 				// Method rule 6: a method is code, not a member, so naming one
 				// in a value position is a distinct error from a typo.
 				if ctx.names.methods.lookup(receiver.typ.Object, expression.Property.Lexeme) != nil {
-					diagnostic := typeErrorAt(expression.Property,
-						fmt.Sprintf("%s is a method on %s; methods are not values", expression.Property.Lexeme, receiver.typ.Object.Name))
+					diagnostic := messageAt(expression.Property, diag.MethodIsNotValue(expression.Property.Lexeme, receiver.typ.Object.Name))
 					return checkedExpression{token: expression.Property, diagnostic: &diagnostic}
 				}
 				return checkedExpression{
@@ -239,16 +238,14 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 			// The pointee is not an object (object pointees auto-dereference
 			// above), so no member exists: whole-pointee access is prefix
 			// `^` on the receiver's place spelling.
-			message := fmt.Sprintf("cannot access .%s on %s; use ^%s to access the pointee", expression.Property.Lexeme, receiver.typ.Name, placeDescription(expression.Receiver))
 			return checkedExpression{
 				token:      expression.Property,
-				diagnostic: diagnosticAt(typeErrorAt(expression.Property, message)),
+				diagnostic: diagnosticAt(messageAt(expression.Property, diag.PropertyOnPointerRequiresDereference(expression.Property.Lexeme, receiver.typ.Name, placeDescription(expression.Receiver)))),
 			}
 		}
-		message := fmt.Sprintf("cannot access .%s on %s; expected Ptr<T> or an object member", expression.Property.Lexeme, receiver.typ.Name)
 		return checkedExpression{
 			token:      expression.Property,
-			diagnostic: diagnosticAt(typeErrorAt(expression.Property, message)),
+			diagnostic: diagnosticAt(messageAt(expression.Property, diag.PropertyRequiresObjectMember(expression.Property.Lexeme, receiver.typ.Name))),
 		}
 	case parser.IndexExpression:
 		return checkIndexPlace(expression, ctx)
@@ -274,7 +271,7 @@ func checkPlace(expression parser.Expression, ctx checkContext) checkedExpressio
 		token := expressionToken(expression)
 		return checkedExpression{
 			token:      token,
-			diagnostic: diagnosticAt(typeErrorAt(token, "expression is not a place; assignment and @ require a variable, member, dereference, or index")),
+			diagnostic: diagnosticAt(messageAt(token, diag.ExpressionIsNotPlace())),
 		}
 	}
 }
@@ -311,7 +308,7 @@ func checkModuleQualifiedReference(expression parser.PropertyExpression, target 
 		}
 	}
 	if global, ok := names.registry.exportedForeignGlobal(target, expression.Property.Lexeme); ok {
-		if diagnostic := requireUnsafe(ctx, expression.Property, unsafeOperation("foreign global "+global.Name)); diagnostic != nil {
+		if diagnostic := requireUnsafe(ctx, expression.Property, unsafeForeignGlobal, global.Name); diagnostic != nil {
 			return checkedExpression{token: expression.Property, diagnostic: diagnostic}
 		}
 		return checkedExpression{
@@ -329,7 +326,7 @@ func checkModuleQualifiedReference(expression parser.PropertyExpression, target 
 	}
 	if adtType, variant, ok := names.registry.findExportedADTVariant(target, expression.Property.Lexeme); ok {
 		if len(variant.Payload) > 0 {
-			diagnostic := typeErrorAt(expression.Property, fmt.Sprintf("%s.%s requires a payload", target, expression.Property.Lexeme))
+			diagnostic := messageAt(expression.Property, diag.QualifiedVariantRequiresPayload(target, expression.Property.Lexeme))
 			return checkedExpression{token: expression.Property, diagnostic: &diagnostic}
 		}
 		return adtUnitVariant(adtType, variant, expression.Property)
@@ -364,9 +361,9 @@ func checkModuleQualifiedReference(expression parser.PropertyExpression, target 
 	diagnostic := privateToModuleDiagnostic(expression.Property, expression.Property.Lexeme, target)
 	if display, isCImport := names.registry.cImportHeader(target); isCImport {
 		if mapped, ok := names.registry.mappedCName(target, expression.Property.Lexeme); ok {
-			diagnostic = nameErrorAt(expression.Property, "C declaration "+expression.Property.Lexeme+" is imported as "+mapped)
+			diagnostic = mappedCDeclarationDiagnostic(expression.Property, expression.Property.Lexeme, mapped)
 		} else {
-			diagnostic = nameErrorAt(expression.Property, "C import "+display+" has no automatically imported declaration "+expression.Property.Lexeme+"; check the C name, use a handwritten binding, or expose a C wrapper")
+			diagnostic = missingCImportDeclarationDiagnostic(expression.Property, display, expression.Property.Lexeme)
 		}
 	}
 	return checkedExpression{token: expression.Property, diagnostic: &diagnostic}
@@ -385,7 +382,7 @@ func dereferencePlace(receiver checkedExpression, token lexer.Token, states ...*
 		return checkedExpression{token: token, diagnostic: diagnostic}
 	}
 	if receiver.typ.Element != nil && compilerTypes.IsUnknown(*receiver.typ.Element) {
-		diagnostic := typeErrorAt(token, receiver.typ.Name+" cannot be dereferenced; recover a concrete pointer type first")
+		diagnostic := messageAt(token, diag.UnknownPointeeCannotBeDereferenced(receiver.typ.Name))
 		return checkedExpression{token: token, diagnostic: &diagnostic}
 	}
 	use := compilerTypes.NewTypeUse(*receiver.typ.Element)
@@ -454,9 +451,9 @@ func valueFromPlace(place checkedExpression) checkedExpression {
 // storage can be replaced through aliases the checker cannot see.
 func nullableAccessDiagnostic(receiver checkedExpression, token lexer.Token, path string) compilerTypes.Diagnostic {
 	if receiver.source.Node.Kind == VariableExpression {
-		return typeErrorAt(token, fmt.Sprintf("%s may be Nil; narrow it before dereferencing", receiver.typ.Name))
+		return messageAt(token, diag.NullableValueMustBeNarrowed(receiver.typ.Name))
 	}
-	return typeErrorAt(token, fmt.Sprintf("only a local binding can be narrowed; bind %s before testing it", path))
+	return messageAt(token, diag.MemberPathCannotBeNarrowed(path))
 }
 
 // checkDereferencePlace types a prefix `^` dereference as a place: the
@@ -469,11 +466,11 @@ func checkDereferencePlace(expression parser.DereferenceExpression, ctx checkCon
 		return operand
 	}
 	if operand.typ.Element == nil {
-		diagnostic := typeErrorAt(expression.Operator, fmt.Sprintf("cannot dereference %s; ^ requires Ptr<T>", operand.typ.Name))
+		diagnostic := messageAt(expression.Operator, diag.DereferenceRequiresPointer(operand.typ.Name))
 		return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
 	}
 	if compilerTypes.IsNullable(operand.typ) {
-		diagnostic := typeErrorAt(expression.Operator, fmt.Sprintf("%s may be Nil; narrow it before dereferencing", operand.typ.Name))
+		diagnostic := messageAt(expression.Operator, diag.NullableValueMustBeNarrowed(operand.typ.Name))
 		return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
 	}
 	if operand.typ.Element.Object != nil && compilerTypes.ForeignRecordIncomplete(*operand.typ.Element) {
@@ -493,23 +490,23 @@ func checkAddress(expression parser.AddressExpression, ctx checkContext) checked
 	// Neither a function declaration nor a Fun<...> binding is addressable;
 	// the function's name already supplies the callable pointer.
 	if place.function {
-		diagnostic := typeErrorAt(place.token, "function declarations are not addressable; use "+place.token.Lexeme+" as a Fun value")
+		diagnostic := messageAt(place.token, diag.FunctionDeclarationNotAddressable(place.token.Lexeme))
 		return checkedExpression{token: place.token, diagnostic: &diagnostic}
 	}
 	if place.typ.Signature != nil {
-		diagnostic := typeErrorAt(place.token, place.typ.Name+" bindings are not addressable")
+		diagnostic := messageAt(place.token, diag.FunctionBindingNotAddressable(place.typ.Name))
 		return checkedExpression{token: place.token, diagnostic: &diagnostic}
 	}
 	if place.typ.Slice != nil {
-		diagnostic := typeErrorAt(place.token, "@ cannot take the address of a Slice binding")
+		diagnostic := messageAt(place.token, diag.SliceBindingNotAddressable())
 		return checkedExpression{token: place.token, diagnostic: &diagnostic}
 	}
 	if place.source.RestRegionPlace {
-		diagnostic := typeErrorAt(place.token, "rest-backed Slice cannot escape its function invocation")
+		diagnostic := messageAt(place.token, diag.RestBackedSliceEscape())
 		return checkedExpression{token: place.token, diagnostic: &diagnostic}
 	}
 	if place.typ.Atomic != nil {
-		diagnostic := typeErrorAt(place.token, "Atomic values cannot be copied, assigned, addressed, or stored here")
+		diagnostic := messageAt(place.token, diag.AtomicValueCannotBeCopied())
 		return checkedExpression{token: place.token, diagnostic: &diagnostic}
 	}
 	// @ names the binding's declared storage slot, not a narrowed read
@@ -577,7 +574,7 @@ func placeDescription(expression parser.Expression) string {
 }
 
 func missingMemberDiagnostic(typ compilerTypes.Type, property lexer.Token) *compilerTypes.Diagnostic {
-	return diagnosticAt(typeErrorAt(property, fmt.Sprintf("%s has no member %s", typ.Name, property.Lexeme)))
+	return diagnosticAt(messageAt(property, diag.MemberNotFound(typ.Name, property.Lexeme)))
 }
 
 // baseBindingID walks a place expression's checked node chain back to its

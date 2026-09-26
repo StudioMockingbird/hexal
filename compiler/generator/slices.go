@@ -64,16 +64,16 @@ func validateSliceBridgeExpression(node checker.Expression, expected *compilerTy
 	switch node.Kind {
 	case checker.SliceBridgeExpression:
 		if node.OperandType.Slice == nil || !compilerTypes.Equal(node.Element, node.OperandType.Slice.Element) || !compilerTypes.Equal(node.ResultType, node.OperandType) {
-			return unknownExpressionDiagnostic("view bridge has invalid checked metadata")
+			return unknownExpressionDiagnostic()
 		}
 		switch node.Name {
 		case "empty":
 			if len(node.Arguments) != 0 {
-				return unknownExpressionDiagnostic("view bridge empty has unexpected arguments")
+				return unknownExpressionDiagnostic()
 			}
 		case "from_pointer":
 			if len(node.Arguments) != 2 {
-				return unknownExpressionDiagnostic("view bridge from_pointer has invalid checked metadata")
+				return unknownExpressionDiagnostic()
 			}
 			if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
 				return err
@@ -82,14 +82,14 @@ func validateSliceBridgeExpression(node checker.Expression, expected *compilerTy
 				return err
 			}
 		default:
-			return unknownExpressionDiagnostic("unknown view bridge form " + node.Name)
+			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
-			return unknownExpressionDiagnostic("view bridge result type does not match its expected type")
+			return unknownExpressionDiagnostic()
 		}
 		return nil
 	}
-	return unknownExpressionDiagnostic("unsupported view bridge expression")
+	return unknownExpressionDiagnostic()
 }
 
 func renderSliceBridgeExpression(node checker.Expression, state *expressionValidation) (string, error) {
@@ -99,16 +99,16 @@ func renderSliceBridgeExpression(node checker.Expression, state *expressionValid
 		// expression precedes the length expression in source order and each
 		// appears exactly once.
 		if node.OperandType.Slice == nil {
-			return "", unknownExpressionDiagnostic("view bridge without a checked View type")
+			return "", unknownExpressionDiagnostic()
 		}
 		if node.Name == "empty" {
 			if len(node.Arguments) != 0 {
-				return "", unknownExpressionDiagnostic("view bridge empty with unexpected arguments")
+				return "", unknownExpressionDiagnostic()
 			}
 			return "(" + node.OperandType.CName + "){ nullptr, 0 }", nil
 		}
 		if len(node.Arguments) != 2 {
-			return "", unknownExpressionDiagnostic("view bridge without checked pointer and length")
+			return "", unknownExpressionDiagnostic()
 		}
 		pointer, pointerErr := renderOperandWithState(node.Arguments[0], state)
 		if pointerErr != nil {
@@ -120,5 +120,5 @@ func renderSliceBridgeExpression(node checker.Expression, state *expressionValid
 		}
 		return "(" + node.OperandType.CName + "){ " + pointer + ", " + length + " }", nil
 	}
-	return "", unknownExpressionDiagnostic("unsupported view bridge expression")
+	return "", unknownExpressionDiagnostic()
 }

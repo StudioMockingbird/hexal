@@ -18,7 +18,7 @@ func requireExactlyOneDiagnostic(t *testing.T, source, want string) {
 	if !ok {
 		t.Fatalf("Check error type = %T, want Diagnostics", err)
 	}
-	if len(diagnostics) != 1 || diagnostics[0].Message != want {
+	if len(diagnostics) != 1 || diagnostics[0].Message.Text() != want {
 		t.Fatalf("Check diagnostics = %v, want exactly one %q", diagnostics, want)
 	}
 }
@@ -138,7 +138,7 @@ func TestCheckDeferredExpressionChecksVolatilePointeeKinds(t *testing.T) {
 	for _, kind := range []ExpressionKind{VolatileReadExpression, VolatileWriteExpression} {
 		expression := Expression{Kind: kind, Operand: &receiver}
 		diagnostic := checkDeferredExpression(&expression, lexer.Token{Line: 1, Column: 1}, state)
-		if diagnostic == nil || diagnostic.Message != "this pointer's storage was released on every path to this point" {
+		if diagnostic == nil || diagnostic.Message.Text() != "this pointer's storage was released on every path to this point" {
 			t.Fatalf("kind %v diagnostic = %#v, want use-after-free", kind, diagnostic)
 		}
 	}

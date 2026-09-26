@@ -1,8 +1,7 @@
 package checker
 
 import (
-	"fmt"
-
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -13,7 +12,7 @@ import (
 // inline element or a direct String.
 func resolveListTypeUse(expression parser.GenericTypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	if len(expression.Arguments) != 1 {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, "List requires exactly one element type"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diag.ListTypeArgumentCount()))
 	}
 	elementUse, diagnostic := resolveTypeUse(expression.Arguments[0], fallback, typeEnvironment, generics)
 	if diagnostic != nil {
@@ -21,7 +20,7 @@ func resolveListTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 	}
 	list := typeEnvironment.ListType(elementUse.Type)
 	if list == (compilerTypes.Type{}) {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, elementUse.Type.Name+" is not a list element type"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diag.InvalidListElementType(elementUse.Type.Name)))
 	}
 	return compilerTypes.NewTypeUse(list), nil
 }
@@ -29,7 +28,7 @@ func resolveListTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 // checkListTypeCall resolves List<T>(heap) into a fresh owning list.
 func checkListTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	if len(call.TypeArguments) != 1 || len(call.Arguments) != 1 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "List requires exactly one type argument and a Heap; use List<T>(heap)"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diag.ListConstructorArgumentShape()))}
 	}
 	listUse, diagnostic := resolveListTypeUse(parser.GenericTypeExpression{Name: lexer.Token{Kind: lexer.Identifier, Lexeme: "List", Line: callee.Line, Column: callee.Column}, Arguments: call.TypeArguments}, callee, ctx.typeEnvironment, ctx.names.generics)
 	if diagnostic != nil {
@@ -40,7 +39,7 @@ func checkListTypeCall(call parser.CallExpression, callee lexer.Token, ctx check
 		return heap
 	}
 	if !compilerTypes.IsHeap(heap.typ) {
-		diagnostic := typeErrorAt(heap.token, "List<T>.new requires a Heap; got "+heap.typ.Name)
+		diagnostic := messageAt(heap.token, diag.ListConstructorHeapType(heap.typ.Name))
 		return checkedExpression{token: heap.token, diagnostic: &diagnostic}
 	}
 	node := Expression{
@@ -62,13 +61,13 @@ func checkListMethodCall(call methodCall) checkedExpression {
 	listType := call.receiver.typ
 	element := listType.List.Element
 	if !hasBuiltinMethod(listType, name) {
-		diagnostic := typeErrorAt(call.callee.Property, listType.Name+" has no method "+name)
+		diagnostic := messageAt(call.callee.Property, diag.CollectionHasNoMethod(listType.Name, name))
 		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
 	switch name {
 	case "length":
 		if len(call.call.Arguments) != 0 {
-			diagnostic := typeErrorAt(call.callee.Property, "length expects no arguments")
+			diagnostic := messageAt(call.callee.Property, diag.CollectionMethodNoArguments("length"))
 			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 		}
 		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: listType, ResultType: compilerTypes.SizeType}
@@ -82,7 +81,7 @@ func checkListMethodCall(call methodCall) checkedExpression {
 		switch name {
 		case "push":
 			if len(call.call.Arguments) != 1 {
-				diagnostic := typeErrorAt(call.callee.Property, fmt.Sprintf("push expects 1 argument; got %d", len(call.call.Arguments)))
+				diagnostic := messageAt(call.callee.Property, diag.ListMethodArgumentCount("push", 1, len(call.call.Arguments)))
 				return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 			}
 			value, diagnostic := listElementArgument(call.call.Arguments[0], call.callee.Property, element, call.ctx)
@@ -94,7 +93,7 @@ func checkListMethodCall(call methodCall) checkedExpression {
 			return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 		case "clear":
 			if len(call.call.Arguments) != 0 {
-				diagnostic := typeErrorAt(call.callee.Property, "clear expects no arguments")
+				diagnostic := messageAt(call.callee.Property, diag.CollectionMethodNoArguments("clear"))
 				return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 			}
 			node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: listType, ResultType: compilerTypes.Type{}, Element: element}
@@ -102,7 +101,7 @@ func checkListMethodCall(call methodCall) checkedExpression {
 			return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 		case "pop":
 			if len(call.call.Arguments) != 0 {
-				diagnostic := typeErrorAt(call.callee.Property, "pop expects no arguments")
+				diagnostic := messageAt(call.callee.Property, diag.CollectionMethodNoArguments("pop"))
 				return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 			}
 			node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: listType, ResultType: element, Element: element}
@@ -111,7 +110,7 @@ func checkListMethodCall(call methodCall) checkedExpression {
 		}
 	case "free":
 		if len(call.call.Arguments) != 1 {
-			diagnostic := typeErrorAt(call.callee.Property, fmt.Sprintf("free expects 1 argument; got %d", len(call.call.Arguments)))
+			diagnostic := messageAt(call.callee.Property, diag.ListMethodArgumentCount("free", 1, len(call.call.Arguments)))
 			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 		}
 		heap := checkValue(call.call.Arguments[0], call.ctx)
@@ -119,7 +118,7 @@ func checkListMethodCall(call methodCall) checkedExpression {
 			return heap
 		}
 		if !compilerTypes.IsHeap(heap.typ) {
-			diagnostic := typeErrorAt(heap.token, "free requires a Heap; got "+heap.typ.Name)
+			diagnostic := messageAt(heap.token, diag.ListFreeHeapType(heap.typ.Name))
 			return checkedExpression{token: heap.token, diagnostic: &diagnostic}
 		}
 		node := Expression{
@@ -157,7 +156,7 @@ func listElementArgument(expression parser.Expression, fallback lexer.Token, ele
 		return Operand{}, &diagnostics[0]
 	}
 	if !assignable(element, checked.typ) {
-		diagnostic := typeErrorAt(checked.token, "list element requires "+element.Name+"; got "+checked.typ.Name+textMismatchHint(element, checked.typ))
+		diagnostic := messageAt(checked.token, diag.ListElementTypeMismatch(element.Name, checked.typ.Name, textMismatchDetails(element, checked.typ)))
 		return Operand{}, &diagnostic
 	}
 	if diagnostic := atomicCopyDiagnostic(checked.source, fallback); diagnostic != nil {

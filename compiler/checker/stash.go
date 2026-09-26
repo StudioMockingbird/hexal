@@ -1,8 +1,7 @@
 package checker
 
 import (
-	"fmt"
-
+	diagnosticsPkg "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -13,7 +12,7 @@ import (
 // for HeapAllocation -- the same eligibility Heap.allocate<T> enforces.
 func resolveStashTypeUse(expression parser.GenericTypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	if len(expression.Arguments) != 1 {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, "Stash requires exactly one element type"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diagnosticsPkg.AllocatorRequiresElementType("Stash")))
 	}
 	elementUse, diagnostic := resolveTypeUse(expression.Arguments[0], fallback, typeEnvironment, generics)
 	if diagnostic != nil {
@@ -21,7 +20,7 @@ func resolveStashTypeUse(expression parser.GenericTypeExpression, fallback lexer
 	}
 	stash := typeEnvironment.StashType(elementUse.Type)
 	if stash == (compilerTypes.Type{}) {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, "Stash element type must be complete, finite, and valid for allocation; got "+elementUse.Type.Name))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diagnosticsPkg.AllocatorElementMustBeAllocatable("Stash", elementUse.Type.Name)))
 	}
 	return compilerTypes.NewTypeUse(stash), nil
 }
@@ -35,7 +34,7 @@ func checkStashTypeCall(call parser.CallExpression, callee lexer.Token, ctx chec
 		return checkedExpression{token: callee, diagnostic: diagnostic}
 	}
 	if len(call.Arguments) != 0 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Stash takes no arguments; use Stash<T>()"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diagnosticsPkg.StashConstructorUsage()))}
 	}
 	node := Expression{Kind: StashConstructorExpression, OperandType: stashUse.Type, ResultType: stashUse.Type, Element: stashUse.Type.Stash.Element}
 	source := Operand{Kind: ExpressionOperand, Type: stashUse.Type, Name: "new", Node: node}
@@ -50,28 +49,28 @@ func checkStashMethodCall(call methodCall) checkedExpression {
 	stashType := call.receiver.typ
 	element := stashType.Stash.Element
 	if name == "free" {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Stash allocations are released by reset or destroy"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.StashAllocationsReleasedByResetOrDestroy()))}
 	}
 	if diagnostic := checkHandleNotDestroyed(call.receiver.source, call.callee.Property, call.ctx.names.flow); diagnostic != nil {
 		return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 	}
 	if !hasBuiltinMethod(stashType, name) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Stash has no method "+name+"; use allocate, reset, or destroy"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.UnknownStashMethod(name)))}
 	}
 	switch name {
 	case "allocate":
 		if len(call.call.TypeArguments) != 0 {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Stash allocation accepts no type arguments; its element type is fixed by the receiver"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.FixedElementAllocatorRejectsTypeArguments("Stash")))}
 		}
 		if len(call.call.Arguments) != 1 {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "allocate expects 1 argument"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.AllocationRequiresOneArgument("allocate")))}
 		}
 		initial := checkInitializer(call.call.Arguments[0], compilerTypes.NewTypeUse(element), tokenOf(call.call.Arguments[0]), call.ctx)
 		if diagnostics := initializerDiagnostics(initial); len(diagnostics) > 0 {
 			return checkedExpression{token: tokenOf(call.call.Arguments[0]), diagnostics: diagnostics}
 		}
 		if !assignable(element, initial.typ) {
-			return checkedExpression{token: initial.token, diagnostic: diagnosticAt(typeErrorAt(initial.token, fmt.Sprintf("Stash allocation initializer requires %s; got %s", element.Name, initial.typ.Name)))}
+			return checkedExpression{token: initial.token, diagnostic: diagnosticAt(messageAt(initial.token, diagnosticsPkg.AllocationInitializerType("Stash", element.Name, initial.typ.Name)))}
 		}
 		result := call.ctx.typeEnvironment.MutPtrType(element)
 		node := Expression{Kind: StashMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, Arguments: []Operand{initial.source}, OperandType: stashType, ResultType: result, Element: element}
@@ -79,7 +78,7 @@ func checkStashMethodCall(call methodCall) checkedExpression {
 		return checkedExpression{source: source, typ: result, token: call.callee.Property}
 	case "reset":
 		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "reset expects no arguments"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.AllocatorOperationNoArguments("reset")))}
 		}
 		if call.ctx.names.cleanupDepth == 0 {
 			call.ctx.names.flow.invalidateAllocationsFrom(receiverVariableBinding(call.receiver.source))
@@ -89,7 +88,7 @@ func checkStashMethodCall(call methodCall) checkedExpression {
 		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 	case "destroy":
 		if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "destroy expects no arguments"))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.AllocatorOperationNoArguments("destroy")))}
 		}
 		if call.ctx.names.cleanupDepth == 0 {
 			call.ctx.names.flow.invalidateAllocationsFrom(receiverVariableBinding(call.receiver.source))

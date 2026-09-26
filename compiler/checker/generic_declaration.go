@@ -15,7 +15,7 @@ package checker
 // generated output or consume a binding ordinal.
 
 import (
-	"fmt"
+	diagnosticsPkg "hexal/compiler/diagnostics"
 	"maps"
 
 	"hexal/compiler/lexer"
@@ -263,7 +263,7 @@ func checkOpenGenericFunction(open *openGenericFunction, ctx checkContext) compi
 		return bodyDiagnostics
 	}
 	if result != nil && FallsThrough(statements) {
-		diagnostic := typeErrorAt(open.Declaration.End, fmt.Sprintf("returning %s may fall through without returning %s", open.Name, result.Name))
+		diagnostic := messageAt(open.Declaration.End, diagnosticsPkg.GenericFunctionMayFallThrough(open.Name, result.Name))
 		return compilerTypes.Diagnostics{diagnostic}
 	}
 	return nil
@@ -283,7 +283,7 @@ func checkOpenGenericMethod(open *openGenericMethod, ctx checkContext) compilerT
 	}
 	receiverType := receiverUse.Type
 	if receiverType.Object == nil {
-		diagnostic := unknownAt(open.Declaration.Name, "generic method receiver is not an object")
+		diagnostic := unknownAt(open.Declaration.Name)
 		return compilerTypes.Diagnostics{diagnostic}
 	}
 	generics.frame = mergedFrame(generics.frame, receiverFrame)
@@ -335,7 +335,7 @@ func checkOpenGenericMethod(open *openGenericMethod, ctx checkContext) compilerT
 		return bodyDiagnostics
 	}
 	if result != nil && FallsThrough(statements) {
-		diagnostic := typeErrorAt(open.Declaration.End, fmt.Sprintf("returning %s may fall through without returning %s", open.Name, result.Name))
+		diagnostic := messageAt(open.Declaration.End, diagnosticsPkg.GenericFunctionMayFallThrough(open.Name, result.Name))
 		return compilerTypes.Diagnostics{diagnostic}
 	}
 	return nil

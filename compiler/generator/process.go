@@ -182,7 +182,7 @@ func processStreamTranslation(tags *tagRegistry, expr string) string {
 func processErrorArm(tags *tagRegistry, literals *literalRegistry, union compilerTypes.Type, status, payload string, pipe bool) (string, error) {
 	handle, ok := literals.Lookup(payload)
 	if !ok {
-		return "", unknownExpressionDiagnostic("process failure message is missing from the literal registry: " + payload)
+		return "", unknownExpressionDiagnostic()
 	}
 	tag, field := streamMemberRef(tags, union, compilerTypes.ErrorType)
 	return fmt.Sprintf("(%s){ .tag = %s, .payload.%s = hex_process_error(line, column, %s, %t, &%s) }",

@@ -1,6 +1,7 @@
 package checker
 
 import (
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -26,10 +27,10 @@ func checkPointerArithmeticCall(call methodCall) checkedExpression {
 func checkPointerOffsetCall(call methodCall) checkedExpression {
 	property := call.callee.Property
 	if len(call.call.TypeArguments) != 0 {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "offset takes no type arguments"))}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.PointerOffsetTypeArguments()))}
 	}
 	if len(call.call.Arguments) != 1 {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "offset expects 1 argument (count)"))}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.PointerOffsetArgumentCount()))}
 	}
 	element := *call.receiver.typ.Element
 	if diagnostic := completePointeeDiagnostic(element, property); diagnostic != nil {
@@ -38,13 +39,13 @@ func checkPointerOffsetCall(call methodCall) checkedExpression {
 	if diagnostic := freedPointeeDiagnostic(call.receiver, property, call.ctx.names.flow); diagnostic != nil {
 		return checkedExpression{token: property, diagnostic: diagnostic}
 	}
-	count, countDiagnostics := checkForwardCount(call.call.Arguments[0], property, "offset", call.ctx)
+	count, countDiagnostics := checkForwardCount(call.call.Arguments[0], property, diag.PointerOffsetCount, call.ctx)
 	if len(countDiagnostics) > 0 {
 		return checkedExpression{token: property, diagnostics: countDiagnostics, diagnostic: &countDiagnostics[0]}
 	}
 	// C proves nothing about staying inside one array object; the programmer
 	// asserts it, so the region must be explicit.
-	if diagnostic := requireUnsafe(call.ctx, property, unsafePointerOffset); diagnostic != nil {
+	if diagnostic := requireUnsafe(call.ctx, property, unsafePointerOffset, ""); diagnostic != nil {
 		return checkedExpression{token: property, diagnostic: diagnostic}
 	}
 	node := Expression{
@@ -63,10 +64,10 @@ func checkPointerOffsetCall(call methodCall) checkedExpression {
 func checkPointerCastCall(call methodCall) checkedExpression {
 	property := call.callee.Property
 	if len(call.call.Arguments) != 0 {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "cast expects no arguments"))}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.PointerCastValueArguments()))}
 	}
 	if len(call.call.TypeArguments) != 1 {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(typeErrorAt(property, "cast requires exactly one type argument"))}
+		return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.PointerCastTypeArgumentCount()))}
 	}
 	destinationUse, diagnostic := resolveTypeUse(call.call.TypeArguments[0], property, call.ctx.typeEnvironment, call.ctx.names.generics)
 	if diagnostic != nil {
@@ -82,7 +83,7 @@ func checkPointerCastCall(call methodCall) checkedExpression {
 	if result == (compilerTypes.Type{}) {
 		return checkedExpression{token: property, diagnostic: typeErrorPointerConstruction(property)}
 	}
-	if diagnostic := requireUnsafe(call.ctx, property, unsafePointerCast); diagnostic != nil {
+	if diagnostic := requireUnsafe(call.ctx, property, unsafePointerCast, ""); diagnostic != nil {
 		return checkedExpression{token: property, diagnostic: diagnostic}
 	}
 	node := Expression{
@@ -110,8 +111,7 @@ func checkPointerIndexPlace(expression parser.IndexExpression, receiver checkedE
 	// meaning "the next collection" is the one confusion worth refusing
 	// outright: the two intents get their own spellings instead.
 	if element.Array != nil || element.Slice != nil || element.List != nil {
-		diagnostic := typeErrorAt(bracket, "pointer indexing of "+receiver.typ.Name+
-			" is ambiguous; use (^pointer)[index] to index the collection or pointer.offset(index) to advance the pointer")
+		diagnostic := messageAt(bracket, diag.PointerIndexAmbiguous(receiver.typ.Name))
 		return checkedExpression{token: bracket, diagnostic: &diagnostic}
 	}
 	if diagnostic := completePointeeDiagnostic(element, bracket); diagnostic != nil {
@@ -120,11 +120,11 @@ func checkPointerIndexPlace(expression parser.IndexExpression, receiver checkedE
 	if diagnostic := freedPointeeDiagnostic(receiver, bracket, ctx.names.flow); diagnostic != nil {
 		return checkedExpression{token: bracket, diagnostic: diagnostic}
 	}
-	index, indexDiagnostics := checkForwardCount(expression.Index, bracket, "pointer indexing", ctx)
+	index, indexDiagnostics := checkForwardCount(expression.Index, bracket, diag.PointerIndexCount, ctx)
 	if len(indexDiagnostics) > 0 {
 		return checkedExpression{token: bracket, diagnostics: indexDiagnostics, diagnostic: &indexDiagnostics[0]}
 	}
-	if diagnostic := requireUnsafe(ctx, bracket, unsafePointerIndex); diagnostic != nil {
+	if diagnostic := requireUnsafe(ctx, bracket, unsafePointerIndex, ""); diagnostic != nil {
 		return checkedExpression{token: bracket, diagnostic: diagnostic}
 	}
 	return checkedExpression{
@@ -150,13 +150,13 @@ func checkPointerIndexPlace(expression parser.IndexExpression, receiver checkedE
 // checkForwardCount types one forward-only Size operand. Offsets and indices
 // are unsigned in this version, so no signed or implicitly converted numeric
 // operand is admitted.
-func checkForwardCount(expression parser.Expression, token lexer.Token, operation string, ctx checkContext) (Operand, compilerTypes.Diagnostics) {
+func checkForwardCount(expression parser.Expression, token lexer.Token, operation diag.PointerCountOperation, ctx checkContext) (Operand, compilerTypes.Diagnostics) {
 	checked := checkInitializer(expression, compilerTypes.NewTypeUse(compilerTypes.SizeType), token, ctx)
 	if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 		return Operand{}, diagnostics
 	}
 	if !assignable(compilerTypes.SizeType, checked.typ) {
-		return Operand{}, compilerTypes.Diagnostics{typeErrorAt(checked.token, operation+" requires Size; got "+checked.typ.Name)}
+		return Operand{}, compilerTypes.Diagnostics{messageAt(checked.token, diag.PointerCountRequiresSize(operation, checked.typ.Name))}
 	}
 	return checked.source, nil
 }
@@ -168,5 +168,5 @@ func completePointeeDiagnostic(element compilerTypes.Type, token lexer.Token) *c
 	if compilerTypes.IsCompleteValue(element) {
 		return nil
 	}
-	return diagnosticAt(typeErrorAt(token, "pointer arithmetic requires a complete pointee type; got "+element.Name))
+	return diagnosticAt(messageAt(token, diag.PointerArithmeticRequiresCompletePointee(element.Name)))
 }

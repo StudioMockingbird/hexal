@@ -1,10 +1,10 @@
 package checker
 
 import (
-	"fmt"
 	"go/constant"
 	"strconv"
 
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -19,11 +19,11 @@ func resolveArrayTypeUse(expression parser.ArrayTypeExpression, fallback lexer.T
 	}
 	length, err := strconv.ParseUint(expression.Length.Lexeme, 10, 64)
 	if err != nil || length == 0 {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Length, "an array length must be a positive decimal integer"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Length, diag.InvalidArrayLength()))
 	}
 	array := typeEnvironment.ArrayType(elementUse.Type, length)
 	if array == (compilerTypes.Type{}) {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Keyword, elementUse.Type.Name+" is not an inline array element type"))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Keyword, diag.InvalidArrayElementType(elementUse.Type.Name)))
 	}
 	return compilerTypes.NewTypeUse(array), nil
 }
@@ -33,14 +33,14 @@ func resolveArrayTypeUse(expression parser.ArrayTypeExpression, fallback lexer.T
 // to T, evaluated left-to-right.
 func checkArrayLiteral(expression parser.ArrayLiteralExpression, expected compilerTypes.Type, ctx checkContext) checkedExpression {
 	if len(expression.Elements) == 0 {
-		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnosticAt(typeErrorAt(expression.OpenBracket, "an array literal requires at least one element"))}
+		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnosticAt(messageAt(expression.OpenBracket, diag.EmptyArrayLiteral()))}
 	}
 	if expected.Array == nil {
-		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnosticAt(typeErrorAt(expression.OpenBracket, "an array literal requires an expected Array<T, N> destination type"))}
+		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnosticAt(messageAt(expression.OpenBracket, diag.ArrayLiteralNeedsContext()))}
 	}
 	length := expected.Array.Length
 	if uint64(len(expression.Elements)) != length {
-		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnosticAt(typeErrorAt(expression.OpenBracket, fmt.Sprintf("Array<%s, %d> requires exactly %d elements; got %d", expected.Array.Element.Name, length, length, len(expression.Elements))))}
+		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnosticAt(messageAt(expression.OpenBracket, diag.ArrayLiteralElementCount(expected.Array.Element.Name, length, len(expression.Elements))))}
 	}
 	elementUse := compilerTypes.NewTypeUse(expected.Array.Element)
 	diagnostics := make(compilerTypes.Diagnostics, 0)
@@ -81,12 +81,12 @@ func checkArrayIndex(expression parser.Expression, fallback lexer.Token, ctx che
 		return Operand{}, nil, &nested[0]
 	}
 	if !compilerTypes.IsInteger(checked.typ) {
-		diagnostic := typeErrorAt(checked.token, "an array index must be an integer; got "+checked.typ.Name)
+		diagnostic := messageAt(checked.token, diag.ArrayIndexNotInteger(checked.typ.Name))
 		return Operand{}, nil, &diagnostic
 	}
 	if checked.known != nil && checked.known.Kind == ConstantOperand && checked.known.Constant != nil && checked.known.Constant.Kind() == constant.Int {
 		if value, exact := constant.Int64Val(checked.known.Constant); exact && value < 0 {
-			diagnostic := typeErrorAt(checked.token, "an array index must be non-negative")
+			diagnostic := messageAt(checked.token, diag.ArrayIndexNegative())
 			return Operand{}, nil, &diagnostic
 		}
 	}
@@ -128,7 +128,7 @@ func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checke
 		// Text is UTF-8 and is a sequence of bytes, not of characters, so
 		// indexing it would read as character access. bytes() gives indexed
 		// byte access in constant time and names the unit.
-		diagnostic := typeErrorAt(expression.OpenBracket, "cannot index "+receiver.typ.Name+"; use bytes() for indexed byte access")
+		diagnostic := messageAt(expression.OpenBracket, diag.TextCannotBeIndexed(receiver.typ.Name))
 		return checkedExpression{token: expression.OpenBracket, diagnostic: &diagnostic}
 	}
 	if element == (compilerTypes.Type{}) && receiver.typ.Element != nil {
@@ -137,7 +137,7 @@ func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checke
 		return checkPointerIndexPlace(expression, receiver, ctx)
 	}
 	if element == (compilerTypes.Type{}) {
-		diagnostic := typeErrorAt(expression.OpenBracket, "cannot index "+receiver.typ.Name+"; expected Array<T, N>, Slice<T>, or List<T>")
+		diagnostic := messageAt(expression.OpenBracket, diag.ValueNotIndexable(receiver.typ.Name))
 		return checkedExpression{token: expression.OpenBracket, diagnostic: &diagnostic}
 	}
 	index, indexKnown, diagnostic := checkArrayIndex(expression.Index, expression.OpenBracket, ctx)
@@ -147,7 +147,7 @@ func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checke
 	if indexKnown != nil && indexKnown.Constant != nil && indexKnown.Constant.Kind() == constant.Int && receiver.typ.Array != nil {
 		if value, exact := constant.Uint64Val(indexKnown.Constant); exact && value >= receiver.typ.Array.Length {
 			indexToken := tokenOf(expression.Index)
-			diagnostic := typeErrorAt(indexToken, fmt.Sprintf("array index %d is out of bounds for %s", value, receiver.typ.Name))
+			diagnostic := messageAt(indexToken, diag.ArrayIndexOutOfBounds(value, receiver.typ.Name))
 			return checkedExpression{token: expression.OpenBracket, diagnostic: &diagnostic}
 		}
 	}
@@ -188,17 +188,17 @@ func checkCollectionMethodCall(call methodCall) checkedExpression {
 	// through slice. The registry does not declare it, and its rejection names
 	// the migration route, so it stays ahead of the registry gate.
 	if name == "mut_slice" && call.receiver.typ.Slice != nil {
-		diagnostic := typeErrorAt(call.callee.Property, "Slice has no method mut_slice; re-slicing preserves the receiver's access mode through slice")
+		diagnostic := messageAt(call.callee.Property, diag.SliceHasNoMutSlice())
 		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
 	if !hasBuiltinMethod(collectionType, name) {
-		diagnostic := typeErrorAt(call.callee.Property, collectionType.Name+" has no method "+name)
+		diagnostic := messageAt(call.callee.Property, diag.CollectionHasNoMethod(collectionType.Name, name))
 		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
 	switch name {
 	case "length":
 		if len(call.call.Arguments) != 0 {
-			diagnostic := typeErrorAt(call.callee.Property, "length expects no arguments")
+			diagnostic := messageAt(call.callee.Property, diag.CollectionMethodNoArguments("length"))
 			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 		}
 		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: collectionType, ResultType: compilerTypes.SizeType}

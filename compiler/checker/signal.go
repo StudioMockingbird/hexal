@@ -7,6 +7,7 @@ package checker
 // provenance machinery File, Process, and Pipe share.
 
 import (
+	diagnosticsPkg "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -16,11 +17,11 @@ import (
 // Signals(subscriptions: Slice<Signal>).
 func checkSignalsTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(typeErrorAt(callee, "Signals requires 1 argument (subscriptions: Slice<Signal>); use Signals(subscriptions)"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diagnosticsPkg.SignalsConstructorArguments()))}
 	}
 	signalSlice := ctx.typeEnvironment.SliceType(compilerTypes.SignalType, false)
 	if signalSlice == (compilerTypes.Type{}) {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(unknownAt(callee, "could not construct Slice<Signal>"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(unknownAt(callee))}
 	}
 	subscriptions := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(signalSlice), tokenOf(call.Arguments[0]), ctx)
 	if diagnostics := initializerDiagnostics(subscriptions); len(diagnostics) > 0 {
@@ -31,7 +32,7 @@ func checkSignalsTypeCall(call parser.CallExpression, callee lexer.Token, ctx ch
 	}
 	resultUnion := ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.SignalsType, compilerTypes.ErrorType})
 	if resultUnion == (compilerTypes.Type{}) {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(unknownAt(callee, "could not construct the Signals | Error result union"))}
+		return checkedExpression{token: callee, diagnostic: diagnosticAt(unknownAt(callee))}
 	}
 	return networkNode("signals_new", nil, []Operand{subscriptions.source}, compilerTypes.Type{}, resultUnion, callee)
 }
@@ -42,13 +43,13 @@ func checkSignalsMethodCall(call methodCall) checkedExpression {
 	switch name {
 	case "next", "close":
 	default:
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "Signals has no method "+name+"; use next or close"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.UnknownSignalsMethod(name)))}
 	}
 	if len(call.call.TypeArguments) != 0 || len(call.call.Arguments) != 0 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, name+" expects no arguments"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.SignalsMethodTakesNoArguments(name)))}
 	}
 	if call.ctx.names.cleanupDepth > 0 && name != "close" {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "only Signals.close() may be deferred"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diagnosticsPkg.OnlySignalsCloseMayBeDeferred()))}
 	}
 	call.receiver = valueFromPlace(call.receiver)
 	if diagnostic := streamClosedDiagnostic(call.receiver.source, call.callee.Property, call.ctx.names.flow); diagnostic != nil {
@@ -61,7 +62,7 @@ func checkSignalsMethodCall(call methodCall) checkedExpression {
 		resultUnion = call.ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType})
 	}
 	if resultUnion == (compilerTypes.Type{}) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property, "could not construct the "+name+" result union"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property))}
 	}
 	checked := networkMethodNode("signals_"+name, call.receiver.source.Node, nil, compilerTypes.SignalsType, resultUnion, call.callee.Property)
 	if name == "close" && call.ctx.names.cleanupDepth == 0 {

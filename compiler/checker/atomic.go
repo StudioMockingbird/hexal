@@ -1,6 +1,7 @@
 package checker
 
 import (
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	compilerTypes "hexal/compiler/types"
 )
@@ -42,5 +43,5 @@ func atomicCopyDiagnostic(source Operand, token lexer.Token) *compilerTypes.Diag
 	if !compilerTypes.ContainsAtomic(source.Type) || isFreshAtomicConstruction(source) {
 		return nil
 	}
-	return diagnosticAt(typeErrorAt(token, "Atomic values cannot be copied, assigned, addressed, or stored here"))
+	return diagnosticAt(messageAt(token, diag.AtomicValueCannotBeCopied()))
 }

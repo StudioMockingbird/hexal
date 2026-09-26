@@ -1,11 +1,11 @@
 package checker
 
 import (
-	"fmt"
 	"go/constant"
 	gotoken "go/token"
 	"math"
 
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
@@ -36,10 +36,10 @@ func truncateTowardZero(value constant.Value) constant.Value {
 func checkConversionCall(call methodCall) checkedExpression {
 	source := call.receiver.typ
 	if len(call.call.TypeArguments) != 1 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "to requires exactly 1 explicit type argument"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.NumericConversionTypeArgumentCount()))}
 	}
 	if len(call.call.Arguments) != 0 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "to accepts no value arguments"))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.NumericConversionValueArgumentCount()))}
 	}
 	targetUse, diagnostic := resolveTypeUse(call.call.TypeArguments[0], call.call.OpenParen, call.ctx.typeEnvironment, call.ctx.names.generics)
 	if diagnostic != nil {
@@ -47,7 +47,7 @@ func checkConversionCall(call methodCall) checkedExpression {
 	}
 	target := targetUse.Type
 	if !conversionPairValid(source, target) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(typeErrorAt(call.callee.Property, "numeric conversion requires a supported scalar source and destination; got "+source.Name+" and "+target.Name))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.UnsupportedNumericConversion(source.Name, target.Name)))}
 	}
 
 	// A known-invalid constant conversion is a compile-time error; valid
@@ -138,7 +138,7 @@ func foldNumericConversion(value constant.Value, source, target compilerTypes.Ty
 		// Integer to float: nearest representable value, ties-to-even.
 		floatValue := constant.ToFloat(value)
 		if floatValue.Kind() == constant.Unknown {
-			return nil, diagnosticAt(typeErrorAt(token, "value cannot be represented as "+target.Name))
+			return nil, diagnosticAt(messageAt(token, diag.ConversionValueUnrepresentable(target.Name)))
 		}
 		return floatValue, nil
 	}
@@ -151,7 +151,7 @@ func foldNumericConversion(value constant.Value, source, target compilerTypes.Ty
 			// arithmetic; a value in (-1, 0) truncates to signed zero and is
 			// valid for an unsigned destination.
 			if value.Kind() == constant.Unknown {
-				diagnostic := typeErrorAt(token, "floating value cannot be converted to "+target.Name)
+				diagnostic := messageAt(token, diag.FloatToIntegerConversionInvalid(target.Name))
 				return nil, &diagnostic
 			}
 			truncated := truncateTowardZero(value)
@@ -160,7 +160,7 @@ func foldNumericConversion(value constant.Value, source, target compilerTypes.Ty
 		// Float to float: nearest representable value.
 		floatValue := constant.ToFloat(value)
 		if floatValue.Kind() == constant.Unknown {
-			return nil, diagnosticAt(typeErrorAt(token, "value cannot be represented as "+target.Name))
+			return nil, diagnosticAt(messageAt(token, diag.ConversionValueUnrepresentable(target.Name)))
 		}
 		return floatValue, nil
 	}
@@ -170,11 +170,11 @@ func foldNumericConversion(value constant.Value, source, target compilerTypes.Ty
 func foldIntegerConversion(value constant.Value, source, target compilerTypes.Type, token lexer.Token) (constant.Value, *compilerTypes.Diagnostic) {
 	integer := constant.ToInt(value)
 	if integer.Kind() == constant.Unknown {
-		return nil, diagnosticAt(typeErrorAt(token, "value is not an integer"))
+		return nil, diagnosticAt(messageAt(token, diag.ConversionRequiresInteger()))
 	}
 	minimum, maximum := constantIntegerRange(target)
 	if constant.Compare(integer, gotoken.LSS, minimum) || constant.Compare(integer, gotoken.GTR, maximum) {
-		diagnostic := typeErrorAt(token, fmt.Sprintf("value %s is outside the range of %s", integer.String(), target.Name))
+		diagnostic := messageAt(token, diag.ConversionValueOutOfRange(integer.String(), target.Name))
 		return nil, &diagnostic
 	}
 	return reduceSigned(integer, target), nil

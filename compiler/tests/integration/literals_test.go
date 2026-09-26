@@ -303,8 +303,8 @@ func TestNumericLiteralShapeDiagnostics(t *testing.T) {
 		want   string
 	}{
 		{"let x: Byte = 13", ""},
-		{"let x: Float32 = 13", "[Type Error] expected Float32 initializer; got Int32 at app.hex:1:18"},
-		{"let x: Int64 = 13.0", "[Type Error] expected Int64 initializer; got Float64 at app.hex:1:16"},
+		{"let x: Float32 = 13", "[Type Error type.initializer-type-mismatch] expected Float32 initializer; got Int32 at app.hex:1:18"},
+		{"let x: Int64 = 13.0", "[Type Error type.initializer-type-mismatch] expected Int64 initializer; got Float64 at app.hex:1:16"},
 	} {
 		result := compileSource(testCase.source)
 		if testCase.want == "" {
@@ -352,8 +352,8 @@ func TestRejectsMismatchedInitializer(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"let x: Int32 = true", "[Type Error] expected Int32 initializer; got Bool at app.hex:1:16"},
-		{"let flag: Bool = 1", "[Type Error] expected Bool initializer; got Int32 at app.hex:1:18"},
+		{"let x: Int32 = true", "[Type Error type.initializer-type-mismatch] expected Int32 initializer; got Bool at app.hex:1:16"},
+		{"let flag: Bool = 1", "[Type Error type.initializer-type-mismatch] expected Bool initializer; got Int32 at app.hex:1:18"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure {
@@ -367,7 +367,7 @@ func TestRejectsMismatchedInitializer(t *testing.T) {
 
 func TestRejectsHexPrefixWithoutDigits(t *testing.T) {
 	result := compileSource("let mask: Int32 = 0x")
-	want := "[Syntax Error] malformed hexadecimal literal at app.hex:1:19"
+	want := "[Syntax Error syntax.malformed-hexadecimal-literal] malformed hexadecimal literal at app.hex:1:19"
 	if len(result.Stderr) == 0 || result.Stderr[0] != want {
 		t.Fatalf("std.err = %#v, want first entry %q", result.Stderr, want)
 	}
@@ -375,7 +375,7 @@ func TestRejectsHexPrefixWithoutDigits(t *testing.T) {
 
 func TestRejectsOutOfRangeHex(t *testing.T) {
 	result := compileSource("let mask: Int32 = 0x80000000")
-	want := "[Type Error] given value is outside the Int32 range at app.hex:1:19"
+	want := "[Type Error type.numeric-literal-out-of-range] given value is outside the Int32 range at app.hex:1:19"
 	if len(result.Stderr) != 1 || result.Stderr[0] != want {
 		t.Fatalf("std.err = %#v, want [%q]", result.Stderr, want)
 	}
@@ -386,7 +386,7 @@ func TestRejectsMalformedHexadecimalLiteral(t *testing.T) {
 	if result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("Compile exit code = %d, want %d", result.ExitCode, compiler.ExitFailure)
 	}
-	want := []string{"[Syntax Error] malformed hexadecimal literal at app.hex:1:13"}
+	want := []string{"[Syntax Error syntax.malformed-hexadecimal-literal] malformed hexadecimal literal at app.hex:1:13"}
 	if len(result.Stderr) != len(want) || result.Stderr[0] != want[0] {
 		t.Fatalf("std.err = %#v, want %#v", result.Stderr, want)
 	}

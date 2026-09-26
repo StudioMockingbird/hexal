@@ -4,9 +4,9 @@
 package checker
 
 import (
-	"fmt"
 	"strings"
 
+	diagnosticsPkg "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -25,13 +25,12 @@ import (
 // and exported names.
 func resolveQualifiedGenericTypeUse(expression parser.QualifiedGenericTypeExpression, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	if generics == nil || generics.registry == nil {
-		diagnostic := unknownAt(expression.Module, "qualified generic type use outside a generic table")
+		diagnostic := unknownAt(expression.Module)
 		return compilerTypes.TypeUse{}, &diagnostic
 	}
 	target, ok := generics.registry.importTarget(generics.moduleID, expression.Module.Lexeme)
 	if !ok {
-		message := "unknown module alias " + expression.Module.Lexeme
-		return compilerTypes.TypeUse{}, diagnosticAt(moduleErrorAt(expression.Module, message))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Module, diagnosticsPkg.UnknownModuleAlias(expression.Module.Lexeme)))
 	}
 	open, ok := generics.registry.genericType(target, expression.Name.Lexeme)
 	if !ok {
@@ -39,7 +38,7 @@ func resolveQualifiedGenericTypeUse(expression parser.QualifiedGenericTypeExpres
 		return compilerTypes.TypeUse{}, &diagnostic
 	}
 	if len(expression.Arguments) != open.Declaration.Arity {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, fmt.Sprintf("generic type %s expects %d type arguments; got %d", open.Name, open.Declaration.Arity, len(expression.Arguments))))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diagnosticsPkg.GenericTypeArgumentCount(open.Name, open.Declaration.Arity, len(expression.Arguments))))
 	}
 	arguments := make([]compilerTypes.Type, 0, len(expression.Arguments))
 	for _, argumentExpression := range expression.Arguments {
@@ -51,7 +50,7 @@ func resolveQualifiedGenericTypeUse(expression parser.QualifiedGenericTypeExpres
 	}
 	definingCtx, ok := generics.registry.definingContext(target)
 	if !ok {
-		diagnostic := unknownAt(expression.Name, "defining module specialization environment is unavailable for "+target)
+		diagnostic := unknownAt(expression.Name)
 		return compilerTypes.TypeUse{}, &diagnostic
 	}
 	use, diagnostic := specializeTypeUseArguments(open, arguments, expression.Name, definingCtx.typeEnvironment, definingCtx.names.generics)
@@ -60,15 +59,15 @@ func resolveQualifiedGenericTypeUse(expression parser.QualifiedGenericTypeExpres
 
 func specializeTypeUse(expression parser.GenericTypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	if generics == nil {
-		diagnostic := unknownAt(fallback, "generic type use outside a generic table")
+		diagnostic := unknownAt(fallback)
 		return compilerTypes.TypeUse{}, &diagnostic
 	}
 	open, ok := generics.types[expression.Name.Lexeme]
 	if !ok {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, "unknown generic type "+expression.Name.Lexeme))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diagnosticsPkg.UnknownGenericType(expression.Name.Lexeme)))
 	}
 	if len(expression.Arguments) != open.Declaration.Arity {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(expression.Name, fmt.Sprintf("generic type %s expects %d type arguments; got %d", open.Name, open.Declaration.Arity, len(expression.Arguments))))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diagnosticsPkg.GenericTypeArgumentCount(open.Name, open.Declaration.Arity, len(expression.Arguments))))
 	}
 	arguments := make([]compilerTypes.Type, 0, len(expression.Arguments))
 	for _, argumentExpression := range expression.Arguments {
@@ -85,7 +84,7 @@ func specializeTypeUse(expression parser.GenericTypeExpression, fallback lexer.T
 // resolved canonical argument types.
 func specializeTypeUseArguments(open *openGenericType, arguments []compilerTypes.Type, token lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	if len(arguments) != open.Declaration.Arity {
-		return compilerTypes.TypeUse{}, diagnosticAt(typeErrorAt(token, fmt.Sprintf("generic type %s expects %d type arguments; got %d", open.Name, open.Declaration.Arity, len(arguments))))
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(token, diagnosticsPkg.GenericTypeArgumentCount(open.Name, open.Declaration.Arity, len(arguments))))
 	}
 	if _, objectTarget := open.Target.(parser.ObjectTypeExpression); objectTarget {
 		specialized, diagnostic := specializeObjectType(open, arguments, token, typeEnvironment, generics)
@@ -125,12 +124,12 @@ func specializeObjectType(open *openGenericType, arguments []compilerTypes.Type,
 	}
 	for activeKey := range generics.active {
 		if strings.HasPrefix(activeKey, open.Name+"|") && activeKey != key {
-			return compilerTypes.Type{}, diagnosticAt(typeErrorAt(token, "recursive type specialization changes generic arguments"))
+			return compilerTypes.Type{}, diagnosticAt(messageAt(token, diagnosticsPkg.GenericSpecializationChangesArguments()))
 		}
 	}
 	object, ok := open.Target.(parser.ObjectTypeExpression)
 	if !ok {
-		diagnostic := unknownAt(token, "generic object specialization without an object template")
+		diagnostic := unknownAt(token)
 		return compilerTypes.Type{}, &diagnostic
 	}
 	specializedName := specializeTypeName(open.Name, arguments)
@@ -176,7 +175,7 @@ func registerGenericFunction(declaration parser.FunctionDeclaration, ctx checkCo
 	parameterNames := parameterNamesOf(declaration.TypeParameters)
 	generic := ctx.typeEnvironment.DeclareGeneric(name, len(declaration.TypeParameters), parameterNames)
 	if generic == nil {
-		return compilerTypes.Diagnostics{typeErrorAt(declaration.Name, name+" is already declared")}
+		return compilerTypes.Diagnostics{messageAt(declaration.Name, diagnosticsPkg.DuplicateDeclaration(name))}
 	}
 	open := &openGenericFunction{
 		Name:        name,
@@ -206,19 +205,19 @@ func isGenericReceiver(expression parser.TypeExpression) bool {
 func registerGenericMethod(declaration parser.MethodDeclaration, ctx checkContext) compilerTypes.Diagnostics {
 	receiver, ok := declaration.SelfType.(parser.GenericTypeExpression)
 	if !ok {
-		return compilerTypes.Diagnostics{typeErrorAt(declaration.Keyword, "a generic method requires a generic receiver")}
+		return compilerTypes.Diagnostics{messageAt(declaration.Keyword, diagnosticsPkg.GenericMethodRequiresGenericReceiver())}
 	}
 	open, generic := ctx.names.generics.types[receiver.Name.Lexeme]
 	if !generic {
-		return compilerTypes.Diagnostics{typeErrorAt(receiver.Name, "unknown generic type "+receiver.Name.Lexeme)}
+		return compilerTypes.Diagnostics{messageAt(receiver.Name, diagnosticsPkg.UnknownGenericType(receiver.Name.Lexeme))}
 	}
 	if len(receiver.Arguments) != len(open.Parameters) {
-		return compilerTypes.Diagnostics{typeErrorAt(receiver.Name, "generic receiver pattern overlaps another implementation")}
+		return compilerTypes.Diagnostics{messageAt(receiver.Name, diagnosticsPkg.GenericReceiverPatternOverlaps())}
 	}
 	for index, argument := range receiver.Arguments {
 		named, ok := argument.(parser.NamedTypeExpression)
 		if !ok || named.Name.Lexeme != open.Parameters[index].Lexeme {
-			return compilerTypes.Diagnostics{typeErrorAt(receiver.Name, "generic receiver pattern overlaps another implementation")}
+			return compilerTypes.Diagnostics{messageAt(receiver.Name, diagnosticsPkg.GenericReceiverPatternOverlaps())}
 		}
 	}
 	diagnostics := validateGenericParameters(declaration.TypeParameters)
@@ -228,7 +227,7 @@ func registerGenericMethod(declaration parser.MethodDeclaration, ctx checkContex
 	parameterNames := parameterNamesOf(declaration.TypeParameters)
 	methodGeneric := ctx.typeEnvironment.DeclareGeneric(declaration.Name.Lexeme+"<method>", len(declaration.TypeParameters), parameterNames)
 	if methodGeneric == nil {
-		return compilerTypes.Diagnostics{typeErrorAt(declaration.Name, declaration.Name.Lexeme+" is already declared")}
+		return compilerTypes.Diagnostics{messageAt(declaration.Name, diagnosticsPkg.DuplicateDeclaration(declaration.Name.Lexeme))}
 	}
 	ctx.names.generics.methods[open.Name+"."+declaration.Name.Lexeme] = &openGenericMethod{
 		ObjectName:         open.Name,
@@ -247,12 +246,12 @@ func validateGenericParameters(parameters []lexer.Token) compilerTypes.Diagnosti
 	seen := make(map[string]bool, len(parameters))
 	for _, parameter := range parameters {
 		if seen[parameter.Lexeme] {
-			diagnostics = append(diagnostics, typeErrorAt(parameter, "generic parameter "+parameter.Lexeme+" is declared more than once"))
+			diagnostics = append(diagnostics, messageAt(parameter, diagnosticsPkg.DuplicateGenericParameter(parameter.Lexeme)))
 			continue
 		}
 		seen[parameter.Lexeme] = true
 		if compilerTypes.IsProtectedTypeName(parameter.Lexeme) {
-			diagnostics = append(diagnostics, typeErrorAt(parameter, "generic parameter "+parameter.Lexeme+" is a protected type name"))
+			diagnostics = append(diagnostics, messageAt(parameter, diagnosticsPkg.ProtectedGenericParameter(parameter.Lexeme)))
 		}
 	}
 	return diagnostics
@@ -275,12 +274,12 @@ func specializeADTType(open *openGenericType, arguments []compilerTypes.Type, to
 	}
 	for activeKey := range generics.active {
 		if strings.HasPrefix(activeKey, open.Name+"|") && activeKey != key {
-			return compilerTypes.Type{}, diagnosticAt(typeErrorAt(token, "recursive type specialization changes generic arguments"))
+			return compilerTypes.Type{}, diagnosticAt(messageAt(token, diagnosticsPkg.GenericSpecializationChangesArguments()))
 		}
 	}
 	target, ok := open.Target.(parser.AdtDefinitionExpression)
 	if !ok {
-		diagnostic := unknownAt(token, "generic ADT specialization without an ADT template")
+		diagnostic := unknownAt(token)
 		return compilerTypes.Type{}, &diagnostic
 	}
 	specializedName := specializeTypeName(open.Name, arguments)

@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"unicode/utf8"
 
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -311,11 +312,11 @@ func recordStringAssignment(flow *flowState, target Operand, value Operand, targ
 func decodeStringLiteral(token lexer.Token) ([]byte, *compilerTypes.Diagnostic) {
 	raw := token.Lexeme
 	if len(raw) < 2 || raw[0] != '"' || raw[len(raw)-1] != '"' {
-		return nil, diagnosticAt(typeErrorAt(token, "malformed string literal"))
+		return nil, diagnosticAt(messageAt(token, diag.MalformedStringLiteral()))
 	}
 	payload, message := lexer.DecodeLiteralBody(raw[1:len(raw)-1], lexer.StringEscapes)
-	if message != "" {
-		return nil, diagnosticAt(typeErrorAt(token, message))
+	if !message.IsZero() {
+		return nil, diagnosticAt(messageAt(token, message))
 	}
 	return payload, nil
 }
@@ -327,7 +328,7 @@ func decodeStringLiteral(token lexer.Token) ([]byte, *compilerTypes.Diagnostic) 
 func decodeRawStringLiteral(token lexer.Token) ([]byte, *compilerTypes.Diagnostic) {
 	raw := token.Lexeme
 	if len(raw) < 2 || raw[0] != 'r' {
-		return nil, diagnosticAt(typeErrorAt(token, "malformed raw string literal"))
+		return nil, diagnosticAt(messageAt(token, diag.MalformedRawStringLiteral()))
 	}
 	hashCount := 0
 	for 1+hashCount < len(raw) && raw[1+hashCount] == '#' {
@@ -336,11 +337,11 @@ func decodeRawStringLiteral(token lexer.Token) ([]byte, *compilerTypes.Diagnosti
 	openEnd := 1 + hashCount + 1 // past 'r', the hashes, and the opening '"'
 	closeStart := len(raw) - hashCount - 1
 	if openEnd > len(raw) || closeStart < openEnd || closeStart >= len(raw) || raw[openEnd-1] != '"' || raw[closeStart] != '"' {
-		return nil, diagnosticAt(typeErrorAt(token, "malformed raw string literal"))
+		return nil, diagnosticAt(messageAt(token, diag.MalformedRawStringLiteral()))
 	}
 	payload := []byte(raw[openEnd:closeStart])
 	if !utf8.Valid(payload) {
-		return nil, diagnosticAt(typeErrorAt(token, "string literal contains invalid UTF-8"))
+		return nil, diagnosticAt(messageAt(token, diag.StringLiteralInvalidUTF8()))
 	}
 	return payload, nil
 }
@@ -349,11 +350,14 @@ func decodeRawStringLiteral(token lexer.Token) ([]byte, *compilerTypes.Diagnosti
 func decodeByteLiteral(token lexer.Token) (byte, *compilerTypes.Diagnostic) {
 	raw := token.Lexeme
 	if len(raw) < 4 || raw[0] != 'b' || raw[1] != '\'' || raw[len(raw)-1] != '\'' {
-		return 0, diagnosticAt(typeErrorAt(token, "malformed Byte literal"))
+		return 0, diagnosticAt(messageAt(token, diag.MalformedByteLiteral()))
 	}
 	payload, message := lexer.DecodeLiteralBody(raw[2:len(raw)-1], lexer.ByteEscapes)
-	if message != "" || len(payload) != 1 {
-		return 0, diagnosticAt(typeErrorAt(token, "Byte literal must contain exactly one byte"))
+	if !message.IsZero() || len(payload) != 1 {
+		if !message.IsZero() {
+			return 0, diagnosticAt(messageAt(token, message))
+		}
+		return 0, diagnosticAt(messageAt(token, diag.InvalidByteLiteralCardinality()))
 	}
 	return payload[0], nil
 }
@@ -364,11 +368,11 @@ func decodeByteLiteral(token lexer.Token) (byte, *compilerTypes.Diagnostic) {
 func decodeRuneLiteral(token lexer.Token) (rune, *compilerTypes.Diagnostic) {
 	raw := token.Lexeme
 	if len(raw) < 3 || raw[0] != '\'' || raw[len(raw)-1] != '\'' {
-		return 0, diagnosticAt(typeErrorAt(token, "malformed Rune literal"))
+		return 0, diagnosticAt(messageAt(token, diag.MalformedRuneLiteral()))
 	}
 	payload, message := lexer.DecodeLiteralBody(raw[1:len(raw)-1], lexer.RuneEscapes)
-	if message != "" {
-		return 0, diagnosticAt(typeErrorAt(token, message))
+	if !message.IsZero() {
+		return 0, diagnosticAt(messageAt(token, message))
 	}
 	value, _ := utf8.DecodeRune(payload)
 	return value, nil

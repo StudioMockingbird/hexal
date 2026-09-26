@@ -1,16 +1,14 @@
 package checker
 
 import (
-	"fmt"
-
+	"hexal/compiler/corelib"
+	"hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/span"
 	compilerTypes "hexal/compiler/types"
 )
 
-// Diagnostic construction: the span-to-token adapter, the five category
-// constructors every checker site reports through, and the pointer and
-// module-stamping helpers.
+// Diagnostic construction: the span-to-token adapter and provenance helpers.
 
 // tokenAt builds the diagnostic token for a span. A nil table, which only a
 // lone module checked outside Compile has, resolves to the zero position and
@@ -23,31 +21,97 @@ func tokenAt(table *span.Table, s span.Span) lexer.Token {
 	return lexer.Token{Span: s, Line: position.Line, Column: position.Column}
 }
 
-// checkerDiagnostic is the one construction path for every checker
-// diagnostic: the four category builders below differ only in category, so a
-// token's span and its resolved position are recorded in exactly one place.
-func checkerDiagnostic(category compilerTypes.ErrorCategory, token lexer.Token, message string) compilerTypes.Diagnostic {
-	return compilerTypes.Diagnostic{
-		Category: category,
-		Stage:    "checker",
-		Span:     token.Span,
-		Position: span.Position{Line: token.Line, Column: token.Column},
-		Message:  message,
-	}
+func messageAt(token lexer.Token, message diagnostics.Message) compilerTypes.Diagnostic {
+	return compilerTypes.At(message, token.Span, span.Position{Line: token.Line, Column: token.Column})
 }
 
-// typeErrorAt is the checker's single Type Error constructor: every site
-// reports through it rather than expanding a composite literal.
-func typeErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
-	return checkerDiagnostic(compilerTypes.TypeError, token, message)
+func protectedBindingNameDiagnostic(token lexer.Token, name string) compilerTypes.Diagnostic {
+	return messageAt(token, diagnostics.ProtectedBindingName(name))
+}
+
+func importAliasConflictDiagnostic(token lexer.Token, name string) compilerTypes.Diagnostic {
+	return messageAt(token, diagnostics.ImportAliasConflict(name))
+}
+
+func duplicateLoopBinderDiagnostic(token lexer.Token, name string) compilerTypes.Diagnostic {
+	return messageAt(token, diagnostics.DuplicateLoopBinder(name))
+}
+
+func missingCImportDeclarationDiagnostic(token lexer.Token, header, name string) compilerTypes.Diagnostic {
+	return messageAt(token, diagnostics.MissingCImportDeclaration(header, name))
+}
+
+func mappedCDeclarationDiagnostic(token lexer.Token, name, mapped string) compilerTypes.Diagnostic {
+	return messageAt(token, diagnostics.MappedCDeclaration(name, mapped))
+}
+
+func duplicateExportEntryDiagnostic(token lexer.Token, key string) compilerTypes.Diagnostic {
+	return messageAt(token, diagnostics.DuplicateExportEntry(key))
+}
+
+func unknownExportMethodDiagnostic(token lexer.Token, key string) compilerTypes.Diagnostic {
+	return messageAt(token, diagnostics.UnknownExportMethod(key))
+}
+
+func entryEnvironmentFunctionDiagnostic(token lexer.Token, name string) compilerTypes.Diagnostic {
+	return messageAt(token, diagnostics.EntryEnvironmentFunction(name))
+}
+
+func exportedImportAliasDiagnostic(token lexer.Token, name string) compilerTypes.Diagnostic {
+	return messageAt(token, diagnostics.ExportedImportAlias(name))
+}
+
+func unknownDeclarationDiagnostic(token lexer.Token, name string) compilerTypes.Diagnostic {
+	return messageAt(token, diagnostics.UnknownDeclaration(name))
+}
+
+func declarationPrivateToModuleDiagnostic(token lexer.Token, name, module string) compilerTypes.Diagnostic {
+	return messageAt(token, diagnostics.DeclarationPrivateToModule(name, module))
+}
+
+func importedModuleExecutableDiagnostic(token lexer.Token, module string) compilerTypes.Diagnostic {
+	return messageAt(token, diagnostics.ImportedModuleHasExecutableStatements(module))
+}
+
+func importedModuleMutableBindingDiagnostic(token lexer.Token, module, name string) compilerTypes.Diagnostic {
+	return messageAt(token, diagnostics.ImportedModuleMutableBinding(module, name))
+}
+
+func checkerCInteropTargetDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
+	return messageAt(token, diagnostics.CheckerCInteropNeedsTarget())
+}
+
+func loopMustYieldDiagnostic(token lexer.Token) compilerTypes.Diagnostic {
+	return messageAt(token, diagnostics.LoopMustYield())
+}
+
+func coreTypeMigrationDiagnostic(token lexer.Token, hint corelib.MigrationHint, moduleError bool) compilerTypes.Diagnostic {
+	if moduleError {
+		if hint.Kind == corelib.MovedTypeHint {
+			return messageAt(token, diagnostics.MovedCoreTypeAsModule(hint.Name, hint.Module, hint.Alias))
+		}
+		return messageAt(token, diagnostics.RemovedCoreNamespaceAsModule(hint.Name, hint.Function, hint.Module))
+	}
+	if hint.Kind == corelib.MovedTypeHint {
+		return messageAt(token, diagnostics.MovedCoreTypeAsName(hint.Name, hint.Module, hint.Alias))
+	}
+	return messageAt(token, diagnostics.RemovedCoreNamespaceAsName(hint.Name, hint.Function, hint.Module))
+}
+
+func coreOperationMigrationDiagnostic(token lexer.Token, hint corelib.MigrationHint) compilerTypes.Diagnostic {
+	return messageAt(token, diagnostics.MovedCoreOperation(hint.Owner, hint.Operation, hint.Function, hint.Module, hint.Alias))
+}
+
+func coreConstructorMigrationDiagnostic(token lexer.Token, hint corelib.MigrationHint) compilerTypes.Diagnostic {
+	return messageAt(token, diagnostics.MovedCoreConstructor(hint.Name, hint.Function, hint.Module, hint.Alias))
 }
 
 func moduleDataDiagnostic(owner, name string, token lexer.Token) compilerTypes.Diagnostic {
-	return typeErrorAt(token, fmt.Sprintf("function %s cannot access module data binding %s; pass it as a parameter", owner, name))
+	return messageAt(token, diagnostics.FunctionCannotAccessModuleBinding(owner, name))
 }
 
 func selfNotBoundDiagnostic(token lexer.Token) *compilerTypes.Diagnostic {
-	diagnostic := typeErrorAt(token, "self is not bound outside a method body")
+	diagnostic := messageAt(token, diagnostics.SelfNotBoundOutsideMethod())
 	return &diagnostic
 }
 
@@ -76,24 +140,6 @@ func diagnosticInDefiningModule(diagnostic *compilerTypes.Diagnostic, logicalKey
 	return &stamped
 }
 
-// nameErrorAt, moduleErrorAt, semanticErrorAt, and unknownAt are
-// typeErrorAt's siblings for the checker's other categories. Every diagnostic
-// the checker reports is built by one of these five, so a category is never
-// spelled at a call site.
-func nameErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
-	return checkerDiagnostic(compilerTypes.NameError, token, message)
-}
-
-func moduleErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
-	return checkerDiagnostic(compilerTypes.ModuleError, token, message)
-}
-
-// semanticErrorAt reports a whole-program semantic contract failure, such as
-// scheduler starvation, that is neither a type nor a name error.
-func semanticErrorAt(token lexer.Token, message string) compilerTypes.Diagnostic {
-	return checkerDiagnostic(compilerTypes.SemanticError, token, message)
-}
-
-func unknownAt(token lexer.Token, message string) compilerTypes.Diagnostic {
-	return checkerDiagnostic(compilerTypes.UnknownError, token, message)
+func unknownAt(token lexer.Token) compilerTypes.Diagnostic {
+	return messageAt(token, diagnostics.CheckerFailure())
 }

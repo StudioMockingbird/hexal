@@ -1,12 +1,12 @@
 package checker
 
 import (
-	"fmt"
 	"go/constant"
 	gotoken "go/token"
 	"math"
 	"strings"
 
+	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
@@ -30,13 +30,13 @@ func negatedInitializer(expression parser.NegatedNumericLiteral, expected compil
 	switch literal := expression.Literal.(type) {
 	case parser.IntegerLiteral:
 		if compilerTypes.IsUnsignedInteger(expected) {
-			return initializerValue{typ: expected, token: expression.Minus, diagnostic: diagnosticAt(typeErrorAt(expression.Minus, "negated integer literal requires a signed destination"))}
+			return initializerValue{typ: expected, token: expression.Minus, diagnostic: diagnosticAt(messageAt(expression.Minus, diag.NegatedIntegerRequiresSignedType()))}
 		}
 		return integerInitializer(literal.Token, contextualIntegerType(expected), true)
 	case parser.DecimalLiteral:
 		return floatInitializer(literal.Token, contextualFloatType(expected), true)
 	default:
-		return initializerValue{typ: compilerTypes.Int32, token: expression.Minus, diagnostic: diagnosticAt(typeErrorAt(expression.Minus, "unsupported negated literal"))}
+		return initializerValue{typ: compilerTypes.Int32, token: expression.Minus, diagnostic: diagnosticAt(messageAt(expression.Minus, diag.UnsupportedNegatedLiteral()))}
 	}
 }
 
@@ -119,5 +119,5 @@ func floatInitializer(token lexer.Token, typ compilerTypes.Type, negative ...boo
 }
 
 func valueOutOfRangeDiagnostic(token lexer.Token, valueType compilerTypes.Type) *compilerTypes.Diagnostic {
-	return diagnosticAt(typeErrorAt(token, fmt.Sprintf("given value is outside the %s range", valueType.Name)))
+	return diagnosticAt(messageAt(token, diag.NumericLiteralOutOfRange(valueType.Name)))
 }

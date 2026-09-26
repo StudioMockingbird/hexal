@@ -1,6 +1,7 @@
 package checker
 
 import (
+	diag "hexal/compiler/diagnostics"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -9,8 +10,8 @@ import (
 // one unit all three share and the one slice() takes.
 func checkCursorMethodCall(call methodCall) checkedExpression {
 	name := call.callee.Property.Lexeme
-	fail := func(message string) checkedExpression {
-		diagnostic := typeErrorAt(call.callee.Property, message)
+	fail := func(message diag.Message) checkedExpression {
+		diagnostic := messageAt(call.callee.Property, message)
 		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
 	var result compilerTypes.Type
@@ -31,13 +32,13 @@ func checkCursorMethodCall(call methodCall) checkedExpression {
 	case "offset":
 		result = compilerTypes.SizeType
 	default:
-		return fail(call.receiver.typ.Name + " has no method " + name)
+		return fail(diag.CursorMethodNotFound(call.receiver.typ.Name, name))
 	}
 	if len(call.call.Arguments) != 0 {
-		return fail(name + " expects no arguments")
+		return fail(diag.CursorMethodNoValueArguments(name))
 	}
 	if len(call.call.TypeArguments) != 0 {
-		return fail(name + " takes no type arguments")
+		return fail(diag.CursorMethodNoTypeArguments(name))
 	}
 	// next advances the cursor, so it takes the address of the receiver and
 	// the receiver must be a mutable binding. peek, has_next, and offset read a
@@ -45,7 +46,7 @@ func checkCursorMethodCall(call methodCall) checkedExpression {
 	// shares the one break-state advance, so it takes the address too.
 	address := name == "next" || (name == "peek" && compilerTypes.IsGraphemeCursor(call.receiver.typ))
 	if address && !call.receiver.source.Writable {
-		return fail(name + " mutates its cursor, so the receiver must be a mutable binding")
+		return fail(diag.CursorMethodRequiresMutableBinding(name))
 	}
 	node := Expression{
 		Kind:        CursorMethodCallExpression,
