@@ -13,9 +13,6 @@ gets deleted.
 
 | Work | Spec | Effort | ROI |
 | --- | --- | --- | --- |
-| Make generator scope ownership fail closed and remove automatic root-scope repair | [0239](specs/0239-chibicc-review-findings.md) | Low | Medium |
-| Centralize compiler diagnostic wording and give every condition a stable visible key | [0243](specs/0243-central-diagnostics-and-stable-keys.md) | High | High |
-| Record measured compiler policy honestly beside the policy it justifies | [0244](specs/0244-measured-compiler-policy.md) | Low | High |
 
 ### Under review
 

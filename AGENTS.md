@@ -78,6 +78,14 @@ Hexal is a high-level "syntax sugar" language with Lua-like syntax and a C23 com
   spine at their entrypoint; safety reasoning sits adjacent to the operation
   it protects. Prefer an accurate name over a comment, and a deletion over a
   restatement of the next line.
+- **Measured policy.** When empirical comparison selects a non-obvious
+  threshold, ordering, capacity, or heuristic, its adjacent CARE rationale
+  records the measured workload or corpus, alternatives compared, supporting
+  figures, and the condition that requires remeasurement. Do not label safety
+  bounds, ABI constants, platform constraints, or conservative resource
+  ceilings as measured optima; give those an honest rationale only when their
+  name and type do not already explain them. Never invent benchmark evidence
+  to defend an existing value.
 - **Line endings.** Go source is LF, everywhere, without exception — `gofmt`
   emits LF unconditionally, so a CRLF `.go` file is by definition unformatted
   and there is no Windows-convention alternative for it. `.gitattributes` pins

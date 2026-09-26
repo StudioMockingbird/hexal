@@ -1,9 +1,9 @@
 # RFC 0244: Measured Compiler Policy
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; design settled, implementation not started
+- Status: Closed; implemented and validated 2026-09-26
 - Created: 2026-09-24
-- Updated: 2026-09-25
+- Updated: 2026-09-26
 - Origin: RFC 0241 finding T2; the unrelated fingerprint design moved to
   deferred RFC 0246
 - Coordinates with: RFC 0241, deferred RFC 0246, and `AGENTS.md`
