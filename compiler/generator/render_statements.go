@@ -106,10 +106,6 @@ func writeControlHeader(body *strings.Builder, indent, prefix, condition string,
 }
 
 func writeStatementsAt(body *strings.Builder, statements []checker.Statement, state *expressionValidation, frame statementFrame, indent string) error {
-	if len(state.activeScopes) == 0 {
-		state.pushScope()
-		defer state.popScope()
-	}
 	state.deferStack = append(state.deferStack, frame.defers)
 	defer func() { state.deferStack = state.deferStack[:len(state.deferStack)-1] }()
 	for _, statement := range statements {
@@ -184,7 +180,9 @@ func writeStatementsAt(body *strings.Builder, statements []checker.Statement, st
 			// survives through the generator's own unique-name scope.
 			state.pushScope()
 			err := writeStatementsAt(body, statement.Body, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: statement.BodyDefers}, indent)
-			state.popScope()
+			if popErr := state.popScope(); popErr != nil {
+				return popErr
+			}
 			if err != nil {
 				return err
 			}
@@ -650,7 +648,9 @@ func writeIfStatement(statement checker.IfStatement, body *strings.Builder, stat
 	if err := writeStatementsAt(body, statement.Then, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: statement.ThenDefers}, indent+"    "); err != nil {
 		return err
 	}
-	state.popScope()
+	if err := state.popScope(); err != nil {
+		return err
+	}
 	for branchIndex, branch := range statement.ElseIf {
 		condition, branchErr := renderTruthiness(&branch.Condition, state)
 		if branchErr != nil {
@@ -663,7 +663,9 @@ func writeIfStatement(statement checker.IfStatement, body *strings.Builder, stat
 		if err := writeStatementsAt(body, branch.Body, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: branchDefers(statement, branchIndex)}, indent+"    "); err != nil {
 			return err
 		}
-		state.popScope()
+		if err := state.popScope(); err != nil {
+			return err
+		}
 	}
 	if statement.Else != nil {
 		if err := writeLineDirective(body, state.line(statement.ElseSpan), state.filename); err != nil {
@@ -676,7 +678,9 @@ func writeIfStatement(statement checker.IfStatement, body *strings.Builder, stat
 		if err := writeStatementsAt(body, statement.Else, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: statement.ElseDefers}, indent+"    "); err != nil {
 			return err
 		}
-		state.popScope()
+		if err := state.popScope(); err != nil {
+			return err
+		}
 	}
 	if err := renderInto(body, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
 		return err
@@ -699,7 +703,10 @@ func writeWhileStatement(statement checker.WhileStatement, body *strings.Builder
 	err := writeStatementsAt(body, statement.Body, state, statementFrame{result: frame.result, inFunction: frame.inFunction, defers: statement.BodyDefers}, indent+"    ")
 	state.loopDepths = state.loopDepths[:len(state.loopDepths)-1]
 	state.loopDepth = previousLoopDepth
-	state.popScope()
+	popErr := state.popScope()
+	if popErr != nil {
+		return popErr
+	}
 	if err != nil {
 		return err
 	}

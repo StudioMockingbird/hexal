@@ -268,6 +268,9 @@ func (ctx definitionContext) writeFunctionDefinition(declared checker.FunctionDe
 	if err := writeStatements(ctx.body, declared.Body, state, declared.Result, true, declared.Defers); err != nil {
 		return err
 	}
+	if err := state.requireRootScope("emitted function"); err != nil {
+		return err
+	}
 	return renderInto(ctx.body, "module.h", "definition_close", struct{}{})
 }
 
@@ -349,6 +352,9 @@ func (ctx definitionContext) writeMethodDefinition(declared checker.MethodDeclar
 		return err
 	}
 	if err := writeStatements(ctx.body, declared.Body, state, declared.Result, true, declared.Defers); err != nil {
+		return err
+	}
+	if err := state.requireRootScope("emitted method"); err != nil {
 		return err
 	}
 	return renderInto(ctx.body, "module.h", "definition_close", struct{}{})

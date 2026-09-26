@@ -107,7 +107,9 @@ func TestWriteStatementsRejectsLoopControlOutsideGeneratedLoop(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			var body strings.Builder
-			err := writeStatementsAt(&body, []checker.Statement{testCase.statement}, &expressionValidation{}, statementFrame{}, "    ")
+			state := newExpressionValidation()
+			state.pushScope()
+			err := writeStatementsAt(&body, []checker.Statement{testCase.statement}, state, statementFrame{}, "    ")
 			assertGeneratorUnknownError(t, err)
 			if body.Len() != 0 {
 				t.Fatalf("rendered loop control outside a loop: %q", body.String())
@@ -257,9 +259,11 @@ func TestWriteStatementsRejectsNestedDeclarationsInModuleBlocks(t *testing.T) {
 		Literal:  "true",
 	}
 	var body strings.Builder
+	state := newExpressionValidation()
+	state.pushScope()
 	err := writeStatementsAt(&body, []checker.Statement{
 		checker.IfStatement{Condition: condition, Then: []checker.Statement{function}},
-	}, &expressionValidation{}, statementFrame{}, "    ")
+	}, state, statementFrame{}, "    ")
 	assertGeneratorUnknownError(t, err)
 }
 

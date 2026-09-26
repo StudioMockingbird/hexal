@@ -45,7 +45,10 @@ func renderForStatement(body *strings.Builder, statement checker.ForStatement, s
 	err := writeStatementsAt(&bodyText, statement.Body, state, statementFrame{result: result, inFunction: inFunction, defers: statement.BodyDefers}, indent+"    ")
 	state.loopDepths = state.loopDepths[:len(state.loopDepths)-1]
 	state.loopDepth = previousLoopDepth
-	state.popScope()
+	popErr := state.popScope()
+	if popErr != nil {
+		return popErr
+	}
 	if err != nil {
 		return err
 	}

@@ -1,11 +1,10 @@
 # RFC 0239: chibicc Review Findings
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation ready. One finding is actionable (F1) and is specified
-  below with an exhaustive Validation section; the other eleven are dispositions
-  recorded so they are not re-derived
+- Status: Closed; F1 implemented and validated 2026-09-26. The other eleven
+  findings remain recorded dispositions
 - Created: 2026-09-24
-- Updated: 2026-09-24
+- Updated: 2026-09-26
 - Origin: executes RFC 0163's review of chibicc and carries its twelve curated
   learnings with adoption dispositions as a durable record rather than a
   `.tmp/` spike report that is expected to be deleted. It merges two independent

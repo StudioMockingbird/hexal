@@ -38,7 +38,7 @@ func validateCheckedProgram(program checker.Program, functions map[string]compil
 			return err
 		}
 	}
-	return nil
+	return state.requireRootScope("validated project")
 }
 
 // validateFunctionDeclaration validates one concrete function declaration and
@@ -67,7 +67,10 @@ func validateFunctionDeclaration(declared checker.FunctionDeclaration, typeState
 			return err
 		}
 	}
-	return validateStatements(declared.Body, state, typeState)
+	if err := validateStatements(declared.Body, state, typeState); err != nil {
+		return err
+	}
+	return state.requireRootScope("validated function")
 }
 
 // validateMethodDeclaration validates one concrete method declaration and its
@@ -97,14 +100,13 @@ func validateMethodDeclaration(declared checker.MethodDeclaration, typeState *ge
 			return err
 		}
 	}
-	return validateStatements(declared.Body, state, typeState)
+	if err := validateStatements(declared.Body, state, typeState); err != nil {
+		return err
+	}
+	return state.requireRootScope("validated method")
 }
 
 func validateStatements(statements []checker.Statement, state *expressionValidation, typeState *generatedTypeValidation) error {
-	if len(state.activeScopes) == 0 {
-		state.pushScope()
-		defer state.popScope()
-	}
 	for _, statement := range statements {
 		switch statement := statement.(type) {
 		case checker.Declaration:
@@ -221,7 +223,9 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 			if err := validateStatements(statement.Then, state, typeState); err != nil {
 				return err
 			}
-			state.popScope()
+			if err := state.popScope(); err != nil {
+				return err
+			}
 			for _, branch := range statement.ElseIf {
 				if err := validateCondition(branch.Condition, state); err != nil {
 					return err
@@ -230,14 +234,18 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 				if err := validateStatements(branch.Body, state, typeState); err != nil {
 					return err
 				}
-				state.popScope()
+				if err := state.popScope(); err != nil {
+					return err
+				}
 			}
 			if statement.Else != nil {
 				state.pushScope()
 				if err := validateStatements(statement.Else, state, typeState); err != nil {
 					return err
 				}
-				state.popScope()
+				if err := state.popScope(); err != nil {
+					return err
+				}
 			}
 		case checker.WhileStatement:
 			if err := validateCondition(statement.Condition, state); err != nil {
@@ -248,7 +256,10 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 			state.loopDepth++
 			err := validateStatements(statement.Body, state, typeState)
 			state.loopDepth = previousLoopDepth
-			state.popScope()
+			popErr := state.popScope()
+			if popErr != nil {
+				return popErr
+			}
 			if err != nil {
 				return err
 			}
@@ -269,14 +280,18 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 			state.loopDepth++
 			err := validateStatements(statement.Body, state, typeState)
 			state.loopDepth = previousLoopDepth
-			state.popScope()
+			if err := state.popScope(); err != nil {
+				return err
+			}
 			if err != nil {
 				return err
 			}
 		case checker.UnsafeStatement:
 			state.pushScope()
 			err := validateStatements(statement.Body, state, typeState)
-			state.popScope()
+			if err := state.popScope(); err != nil {
+				return err
+			}
 			if err != nil {
 				return err
 			}

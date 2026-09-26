@@ -331,6 +331,9 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		if statementErr := writeStatements(&moduleBody, program.Statements, renderState, nil, false, program.Defers); statementErr != nil {
 			return "", "", statementErr
 		}
+		if scopeErr := renderState.requireRootScope("root body"); scopeErr != nil {
+			return "", "", scopeErr
+		}
 		if emission.rootReturn {
 			// The cleanup label precedes the shared epilogue so an early root
 			// return still completes the root Task before C returns.

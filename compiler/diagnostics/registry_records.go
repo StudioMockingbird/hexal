@@ -11,6 +11,8 @@ var declaredRecords = map[ID]record{
 	"internal.checker-invariant":                        {category: CategoryUnknown, stage: StageChecker},
 	"internal.compiler-error":                           {category: CategoryUnknown, stage: StageCompile},
 	"internal.generator-invariant":                      {category: CategoryUnknown, stage: StageGenerator},
+	"internal.generator-scope-depth-mismatch":           {category: CategoryUnknown, stage: StageGenerator},
+	"internal.generator-scope-underflow":                {category: CategoryUnknown, stage: StageGenerator},
 	"internal.parser-error":                             {category: CategoryUnknown, stage: StageParser},
 	"internal.target-registry-record-missing":           {category: CategoryUnknown, stage: StageCompile},
 	"internal.unknown-import-reference":                 {category: CategoryUnknown, stage: StageCompile},

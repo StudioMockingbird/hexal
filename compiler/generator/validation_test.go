@@ -53,9 +53,11 @@ func TestValidateStatementsContinuesPastNoValueStatements(t *testing.T) {
 		{"deferred no-result call", deferredNoResultCall()},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
+			state := newExpressionValidation()
+			state.pushScope()
 			err := validateStatements(
 				[]checker.Statement{testCase.first, invalidFollowUp()},
-				newExpressionValidation(),
+				state,
 				&generatedTypeValidation{},
 			)
 			if err == nil {
@@ -68,9 +70,11 @@ func TestValidateStatementsContinuesPastNoValueStatements(t *testing.T) {
 // The preflight statement walk also validates a lone no-result deferred call
 // on its own, so the break path does not suppress the call's own validation.
 func TestValidateStatementsAcceptsDeferredNoResultCallAlone(t *testing.T) {
+	state := newExpressionValidation()
+	state.pushScope()
 	err := validateStatements(
 		[]checker.Statement{deferredNoResultCall()},
-		newExpressionValidation(),
+		state,
 		&generatedTypeValidation{},
 	)
 	if err != nil {

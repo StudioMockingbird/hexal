@@ -726,7 +726,9 @@ func TestRenderTruthinessConditions(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			var body strings.Builder
-			err := writeStatementsAt(&body, []checker.Statement{checker.IfStatement{Condition: testCase.condition, Then: []checker.Statement{}}}, &expressionValidation{}, statementFrame{}, "")
+			state := newExpressionValidation()
+			state.pushScope()
+			err := writeStatementsAt(&body, []checker.Statement{checker.IfStatement{Condition: testCase.condition, Then: []checker.Statement{}}}, state, statementFrame{}, "")
 			if err != nil {
 				t.Fatalf("writeStatementsAt() error = %v", err)
 			}

@@ -133,10 +133,19 @@ func (state *expressionValidation) pushScope() {
 	state.activeScopes = append(state.activeScopes, make(map[checker.BindingID]bool))
 }
 
-func (state *expressionValidation) popScope() {
-	if len(state.activeScopes) > 0 {
-		state.activeScopes = state.activeScopes[:len(state.activeScopes)-1]
+func (state *expressionValidation) popScope() error {
+	if state == nil || len(state.activeScopes) <= 1 {
+		return scopeStackUnderflowDiagnostic()
 	}
+	state.activeScopes = state.activeScopes[:len(state.activeScopes)-1]
+	return nil
+}
+
+func (state *expressionValidation) requireRootScope(owner string) error {
+	if state == nil || len(state.activeScopes) != 1 {
+		return scopeDepthMismatchDiagnostic(owner)
+	}
+	return nil
 }
 
 func (state *expressionValidation) bindingActive(id checker.BindingID) bool {
@@ -156,6 +165,9 @@ func (state *expressionValidation) allocateBinding(id checker.BindingID, sourceN
 	if _, exists := state.bindings[id]; exists {
 		return "", unknownExpressionDiagnostic()
 	}
+	if len(state.activeScopes) == 0 {
+		return "", unknownExpressionDiagnostic()
+	}
 	base := privateCName(valueName, sourceName, "")
 	name := base
 	for suffix := 2; state.usedNames[name]; suffix++ {
@@ -164,13 +176,6 @@ func (state *expressionValidation) allocateBinding(id checker.BindingID, sourceN
 	state.usedNames[name] = true
 	state.bindings[id] = generatedBinding{typ: typ, mutable: mutable}
 	state.bindingNames[id] = name
-	if len(state.activeScopes) == 0 {
-		// Every production owner pushes its root scope before allocating a
-		// binding; reaching here without one is a structural generator defect,
-		// so it fails closed instead of inventing a scope the caller never
-		// balances.
-		return "", unknownExpressionDiagnostic()
-	}
 	state.activeScopes[len(state.activeScopes)-1][id] = true
 	return name, nil
 }
@@ -182,11 +187,11 @@ func (state *expressionValidation) registerCapture(capture checker.Capture, cNam
 	if _, exists := state.bindings[capture.Binding]; exists {
 		return unknownExpressionDiagnostic()
 	}
+	if len(state.activeScopes) == 0 {
+		return unknownExpressionDiagnostic()
+	}
 	state.bindings[capture.Binding] = generatedBinding{typ: capture.Type, mutable: capture.Mutable}
 	state.bindingNames[capture.Binding] = cName
-	if len(state.activeScopes) == 0 {
-		state.pushScope()
-	}
 	state.activeScopes[len(state.activeScopes)-1][capture.Binding] = true
 	return nil
 }

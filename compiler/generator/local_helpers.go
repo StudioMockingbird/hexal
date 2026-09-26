@@ -183,6 +183,9 @@ func writeLocalHelperDefinitions(ctx definitionContext, helpers []localHelper) e
 		if err := writeStatements(ctx.body, helper.body, state, helper.result, true, helper.defers); err != nil {
 			return err
 		}
+		if err := state.requireRootScope("emitted local helper"); err != nil {
+			return err
+		}
 		if err := renderInto(ctx.body, "module.h", "helper_close", struct{}{}); err != nil {
 			return err
 		}
