@@ -59,7 +59,7 @@ func checkBitCastCall(call methodCall) checkedExpression {
 }
 
 // checkEndianToBytesCall resolves `value.to_le_bytes()` and
-// `value.to_be_bytes()`. The result is Array<Byte, width / 8>.
+// `value.to_be_bytes()`. The result is List<Byte, width / 8>.
 func checkEndianToBytesCall(call methodCall) checkedExpression {
 	if len(call.call.Arguments) != 0 || len(call.call.TypeArguments) != 0 {
 		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.EndianConversionNoArguments(call.callee.Property.Lexeme)))}
@@ -67,7 +67,7 @@ func checkEndianToBytesCall(call methodCall) checkedExpression {
 	if !endianEligibleType(call.receiver.typ) {
 		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.EndianConversionInvalidReceiver(call.callee.Property.Lexeme, call.receiver.typ.Name)))}
 	}
-	array := call.ctx.typeEnvironment.ArrayType(compilerTypes.UInt8, uint64(call.receiver.typ.Bits/8))
+	array := call.ctx.typeEnvironment.InlineListType(compilerTypes.UInt8, uint64(call.receiver.typ.Bits/8))
 	if array == (compilerTypes.Type{}) {
 		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(unknownAt(call.callee.Property))}
 	}
@@ -82,7 +82,7 @@ func checkEndianToBytesCall(call methodCall) checkedExpression {
 
 // checkEndianFromBytesCall resolves the type-qualified
 // `Int32.from_le_bytes(bytes)` and `Int32.from_be_bytes(bytes)` intrinsics.
-// The argument must be exactly Array<Byte, width / 8>.
+// The argument must be exactly List<Byte, width / 8>.
 func checkEndianFromBytesCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	property := call.Callee.(parser.PropertyExpression).Property
 	integerType, ok := ctx.typeEnvironment.Lookup(callee.Lexeme)
@@ -92,9 +92,12 @@ func checkEndianFromBytesCall(call parser.CallExpression, callee lexer.Token, ct
 	if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
 		return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.EndianFromBytesArgumentCount(property.Lexeme)))}
 	}
-	array := ctx.typeEnvironment.ArrayType(compilerTypes.UInt8, uint64(integerType.Bits/8))
+	array := ctx.typeEnvironment.InlineListType(compilerTypes.UInt8, uint64(integerType.Bits/8))
 	if array == (compilerTypes.Type{}) {
 		return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property))}
+	}
+	if literal, ok := call.Arguments[0].(parser.InlineListLiteralExpression); ok && len(literal.Elements) != integerType.Bits/8 {
+		return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostic: diagnosticAt(messageAt(tokenOf(call.Arguments[0]), diag.EndianFromBytesTypeMismatch(callee.Lexeme, endianOrderName(property.Lexeme), integerType.Bits/8, array.Name)))}
 	}
 	bytes := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(array), tokenOf(call.Arguments[0]), ctx)
 	if diagnostics := initializerDiagnostics(bytes); len(diagnostics) > 0 {

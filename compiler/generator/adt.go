@@ -156,6 +156,11 @@ func renderAdtConstruct(node checker.Expression, state *expressionValidation) (s
 			if err != nil {
 				return "", err
 			}
+			if compilerTypes.IsAddress(node.ResultType) && member.Name == "bytes" &&
+				node.Arguments[index].Type.InlineList != nil &&
+				node.Arguments[index].Node.Kind != checker.InlineListLiteralExpression {
+				value = "hex_list_inline_check_address_bytes_" + strings.TrimPrefix(node.Arguments[index].Type.CName, "hex_list_inline_") + "(" + value + ")"
+			}
 			model.Fields = append(model.Fields, fmt.Sprintf(" .%s = %s,", privateCName(memberName, member.Name, ""), value))
 		}
 	}

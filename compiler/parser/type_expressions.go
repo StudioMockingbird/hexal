@@ -190,16 +190,6 @@ type GroupedTypeExpression struct {
 
 func (GroupedTypeExpression) typeExpressionNode() {}
 
-// ArrayTypeExpression names the fixed inline array type Array<T, N>. The
-// length is a positive decimal integer literal in the source.
-type ArrayTypeExpression struct {
-	Keyword lexer.Token
-	Element TypeExpression
-	Length  lexer.Token
-}
-
-func (ArrayTypeExpression) typeExpressionNode() {}
-
 func (parser *Parser) primaryTypeExpression() (TypeExpression, error) {
 	if parser.check(lexer.LeftParen) {
 		open := parser.advance()
@@ -262,32 +252,19 @@ func (parser *Parser) primaryTypeExpression() (TypeExpression, error) {
 	if name.Lexeme == "Fun" {
 		return parser.functionTypeExpression(name)
 	}
-	if name.Lexeme == "Array" {
-		if _, err := parser.consume(lexer.Less, "'<' after Array"); err != nil {
-			return nil, err
-		}
-		element, err := parser.typeExpression()
-		if err != nil {
-			return nil, err
-		}
-		if _, err := parser.consume(lexer.Comma, "',' after the array element type"); err != nil {
-			return nil, err
-		}
-		length, err := parser.consume(lexer.Integer, "a positive decimal array length")
-		if err != nil {
-			return nil, err
-		}
-		if _, err := parser.consumeGenericClose("'>' after the array length"); err != nil {
-			return nil, err
-		}
-		return ArrayTypeExpression{Keyword: name, Element: element, Length: length}, nil
-	}
 	if name.Lexeme == "String" && parser.check(lexer.Less) {
 		arguments, err := parser.typeArgumentList()
 		if err != nil {
 			return nil, err
 		}
 		return StringTypeExpression{Keyword: name, Arguments: arguments}, nil
+	}
+	if name.Lexeme == "List" && parser.check(lexer.Less) {
+		arguments, err := parser.typeArgumentList()
+		if err != nil {
+			return nil, err
+		}
+		return GenericTypeExpression{Name: name, Arguments: arguments}, nil
 	}
 	if name.Lexeme == "Ptr" {
 		if _, err := parser.consume(lexer.Less, "'<'"); err != nil {

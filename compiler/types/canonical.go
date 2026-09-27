@@ -1,6 +1,7 @@
 package types
 
 import (
+	"strconv"
 	"strings"
 
 	"hexal/compiler/config"
@@ -56,8 +57,8 @@ func isCanonicalForEnvironment(environment *Environment, typ Type, state *canoni
 	if typ.Union != nil {
 		return isCanonicalUnion(environment, typ, state)
 	}
-	if typ.Array != nil {
-		return isCanonicalArray(environment, typ, state)
+	if typ.InlineList != nil {
+		return isCanonicalInlineList(environment, typ, state)
 	}
 	if typ.InlineString != nil {
 		return typ.InlineString.Capacity >= 1 && typ.InlineString.Capacity <= config.MaxInlineStringCapacity &&
@@ -117,6 +118,14 @@ func isCanonicalForEnvironment(environment *Environment, typ Type, state *canoni
 		return true
 	}
 	return isCanonicalScalar(environment, typ)
+}
+
+func isCanonicalInlineList(environment *Environment, typ Type, state *canonicalTypeState) bool {
+	list := typ.InlineList
+	if list == nil || list.Capacity == 0 || typ.identity.signature != "inline-list:"+list.Element.CanonicalKey+","+strconv.FormatUint(list.Capacity, 10) || !Eligible(list.Element, PositionListElement) {
+		return false
+	}
+	return isCanonicalForEnvironment(environment, list.Element, state, false)
 }
 
 // canonicalOpaqueTypes is the identity set of compiler-owned capability types
@@ -281,13 +290,6 @@ func isNumericSuffix(suffix string) bool {
 		}
 	}
 	return true
-}
-
-func isCanonicalArray(environment *Environment, typ Type, state *canonicalTypeState) bool {
-	if typ.Array == nil || typ.Array.Length == 0 || !Eligible(typ.Array.Element, PositionArrayElement) {
-		return false
-	}
-	return isCanonicalForEnvironment(environment, typ.Array.Element, state, false)
 }
 
 func isCanonicalSlice(environment *Environment, typ Type, state *canonicalTypeState) bool {

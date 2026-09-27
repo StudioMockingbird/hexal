@@ -112,18 +112,18 @@ const (
 	AdtPayloadExpression
 	// MatchExpression evaluates a scrutinee once and selects one arm.
 	MatchExpression
-	// ArrayLiteralExpression constructs one fixed inline Array<T, N> value.
+	// InlineListLiteralExpression constructs one fixed inline List<T, N> value.
 	// OperandType is the element type; Arguments holds the elements.
-	ArrayLiteralExpression
-	// IndexExpression reads or writes one element of an Array<T, N>. Operand
+	InlineListLiteralExpression
+	// IndexExpression reads or writes one element of an List<T, N>. Operand
 	// is the array place, Arguments holds the single index operand, and
 	// OperandType is the array type.
 	IndexExpression
-	// CollectionMethodCallExpression is one built-in Array or Slice method:
+	// CollectionMethodCallExpression is one built-in List or Slice method:
 	// length or slice. Name selects the operation; Element is the element
 	// type.
 	CollectionMethodCallExpression
-	// CollectionSliceExpression builds a Slice from an Array, List, or Slice
+	// CollectionSliceExpression builds a Slice from an inline List, allocated List, or Slice
 	// receiver. OperandType is the receiver type, Arguments holds the two
 	// index operands, and ResultType carries the result's access mode.
 	CollectionSliceExpression

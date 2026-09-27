@@ -2,7 +2,6 @@
 #define HEXAL_NETWORK_H
 
 #include "hexal.h"
-#include "hexal/array.h"
 #include "hexal/error.h"
 #include "hexal/slice.h"
 #include "hexal/string.h"
@@ -28,6 +27,18 @@ typedef struct hex_list_Address hex_list_Address;
 typedef struct hex_list_UInt8 hex_list_UInt8;
 {{- end}}
 
+typedef struct hex_list_inline_UInt8_4 {
+    size_t length;
+    size_t version;
+    uint8_t data[4];
+} hex_list_inline_UInt8_4;
+
+typedef struct hex_list_inline_UInt8_16 {
+    size_t length;
+    size_t version;
+    uint8_t data[16];
+} hex_list_inline_UInt8_16;
+
 // hex_t_Address is the protected inline network address ADT: IPv4 stores
 // four network-order bytes and a host-order port; IPv6 stores sixteen
 // network-order bytes, a host-order port, and a numeric scope. No Address
@@ -36,11 +47,11 @@ typedef struct hex_t_Address {
     hex_tag tag;
     union {
         struct {
-            hex_addr_ipv4_bytes hex_m_bytes;
+            hex_list_inline_UInt8_4 hex_m_bytes;
             uint16_t hex_m_port;
         } IPv4;
         struct {
-            hex_addr_ipv6_bytes hex_m_bytes;
+            hex_list_inline_UInt8_16 hex_m_bytes;
             uint16_t hex_m_port;
             uint32_t hex_m_scope;
         } IPv6;

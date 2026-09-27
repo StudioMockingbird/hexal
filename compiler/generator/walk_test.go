@@ -56,7 +56,7 @@ func walkTestProgram(t *testing.T, source string) string {
 func TestWalkProgramCoversEveryStatementShape(t *testing.T) {
 	visited := walkTestProgram(t, `
 type Pair is struct
-    mut values: Array<Int32, 2>,
+    mut values: List<Int32, 2>,
 end
 type Box<T> is struct
     value: T,
@@ -81,7 +81,7 @@ fun demo(h: Heap): Int32 | Error do
     let mut value: Int32 = 3
     value = value.to<UInt8>().to<Int32>()
     defer print("bye")
-    let values: Array<Int32, 3> = [1, 2, 3]
+    let values: List<Int32, 3> = [1, 2, 3]
     for i in values do
         if count > 0 then
             count = count - 1

@@ -131,7 +131,7 @@ func TestHexalHeaderDemandDrivenMinimal(t *testing.T) {
 		},
 		{
 			name:      "view-size-triggers-stddef",
-			source:    "let values: Array<Int32, 3> = [1, 2, 3] let view: Slice<Int32> = values.slice(0, 2)",
+			source:    "let values: List<Int32, 3> = [1, 2, 3] let view: Slice<Int32> = values.slice(0, 2)",
 			includes:  []string{"#include <stddef.h>", "#include <stdint.h>", "#include <stdio.h>", "#include <stdlib.h>"},
 			forbidden: nil,
 		},
@@ -176,7 +176,7 @@ func TestHexalHeaderInt32OnlyMinimal(t *testing.T) {
 // hexal/runtime.c, [[noreturn]], owning <stdio.h>/<stdlib.h>, and no
 // per-family trap or raw fputs/abort pair remains in generated C.
 func TestSingleRuntimeTrapContract(t *testing.T) {
-	source := "let mut h: Heap = Heap()\nlet items: List<Int32> = List<Int32>(h)\nitems.push(7)\nlet values: Array<Int32, 2> = [1, 2]\nlet view: Slice<Int32> = values.slice(0, 1)\nlet text: String = \"hello\"\nlet mut count: Int32 = 0\nlet mut shift: Int32 = 40\nprint(text)\ncount = 10 / count\ncount = 1 << shift\n"
+	source := "let mut h: Heap = Heap()\nlet items: List<Int32> = List<Int32>(h)\nitems.push(7)\nlet values: List<Int32, 2> = [1, 2]\nlet view: Slice<Int32> = values.slice(0, 1)\nlet text: String = \"hello\"\nlet mut count: Int32 = 0\nlet mut shift: Int32 = 40\nprint(text)\ncount = 10 / count\ncount = 1 << shift\n"
 	result := assertCompiles(t, source)
 	header := hexalH(t, result)
 	declaration := "[[noreturn]] void hex_runtime_trap(const char *message);"

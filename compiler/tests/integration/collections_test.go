@@ -7,7 +7,7 @@ import (
 
 func TestStorabilityRule(t *testing.T) {
 	accepted := []string{
-		"let names: Array<String, 4> = [\"a\", \"b\", \"c\", \"d\"]\n",
+		"let names: List<String, 4> = [\"a\", \"b\", \"c\", \"d\"]\n",
 		"let outer: List<List<Int32>> = List<List<Int32>>(Heap())\n",
 		"let views: List<Slice<Int32>> = List<Slice<Int32>>(Heap())\n",
 		"let lookup: Dict<String<128>, List<Int32>> = Dict<String<128>, List<Int32>>(Heap())\n",
@@ -30,9 +30,9 @@ func TestStorabilityRule(t *testing.T) {
 			t.Fatalf("want accept; got %v:\n%s", result.Stderr, source)
 		}
 	}
-	// Array/List/Dict/Task/Channel elements now accept Fun.
+	// Inline List/allocated List/Dict/Task/Channel elements now accept Fun.
 	for _, source := range []string{
-		"fun identity(x: Int32): Int32 do\n    return x\nend\nlet funs: Array<Fun<(Int32) : Int32>, 1> = [identity]\n",
+		"fun identity(x: Int32): Int32 do\n    return x\nend\nlet funs: List<Fun<(Int32) : Int32>, 1> = [identity]\n",
 		"fun helper(x: Int32): Int32 do return x end\nfun f(h: Heap) do\n    let values: List<Fun<(Int32) : Int32>> = List<Fun<(Int32) : Int32>>(h)\nend\n",
 		"fun helper(x: Int32): Int32 do return x end\nfun f(h: Heap) do\n    let d: Dict<Int32, Fun<(Int32) : Int32>> = Dict<Int32, Fun<(Int32) : Int32>>(h)\nend\n",
 	} {

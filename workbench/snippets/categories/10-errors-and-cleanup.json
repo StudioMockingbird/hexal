@@ -169,7 +169,7 @@
         "    return value * value",
         "end",
         "fun total(): Int32 | Error do",
-        "    let values: Array\u003cInt32, 3\u003e = [2, 3, 4]",
+        "    let values: List\u003cInt32, 3\u003e = [2, 3, 4]",
         "    let mut total: Int32= 0",
         "    for value in values do",
         "        let task: Task\u003cInt32\u003e = try spawn square(value)",
@@ -178,7 +178,7 @@
         "    return total",
         "end"
       ]},
-      "features": ["errors", "try-errdefer", "tasks", "for", "arrays"],
+      "features": ["errors", "try-errdefer", "tasks", "for", "inline-lists"],
       "reservedWords": ["fun", "return", "end", "do", "for", "in", "mut", "try", "spawn"]
     },
     {

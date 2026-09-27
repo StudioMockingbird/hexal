@@ -133,7 +133,7 @@ func (analysis *bodyAnalysis) expression(expression parser.Expression, scope *ca
 	case parser.IndexExpression:
 		analysis.expression(node.Receiver, scope, visible)
 		analysis.expression(node.Index, scope, visible)
-	case parser.ArrayLiteralExpression:
+	case parser.InlineListLiteralExpression:
 		for _, element := range node.Elements {
 			analysis.expression(element, scope, visible)
 		}
@@ -317,7 +317,7 @@ func directCallees(body []parser.Statement) map[string]bool {
 		case parser.IndexExpression:
 			visitExpression(node.Receiver)
 			visitExpression(node.Index)
-		case parser.ArrayLiteralExpression:
+		case parser.InlineListLiteralExpression:
 			for _, element := range node.Elements {
 				visitExpression(element)
 			}

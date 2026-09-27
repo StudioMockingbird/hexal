@@ -151,7 +151,6 @@ func componentDemands(config Config) []componentDemand {
 		{ids: []specdata.ComponentID{specdata.ComponentPool}, build: poolComponents},
 		{ids: []specdata.ComponentID{specdata.ComponentList}, build: listComponents},
 		{ids: []specdata.ComponentID{specdata.ComponentDict}, build: dictComponents},
-		{ids: []specdata.ComponentID{specdata.ComponentArray}, build: arrayComponents},
 		{ids: []specdata.ComponentID{specdata.ComponentNumeric}, build: numericComponents},
 		{ids: []specdata.ComponentID{specdata.ComponentPrint}, build: printComponents},
 		{ids: []specdata.ComponentID{specdata.ComponentEquality}, build: equalityComponents},

@@ -92,7 +92,7 @@ func discoverGeneratedTerminal(program checker.Program, logicalKey string, liter
 // needs hexal/io.h (for hex_io, its two operations' one parameter) whenever
 // Operations is reachable, and hexal/io.h itself unconditionally needs
 // hexal/list.h; a shared component naming a TerminalSize specialization
-// directly (list.h, array.h, and so on) would invert that dependency
+// directly (list.h and other component headers) would invert that dependency
 // direction exactly like the Signal/slice.h conflict module_collections.go
 // documents, so moduleRoutedElement routes it to module-owned rendering
 // instead.

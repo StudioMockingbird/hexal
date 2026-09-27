@@ -28,7 +28,7 @@
       "description": "Scans an array and stops when a matching value is found.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "let values: Array\u003cInt32, 4\u003e = [3, 7, 2, 9]",
+        "let values: List\u003cInt32, 4\u003e = [3, 7, 2, 9]",
         "let mut found: Bool= false",
         "let mut index: Int32= 0",
         "while index < 4 do",
@@ -39,7 +39,7 @@
         "    index = index + 1",
         "end"
       ]},
-      "features": ["while", "arrays"],
+      "features": ["while", "inline-lists"],
       "reservedWords": ["mut", "while", "do", "if", "break", "end", "true", "false", "then"]
     },
     {
@@ -49,7 +49,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun sum_nonzero() do",
-        "    let values: Array\u003cInt32, 5\u003e = [1, 0, 3, 0, 5]",
+        "    let values: List\u003cInt32, 5\u003e = [1, 0, 3, 0, 5]",
         "    let mut total: Int32= 0",
         "    for value in values do",
         "        if value == 0 then",
@@ -59,7 +59,7 @@
         "    end",
         "end"
       ]},
-      "features": ["for", "arrays"],
+      "features": ["for", "inline-lists"],
       "reservedWords": ["fun", "for", "in", "do", "if", "continue", "end", "mut", "then"]
     },
     {
@@ -87,7 +87,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun scan_grid() do",
-        "    let grid: Array\u003cArray\u003cInt32, 3\u003e, 2\u003e = [[1, 2, 3], [4, 5, 6]]",
+        "    let grid: List\u003cList\u003cInt32, 3\u003e, 2\u003e = [[1, 2, 3], [4, 5, 6]]",
         "    let mut total: Int32= 0",
         "    for row in grid do",
         "        for cell in row do",
@@ -96,7 +96,7 @@
         "    end",
         "end"
       ]},
-      "features": ["for", "arrays"],
+      "features": ["for", "inline-lists"],
       "reservedWords": ["fun", "for", "in", "do", "end", "mut"]
     },
     {
@@ -106,14 +106,14 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun weighted_total() do",
-        "    let scores: Array\u003cInt32, 3\u003e = [10, 20, 30]",
+        "    let scores: List\u003cInt32, 3\u003e = [10, 20, 30]",
         "    let mut weighted: Int32= 0",
         "    for index, value in scores do",
         "        weighted = weighted + (value * (index.to<Int32>() + 1))",
         "    end",
         "end"
       ]},
-      "features": ["for", "arrays"],
+      "features": ["for", "inline-lists"],
       "reservedWords": ["fun", "for", "in", "do", "end", "mut"]
     },
     {

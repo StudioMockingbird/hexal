@@ -25,8 +25,8 @@ var builtinMethod = specdata.Method
 // registry's primitive identifier space.
 func builtinOwner(typ compilerTypes.Type) (specdata.TypePattern, bool) {
 	switch {
-	case typ.Array != nil:
-		return specdata.ConstructorOwner(specdata.TypeArray), true
+	case typ.InlineList != nil:
+		return specdata.ConstructorOwner(specdata.TypeInlineList), true
 	case typ.Slice != nil:
 		return specdata.ConstructorOwner(specdata.TypeSlice), true
 	case typ.List != nil:
@@ -626,13 +626,13 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 			return checkHeapFree(dispatch)
 		}
 	}
-	// Array and Slice methods dispatch on the built-in collection receiver
+	// Inline List and Slice methods dispatch on the built-in collection receiver
 	// types.
-	if receiver.typ.Array != nil || receiver.typ.Slice != nil {
+	if receiver.typ.Slice != nil {
 		return checkCollectionMethodCall(dispatch)
 	}
 	// List methods dispatch on the built-in list receiver type.
-	if receiver.typ.List != nil {
+	if receiver.typ.List != nil || receiver.typ.InlineList != nil {
 		return checkListMethodCall(dispatch)
 	}
 	// Dict methods dispatch on the built-in dictionary receiver type.

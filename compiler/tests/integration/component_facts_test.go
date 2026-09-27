@@ -23,7 +23,7 @@ func TestComponentHeaderRecordsAppearInHexalHeader(t *testing.T) {
 	}{
 		{"heap", specdata.ComponentHeap, "let h: Heap = Heap()\n"},
 		{"slice", specdata.ComponentSlice, "fun demo() do\n    let view: Slice<Int32> = Slice<Int32>.empty()\n    let count: Size = view.length()\nend"},
-		{"array", specdata.ComponentArray, "fun demo() do\n    let fixed: Array<Int32, 3> = [1, 2, 3]\n    let first: Int32 = fixed[0]\nend"},
+		{"inline-list", specdata.ComponentList, "fun demo() do\n    let fixed: List<Int32, 3> = [1, 2, 3]\n    let first: Int32 = fixed[0]\nend"},
 		{"string", specdata.ComponentString, "let greeting: String = \"hello\"\n"},
 		{"list", specdata.ComponentList, "fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\nend"},
 		{"dict", specdata.ComponentDict, "fun demo(h: Heap) do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\nend"},
@@ -203,7 +203,7 @@ func TestDemandedComponentIncludeAppearsInModuleHeader(t *testing.T) {
 		{"heap", "let h: Heap = Heap()\n", "hexal/heap.h"},
 		{"list", "fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\nend", "hexal/list.h"},
 		{"dict", "fun demo(h: Heap) do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\nend", "hexal/dict.h"},
-		{"array", "fun demo() do\n    let fixed: Array<Int32, 3> = [1, 2, 3]\n    let first: Int32 = fixed[0]\nend", "hexal/array.h"},
+		{"inline-list", "fun demo() do\n    let fixed: List<Int32, 3> = [1, 2, 3]\n    let first: Int32 = fixed[0]\nend", "hexal/list.h"},
 		{"equality", "fun demo(h: Heap): Bool do\n    let left: List<Int32> = List<Int32>(h)\n    let right: List<Int32> = List<Int32>(h)\n    return left == right\nend", "hexal/equality.h"},
 		{"program", programImport + "let count: Size = Prog.available_parallelism()\n", "hexal/program.h"},
 	} {

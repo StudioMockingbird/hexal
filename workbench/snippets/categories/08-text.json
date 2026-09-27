@@ -244,14 +244,14 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(h: Heap): Size | Error do",
-        "    let bytes: Array\u003cByte, 3\u003e = [b'H', b'i', b'!']",
+        "    let bytes: List\u003cByte, 3\u003e = [b'H', b'i', b'!']",
         "    let view: Slice\u003cByte\u003e = bytes.slice(0, 3)",
         "    let text: String= try String.from_bytes(h, view)",
         "    defer text.free(h)",
         "    return text.length()",
         "end"
       ]},
-      "features": ["text", "arrays", "slices", "heap-allocation", "defer", "errors"],
+      "features": ["text", "inline-lists", "slices", "heap-allocation", "defer", "errors"],
       "reservedWords": ["fun", "return", "end", "defer", "try", "do"]
     },
     {

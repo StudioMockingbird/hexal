@@ -44,5 +44,5 @@ func EndianFromBytesArgumentCount(operation string) Message {
 
 func EndianFromBytesTypeMismatch(owner, order string, width int, actual string) Message {
 	return message("type.endian-from-bytes-type-mismatch", CategoryType, StageChecker,
-		fmt.Sprintf("%s.from_%s expects Array<Byte, %d>; got %s", owner, order, width, actual))
+		fmt.Sprintf("%s.from_%s expects List<Byte, %d>; got %s", owner, order, width, actual))
 }

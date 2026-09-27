@@ -7,12 +7,6 @@ import (
 	"hexal/compiler/specdata"
 )
 
-// ArrayInfo is the metadata of one fixed inline array type.
-type ArrayInfo struct {
-	Element Type
-	Length  uint64
-}
-
 // SliceInfo is the metadata of one non-owning contiguous slice type.
 // Writable selects the Slice<mut T> element-access mode; the read-only
 // Slice<T> and writable Slice<mut T> over one element are distinct types.
@@ -24,6 +18,12 @@ type SliceInfo struct {
 // ListInfo is the metadata of one owning growable list type.
 type ListInfo struct {
 	Element Type
+}
+
+// InlineListInfo describes one capacity-bounded inline List value.
+type InlineListInfo struct {
+	Element  Type
+	Capacity uint64
 }
 
 // DictInfo is the metadata of one owning dictionary type.
@@ -92,14 +92,14 @@ func TypeFactsOf(typ Type) (specdata.TypeFacts, bool) {
 func resolveTypeFacts(typ Type) (specdata.TypeFacts, bool) {
 	var id specdata.TypeID
 	switch {
-	case typ.Array != nil:
-		id = specdata.TypeArray
 	case typ.InlineString != nil:
 		id = specdata.TypeInlineString
 	case typ.Slice != nil:
 		id = specdata.TypeSlice
 	case typ.List != nil:
 		id = specdata.TypeList
+	case typ.InlineList != nil:
+		id = specdata.TypeInlineList
 	case typ.Dict != nil:
 		id = specdata.TypeDict
 	case typ.Task != nil:
@@ -132,6 +132,25 @@ func resolveTypeFacts(typ Type) (specdata.TypeFacts, bool) {
 	return specdata.Facts(id)
 }
 
+// InlineListType constructs or retrieves the canonical List<T, N> value type.
+func (environment *Environment) InlineListType(element Type, capacity uint64) Type {
+	if environment == nil || capacity == 0 ||
+		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
+		!Eligible(element, PositionListElement) {
+		return Type{}
+	}
+	canonicalKey := "inline-list:" + element.CanonicalKey + "," + strconv.FormatUint(capacity, 10)
+	if cached, ok := environment.arena.inlineListTypes[canonicalKey]; ok {
+		return cached
+	}
+	name := "List<" + element.Name + ", " + strconv.FormatUint(capacity, 10) + ">"
+	identity := newTypeIdentity()
+	identity.signature = canonicalKey
+	typ := Type{Name: name, CName: environment.arena.uniqueCollectionCName("hex_list_inline_"+SanitizeIdentifier(element.Name)+"_"+strconv.FormatUint(capacity, 10), element), CanonicalKey: canonicalKey, InlineList: &InlineListInfo{Element: element, Capacity: capacity}, identity: identity}
+	environment.arena.inlineListTypes[canonicalKey] = typ
+	return typ
+}
+
 // isManaged reports whether typ is one of the types that already carries its
 // own aliasing and invalidation rules over borrowed or allocated storage, so a
 // pointer to it would add a second aliasing layer with no defined semantics.
@@ -154,32 +173,6 @@ func IsPool(typ Type) bool { return typ.Pool != nil }
 
 // IsString reports whether typ is the canonical String type.
 func IsString(typ Type) bool { return typ.identity != nil && typ.identity == StringType.identity }
-
-// ArrayType constructs or retrieves the canonical Array<T, N> type for one
-// element and positive length.
-func (environment *Environment) ArrayType(element Type, length uint64) Type {
-	if environment == nil || length == 0 ||
-		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		!Eligible(element, PositionArrayElement) {
-		return Type{}
-	}
-	canonicalKey := "array:" + element.CanonicalKey + "," + strconv.FormatUint(length, 10)
-	if cached, ok := environment.arena.arrayTypes[canonicalKey]; ok {
-		return cached
-	}
-	name := "Array<" + element.Name + ", " + strconv.FormatUint(length, 10) + ">"
-	identity := newTypeIdentity()
-	identity.signature = canonicalKey
-	typ := Type{
-		Name:         name,
-		CName:        environment.arena.uniqueCollectionCName("hex_array_"+SanitizeIdentifier(element.Name)+"_"+strconv.FormatUint(length, 10), element),
-		CanonicalKey: canonicalKey,
-		Array:        &ArrayInfo{Element: element, Length: length},
-		identity:     identity,
-	}
-	environment.arena.arrayTypes[canonicalKey] = typ
-	return typ
-}
 
 // InlineStringInfo is the metadata of an inline text type, String<N>.
 type InlineStringInfo struct {
@@ -329,7 +322,6 @@ const (
 	PositionObjectMember
 	PositionADTPayload
 	PositionUnionMember
-	PositionArrayElement
 	PositionSliceElement
 	PositionListElement
 	PositionDictValue
@@ -393,8 +385,8 @@ func ContainsAtomic(typ Type) bool {
 			}
 		}
 	}
-	if typ.Array != nil {
-		return ContainsAtomic(typ.Array.Element)
+	if typ.InlineList != nil {
+		return ContainsAtomic(typ.InlineList.Element)
 	}
 	if typ.Union != nil || typ.NullableBase != nil {
 		members := UnionMembers(typ)

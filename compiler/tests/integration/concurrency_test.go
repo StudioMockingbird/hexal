@@ -602,7 +602,7 @@ func TestAtomicNonCopyability(t *testing.T) {
 		"let counter: Atomic<Int32> = Atomic<Int32>(0)\nlet copy: Atomic<Int32> = counter\n",
 		"let counter: Atomic<Int32> = Atomic<Int32>(0)\nlet mut other: Atomic<Int32> = Atomic<Int32>(1)\nother = counter\n",
 		"let counter: Atomic<Int32> = Atomic<Int32>(0)\nlet pointer: Ptr<mut Atomic<Int32>> = @counter\n",
-		"let items: Array<Atomic<Int32>, 1> = [Atomic<Int32>(0)]\n",
+		"let items: List<Atomic<Int32>, 1> = [Atomic<Int32>(0)]\n",
 		"type Bad is union | V as a: Atomic<Int32> end end\n",
 		"let counter: Atomic<Int32> = Atomic<Int32>(0)\nlet value: Atomic<Int32> | Nil = counter\n",
 	}
@@ -667,7 +667,7 @@ func TestChannelAndTaskRejectFunElement(t *testing.T) {
 
 // Naming a handle type without performing a handle operation must still link
 // the concurrency runtime: declaration-only reachability selects the
-// components exactly like naming a List or Array does, for a Channel<T>
+// components exactly like naming an allocated or inline List does, for a Channel<T>
 // parameter and return, a Task<R> parameter, a Mutex parameter, and an
 // Atomic<T> object member.
 func TestDeclarationOnlyHandleReachabilityLinksConcurrency(t *testing.T) {

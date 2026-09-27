@@ -259,7 +259,7 @@ func recordStringBinding(flow *flowState, id BindingID, node Expression, ctx che
 			}
 			flow.setStringPlaceOrigin(stringPlaceKey{root: id, member: payload[index].Name}, stringOriginOf(argument.Node, ctx))
 		}
-	case ArrayLiteralExpression:
+	case InlineListLiteralExpression:
 		for index, argument := range node.Arguments {
 			flow.setStringPlaceOrigin(stringPlaceKey{root: id, index: uint64(index), indexed: true}, stringOriginOf(argument.Node, ctx))
 		}

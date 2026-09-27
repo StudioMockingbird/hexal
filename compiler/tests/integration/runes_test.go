@@ -68,7 +68,7 @@ func TestRuneProperties(t *testing.T) {
 // String.from_runes encodes a Slice<Rune> into owned text and rejects an
 // invalid scalar as an Error rather than trapping.
 func TestStringFromRunes(t *testing.T) {
-	result := assertCompiles(t, "fun demo(h: Heap): String | Error do\n    let values: Array<Rune, 2> = ['a', '\\u{1F600}']\n    let view: Slice<Rune> = values.slice(0, 2)\n    return String.from_runes(h, view)\nend\n")
+	result := assertCompiles(t, "fun demo(h: Heap): String | Error do\n    let values: List<Rune, 2> = ['a', '\\u{1F600}']\n    let view: Slice<Rune> = values.slice(0, 2)\n    return String.from_runes(h, view)\nend\n")
 	if !strings.Contains(rootC(t, result), "hex_string_from_runes_") {
 		t.Fatalf("String.from_runes did not emit its adapter:\n%s", rootC(t, result))
 	}

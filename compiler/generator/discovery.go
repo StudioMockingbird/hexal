@@ -63,8 +63,6 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	emission.stashState = stashState
 	emission.poolState = discoverGeneratedPool(program)
 	emission.adtState = discoverGeneratedADTs(program)
-	arrayState := discoverGeneratedArrays(program)
-	emission.arrayState = arrayState
 	sliceState := discoverGeneratedSlices(program)
 	emission.sliceState = sliceState
 	listState := discoverGeneratedLists(program)
@@ -181,7 +179,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		// hex_heap_allocate/hex_heap_free directly.
 		heapState.required = true
 	}
-	if collectionsNeedSlice(arrayState, listState, sliceState) {
+	if collectionsNeedSlice(listState, sliceState) {
 		// Only a slice helper names the slice component, and the templates
 		// guard those on the same fact. Selecting Slice for every program
 		// that merely has an array would emit a component holding nothing
@@ -207,7 +205,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		// all four even when no source expression names one.
 		emission.adtState.ensureRegistered(compilerTypes.NormalizationFormType)
 	}
-	emission.typeState = &generatedTypeValidation{declaredObjects: errorDeclaredObjects(program), arrays: arrayState}
+	emission.typeState = &generatedTypeValidation{declaredObjects: errorDeclaredObjects(program)}
 	return emission, nil
 }
 

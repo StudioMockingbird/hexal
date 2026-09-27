@@ -466,10 +466,10 @@ func TestAutoDereferenceMissingMemberNamesSourceSpelling(t *testing.T) {
 
 func TestRefAcceptsMixedMemberIndexPlaces(t *testing.T) {
 	accepted := []string{
-		"type Row is struct value: Int32 end\nfun f() do\n    let rows: Array<Row, 2> = [Row(value = 1), Row(value = 2)]\n    let p: Ptr<Int32> = @rows[0].value\nend\n",
-		"type Row is struct mut value: Int32 end\nfun f() do\n    let mut rows: Array<Row, 2> = [Row(value = 1), Row(value = 2)]\n    let p: Ptr<mut Int32> = @rows[0].value\nend\n",
-		"type Cell is struct mut value: Int32 end\ntype Box is struct mut cells: Array<Cell, 2> end\nfun f() do\n    let mut grid: Array<Box, 2> = [Box(cells = [Cell(value = 1), Cell(value = 2)]), Box(cells = [Cell(value = 3), Cell(value = 4)])]\n    let p: Ptr<mut Int32> = @grid[0].cells[1].value\nend\n",
-		"type Row is struct mut values: Array<Int32, 2> end\nfun f() do\n    let mut pair: Row = Row(values = [1, 2])\n    let p: Ptr<mut Int32> = @pair.values[0]\nend\n",
+		"type Row is struct value: Int32 end\nfun f() do\n    let rows: List<Row, 2> = [Row(value = 1), Row(value = 2)]\n    let p: Ptr<Int32> = @rows[0].value\nend\n",
+		"type Row is struct mut value: Int32 end\nfun f() do\n    let mut rows: List<Row, 2> = [Row(value = 1), Row(value = 2)]\n    let p: Ptr<mut Int32> = @rows[0].value\nend\n",
+		"type Cell is struct mut value: Int32 end\ntype Box is struct mut cells: List<Cell, 2> end\nfun f() do\n    let mut grid: List<Box, 2> = [Box(cells = [Cell(value = 1), Cell(value = 2)]), Box(cells = [Cell(value = 3), Cell(value = 4)])]\n    let p: Ptr<mut Int32> = @grid[0].cells[1].value\nend\n",
+		"type Row is struct mut values: List<Int32, 2> end\nfun f() do\n    let mut pair: Row = Row(values = [1, 2])\n    let p: Ptr<mut Int32> = @pair.values[0]\nend\n",
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
@@ -477,7 +477,7 @@ func TestRefAcceptsMixedMemberIndexPlaces(t *testing.T) {
 		}
 	}
 	// A fixed member downgrades the final place to Ptr even under a writable root.
-	rejected := "type Row is struct value: Int32 end\nfun f() do\n    let mut rows: Array<Row, 2> = [Row(value = 1), Row(value = 2)]\n    let p: Ptr<mut Int32> = @rows[0].value\nend\n"
+	rejected := "type Row is struct value: Int32 end\nfun f() do\n    let mut rows: List<Row, 2> = [Row(value = 1), Row(value = 2)]\n    let p: Ptr<mut Int32> = @rows[0].value\nend\n"
 	if result := compileSource(rejected); result.ExitCode != compiler.ExitFailure {
 		t.Fatalf("want fixed-member @downgraded to Ptr; got accept:\n%s", rejected)
 	}

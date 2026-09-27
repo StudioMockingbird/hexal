@@ -574,7 +574,7 @@ func (parser *Parser) primaryExpression() (Expression, error) {
 		if err != nil {
 			return nil, err
 		}
-		expression = ArrayLiteralExpression{OpenBracket: open, Elements: elements, CloseBracket: close}
+		expression = InlineListLiteralExpression{OpenBracket: open, Elements: elements, CloseBracket: close}
 	default:
 		return nil, parser.errorAtCurrent(diag.ParserExpectedValue())
 	}

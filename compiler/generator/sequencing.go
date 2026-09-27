@@ -416,7 +416,7 @@ func hoistSequencingInExpression(node *checker.Expression, body *strings.Builder
 		// Channel<T>.new(heap, capacity) has no receiver; renderChannelConstructor
 		// was verified and updated to consult hoistedSequencing for both arguments.
 		return hoistOperandSequence(node.Arguments, body, state, indent)
-	case checker.ArrayLiteralExpression:
+	case checker.InlineListLiteralExpression:
 		return hoistOperandSequence(node.Arguments, body, state, indent)
 	case checker.BinaryOperationExpression, checker.DeepEqualityExpression, checker.StringCompareExpression,
 		checker.UnionEqualityExpression:

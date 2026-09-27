@@ -51,7 +51,7 @@ func contextualExpression(expression parser.Expression, forInference bool) bool 
 	case parser.NilLiteral:
 		// nil needs an expected union containing Nil.
 		return forInference
-	case parser.ArrayLiteralExpression:
+	case parser.InlineListLiteralExpression:
 		// An array literal needs an element type and a length.
 		return forInference
 	case parser.MatchExpression:

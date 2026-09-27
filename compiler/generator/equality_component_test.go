@@ -101,28 +101,28 @@ func TestEqualityComponentGuard(t *testing.T) {
 // Program-owned collection helpers carry the component headers that define
 // their parameter and member types.
 func TestEqualityComponentIncludesCollectionDependencies(t *testing.T) {
-	program := checkedGeneratorSource(t, "let a: Array<Int32, 2> = [1, 2]\nlet b: Array<Int32, 2> = [1, 2]\nlet same: Bool = a == b\n")
+	program := checkedGeneratorSource(t, "let a: List<Int32, 2> = [1, 2]\nlet b: List<Int32, 2> = [1, 2]\nlet same: Bool = a == b\n")
 	files := generateOne(t, program)
 	header := files["hexal/equality.h"]
-	if !strings.Contains(header, "#include \"hexal/array.h\"") {
-		t.Fatalf("hexal/equality.h = %q, want the Array component include", header)
+	if !strings.Contains(header, "#include \"hexal/list.h\"") {
+		t.Fatalf("hexal/equality.h = %q, want the List component include", header)
 	}
-	if !strings.Contains(header, "hex_equal_hex_array_Int32_2") {
-		t.Fatalf("hexal/equality.h = %q, want the Array equality helper", header)
+	if !strings.Contains(header, "hex_equal_hex_list_inline_Int32_2") {
+		t.Fatalf("hexal/equality.h = %q, want the inline List equality helper", header)
 	}
-	for _, standardHeader := range []string{"stddef.h", "string.h", "stdlib.h"} {
+	for _, standardHeader := range []string{"string.h", "stdlib.h"} {
 		if strings.Contains(header, "#include <"+standardHeader+">") {
-			t.Fatalf("Array<Int32, 2>-only equality.h includes unused <%s>:\n%s", standardHeader, header)
+			t.Fatalf("List<Int32, 2>-only equality.h includes unused <%s>:\n%s", standardHeader, header)
 		}
 	}
 }
 
 func TestModuleEqualityWriterSkipsProgramOwnedHelpers(t *testing.T) {
 	typ := compilerTypes.Type{
-		Name:         "Array<Int32, 2>",
-		CName:        "hex_array_Int32_2",
-		CanonicalKey: "array:Int32:2",
-		Array:        &compilerTypes.ArrayInfo{Element: compilerTypes.Int32, Length: 2},
+		Name:         "List<Int32, 2>",
+		CName:        "hex_list_inline_Int32_2",
+		CanonicalKey: "inline-list:Int32,2",
+		InlineList:   &compilerTypes.InlineListInfo{Element: compilerTypes.Int32, Capacity: 2},
 	}
 	var output strings.Builder
 	if err := writeEqualityDefinitions(&output, &generatedEqualityState{order: []compilerTypes.Type{typ}}, nil); err != nil {

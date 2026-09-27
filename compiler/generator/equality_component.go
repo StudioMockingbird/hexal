@@ -95,9 +95,6 @@ func collectEqualityComponentDependencies(typ compilerTypes.Type, model *equalit
 		model.Includes = appendUnique(model.Includes, "hexal/seek.h")
 	case compilerTypes.IsFileMode(typ):
 		model.Includes = appendUnique(model.Includes, "hexal/file.h")
-	case typ.Array != nil:
-		model.Includes = appendUnique(model.Includes, "hexal/array.h")
-		collectEqualityComponentDependencies(typ.Array.Element, model, seen)
 	case typ.Slice != nil:
 		model.Includes = appendUnique(model.Includes, "hexal/slice.h")
 		model.NeedStddef = true
@@ -106,6 +103,10 @@ func collectEqualityComponentDependencies(typ compilerTypes.Type, model *equalit
 		model.Includes = appendUnique(model.Includes, "hexal/list.h")
 		model.NeedStddef = true
 		collectEqualityComponentDependencies(typ.List.Element, model, seen)
+	case typ.InlineList != nil:
+		model.Includes = appendUnique(model.Includes, "hexal/list.h")
+		model.NeedStddef = true
+		collectEqualityComponentDependencies(typ.InlineList.Element, model, seen)
 	case typ.Object != nil:
 		for _, member := range typ.Object.Members {
 			collectEqualityComponentDependencies(member.Type, model, seen)
@@ -140,7 +141,6 @@ func equalityComponentIncludes(model equalityComponentModel) []string {
 		"hexal/seek.h",
 		"hexal/slice.h",
 		"hexal/list.h",
-		"hexal/array.h",
 	}
 	selected := make(map[string]bool, len(model.Includes))
 	for _, include := range model.Includes {

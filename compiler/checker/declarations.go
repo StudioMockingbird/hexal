@@ -252,8 +252,6 @@ func firstTypeNameDeclaredAtOrAfter(expression parser.TypeExpression, itemIndex 
 		}
 	case parser.PtrTypeExpression:
 		return firstTypeNameDeclaredAtOrAfter(expression.Element, itemIndex, typeIndexByName)
-	case parser.ArrayTypeExpression:
-		return firstTypeNameDeclaredAtOrAfter(expression.Element, itemIndex, typeIndexByName)
 	case parser.UnionTypeExpression:
 		for _, member := range expression.Members {
 			if token, found := firstTypeNameDeclaredAtOrAfter(member, itemIndex, typeIndexByName); found {

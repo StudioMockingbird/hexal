@@ -1,6 +1,9 @@
 package specdata
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Type identity records for compiler-owned types. A TypeID is primitive: this
 // package imports no compiler package, so a type crosses the boundary as an
@@ -86,10 +89,10 @@ const (
 // family; a specialization such as List<Int32> is identified by its arguments,
 // never by an identifier of its own.
 const (
-	TypeArray        TypeID = "Array"
 	TypeInlineString TypeID = "InlineString"
 	TypeSlice        TypeID = "Slice"
 	TypeList         TypeID = "List"
+	TypeInlineList   TypeID = "InlineList"
 	TypeDict         TypeID = "Dict"
 	TypeTask         TypeID = "Task"
 	TypeChannel      TypeID = "Channel"
@@ -180,7 +183,6 @@ const (
 	StorableObjectMember
 	StorableADTPayload
 	StorableUnionMember
-	StorableArrayElement
 	StorableSliceElement
 	StorableListElement
 	StorableDictValue
@@ -197,7 +199,7 @@ const (
 // default a complete, finitely sized value gets unless a rule excludes it.
 const (
 	// StorableEverywhere is every position.
-	StorableEverywhere PositionMask = StorableBinding | StorableObjectMember | StorableADTPayload | StorableUnionMember | StorableArrayElement | StorableSliceElement | StorableListElement | StorableDictValue | StorableFunctionParam | StorableFunctionResult | StorableTaskArgument | StorableTaskResult | StorableChannelElement | StorablePointee | StorableHeapAllocation
+	StorableEverywhere PositionMask = StorableBinding | StorableObjectMember | StorableADTPayload | StorableUnionMember | StorableSliceElement | StorableListElement | StorableDictValue | StorableFunctionParam | StorableFunctionResult | StorableTaskArgument | StorableTaskResult | StorableChannelElement | StorablePointee | StorableHeapAllocation
 	// StorableNowhere is no position.
 	StorableNowhere PositionMask = 0
 	// StorableConstructionOnly is the in-place construction positions.
@@ -206,7 +208,7 @@ const (
 	StorableUnionMemberOnly PositionMask = StorableUnionMember
 	// StorableFunction is the function-value placement set: everywhere
 	// except a pointer pointee and a heap allocation.
-	StorableFunction PositionMask = StorableBinding | StorableObjectMember | StorableADTPayload | StorableUnionMember | StorableArrayElement | StorableSliceElement | StorableListElement | StorableDictValue | StorableFunctionParam | StorableFunctionResult | StorableTaskArgument | StorableTaskResult | StorableChannelElement
+	StorableFunction PositionMask = StorableBinding | StorableObjectMember | StorableADTPayload | StorableUnionMember | StorableSliceElement | StorableListElement | StorableDictValue | StorableFunctionParam | StorableFunctionResult | StorableTaskArgument | StorableTaskResult | StorableChannelElement
 	// StorableIO is the stream-descriptor placement set: the short-lived
 	// positions a borrowed descriptor may cross, plus a pointer pointee.
 	StorableIO PositionMask = StorableBinding | StorableUnionMember | StorableFunctionParam | StorableFunctionResult | StorableTaskArgument | StorableTaskResult | StorablePointee
@@ -281,8 +283,8 @@ type ParamKind uint8
 const (
 	// ParamType is a type parameter, such as List's element.
 	ParamType ParamKind = iota
-	// ParamInteger is an integer parameter, such as String<N>'s capacity or
-	// Array's length.
+	// ParamInteger is an integer parameter, such as String<N>'s or List<T, N>'s
+	// capacity.
 	ParamInteger
 )
 
@@ -295,7 +297,7 @@ type TypeConstructorSpec struct {
 	Facts      ConstructorFacts
 	// Constructible marks a constructor the language writes as a bare
 	// Name(...) call and the checker's canonical-constructor dispatch accepts.
-	// A constructor reachable only through another syntax (an Array literal, a
+	// A constructor reachable only through another syntax (an inline List literal, a
 	// Slice bridge, spawn, an inline-string conversion) leaves it false.
 	Constructible bool
 }
@@ -303,12 +305,6 @@ type TypeConstructorSpec struct {
 // typeConstructors is the registry. It is unexported so no importer can rewrite
 // a record, and every query clones the parameter slice it returns.
 var typeConstructors = []TypeConstructorSpec{
-	{
-		ID:         TypeArray,
-		SourceName: "Array",
-		Params:     []ParamKind{ParamType, ParamInteger},
-		Facts:      ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, Comparison: ComparisonStructural, Positions: StorableEverywhere, Component: ComponentArray},
-	},
 	{
 		ID:         TypeInlineString,
 		SourceName: "String",
@@ -326,6 +322,13 @@ var typeConstructors = []TypeConstructorSpec{
 		SourceName:    "List",
 		Params:        []ParamKind{ParamType},
 		Facts:         ConstructorFacts{Representation: RepresentationHandle, CopyMode: CopyShallow, Comparison: ComparisonStructural, Managed: true, Positions: StorableEverywhere, Component: ComponentList},
+		Constructible: true,
+	},
+	{
+		ID:            TypeInlineList,
+		SourceName:    "List",
+		Params:        []ParamKind{ParamType, ParamInteger},
+		Facts:         ConstructorFacts{Representation: RepresentationValue, CopyMode: CopyValue, Comparison: ComparisonStructural, Positions: StorableEverywhere, Component: ComponentList},
 		Constructible: true,
 	},
 	{
@@ -412,6 +415,18 @@ func TypeConstructor(id TypeID) (TypeConstructorSpec, bool) {
 	return TypeConstructorSpec{}, false
 }
 
+// TypeConstructorByShape resolves a constructor by its source spelling and
+// written parameter kinds, allowing one source name to own distinct forms.
+func TypeConstructorByShape(sourceName string, params []ParamKind) (TypeConstructorSpec, bool) {
+	want := constructorShape(params)
+	for _, spec := range typeConstructors {
+		if spec.SourceName == sourceName && constructorShape(spec.Params) == want {
+			return cloneTypeConstructor(spec), true
+		}
+	}
+	return TypeConstructorSpec{}, false
+}
+
 // TypeConstructors returns every constructor record in registration order as a
 // copy.
 func TypeConstructors() []TypeConstructorSpec {
@@ -473,8 +488,8 @@ var bareConstructibleConcrete = []TypeID{TypeHeap, TypeMutex, TypeError}
 // construction form from accepted programs.
 func BareConstructible(name string) bool {
 	for _, spec := range typeConstructors {
-		if spec.SourceName == name {
-			return spec.Constructible
+		if spec.SourceName == name && spec.Constructible {
+			return true
 		}
 	}
 	for _, id := range bareConstructibleConcrete {
@@ -502,12 +517,12 @@ func validateConstructors() error {
 		if spec.SourceName == "" {
 			return fmt.Errorf("specdata/constructors: constructor %q has an empty source name", spec.ID)
 		}
-		// BareConstructible resolves a source name to one record, so a
-		// repeated name would silently shadow the later constructor.
-		if names[spec.SourceName] {
-			return fmt.Errorf("specdata/constructors: source name %q is declared twice", spec.SourceName)
+		shape := constructorShape(spec.Params)
+		key := spec.SourceName + ":" + shape
+		if names[key] {
+			return fmt.Errorf("specdata/constructors: source name %q has duplicate parameter shape %s", spec.SourceName, shape)
 		}
-		names[spec.SourceName] = true
+		names[key] = true
 		for index, param := range spec.Params {
 			if param != ParamType && param != ParamInteger {
 				return fmt.Errorf("specdata/constructors: constructor %q parameter %d has unknown kind", spec.ID, index)
@@ -558,4 +573,16 @@ func validateConstructors() error {
 		}
 	}
 	return validateMethods(methods)
+}
+
+func constructorShape(params []ParamKind) string {
+	var shape strings.Builder
+	for _, param := range params {
+		if param == ParamType {
+			shape.WriteByte('T')
+		} else {
+			shape.WriteByte('N')
+		}
+	}
+	return shape.String()
 }

@@ -27,7 +27,7 @@
           "   Sig from std.signal",
           "end",
           "fun wait_for_shutdown(): Sig.Signal | EoS | Error do",
-          "    let wanted: Array\u003cSig.Signal, 2\u003e = [Sig.Signal.Interrupt(), Sig.Signal.Hangup()]",
+          "    let wanted: List\u003cSig.Signal, 2\u003e = [Sig.Signal.Interrupt(), Sig.Signal.Hangup()]",
           "    let signals = try Sig.subscribe(wanted.slice(0, wanted.length()))",
           "    defer signals.close()",
           "    let signal = try signals.next()",

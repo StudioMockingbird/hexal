@@ -92,7 +92,7 @@ func validateExpressionNode(node checker.Expression, expected *compilerTypes.Typ
 		return validateAdtPayloadExpression(node, expected, state)
 	case checker.MatchExpression:
 		return validateMatchExpression(node, expected, state)
-	case checker.ArrayLiteralExpression, checker.IndexExpression, checker.CollectionMethodCallExpression, checker.CollectionSliceExpression:
+	case checker.InlineListLiteralExpression, checker.IndexExpression, checker.CollectionMethodCallExpression, checker.CollectionSliceExpression:
 		return validateCollectionExpression(node, expected, state)
 	case checker.StringLiteralExpression, checker.StringMethodCallExpression, checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.StringInterpolateExpression,
 		checker.InlineStringConstructExpression, checker.TextCoerceExpression:

@@ -66,7 +66,7 @@ func TestNoGeneratedHeaderNamesTheLibrary(t *testing.T) {
 		"    let property: Bool = 'a'.is_alphabetic()\n"+
 		"    let folded: String | Error = text.casefold(h)\n"+
 		"    let normalized: String | Error = text.normalize(h, NormalizationForm.NFC())\n"+
-		"    let values: Array<Rune, 2> = ['a', 'b']\n"+
+		"    let values: List<Rune, 2> = ['a', 'b']\n"+
 		"    let encoded: String | Error = String.from_runes(h, values.slice(0, 2))\n"+
 		"    return true\n"+
 		"end\n")

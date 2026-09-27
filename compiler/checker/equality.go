@@ -77,13 +77,13 @@ func EqualityAvailable(typ compilerTypes.Type) (bool, string) {
 }
 
 // structuralEqualityAvailable recurses over the components of one value whose
-// record declares the structural comparison form. Only Array, Slice, and List
+// record declares the structural comparison form. Only inline List, Slice, and allocated List
 // declare it today, and each stores one element component.
 func structuralEqualityAvailable(typ compilerTypes.Type) (bool, string) {
 	var element compilerTypes.Type
 	switch {
-	case typ.Array != nil:
-		element = typ.Array.Element
+	case typ.InlineList != nil:
+		element = typ.InlineList.Element
 	case typ.Slice != nil:
 		element = typ.Slice.Element
 	case typ.List != nil:
@@ -99,7 +99,7 @@ func structuralEqualityAvailable(typ compilerTypes.Type) (bool, string) {
 
 // equalityUnavailableDiagnostic reports why equality is unavailable for one
 // operand of the comparison. reason already names its own path - "member
-// name" for an object/ADT field, "element type Name" for an Array/Slice/List
+// name" for an object/ADT field, "element type Name" for a List/Slice
 // - so the template never manufactures an empty description; it is empty
 // only when typ itself is the direct cause, which the fallback below covers
 // by kind instead.

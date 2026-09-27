@@ -1,9 +1,14 @@
 package checker
 
 import (
+	"strconv"
+	"strings"
+
+	"hexal/compiler/config"
 	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -11,12 +16,41 @@ import (
 // ordinary generic type expression. T must be a collection element: an
 // inline element or a direct String.
 func resolveListTypeUse(expression parser.GenericTypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
-	if len(expression.Arguments) != 1 {
+	if len(expression.Arguments) != 1 && len(expression.Arguments) != 2 {
 		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diag.ListTypeArgumentCount()))
+	}
+	shape := []specdata.ParamKind{specdata.ParamType}
+	if len(expression.Arguments) == 2 {
+		shape = append(shape, specdata.ParamInteger)
+	}
+	if _, ok := specdata.TypeConstructorByShape("List", shape); !ok {
+		diagnostic := unknownAt(expression.Name)
+		return compilerTypes.TypeUse{}, &diagnostic
 	}
 	elementUse, diagnostic := resolveTypeUse(expression.Arguments[0], fallback, typeEnvironment, generics)
 	if diagnostic != nil {
 		return compilerTypes.TypeUse{}, diagnostic
+	}
+	if len(expression.Arguments) == 2 {
+		literal, ok := expression.Arguments[1].(parser.LiteralTypeArgument)
+		if !ok || literal.Token.Kind != lexer.Integer {
+			return compilerTypes.TypeUse{}, diagnosticAt(messageAt(typeExpressionToken(expression.Arguments[1], fallback), diag.InvalidListArguments()))
+		}
+		capacity, err := strconv.ParseUint(strings.ReplaceAll(literal.Token.Lexeme, "_", ""), 10, 64)
+		if err != nil {
+			return compilerTypes.TypeUse{}, diagnosticAt(messageAt(literal.Token, diag.InvalidListArguments()))
+		}
+		if capacity == 0 {
+			return compilerTypes.TypeUse{}, diagnosticAt(messageAt(literal.Token, diag.InvalidListCapacity()))
+		}
+		if !inlineListWithinBudget(elementUse.Type, capacity) {
+			return compilerTypes.TypeUse{}, diagnosticAt(messageAt(literal.Token, diag.InlineListEstimatedStorage(config.MaxInlineListEstimatedBytes)))
+		}
+		list := typeEnvironment.InlineListType(elementUse.Type, capacity)
+		if list == (compilerTypes.Type{}) {
+			return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diag.InvalidListElementType(elementUse.Type.Name)))
+		}
+		return compilerTypes.NewTypeUse(list), nil
 	}
 	list := typeEnvironment.ListType(elementUse.Type)
 	if list == (compilerTypes.Type{}) {
@@ -27,6 +61,16 @@ func resolveListTypeUse(expression parser.GenericTypeExpression, fallback lexer.
 
 // checkListTypeCall resolves List<T>(heap) into a fresh owning list.
 func checkListTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
+	if len(call.TypeArguments) == 2 {
+		if len(call.Arguments) != 0 {
+			return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diag.InlineListConstructorArguments()))}
+		}
+		listUse, diagnostic := resolveListTypeUse(parser.GenericTypeExpression{Name: lexer.Token{Kind: lexer.Identifier, Lexeme: "List", Line: callee.Line, Column: callee.Column}, Arguments: call.TypeArguments}, callee, ctx.typeEnvironment, ctx.names.generics)
+		if diagnostic != nil {
+			return checkedExpression{token: callee, diagnostic: diagnostic}
+		}
+		return checkedExpression{source: Operand{Kind: ExpressionOperand, Type: listUse.Type, Node: Expression{Kind: InlineListLiteralExpression, OperandType: listUse.Type.InlineList.Element, ResultType: listUse.Type}}, typ: listUse.Type, token: callee}
+	}
 	if len(call.TypeArguments) != 1 || len(call.Arguments) != 1 {
 		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diag.ListConstructorArgumentShape()))}
 	}
@@ -59,7 +103,19 @@ func checkListTypeCall(call parser.CallExpression, callee lexer.Token, ctx check
 func checkListMethodCall(call methodCall) checkedExpression {
 	name := call.callee.Property.Lexeme
 	listType := call.receiver.typ
-	element := listType.List.Element
+	element := compilerTypes.Type{}
+	if listType.List != nil {
+		element = listType.List.Element
+	}
+	if listType.InlineList != nil {
+		element = listType.InlineList.Element
+		if name == "free" {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.InlineListCannotBeFreed()))}
+		}
+		if (name == "push" || name == "pop" || name == "clear") && !call.receiver.source.Writable {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.InlineListMutationRequiresWritable()))}
+		}
+	}
 	if !hasBuiltinMethod(listType, name) {
 		diagnostic := messageAt(call.callee.Property, diag.CollectionHasNoMethod(listType.Name, name))
 		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}

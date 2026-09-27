@@ -16,14 +16,6 @@ type generatedTypeValidation struct {
 	activeObjects   map[*compilerTypes.ObjectType]bool
 	validObjects    map[*compilerTypes.ObjectType]bool
 	declaredObjects map[*compilerTypes.ObjectType]bool
-	// arrays is the module's array state, carried here because it is the
-	// one per-module channel already threaded into every expression render.
-	// Accessor demand is recorded from the render site, which is
-	// the only place that knows which accessor a surviving access names:
-	// deriving it a second time from the checked tree would be two sources
-	// of truth for one fact, and a disagreement would emit generated C
-	// naming an undeclared function.
-	arrays *generatedArrayState
 }
 
 // IsCanonical owns identity and recursive type metadata. This pass keeps only
@@ -80,14 +72,14 @@ func validateGeneratedType(typ compilerTypes.Type, state *generatedTypeValidatio
 	if typ.Element != nil {
 		return validateGeneratedType(*typ.Element, state, true)
 	}
-	if typ.Array != nil {
-		return validateGeneratedType(typ.Array.Element, state, false)
-	}
 	if typ.Slice != nil {
 		return validateGeneratedType(typ.Slice.Element, state, false)
 	}
 	if typ.List != nil {
 		return validateGeneratedType(typ.List.Element, state, false)
+	}
+	if typ.InlineList != nil {
+		return typ.InlineList.Capacity > 0 && validateGeneratedType(typ.InlineList.Element, state, false)
 	}
 	if typ.Dict != nil {
 		return validateGeneratedType(typ.Dict.Key, state, false) && validateGeneratedType(typ.Dict.Value, state, false)

@@ -92,7 +92,7 @@ int main(int argc, char **argv) {
 {{end}}{{define "grapheme_next_decl"}}{{.Indent}}    const hex_grapheme {{.Name}} = hex_grapheme_cursor_next(&{{.Value}});
 {{end}}{{define "bucket_active_open"}}{{.Indent}}    if (!{{.Dict}}->buckets[{{.Var}}].active) {
 {{end}}{{define "continue_stmt"}}{{.Indent}}continue;
-{{end}}{{define "for_index_open"}}{{.Indent}}for (size_t {{.Var}} = 0; {{.Var}} < {{.Limit}}; {{.Var}}++) {
+{{end}}{{define "for_index_open"}}{{.Indent}}for (size_t {{.Var}} = 0; {{.Var}} < {{.Limit}}; {{if .Update}}{{.Update}}{{else}}{{.Var}}++{{end}}) {
 {{end}}{{define "for_width_open"}}{{.Indent}}for (size_t {{.Var}} = 0; {{.Var}} < {{.Limit}}; {{.Var}} += {{.Width}}) {
 {{end}}{{define "bucket_bind"}}{{.Indent}}    {{.Target}} = {{.Dict}}->buckets[{{.Var}}].{{.Field}};
 {{end}}{{define "text_index_assign"}}{{.Indent}}    {{.Target}} = {{.Data}}[{{.Index}}];

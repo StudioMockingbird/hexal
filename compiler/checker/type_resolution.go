@@ -62,6 +62,9 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 	case parser.QualifiedGenericTypeExpression:
 		return resolveQualifiedGenericTypeUse(expression, typeEnvironment, generics)
 	case parser.GenericTypeExpression:
+		if expression.Name.Lexeme == "Array" {
+			return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diag.ArrayTypeRemoved()))
+		}
 		if expression.Name.Lexeme == "List" {
 			return resolveListTypeUse(expression, fallback, typeEnvironment, generics)
 		}
@@ -86,8 +89,6 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		return specializeTypeUse(expression, fallback, typeEnvironment, generics)
 	case parser.GroupedTypeExpression:
 		return resolveTypeUse(expression.Inner, fallback, typeEnvironment, generics)
-	case parser.ArrayTypeExpression:
-		return resolveArrayTypeUse(expression, fallback, typeEnvironment, generics)
 	case parser.StringTypeExpression:
 		return resolveStringTypeUse(expression, typeEnvironment)
 	case parser.LiteralTypeArgument:

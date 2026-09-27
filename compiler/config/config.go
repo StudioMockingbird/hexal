@@ -59,6 +59,9 @@ const (
 // not a measured heap-allocation crossover.
 const MaxInlineStringCapacity = 4096
 
+// MaxInlineListEstimatedBytes is a conservative ceiling for one inline List value.
+const MaxInlineListEstimatedBytes uint64 = 64 * 1024
+
 // ErrorHeaderCapacity and ErrorMessageCapacity are the two capacities Error
 // fixes, in bytes: an ErrorKind.Other header and an Error message. The types
 // built from them stay in compiler/types, because they are type identity; only

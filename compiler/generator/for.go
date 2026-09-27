@@ -9,11 +9,11 @@ import (
 )
 
 // renderForStatement lowers the for-in form. The source is stabilized exactly
-// once: Array places iterate in place through their address, temporary Arrays
-// and inline text are materialized into one inline copy, and String, List, and
+// once: inline List places iterate in place through their address, temporary
+// inline Lists and inline text are materialized into one inline copy, and String, List, and
 // Dict sources copy their pointer-sized handle.
 //
-// Index semantics: Array, Slice, List, and text bind the Size loop counter
+// Index semantics: inline List, Slice, allocated List, and text bind the Size loop counter
 // directly (a body `continue` lands on the loop increment). Dict loops
 // pre-increment their produced-entry ordinal before the body, so a body
 // `continue` never skips the increment.
@@ -55,11 +55,11 @@ func renderForStatement(body *strings.Builder, statement checker.ForStatement, s
 
 	loopRender := forLoopRender{loop: loop, binderNames: binderNames, bodyText: &bodyText}
 	switch {
-	case sourceType.Array != nil:
-		return renderForSequence(body, statement, loopRender, state, indent)
 	case sourceType.Slice != nil:
 		return renderForSequence(body, statement, loopRender, state, indent)
 	case sourceType.List != nil:
+		return renderForSequence(body, statement, loopRender, state, indent)
+	case sourceType.InlineList != nil:
 		return renderForSequence(body, statement, loopRender, state, indent)
 	case compilerTypes.IsText(sourceType):
 		switch {
@@ -103,6 +103,7 @@ type forOpenModel struct {
 	Limit  string
 	Width  string
 	Dict   string
+	Update string
 }
 
 // bucketBindModel carries one dict bucket read: the decided target
@@ -139,7 +140,7 @@ type rawTextModel struct {
 	Text string
 }
 
-// renderForSequence lowers Array, Slice, and List iteration to a plain index
+// renderForSequence lowers inline List, Slice, and List iteration to a plain index
 // loop over the captured source.
 func renderForSequence(body *strings.Builder, statement checker.ForStatement, render forLoopRender, state *expressionValidation, indent string) error {
 	loop, binderNames, bodyText := render.loop, render.binderNames, render.bodyText
@@ -151,29 +152,25 @@ func renderForSequence(body *strings.Builder, statement checker.ForStatement, re
 
 	var elementAccess, length string
 	switch {
-	case sourceType.Array != nil:
-		// An addressable Array place iterates in place through one generated
-		// address; a temporary Array is materialized into one inline copy.
-		// The traversal boundary is the compile-time Array length.
+	case sourceType.InlineList != nil:
 		if statement.Source.Addressable {
-			if err := renderInto(body, "module.c", "const_addr_decl", forStmtLineModel{Indent: indent, Type: sourceType.CName, Name: loop, Value: source}); err != nil {
+			if err := renderInto(body, "module.c", "const_ptr_decl", forStmtLineModel{Indent: indent, Type: sourceType.CName, Name: loop, Value: "&(" + source + ")"}); err != nil {
 				return err
 			}
 		} else {
-			if err := renderInto(body, "module.c", "const_decl", forStmtLineModel{Indent: indent, Type: sourceType.CName, Name: loop, Value: source}); err != nil {
+			valueName := loop + "_value"
+			if err := renderInto(body, "module.c", "const_decl", forStmtLineModel{Indent: indent, Type: sourceType.CName, Name: valueName, Value: source}); err != nil {
+				return err
+			}
+			if err := renderInto(body, "module.c", "const_ptr_decl", forStmtLineModel{Indent: indent, Type: sourceType.CName, Name: loop, Value: "&" + valueName}); err != nil {
 				return err
 			}
 		}
-		length = fmt.Sprintf("(size_t)(%d)", sourceType.Array.Length)
-		// The counter runs over [0, N) for the same literal N the
-		// accessor would test, the binder is fresh and immutable, and an
-		// Array cannot be resized: the check is dead by construction and
-		// the access is a direct member read.
-		if statement.Source.Addressable {
-			elementAccess = fmt.Sprintf("%s->data[%s_index]", loop, loop)
-		} else {
-			elementAccess = fmt.Sprintf("%s.data[%s_index]", loop, loop)
+		if err := renderInto(body, "module.c", "version_shadow", forStmtLineModel{Indent: indent, Name: loop}); err != nil {
+			return err
 		}
+		length = fmt.Sprintf("%s->length", loop)
+		elementAccess = fmt.Sprintf("*hex_list_inline_at_%s(%s, (size_t)(%s_index))", listSuffix(sourceType), loop, loop)
 	case sourceType.Slice != nil:
 		if err := renderInto(body, "module.c", "const_decl", forStmtLineModel{Indent: indent, Type: sourceType.CName, Name: loop, Value: source}); err != nil {
 			return err
@@ -194,10 +191,14 @@ func renderForSequence(body *strings.Builder, statement checker.ForStatement, re
 	}
 
 	indexVariable := loop + "_index"
-	if err := renderInto(body, "module.c", "for_index_open", forOpenModel{Indent: indent, Var: indexVariable, Limit: length}); err != nil {
+	update := indexVariable + "++"
+	if sourceType.List != nil || sourceType.InlineList != nil {
+		update += ", (" + loop + "->version != " + loop + "_version ? hex_runtime_trap(\"[Runtime Error] collection modified during iteration\\n\") : (void)0)"
+	}
+	if err := renderInto(body, "module.c", "for_index_open", forOpenModel{Indent: indent, Var: indexVariable, Limit: length, Update: update}); err != nil {
 		return err
 	}
-	if sourceType.List != nil {
+	if sourceType.List != nil || sourceType.InlineList != nil {
 		if err := renderInto(body, "module.c", "version_guard_open", forStmtLineModel{Indent: indent, Name: loop}); err != nil {
 			return err
 		}
@@ -232,7 +233,7 @@ func renderForSequence(body *strings.Builder, statement checker.ForStatement, re
 // renderForText lowers String and String<N> iteration to a plain byte loop:
 // text is a sequence of bytes and the loop binds each one. A heap String copies
 // its handle. An inline value is copied once into the loop's own storage first,
-// the rule a temporary Array follows, so reassigning a mutable binding inside
+// the rule a temporary inline List follows, so reassigning a mutable binding inside
 // the body cannot change what the loop reads or leave its captured length
 // stale. A body `continue` lands on the loop increment.
 func renderForText(body *strings.Builder, statement checker.ForStatement, render forLoopRender, state *expressionValidation, indent string) error {
@@ -294,7 +295,7 @@ func renderForText(body *strings.Builder, statement checker.ForStatement, render
 // increment advances by the width decoded at the top of the body, so a body
 // `continue` still advances exactly one scalar. A heap String copies its
 // handle; an inline value is copied once into the loop's own storage, the rule
-// a temporary Array follows.
+// a temporary inline List follows.
 func renderForRuneText(body *strings.Builder, statement checker.ForStatement, render forLoopRender, state *expressionValidation, indent string) error {
 	loop, binderNames, bodyText := render.loop, render.binderNames, render.bodyText
 	source, err := renderOperandWithState(statement.Source, state)

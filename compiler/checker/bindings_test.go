@@ -59,13 +59,13 @@ func TestCheckKnownImmutableZeroDivisorStillDiagnosed(t *testing.T) {
 	requireDiagnostic(t, "let zero: Int32 = 0 let divisor: Int32 = zero let bad: Int32 = 10 / divisor", "division by zero")
 }
 
-func TestCheckKnownImmutableArrayIndexBoundsStillDiagnosed(t *testing.T) {
-	requireDiagnostic(t, "let size: Int32 = 3 let arr: Array<Int32, 2> = [1, 2] let bad: Int32 = arr[size]", "array index 3 is out of bounds for Array<Int32, 2>")
-	requireDiagnostic(t, "let size: Int32 = -1 let arr: Array<Int32, 2> = [1, 2] let bad: Int32 = arr[size]", "an array index must be non-negative")
+func TestCheckKnownInlineListIndexBoundsStillDiagnosed(t *testing.T) {
+	requireDiagnostic(t, "let size: Int32 = 3 let arr: List<Int32, 2> = [1, 2] let bad: Int32 = arr[size]", "index 3 is out of bounds for List<Int32, 2>")
+	requireDiagnostic(t, "let size: Int32 = -1 let arr: List<Int32, 2> = [1, 2] let bad: Int32 = arr[size]", "an index must be non-negative")
 }
 
 func TestCheckKnownImmutableSliceBoundsStillDiagnosed(t *testing.T) {
-	requireDiagnostic(t, "let begin: Int32 = 1 let limit: Int32 = 5 let arr: Array<Int32, 2> = [1, 2] let view: Slice<Int32> = arr.slice(begin, limit)", "slice range [1, 5) is out of bounds for Array<Int32, 2>")
+	requireDiagnostic(t, "let begin: Int32 = 1 let limit: Int32 = 5 let arr: List<Int32, 2> = [1, 2] let view: Slice<Int32> = arr.slice(begin, limit)", "slice range [1, 5) is out of bounds for List<Int32, 2>")
 }
 
 func TestCheckKnownImmutableChannelCapacityStillDiagnosed(t *testing.T) {

@@ -7,12 +7,12 @@ import (
 )
 
 func TestSliceSliceReadOperations(t *testing.T) {
-	result := compileSource("fun demo() do\n    let fixed: Array<Int32, 3> = [10, 20, 30]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    let count: Size = view.length()\n    let empty: Bool = view.length() == 0\n    let first: Int32 = view[0]\n    let second: Int32 = view[1]\n    let tail: Slice<Int32> = view.slice(1, 2)\n    let last: Int32 = tail[0]\nend")
+	result := compileSource("fun demo() do\n    let fixed: List<Int32, 3> = [10, 20, 30]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    let count: Size = view.length()\n    let empty: Bool = view.length() == 0\n    let first: Int32 = view[0]\n    let second: Int32 = view[1]\n    let tail: Slice<Int32> = view.slice(1, 2)\n    let last: Int32 = tail[0]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"const hex_slice_Int32 hex_v_view = hex_array_slice_Int32_3(&hex_v_fixed, (size_t)(0), (size_t)(2));",
+		"const hex_slice_Int32 hex_v_view = hex_list_inline_slice_Int32_3(&( hex_v_fixed ), (size_t)(0), (size_t)(2));",
 		"(hex_v_view).length",
 		"(hex_v_view).length == 0",
 		"*hex_slice_at_Int32(hex_v_view, (size_t)(0))",
@@ -48,16 +48,16 @@ func TestSliceSliceReadOperations(t *testing.T) {
 }
 
 func TestSliceIsReadOnly(t *testing.T) {
-	result := compileSource("fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    view[0] = 5\nend")
+	result := compileSource("fun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    view[0] = 5\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "read-only") {
 		t.Fatalf("Compile stderr = %#v, want read-only view diagnostic", result.Stderr)
 	}
 }
 
-func TestSliceCannotBeRootedInTemporaryArray(t *testing.T) {
-	result := compileSource("fun make_fixed(): Array<Int32, 2> do\n    return [1, 2]\nend\nfun demo() do\n    let view: Slice<Int32> = make_fixed().slice(0, 2)\nend")
-	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "temporary Array") {
-		t.Fatalf("Compile stderr = %#v, want temporary-Array diagnostic", result.Stderr)
+func TestSliceCannotBeRootedInTemporaryInlineList(t *testing.T) {
+	result := compileSource("fun make_fixed(): List<Int32, 2> do\n    return [1, 2]\nend\nfun demo() do\n    let view: Slice<Int32> = make_fixed().slice(0, 2)\nend")
+	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "temporary inline List") {
+		t.Fatalf("Compile stderr = %#v, want temporary-inline-List diagnostic", result.Stderr)
 	}
 }
 
@@ -68,12 +68,12 @@ func TestSliceAfterRootReassignmentIsValid(t *testing.T) {
 		name   string
 		source string
 	}{
-		{"array binding", "fun demo() do\n    let mut fixed: Array<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(0, 1)\n    fixed = [3, 4]\nend"},
-		{"intermediate view", "fun demo() do\n    let mut fixed: Array<Int32, 2> = [1, 2]\n    let mut view: Slice<Int32> = fixed.slice(0, 1)\n    let tail: Slice<Int32> = view.slice(0, 1)\n    view = fixed.slice(0, 1)\nend"},
+		{"array binding", "fun demo() do\n    let mut fixed: List<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(0, 1)\n    fixed = [3, 4]\nend"},
+		{"intermediate view", "fun demo() do\n    let mut fixed: List<Int32, 2> = [1, 2]\n    let mut view: Slice<Int32> = fixed.slice(0, 1)\n    let tail: Slice<Int32> = view.slice(0, 1)\n    view = fixed.slice(0, 1)\nend"},
 		{"member array", "fun demo() do\n    let mut pair: Pair = Pair(values = [1, 2],)\n    let view: Slice<Int32> = pair.values.slice(0, 1)\n    pair.values = [3, 4]\nend"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			source := "type Pair is struct mut values: Array<Int32, 2>, end\n" + testCase.source
+			source := "type Pair is struct mut values: List<Int32, 2>, end\n" + testCase.source
 			if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 				t.Fatalf("Compile(%q) exit code = %d (%v), want 0", testCase.source, result.ExitCode, result.Stderr)
 			}
@@ -81,8 +81,8 @@ func TestSliceAfterRootReassignmentIsValid(t *testing.T) {
 	}
 }
 
-func TestSliceAllowsElementWritesToRootArray(t *testing.T) {
-	result := compileSource("fun demo() do\n    let mut fixed: Array<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    fixed[0] = 5\n    let total: Int32 = view[0] + fixed[1]\nend")
+func TestSliceAllowsElementWritesToRootInlineList(t *testing.T) {
+	result := compileSource("fun demo() do\n    let mut fixed: List<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    fixed[0] = 5\n    let total: Int32 = view[0] + fixed[1]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -94,7 +94,7 @@ func TestSliceRestrictions(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"@of slice", "fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(0, 1)\n    let result: Int32 = @view\nend", "@ cannot take the address of a Slice binding"},
+		{"@of slice", "fun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(0, 1)\n    let result: Int32 = @view\nend", "@ cannot take the address of a Slice binding"},
 		{"pointer to slice", "fun demo() do\n    let pointer: Ptr<Slice<Int32>> = nil\nend", "could not construct pointer type"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -108,8 +108,8 @@ func TestSliceRestrictions(t *testing.T) {
 
 func TestSliceSliceConstantBoundsAreCompileErrors(t *testing.T) {
 	for _, source := range []string{
-		"fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(1, 3)\nend",
-		"fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(2, 1)\nend",
+		"fun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(1, 3)\nend",
+		"fun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(2, 1)\nend",
 	} {
 		result := compileSource(source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "out of bounds") {
@@ -119,14 +119,14 @@ func TestSliceSliceConstantBoundsAreCompileErrors(t *testing.T) {
 }
 
 func TestSlicePassedToFunctionParameter(t *testing.T) {
-	result := compileSource("fun sum(values: Slice<Int32>): Int32 do\n    return values[0] + values[1]\nend\nfun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let total: Int32 = sum(fixed.slice(0, 2))\nend")
+	result := compileSource("fun sum(values: Slice<Int32>): Int32 do\n    return values[0] + values[1]\nend\nfun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    let total: Int32 = sum(fixed.slice(0, 2))\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
 		"static int32_t hex_f_m3_app_sum(const hex_slice_Int32 hex_v_values)",
 		"*hex_slice_at_Int32(hex_v_values, (size_t)(0))",
-		"hex_v_total = hex_f_m3_app_sum(hex_array_slice_Int32_2(&hex_v_fixed, (size_t)(0), (size_t)(2)));",
+		"const int32_t hex_v_total = hex_f_m3_app_sum(hex_list_inline_slice_Int32_2(&( hex_v_fixed ), (size_t)(0), (size_t)(2)));",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
@@ -135,7 +135,7 @@ func TestSlicePassedToFunctionParameter(t *testing.T) {
 }
 
 func TestSlicePreservesWritablePointeeCapability(t *testing.T) {
-	result := compileSource("type Node is struct mut score: Int32, end\nfun demo() do\n    let mut first: Node = Node(score = 1,)\n    let mut second: Node = Node(score = 2,)\n    let mut nodes: Array<Ptr<mut Node>, 2> = [@first, @second]\n    let view: Slice<Ptr<mut Node>> = nodes.slice(0, 2)\n    view[0].score = 42\nend")
+	result := compileSource("type Node is struct mut score: Int32, end\nfun demo() do\n    let mut first: Node = Node(score = 1,)\n    let mut second: Node = Node(score = 2,)\n    let mut nodes: List<Ptr<mut Node>, 2> = [@first, @second]\n    let view: Slice<Ptr<mut Node>> = nodes.slice(0, 2)\n    view[0].score = 42\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -153,9 +153,9 @@ func TestSliceReturnRules(t *testing.T) {
 		"type Packet is struct bytes: String end\nfun payload(packet: Ptr<Packet>): Slice<Byte> do\n    return packet.bytes.slice(0, 4)\nend\n",
 		"fun adopt(pointer: Ptr<Int32>, count: Size): Slice<Int32> do\n    unsafe do\n        return Slice<Int32>.from_pointer(pointer, count)\n    end\nend\n",
 		"fun slice_of_param(xs: List<Int32>): Slice<Int32> do\n    return xs.slice(0, 1)\nend\n",
-		"fun head(): Slice<Int32> do\n    let fixed: Array<Int32, 4> = [1, 2, 3, 4]\n    return fixed.slice(0, 2)\nend\n",
-		"fun head(): Slice<Int32> do\n    let fixed: Array<Int32, 4> = [1, 2, 3, 4]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    return view\nend\n",
-		"type Window is struct visible: Slice<Int32> end\nfun bad(): Window do\n    let fixed: Array<Int32, 4> = [1, 2, 3, 4]\n    return Window(visible = fixed.slice(0, 2))\nend\n",
+		"fun head(): Slice<Int32> do\n    let fixed: List<Int32, 4> = [1, 2, 3, 4]\n    return fixed.slice(0, 2)\nend\n",
+		"fun head(): Slice<Int32> do\n    let fixed: List<Int32, 4> = [1, 2, 3, 4]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    return view\nend\n",
+		"type Window is struct visible: Slice<Int32> end\nfun bad(): Window do\n    let fixed: List<Int32, 4> = [1, 2, 3, 4]\n    return Window(visible = fixed.slice(0, 2))\nend\n",
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
@@ -168,18 +168,18 @@ func TestSliceReturnRules(t *testing.T) {
 // one: a Slice is a copyable descriptor with no lifetime of its own.
 func TestNestedSliceReturnsAreAccepted(t *testing.T) {
 	accepted := []string{
-		"type W is union | A as v: Slice<Int32> end | B as x: Int32 end end\nfun bad(): W do\n    let fixed: Array<Int32, 4> = [1, 2, 3, 4]\n    return W.A(v = fixed.slice(0, 2))\nend\n",
-		"type U is union Slice<Int32> | Nil end\nfun bad(): U do\n    let fixed: Array<Int32, 4> = [1, 2, 3, 4]\n    let v: Slice<Int32> | Nil = fixed.slice(0, 2)\n    return v\nend\n",
-		"type Window is struct visible: Slice<Int32> end\nfun bad(): Array<Window, 1> do\n    let fixed: Array<Int32, 4> = [1, 2, 3, 4]\n    return [Window(visible = fixed.slice(0, 2))]\nend\n",
-		"type Window is struct visible: Slice<Int32> end\nfun bad(): Window do\n    let fixed: Array<Int32, 4> = [1, 2, 3, 4]\n    let tmp = Window(visible = fixed.slice(0, 2))\n    return tmp\nend\n",
-		"fun bad(): Slice<Int32> | Nil do\n    let fixed: Array<Int32, 4> = [1, 2, 3, 4]\n    return fixed.slice(0, 2)\nend\n",
-		"type Window is struct visible: Slice<Int32> end\nfun bad(ok: Bool): Window do\n    let fixed: Array<Int32, 4> = [1, 2, 3, 4]\n    return match ok\n    | true then Window(visible = fixed.slice(0, 2))\n    | false then Window(visible = fixed.slice(2, 4))\n    end\nend\n",
+		"type W is union | A as v: Slice<Int32> end | B as x: Int32 end end\nfun bad(): W do\n    let fixed: List<Int32, 4> = [1, 2, 3, 4]\n    return W.A(v = fixed.slice(0, 2))\nend\n",
+		"type U is union Slice<Int32> | Nil end\nfun bad(): U do\n    let fixed: List<Int32, 4> = [1, 2, 3, 4]\n    let v: Slice<Int32> | Nil = fixed.slice(0, 2)\n    return v\nend\n",
+		"type Window is struct visible: Slice<Int32> end\nfun bad(): List<Window, 1> do\n    let fixed: List<Int32, 4> = [1, 2, 3, 4]\n    return [Window(visible = fixed.slice(0, 2))]\nend\n",
+		"type Window is struct visible: Slice<Int32> end\nfun bad(): Window do\n    let fixed: List<Int32, 4> = [1, 2, 3, 4]\n    let tmp = Window(visible = fixed.slice(0, 2))\n    return tmp\nend\n",
+		"fun bad(): Slice<Int32> | Nil do\n    let fixed: List<Int32, 4> = [1, 2, 3, 4]\n    return fixed.slice(0, 2)\nend\n",
+		"type Window is struct visible: Slice<Int32> end\nfun bad(ok: Bool): Window do\n    let fixed: List<Int32, 4> = [1, 2, 3, 4]\n    return match ok\n    | true then Window(visible = fixed.slice(0, 2))\n    | false then Window(visible = fixed.slice(2, 4))\n    end\nend\n",
 		"type Window is struct visible: Slice<Int32> end\nfun ok(v: Slice<Int32>): Window do\n    return Window(visible = v)\nend\n",
 		"type Window is struct visible: Slice<Int32> end\nfun ok(v: Slice<Int32>): Window do\n    let tmp = Window(visible = v)\n    return tmp\nend\n",
 		"type Window is struct visible: Slice<Int32> end\nfun ok(): Window do\n    return Window(visible = Slice<Int32>.empty())\nend\n",
 		"type Window is struct visible: Slice<Int32> end\nfun ok(p: Ptr<Int32>, n: Size): Window do\n    unsafe do\n        return Window(visible = Slice<Int32>.from_pointer(p, n))\n    end\nend\n",
 		"fun keep(h: Heap): List<Int32> do\n    let values: List<Int32> = List<Int32>(h)\n    return values\nend\n",
-		"fun head(): Slice<Int32> do\n    let fixed: Array<Int32, 4> = [1, 2, 3, 4]\n    return fixed.slice(0, 2)\nend\n",
+		"fun head(): Slice<Int32> do\n    let fixed: List<Int32, 4> = [1, 2, 3, 4]\n    return fixed.slice(0, 2)\nend\n",
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
@@ -210,12 +210,12 @@ func TestEmptyListViewSliceGuardsNullAddress(t *testing.T) {
 }
 
 func TestSliceMutSliceConstructionAndWrites(t *testing.T) {
-	result := compileSource("fun demo() do\n    let mut fixed: Array<Int32, 3> = [10, 20, 30]\n    let window: Slice<mut Int32> = fixed.mut_slice(0, 2)\n    window[0] = 99\n    let total: Int32 = window[0] + window[1]\nend")
+	result := compileSource("fun demo() do\n    let mut fixed: List<Int32, 3> = [10, 20, 30]\n    let window: Slice<mut Int32> = fixed.mut_slice(0, 2)\n    window[0] = 99\n    let total: Int32 = window[0] + window[1]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"hex_array_mut_slice_Int32_3(&hex_v_fixed, (size_t)(0), (size_t)(2));",
+		"hex_list_inline_mut_slice_Int32_3(&( hex_v_fixed ), (size_t)(0), (size_t)(2));",
 		"*hex_mut_slice_at_Int32(hex_v_window, (size_t)(0)) = 99;",
 		"typedef struct hex_mut_slice_Int32 {",
 		"int32_t *data;",
@@ -244,9 +244,9 @@ func TestSliceMutSliceRestrictions(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"fixed array", "fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let window: Slice<mut Int32> = fixed.mut_slice(0, 2)\nend", "mut_slice requires a writable Array place"},
-		{"slice receiver", "fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    let window: Slice<mut Int32> = view.mut_slice(0, 1)\nend", "Slice has no method mut_slice"},
-		{"read-only write", "fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    view[0] = 5\nend", "read-only"},
+		{"fixed inline List", "fun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    let window: Slice<mut Int32> = fixed.mut_slice(0, 2)\nend", "inline List mutation requires a writable receiver"},
+		{"slice receiver", "fun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    let window: Slice<mut Int32> = view.mut_slice(0, 1)\nend", "Slice has no method mut_slice"},
+		{"read-only write", "fun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    view[0] = 5\nend", "read-only"},
 		{"string mut slice", "fun demo(text: String) do\n    let window: Slice<mut Byte> = text.mut_slice(0, 1)\nend", "has no method mut_slice"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -261,7 +261,7 @@ func TestSliceMutSliceRestrictions(t *testing.T) {
 func TestSliceMutableReslicePreservesMode(t *testing.T) {
 	// Re-slicing a writable Slice keeps writable access without another
 	// mut_slice call.
-	result := compileSource("fun demo() do\n    let mut fixed: Array<Int32, 4> = [1, 2, 3, 4]\n    let window: Slice<mut Int32> = fixed.mut_slice(0, 4)\n    let narrow: Slice<mut Int32> = window.slice(1, 3)\n    narrow[0] = 9\nend")
+	result := compileSource("fun demo() do\n    let mut fixed: List<Int32, 4> = [1, 2, 3, 4]\n    let window: Slice<mut Int32> = fixed.mut_slice(0, 4)\n    let narrow: Slice<mut Int32> = window.slice(1, 3)\n    narrow[0] = 9\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -271,7 +271,7 @@ func TestSliceMutableReslicePreservesMode(t *testing.T) {
 }
 
 func TestSliceWeakeningRules(t *testing.T) {
-	accepted := compileSource("fun consume(values: Slice<Int32>): Int32 do\n    return values[0]\nend\nfun demo() do\n    let mut fixed: Array<Int32, 2> = [1, 2]\n    let window: Slice<mut Int32> = fixed.mut_slice(0, 2)\n    let total: Int32 = consume(window)\nend")
+	accepted := compileSource("fun consume(values: Slice<Int32>): Int32 do\n    return values[0]\nend\nfun demo() do\n    let mut fixed: List<Int32, 2> = [1, 2]\n    let window: Slice<mut Int32> = fixed.mut_slice(0, 2)\n    let total: Int32 = consume(window)\nend")
 	if accepted.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("mutable-to-read-only weakening failed: %#v", accepted.Stderr)
 	}
@@ -279,8 +279,8 @@ func TestSliceWeakeningRules(t *testing.T) {
 		name   string
 		source string
 	}{
-		{"upgrade", "fun consume(values: Slice<mut Int32>) do\nend\nfun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    consume(view)\nend\n"},
-		{"nested", "fun consume(values: Slice<Slice<Int32>>) do\nend\nfun demo() do\n    let mut fixed: Array<Int32, 2> = [1, 2]\n    let window: Slice<mut Int32> = fixed.mut_slice(0, 2)\n    let nested: Slice<Slice<mut Int32>> = Slice<Slice<mut Int32>>.empty()\n    consume(nested)\nend\n"},
+		{"upgrade", "fun consume(values: Slice<mut Int32>) do\nend\nfun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    consume(view)\nend\n"},
+		{"nested", "fun consume(values: Slice<Slice<Int32>>) do\nend\nfun demo() do\n    let mut fixed: List<Int32, 2> = [1, 2]\n    let window: Slice<mut Int32> = fixed.mut_slice(0, 2)\n    let nested: Slice<Slice<mut Int32>> = Slice<Slice<mut Int32>>.empty()\n    consume(nested)\nend\n"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			if result := compileSource(testCase.source); result.ExitCode != compiler.ExitFailure {
@@ -316,13 +316,13 @@ func TestSliceNestingAndPositions(t *testing.T) {
 		// Nested descriptors are first-class values.
 		"fun demo() do\n    let nested: Slice<Slice<Int32>> = Slice<Slice<Int32>>.empty()\nend\n",
 		// Slices live in members, results, and collection elements.
-		"type Holder is struct view: Slice<Int32> end\nfun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let holder: Holder = Holder(view = fixed.slice(0, 2))\nend\n",
-		"fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let table: Array<Slice<Int32>, 1> = [fixed.slice(0, 2)]\nend\n",
+		"type Holder is struct view: Slice<Int32> end\nfun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    let holder: Holder = Holder(view = fixed.slice(0, 2))\nend\n",
+		"fun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    let table: List<Slice<Int32>, 1> = [fixed.slice(0, 2)]\nend\n",
 		"fun demo(h: Heap) do\n    let values: List<Slice<Int32>> = List<Slice<Int32>>(h)\nend\n",
 		// Mutable slices iterate with copy binders like read-only slices.
-		"fun demo() do\n    let mut fixed: Array<Int32, 2> = [1, 2]\n    let window: Slice<mut Int32> = fixed.mut_slice(0, 2)\n    let mut total: Int32 = 0\n    for value in window do\n        total = total + value\n    end\nend\n",
+		"fun demo() do\n    let mut fixed: List<Int32, 2> = [1, 2]\n    let window: Slice<mut Int32> = fixed.mut_slice(0, 2)\n    let mut total: Int32 = 0\n    for value in window do\n        total = total + value\n    end\nend\n",
 		// Mutable slices compare, print, and weaken like read-only slices.
-		"fun demo() do\n    let mut left: Array<Int32, 1> = [1]\n    let mut right: Array<Int32, 1> = [1]\n    let a: Slice<mut Int32> = left.mut_slice(0, 1)\n    let b: Slice<mut Int32> = right.mut_slice(0, 1)\n    let same: Bool = a == b\n    print(a)\nend\n",
+		"fun demo() do\n    let mut left: List<Int32, 1> = [1]\n    let mut right: List<Int32, 1> = [1]\n    let a: Slice<mut Int32> = left.mut_slice(0, 1)\n    let b: Slice<mut Int32> = right.mut_slice(0, 1)\n    let same: Bool = a == b\n    print(a)\nend\n",
 	}
 	for _, source := range accepted {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
@@ -366,7 +366,7 @@ func TestRetiredTypeNamesRejected(t *testing.T) {
 func TestSliceCopiesAliasElements(t *testing.T) {
 	// Copies share elements while holding independent descriptors: a write
 	// through one copy reads back through the other.
-	result := compileSource("fun demo() do\n    let mut fixed: Array<Int32, 2> = [1, 2]\n    let first: Slice<mut Int32> = fixed.mut_slice(0, 2)\n    let second: Slice<mut Int32> = first.slice(0, 2)\n    first[0] = 9\n    let check: Int32 = second[0]\nend")
+	result := compileSource("fun demo() do\n    let mut fixed: List<Int32, 2> = [1, 2]\n    let first: Slice<mut Int32> = fixed.mut_slice(0, 2)\n    let second: Slice<mut Int32> = first.slice(0, 2)\n    first[0] = 9\n    let check: Int32 = second[0]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

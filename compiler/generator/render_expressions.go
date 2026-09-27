@@ -219,7 +219,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			return "*" + operand, nil
 		}
 		return "*(" + operand + ")", nil
-	case checker.IndexExpression, checker.ArrayLiteralExpression, checker.CollectionMethodCallExpression, checker.CollectionSliceExpression:
+	case checker.IndexExpression, checker.InlineListLiteralExpression, checker.CollectionMethodCallExpression, checker.CollectionSliceExpression:
 		return renderCollectionExpression(node, state)
 	case checker.StringLiteralExpression, checker.StringMethodCallExpression, checker.StringFromBytesExpression, checker.StringFromRunesExpression, checker.StringInterpolateExpression,
 		checker.InlineStringConstructExpression, checker.TextCoerceExpression:

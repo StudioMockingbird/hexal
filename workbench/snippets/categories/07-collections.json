@@ -4,11 +4,11 @@
   "snippets": [
     {
       "id": "collections-array-statistics",
-      "name": "Array statistics",
+      "name": "Inline list statistics",
       "description": "Calculate minimum, maximum, and total over a fixed array; the total is computed by a spawned task.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
-        "fun total_of(fixed: Array<Int32, 3>): Int32 do",
+        "fun total_of(fixed: List<Int32, 3>): Int32 do",
         "    let mut total: Int32= 0",
         "    for value in fixed do",
         "        total = total + value",
@@ -16,7 +16,7 @@
         "    return total",
         "end",
         "fun run(): Int32 | Error do",
-        "    let fixed: Array\u003cInt32, 3\u003e = [7, 3, 9]",
+        "    let fixed: List\u003cInt32, 3\u003e = [7, 3, 9]",
         "    let mut minimum: Int32= fixed[0]",
         "    let mut maximum: Int32= minimum",
         "    for value in fixed do",
@@ -27,17 +27,17 @@
         "    return worker.join() + minimum + maximum",
         "end"
       ]},
-      "features": ["arrays", "for", "tasks"],
+      "features": ["inline-lists", "for", "tasks"],
       "reservedWords": ["fun", "mut", "for", "in", "do", "if", "return", "end", "try", "spawn", "then"]
     },
     {
       "id": "collections-array-slicing",
-      "name": "Array slicing",
+      "name": "Inline list slicing",
       "description": "Create a slice over the middle of an array.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(): Int32 do",
-        "    let fixed: Array\u003cInt32, 5\u003e = [10, 20, 30, 40, 50]",
+        "    let fixed: List\u003cInt32, 5\u003e = [10, 20, 30, 40, 50]",
         "    let middle: Slice\u003cInt32\u003e = fixed.slice(1, 4)",
         "    let count: Size= middle.length()",
         "    let first: Int32= middle[0]",
@@ -45,7 +45,7 @@
         "    return first + last",
         "end"
       ]},
-      "features": ["arrays", "slices"],
+      "features": ["inline-lists", "slices"],
       "reservedWords": ["fun", "return", "end", "do"]
     },
     {
@@ -65,7 +65,7 @@
         "    return total",
         "end",
         "fun demo(): Int32 do",
-        "    let fixed: Array\u003cInt32, 4\u003e = [3, -1, 5, -2]",
+        "    let fixed: List\u003cInt32, 4\u003e = [3, -1, 5, -2]",
         "    return sum_positive(fixed.slice(0, 4))",
         "end"
       ]},
@@ -154,7 +154,7 @@
         "fun demo(h: Heap): Int32 do",
         "    let counts: Dict\u003cInt32, Int32\u003e = Dict\u003cInt32, Int32\u003e(h)",
         "    defer counts.free(h)",
-        "    let samples: Array\u003cInt32, 6\u003e = [2, 1, 2, 3, 1, 2]",
+        "    let samples: List\u003cInt32, 6\u003e = [2, 1, 2, 3, 1, 2]",
         "    for value in samples do",
         "        if counts.contains(value) then",
         "            counts.insert(value, counts.get(value) + 1)",
@@ -165,17 +165,17 @@
         "    return counts.get(2)",
         "end"
       ]},
-      "features": ["dicts", "arrays", "for"],
+      "features": ["dicts", "inline-lists", "for"],
       "reservedWords": ["fun", "for", "in", "do", "if", "else", "return", "end", "defer", "then"]
     },
     {
       "id": "collections-handle-elements",
       "name": "Handle elements",
-      "description": "Store String handles in an Array and a List; insertion copies the handle, not the allocation.",
+      "description": "Store String handles in an inline List and an allocated List; insertion copies the handle, not the allocation.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(h: Heap): String do",
-        "    let texts: Array\u003cString, 2\u003e = [\"alice\", \"bob\"]",
+        "    let texts: List\u003cString, 2\u003e = [\"alice\", \"bob\"]",
         "    let names: List\u003cString\u003e = List\u003cString\u003e(h)",
         "    defer names.free(h)",
         "    names.push(texts[0])",
@@ -186,7 +186,7 @@
         "    return first",
         "end"
       ]},
-      "features": ["lists", "arrays", "text", "copying"],
+      "features": ["lists", "inline-lists", "text", "copying"],
       "reservedWords": ["fun", "return", "end", "defer", "do"]
     },
     {

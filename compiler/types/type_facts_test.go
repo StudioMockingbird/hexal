@@ -20,7 +20,6 @@ func TestPositionBitsMatchRegistry(t *testing.T) {
 		{PositionObjectMember, specdata.StorableObjectMember},
 		{PositionADTPayload, specdata.StorableADTPayload},
 		{PositionUnionMember, specdata.StorableUnionMember},
-		{PositionArrayElement, specdata.StorableArrayElement},
 		{PositionSliceElement, specdata.StorableSliceElement},
 		{PositionListElement, specdata.StorableListElement},
 		{PositionDictValue, specdata.StorableDictValue},
@@ -45,7 +44,6 @@ var everyPosition = []Position{
 	PositionObjectMember,
 	PositionADTPayload,
 	PositionUnionMember,
-	PositionArrayElement,
 	PositionSliceElement,
 	PositionListElement,
 	PositionDictValue,
@@ -88,7 +86,7 @@ func TestStorablePositionSets(t *testing.T) {
 	}{
 		{"Fun", fun, positionSet(
 			PositionBinding, PositionObjectMember, PositionADTPayload, PositionUnionMember,
-			PositionArrayElement, PositionSliceElement, PositionListElement, PositionDictValue,
+			PositionSliceElement, PositionListElement, PositionDictValue,
 			PositionFunctionParam, PositionFunctionResult, PositionTaskArgument, PositionTaskResult,
 			PositionChannelElement)},
 		{"Nil", Nil, positionSet(PositionUnionMember)},

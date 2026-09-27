@@ -21,7 +21,7 @@ func nestedParens(depth int) string {
 	return "let x: Int32 = " + strings.Repeat("(", depth) + "1" + strings.Repeat(")", depth)
 }
 
-func nestedArrayLiterals(depth int) string {
+func nestedInlineListLiterals(depth int) string {
 	return "let x = " + strings.Repeat("[", depth) + "1" + strings.Repeat("]", depth)
 }
 
@@ -60,7 +60,7 @@ func TestNestingAtTheLimitParses(t *testing.T) {
 		source string
 	}{
 		{"parentheses", nestedParens(127)},
-		{"array literals", nestedArrayLiterals(127)},
+		{"inline List literals", nestedInlineListLiterals(127)},
 		{"type constructors", nestedMutPtrType(127)},
 		{"nested blocks", nestedIfBlocks(127)},
 	} {
@@ -76,7 +76,7 @@ func TestNestingOneLevelPastTheLimitIsRejected(t *testing.T) {
 		source string
 	}{
 		{"parentheses", nestedParens(128)},
-		{"array literals", nestedArrayLiterals(128)},
+		{"inline List literals", nestedInlineListLiterals(128)},
 		{"type constructors", nestedMutPtrType(128)},
 		{"nested blocks", nestedIfBlocks(128)},
 	} {

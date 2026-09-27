@@ -149,8 +149,8 @@ func TestNestedExpressionRegionsIsolateOperatorKinds(t *testing.T) {
 		"let x: Int32 = outer(a + b, c * d)",
 		// Index expression: the index's + is independent of the outer *.
 		"let x: Int32 = values[a + b] * scale",
-		// Array elements: each element is its own region.
-		"let x: Array<Int32, 2> = [a + b, c * d]",
+		// Inline List literal elements: each element is its own region.
+		"let x: List<Int32, 2> = [a + b, c * d]",
 		// Object member initializers: each initializer is its own region,
 		// independent of a mixed root region.
 		"let x: Point = Point(a = b + c, d = e * f) and flag",

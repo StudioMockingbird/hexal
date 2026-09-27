@@ -270,6 +270,12 @@ func checkVariantConstructorCall(call parser.CallExpression, ownerName string, a
 			diagnostics = append(diagnostics, typeMismatchDiagnostic(fieldType, checked.typ, checked.token))
 			continue
 		}
+		if compilerTypes.IsAddress(adtType) && field.Name == "bytes" && fieldType.InlineList != nil &&
+			checked.source.Node.Kind == InlineListLiteralExpression && len(checked.source.Node.Arguments) != int(fieldType.InlineList.Capacity) {
+			message := diag.AddressBytesLiteralLength(variant.Name, int(fieldType.InlineList.Capacity), len(checked.source.Node.Arguments))
+			diagnostics = append(diagnostics, messageAt(*label, message))
+			continue
+		}
 		byField[field.Name] = checked.source
 		declaredIndex := -1
 		for index := range variant.Payload {

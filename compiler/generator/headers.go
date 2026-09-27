@@ -49,7 +49,6 @@ type moduleHeaderInput struct {
 	// Collection states feed the module-owned specialization region; the
 	// program-wide component partition keeps the builtin-element records.
 	slices *generatedSliceState
-	arrays *generatedArrayState
 	lists  *generatedListState
 	dicts  *generatedDictState
 	pools  *generatedPoolState

@@ -28,7 +28,7 @@ func expressionResultType(node checker.Expression) (compilerTypes.Type, bool) {
 		checker.UnionWidenExpression, checker.UnionTestExpression, checker.UnionPayloadExpression,
 		checker.UnionEqualityExpression, checker.HeapAllocateExpression, checker.HeapAllocateAlignedExpression,
 		checker.AdtConstructExpression, checker.AdtPayloadExpression, checker.MatchExpression,
-		checker.ArrayLiteralExpression, checker.IndexExpression, checker.CollectionMethodCallExpression,
+		checker.InlineListLiteralExpression, checker.IndexExpression, checker.CollectionMethodCallExpression,
 		checker.CollectionSliceExpression, checker.StringLiteralExpression, checker.StringMethodCallExpression,
 		checker.StringFromBytesExpression, checker.StringInterpolateExpression, checker.InlineStringConstructExpression, checker.TextCoerceExpression,
 		checker.ListNewExpression, checker.DictNewExpression,

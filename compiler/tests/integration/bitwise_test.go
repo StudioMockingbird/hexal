@@ -167,19 +167,19 @@ func TestBitCastDiagnostics(t *testing.T) {
 }
 
 func TestEndianByteConversion(t *testing.T) {
-	result := compileSource("fun demo() do\n    let value: UInt32 = 0x01020304\n    let little: Array<UInt8, 4> = value.to_le_bytes()\n    let big: Array<UInt8, 4> = value.to_be_bytes()\n    let from_little: UInt32 = UInt32.from_le_bytes(little)\n    let from_big: UInt32 = UInt32.from_be_bytes(big)\n    let signed: Int16 = -2\n    let signed_little: Array<UInt8, 2> = signed.to_le_bytes()\n    let signed_back: Int16 = Int16.from_le_bytes(signed_little)\nend")
+	result := compileSource("fun demo() do\n    let value: UInt32 = 0x01020304\n    let little: List<UInt8, 4> = value.to_le_bytes()\n    let big: List<UInt8, 4> = value.to_be_bytes()\n    let from_little: UInt32 = UInt32.from_le_bytes(little)\n    let from_big: UInt32 = UInt32.from_be_bytes(big)\n    let signed: Int16 = -2\n    let signed_little: List<UInt8, 2> = signed.to_le_bytes()\n    let signed_back: Int16 = Int16.from_le_bytes(signed_little)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"static inline hex_array_UInt8_4 hex_to_le_bytes_uint32_t(uint32_t value) {",
+		"static inline hex_list_inline_UInt8_4 hex_to_le_bytes_uint32_t(uint32_t value) {",
 		"result.data[0] = (uint8_t)((uint32_t)value >> 0);",
 		"result.data[3] = (uint8_t)((uint32_t)value >> 24);",
 		"result.data[0] = (uint8_t)((uint32_t)value >> 24);",
 		"hex_v_little = hex_to_le_bytes_uint32_t(hex_v_value);",
 		"hex_v_from_little = hex_from_le_bytes_uint32_t(&(hex_v_little));",
 		"hex_v_from_big = hex_from_be_bytes_uint32_t(&(hex_v_big));",
-		"static inline int16_t hex_from_le_bytes_int16_t(const hex_array_UInt8_2 *bytes) {",
+		"static inline int16_t hex_from_le_bytes_int16_t(const hex_list_inline_UInt8_2 *bytes) {",
 	} {
 		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) && !strings.Contains(numericH(t, result), want) {
 			t.Fatalf("generated output = %q %q %q, want %q", rootC(t, result), rootH(t, result), numericH(t, result), want)
@@ -192,9 +192,9 @@ func TestEndianDiagnostics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"fun demo() do\n    let count: Size = 1\n    let bad: Array<UInt8, 8> = count.to_le_bytes()\nend", "to_le_bytes requires a fixed-width integer receiver; got Size"},
+		{"fun demo() do\n    let count: Size = 1\n    let bad: List<UInt8, 8> = count.to_le_bytes()\nend", "to_le_bytes requires a fixed-width integer receiver; got Size"},
 		{"fun demo() do\n    let count: Size = 1\n    let bad: Size = Size.from_le_bytes([1, 2, 3, 4, 5, 6, 7, 8])\nend", "from_le_bytes and from_be_bytes require a fixed-width integer type"},
-		{"fun demo() do\n    let value: UInt32 = 1\n    let bad: UInt32 = UInt32.from_le_bytes([1, 2, 3])\nend", "requires exactly 4 elements"},
+		{"fun demo() do\n    let value: UInt32 = 1\n    let bad: UInt32 = UInt32.from_le_bytes([1, 2, 3])\nend", "expects List<Byte, 4>"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {

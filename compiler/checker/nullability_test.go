@@ -20,7 +20,7 @@ func TestCheckerRejectsStandaloneNilEverywhere(t *testing.T) {
 		"fun bad(): Nil do return end",
 		"type Bad is struct marker: Nil, end",
 		"type Bad is union | One as marker: Nil end | Two as value: Int32 end end",
-		"let bad: Array<Nil, 4> = [nil, nil, nil, nil]",
+		"let bad: List<Nil, 4> = [nil, nil, nil, nil]",
 		"let bad: Slice<Nil> = Slice<Nil>.empty()",
 		"let bad: List<Nil> = List<Nil>(Heap())",
 		"let bad: Dict<Nil, Int32> = Dict<Nil, Int32>(Heap())",

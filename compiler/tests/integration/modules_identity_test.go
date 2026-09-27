@@ -89,8 +89,8 @@ func TestSameNamedTypesProduceDistinctContainerSpecializations(t *testing.T) {
 			"    let ds: Dict<Int32, S.Point> = Dict<Int32, S.Point>(h)\n" +
 			"    let pm: M.Point = M.point()\n" +
 			"    let ps: S.Point = S.point()\n" +
-			"    let am: Array<M.Point, 2> = [pm, pm]\n" +
-			"    let arr_s: Array<S.Point, 2> = [ps, ps]\n" +
+			"    let am: List<M.Point, 2> = [pm, pm]\n" +
+			"    let arr_s: List<S.Point, 2> = [ps, ps]\n" +
 			"    let vm: Slice<M.Point> = am.slice(0, 1)\n" +
 			"    let vs: Slice<S.Point> = arr_s.slice(0, 1)\n" +
 			"end\n",
@@ -113,11 +113,11 @@ func TestSameNamedTypesProduceDistinctContainerSpecializations(t *testing.T) {
 	if !strings.Contains(header, "hex_dict_Int32_Point_m1_") {
 		t.Fatalf("modules/app.h %v, want a module-qualified Dict typedef alongside the base name", header)
 	}
-	if strings.Count(header, "typedef struct hex_array_Point_2") != 2 {
-		t.Fatalf("modules/app.h has %d Array<Point, 2> typedefs, want 2", strings.Count(header, "typedef struct hex_array_Point_2"))
+	if strings.Count(header, "typedef struct hex_list_inline_Point_2") != 2 {
+		t.Fatalf("modules/app.h has %d List<Point, 2> typedefs, want 2", strings.Count(header, "typedef struct hex_list_inline_Point_2"))
 	}
-	if !strings.Contains(header, "hex_array_Point_2_m1_") {
-		t.Fatalf("modules/app.h %v, want a module-qualified Array typedef alongside the base name", header)
+	if !strings.Contains(header, "hex_list_inline_Point_2_m1_") {
+		t.Fatalf("modules/app.h %v, want a module-qualified inline List typedef alongside the base name", header)
 	}
 	if strings.Count(header, "typedef struct hex_slice_Point") != 2 {
 		t.Fatalf("modules/app.h has %d Slice<Point> typedefs, want 2", strings.Count(header, "typedef struct hex_slice_Point"))
@@ -190,7 +190,7 @@ func TestBuiltinGenericIdentitySharedAcrossModules(t *testing.T) {
 		"s.hex": "type Point is struct y: Int64, z: Int64 end\nexport\n    Point\nend\n",
 		"lib.hex": "fun take_list(v: List<Int32>): Nil | Error do\n    return nil\nend\n" +
 			"fun take_dict(v: Dict<Int32, Int32>): Nil | Error do\n    return nil\nend\n" +
-			"fun take_array(v: Array<Int32, 2>): Int32 do\n    return v[0]\nend\n" +
+			"fun take_array(v: List<Int32, 2>): Int32 do\n    return v[0]\nend\n" +
 			"fun take_view(v: Slice<Int32>): Int32 do\n    return v[0]\nend\n" +
 			"type Holder is struct values: List<Int32> end\n" +
 			"fun make_holder(values: List<Int32>): Holder do\n    return Holder(values = values)\nend\n" +
@@ -204,7 +204,7 @@ func TestBuiltinGenericIdentitySharedAcrossModules(t *testing.T) {
 			"    Lib.take_list(l)\n" +
 			"    let d: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n" +
 			"    Lib.take_dict(d)\n" +
-			"    let a: Array<Int32, 2> = [1, 2]\n" +
+			"    let a: List<Int32, 2> = [1, 2]\n" +
 			"    Lib.take_array(a)\n" +
 			"    let v: Slice<Int32> = a.slice(0, 1)\n" +
 			"    Lib.take_view(v)\n" +
@@ -265,8 +265,8 @@ func TestModuleOwnedCollectionElementsDeclareBeforeUse(t *testing.T) {
 			"typedef struct hex_dict_Int32_Color", "struct hex_t_m1_s_Color {"},
 		{"nested List", "let l: List<List<M.Point>> = List<List<M.Point>>(h)\n",
 			"typedef struct hex_list_List_Point_", "struct hex_t_m1_m_Point {"},
-		{"Array", "fun f(p: M.Point) do\n    let a: Array<M.Point, 2> = [p, p]\n    let q: M.Point = a[0]\nend\n",
-			"typedef struct hex_array_Point_2", "struct hex_t_m1_m_Point {"},
+		{"Array", "fun f(p: M.Point) do\n    let a: List<M.Point, 2> = [p, p]\n    let q: M.Point = a[0]\nend\n",
+			"typedef struct hex_list_inline_Point_2", "struct hex_t_m1_m_Point {"},
 	}
 
 	for _, item := range cases {

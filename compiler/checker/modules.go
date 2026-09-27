@@ -866,8 +866,8 @@ func (registry *ModuleRegistry) privateTypeInUse(typ compilerTypes.Type, seenObj
 			}
 		}
 		return ""
-	case typ.Array != nil:
-		return registry.privateTypeInUse(typ.Array.Element, seenObjects, seenADTs)
+	case typ.InlineList != nil:
+		return registry.privateTypeInUse(typ.InlineList.Element, seenObjects, seenADTs)
 	case typ.Slice != nil:
 		return registry.privateTypeInUse(typ.Slice.Element, seenObjects, seenADTs)
 	case typ.List != nil:

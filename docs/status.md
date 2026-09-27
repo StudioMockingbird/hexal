@@ -18,6 +18,7 @@ gets deleted.
 
 | Work | Spec | Effort | ROI |
 | --- | --- | --- | --- |
+| Select a layered compile-time and runtime memory-diagnostic strategy without adding ownership semantics | [0247](specs/0247-compile-time-and-runtime-memory-diagnostics.md) | High | High |
 
 ## Deferred ideas
 
@@ -34,7 +35,6 @@ A bug is real whether or not its owning spec is scheduled.
 | Bug | Owning spec | Effort | ROI |
 | --- | --- | --- | --- |
 | `try String<N>.interpolate(...)` fails at generation with `[Unknown Error] String<N>.interpolate expression reached generation without hoisting`; the same call as a plain `let x: String<N> \| Error = ...` assignment hoists and compiles. Fail-closed, no miscompile. | unassigned (needs a hoisting-order spec) | Medium | High |
-| `Net.Address.IPv4/IPv6` `bytes` payload fields reject an ordinary `Array<Byte, 4>`/`Array<Byte, 16>` binding both at construction (`expected Array<UInt8, 4> initializer; got Array<UInt8, 4>`) and at equality (canonical-identity mismatch): the globally interned builtin array and the arena's array are distinct identities. `types/network.go` documents literal-only filling while `reference.md` says IPv4/IPv6 construct through the general ADT rules. Fail-closed, no miscompile. | unassigned (needs a builtin-array identity spec) | Medium | High |
 
 ## Known coverage gaps
 
@@ -50,8 +50,9 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   NULL on entry and assigns it only on success, releasing its own buffer on
   every error path, so the caller's defensive release never has anything to
   free. The success path, the only one that can hand back a `malloc` buffer,
-  is covered by a dedicated LeakSanitizer run (`TestC23SuiteLeak`). No other
-  component gets one: every other fixture deliberately leaves bindings
+  is covered by a dedicated, test-only LeakSanitizer run (`TestC23SuiteLeak`)
+  on supported Linux toolchains. LeakSanitizer is not enabled in Hexal debug
+  builds on any target. Other fixtures deliberately leave bindings
   unfreed, so a program-wide leak check would report their intentional leaks.
 - **Program paths and secure entropy ([0178](specs/0178-libuv-os-services.md))**
   have executable argument-independent fixtures that compile, run, and pass
@@ -81,7 +82,7 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   (one caller per Pipe at a time) is exercised end to end -- a real
   `uv_spawn` child, exit-status wait, and piped-stdout read/write/close --
   by the tagged C23 suite (`process-spawn-wait-runs`, `process-pipe-echo-runs`).
-- **Signals (closed RFC 0176) routes any collection specialized over `Signal` (List, Array, Slice,
+- **Signals (closed RFC 0176) routes any collection specialized over `Signal` (List, Slice,
   Dict, Pool) to the consuming module's own header instead of the shared collection component, and
   excludes such a collection from eager equality-helper generation.** `hexal/signal.h` needs
   `hexal/error.h`, which needs `hexal/string.h`, which needs `hex_slice_UInt8` -- but
@@ -89,7 +90,7 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   being complete, so no shared component can include `hexal/signal.h` without inverting that
   dependency direction. Routing the specialization to module-owned rendering (where
   `hexal/signal.h` is already `#include`d) sidesteps the conflict entirely, at the cost of
-  `List<Signal> == List<Signal>` and its Array/Slice/Dict/Pool equivalents not being generated;
+  `List<Signal> == List<Signal>` and its Slice/Dict/Pool equivalents not being generated;
   bare `Signal == Signal` is unaffected. File, TcpConnection, and Process have the identical
   layering conflict for their own element collections and are not fixed here. Exercised end to end
   -- a real subscription racing a concurrent `close()` against a parked `next()` -- by the tagged
@@ -145,12 +146,13 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   remains separately deferred under RFC 0185 because Task fibers lack sanitizer
   switch annotations. TSan is out of scope entirely; user-space fibers need
   their own feasibility decision. LeakSanitizer (`TestC23SuiteLeak`) is
-  likewise Linux-only and skips on Windows, where no LSan runtime exists.
+  limited to supported Linux test toolchains; it does not enable LeakSanitizer
+  in user debug builds.
 - **Equality, print, and union widening/truthiness are now demand-driven; the
   four `-Wno-unused-*` suppressions in `compiler/tests/c23validation`'s Tier 1
   build stay in place, but for a different, disclosed reason than the one
   they used to name.** `discoverEqualityTypes` (`equality.go`) collected an
-  equality helper for every Object/ADT/Array/Slice/List/union type merely
+  equality helper for every Object/ADT/inline-List/Slice/allocated-List/union type merely
   *mentioned* anywhere in the program, whether or not `==`/`!=` was ever
   applied to it; it now collects one only from an actual
   `DeepEqualityExpression`/`UnionEqualityExpression` site, plus the one real

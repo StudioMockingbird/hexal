@@ -152,8 +152,8 @@
       "sources": {"app.hex": [
         "fun demo(): Bool do",
         "    let value: UInt32= 0x01020304",
-        "    let little: Array\u003cUInt8, 4\u003e = value.to_le_bytes()",
-        "    let big: Array\u003cUInt8, 4\u003e = value.to_be_bytes()",
+        "    let little: List\u003cUInt8, 4\u003e = value.to_le_bytes()",
+        "    let big: List\u003cUInt8, 4\u003e = value.to_be_bytes()",
         "    let back: UInt32= UInt32.from_le_bytes(little)",
         "    let swapped: UInt32= UInt32.from_be_bytes(big)",
         "    return (back == value) and (swapped == value)",

@@ -411,7 +411,7 @@ func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDept
 	}
 
 	// The source is read as a value but keeps its place addressability when
-	// it names storage: the generator iterates an Array place in place and
+	// it names storage: the generator iterates an inline List place in place and
 	// only materializes genuine temporaries.
 	var source checkedExpression
 	switch statement.Source.(type) {
@@ -481,7 +481,7 @@ func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDept
 	// other copied-handle mutations remain defined by the generated version
 	// check. Every checked expression in the body is scanned, not only calls in
 	// statement position.
-	if len(bodyDiagnostics) == 0 && (source.typ.List != nil || source.typ.Dict != nil) {
+	if len(bodyDiagnostics) == 0 && (source.typ.List != nil || source.typ.InlineList != nil || source.typ.Dict != nil) {
 		if binding := baseBindingID(&source.source.Node); binding != 0 {
 			root := collectionRootForOperand(source.source, ctx.names, binding)
 			if mutationDiagnostics := checkForIterationMutations(binding, root, source.typ, body, ctx.names.table); len(mutationDiagnostics) > 0 {
@@ -501,10 +501,10 @@ func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDept
 // reports the arity diagnostic.
 func forBinderTypes(source compilerTypes.Type, binders []lexer.Token) ([]compilerTypes.Type, *compilerTypes.Diagnostic) {
 	switch {
-	case source.Array != nil || source.Slice != nil || source.List != nil:
+	case source.InlineList != nil || source.Slice != nil || source.List != nil:
 		var element compilerTypes.Type
-		if source.Array != nil {
-			element = source.Array.Element
+		if source.InlineList != nil {
+			element = source.InlineList.Element
 		} else if source.Slice != nil {
 			element = source.Slice.Element
 		} else {

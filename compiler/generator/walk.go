@@ -102,11 +102,6 @@ func walkTypeTreeSeen(typ compilerTypes.Type, visit func(compilerTypes.Type) err
 			}
 		}
 	}
-	if typ.Array != nil {
-		if err := walkTypeTreeSeen(typ.Array.Element, visit, seenAdt, seenObject); err != nil {
-			return err
-		}
-	}
 	if typ.Slice != nil {
 		if err := walkTypeTreeSeen(typ.Slice.Element, visit, seenAdt, seenObject); err != nil {
 			return err
@@ -114,6 +109,11 @@ func walkTypeTreeSeen(typ compilerTypes.Type, visit func(compilerTypes.Type) err
 	}
 	if typ.List != nil {
 		if err := walkTypeTreeSeen(typ.List.Element, visit, seenAdt, seenObject); err != nil {
+			return err
+		}
+	}
+	if typ.InlineList != nil {
+		if err := walkTypeTreeSeen(typ.InlineList.Element, visit, seenAdt, seenObject); err != nil {
 			return err
 		}
 	}
@@ -364,11 +364,6 @@ func (state *walkState) walkType(typ compilerTypes.Type) error {
 	}
 	if typ.NullableBase != nil {
 		if err := state.walkType(*typ.NullableBase); err != nil {
-			return err
-		}
-	}
-	if typ.Array != nil {
-		if err := state.walkType(typ.Array.Element); err != nil {
 			return err
 		}
 	}

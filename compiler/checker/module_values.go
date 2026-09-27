@@ -74,7 +74,7 @@ func checkModuleConstant(declaration parser.Declaration, moduleID string, ctx ch
 }
 
 // isStaticInitializerOperand reports whether operand is built entirely from
-// the accepted static initializer tree: literals, Array literals, struct
+// the accepted static initializer tree: literals, inline List literals, struct
 // construction, ADT variant construction, and structural-union injection,
 // recursively. It is a closed allowlist, never a rejection blocklist.
 func isStaticInitializerOperand(operand Operand) bool {
@@ -106,7 +106,7 @@ func isStaticInitializerObject(value ObjectValue) bool {
 
 func isStaticInitializerExpression(node Expression) bool {
 	switch node.Kind {
-	case ArrayLiteralExpression:
+	case InlineListLiteralExpression:
 		for _, argument := range node.Arguments {
 			if !isStaticInitializerOperand(argument) {
 				return false

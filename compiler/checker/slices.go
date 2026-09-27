@@ -25,12 +25,12 @@ func resolveSliceTypeUse(expression parser.SliceTypeExpression, fallback lexer.T
 }
 
 // checkSliceMethod checks start.slice(begin, end) and start.mut_slice(begin,
-// end) for Array, List, and Slice receivers. The mutable form is valid only
-// on Array and List: re-slicing a Slice preserves the call.receiver's own access
-// mode through slice. Array receivers must be stable places, and mutable
-// Array slicing needs a writable place; a fixed List handle already permits
-// interior element mutation. Known constant bounds against a known array
-// length fail at compile time; all other invalid ranges trap at runtime.
+// end) for inline List, allocated List, and Slice receivers. The mutable form
+// is valid only on Lists: re-slicing a Slice preserves the call.receiver's own
+// access mode through slice. Inline Lists require stable places and writable
+// access for mut_slice; allocated Lists permit interior element mutation.
+// Known constant bounds fail at compile time when provable; other invalid
+// ranges trap at runtime.
 func checkSliceMethod(call methodCall, mutable bool) checkedExpression {
 	name := "slice"
 	if mutable {
@@ -39,45 +39,47 @@ func checkSliceMethod(call methodCall, mutable bool) checkedExpression {
 	if len(call.call.Arguments) != 2 {
 		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.SliceMethodArgumentCount(name, len(call.call.Arguments))))}
 	}
-	start, startKnown, diagnostic := checkArrayIndex(call.call.Arguments[0], call.callee.Property, call.ctx)
+	start, startKnown, diagnostic := checkSequenceIndex(call.call.Arguments[0], call.callee.Property, call.ctx)
 	if diagnostic != nil {
 		return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 	}
-	end, endKnown, diagnostic := checkArrayIndex(call.call.Arguments[1], call.callee.Property, call.ctx)
+	end, endKnown, diagnostic := checkSequenceIndex(call.call.Arguments[1], call.callee.Property, call.ctx)
 	if diagnostic != nil {
 		return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 	}
 
 	var element compilerTypes.Type
 	kind := ""
+	capacity := uint64(0)
 	writable := mutable
 	switch {
-	case call.receiver.typ.Array != nil:
-		element = call.receiver.typ.Array.Element
-		kind = "Array"
 	case call.receiver.typ.List != nil:
 		element = call.receiver.typ.List.Element
 		kind = "List"
+	case call.receiver.typ.InlineList != nil:
+		element = call.receiver.typ.InlineList.Element
+		capacity = call.receiver.typ.InlineList.Capacity
+		kind = "inline List"
 	case call.receiver.typ.Slice != nil:
 		element = call.receiver.typ.Slice.Element
 		writable = call.receiver.typ.Slice.Writable
 	}
 	if kind != "" {
-		// A slice must be rooted in stable storage. A temporary
-		// Array or List has no addressable storage.
+		// A slice must be rooted in stable storage. A temporary List has no
+		// addressable storage.
 		if !call.receiver.source.Addressable {
 			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.SliceRootedInTemporary(kind)))}
 		}
 	}
-	if call.receiver.typ.Array != nil {
+	if call.receiver.typ.InlineList != nil {
 		if mutable && !call.receiver.source.Writable {
-			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.MutSliceRequiresWritableArray()))}
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.InlineListMutationRequiresWritable()))}
 		}
 		if startKnown != nil && startKnown.Constant != nil && startKnown.Constant.Kind() == constant.Int &&
 			endKnown != nil && endKnown.Constant != nil && endKnown.Constant.Kind() == constant.Int {
 			startValue, startExact := constant.Int64Val(startKnown.Constant)
 			endValue, endExact := constant.Int64Val(endKnown.Constant)
-			if startExact && endExact && (startValue > endValue || endValue > int64(call.receiver.typ.Array.Length)) {
+			if startExact && endExact && (startValue > endValue || endValue < 0 || uint64(endValue) > capacity) {
 				return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(tokenOf(call.call.Arguments[0]), diag.SliceRangeOutOfBounds(startValue, endValue, call.receiver.typ.Name)))}
 			}
 		}
@@ -131,7 +133,7 @@ func findLocalViewRoot(node *Expression, names *scope, seen map[*Expression]bool
 				}
 			}
 		}
-	case AdtConstructExpression, ArrayLiteralExpression, MatchExpression:
+	case AdtConstructExpression, InlineListLiteralExpression, MatchExpression:
 		for index := range node.Arguments {
 			if findLocalViewRoot(&node.Arguments[index].Node, names, seen) {
 				return true

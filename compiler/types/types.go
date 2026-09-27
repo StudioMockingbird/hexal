@@ -69,8 +69,8 @@ type Type struct {
 	Union *UnionInfo
 	// Adt holds the nominal ADT record when this is an ADT type.
 	Adt *AdtType
-	// Array holds the metadata of fixed inline array types.
-	Array *ArrayInfo
+	// InlineList holds the metadata of a capacity-bounded inline List value.
+	InlineList *InlineListInfo
 	// InlineString holds the metadata of inline text types, String<N>.
 	InlineString *InlineStringInfo
 	// Slice holds the metadata of non-owning contiguous slice types.
@@ -731,8 +731,8 @@ func IsCompleteValue(typ Type) bool {
 		// completed must not keep reporting an incomplete layout.
 		return !typ.Object.Incomplete
 	}
-	if typ.Array != nil {
-		return IsCompleteValue(typ.Array.Element)
+	if typ.InlineList != nil {
+		return IsCompleteValue(typ.InlineList.Element)
 	}
 	if typ.NullableBase != nil {
 		return IsCompleteValue(*typ.NullableBase)

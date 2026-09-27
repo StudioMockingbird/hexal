@@ -69,7 +69,7 @@ func losslessWideningSet(typ Type) []Type {
 // WidensTo reports whether every value of the source type is exactly
 // representable by the destination type: identity or one direct lossless
 // widening registry entry. This is the one-directional relation used by
-// assignment, arguments, returns, field initialization, and Array elements.
+// assignment, arguments, returns, field initialization, and List elements.
 func WidensTo(source, target Type) bool {
 	if Equal(source, target) {
 		return true

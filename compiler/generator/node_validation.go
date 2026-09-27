@@ -564,7 +564,7 @@ func checkedPlaceMetadata(node checker.Expression, state *expressionValidation) 
 		}
 		return generatedPlace{typ: node.ResultType, addressable: parent.addressable, writable: parent.writable}, nil
 	case checker.IndexExpression:
-		if node.Operand == nil || len(node.Arguments) != 1 || node.OperandType.Array == nil && node.OperandType.Slice == nil && node.OperandType.List == nil {
+		if node.Operand == nil || len(node.Arguments) != 1 || node.OperandType.InlineList == nil && node.OperandType.Slice == nil && node.OperandType.List == nil {
 			return generatedPlace{}, unknownExpressionDiagnostic()
 		}
 		receiver, err := checkedPlaceMetadata(*node.Operand, state)
@@ -573,7 +573,7 @@ func checkedPlaceMetadata(node checker.Expression, state *expressionValidation) 
 		}
 		if !compilerTypes.Equal(node.OperandType, receiver.typ) {
 			// A null-test may narrow the indexed binding from a union to its
-			// Slice, Array, or List member. The place metadata recovers the
+			// Slice or List member. The place metadata recovers the
 			// declared binding type, so accept only an exact union member and
 			// use the checked effective type for element and write capability.
 			if !compilerTypes.Assignable(receiver.typ, node.OperandType) {
@@ -582,8 +582,8 @@ func checkedPlaceMetadata(node checker.Expression, state *expressionValidation) 
 			receiver.typ = node.OperandType
 		}
 		var element compilerTypes.Type
-		if node.OperandType.Array != nil {
-			element = node.OperandType.Array.Element
+		if node.OperandType.InlineList != nil {
+			element = node.OperandType.InlineList.Element
 		} else if node.OperandType.Slice != nil {
 			element = node.OperandType.Slice.Element
 		} else {
@@ -592,9 +592,9 @@ func checkedPlaceMetadata(node checker.Expression, state *expressionValidation) 
 		if node.ResultType != (compilerTypes.Type{}) && !compilerTypes.Equal(node.ResultType, element) {
 			return generatedPlace{}, unknownExpressionDiagnostic()
 		}
-		// A Slice element place is never writable; a mutable Array place or
+		// A Slice element place is never writable; a mutable inline List place or
 		// any live List reference is.
-		writable := node.OperandType.Array != nil && receiver.writable || node.OperandType.List != nil
+		writable := node.OperandType.InlineList != nil && receiver.writable || node.OperandType.List != nil
 		return generatedPlace{typ: element, addressable: receiver.addressable, writable: writable}, nil
 	default:
 		return generatedPlace{}, unknownExpressionDiagnostic()
@@ -1014,7 +1014,7 @@ func validateEndianConversionExpression(node checker.Expression, expected *compi
 		return unknownExpressionDiagnostic()
 	}
 	if node.Name == "from" {
-		if len(node.Arguments) != 1 || node.ResultType == (compilerTypes.Type{}) || node.OperandType.Array == nil {
+		if len(node.Arguments) != 1 || node.ResultType == (compilerTypes.Type{}) || node.OperandType.InlineList == nil {
 			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
@@ -1022,7 +1022,7 @@ func validateEndianConversionExpression(node checker.Expression, expected *compi
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
 	}
-	if len(node.Arguments) != 0 || node.ResultType.Array == nil {
+	if len(node.Arguments) != 0 || node.ResultType.InlineList == nil {
 		return unknownExpressionDiagnostic()
 	}
 	if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {

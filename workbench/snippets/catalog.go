@@ -66,7 +66,7 @@ var RequiredFeatures = []string{
 	"function-values", "methods", "generics", "unions", "adts", "match",
 	"lossless-widening", "numeric-conversions", "arithmetic", "bitwise", "equality-ordering",
 	"bit-casting", "endian-conversion", "truthiness", "if-elseif-else", "while", "for", "defer", "errors",
-	"try-errdefer", "heap-allocation", "arrays", "slices", "slice-pointer-bridge",
+	"try-errdefer", "heap-allocation", "inline-lists", "slices", "slice-pointer-bridge",
 	"lists", "dicts", "text", "print", "tasks",
 	"channels", "mutex", "atomics", "layout", "volatile", "unknown-pointers", "modules", "exports", "streams", "files", "time",
 	"unsafe", "pointer-arithmetic", "aligned-allocation",

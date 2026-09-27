@@ -1,6 +1,67 @@
 {{- /* pi-lens-ignore: clang */ -}}
 {{- define "listbody" -}}
 {{range .Lists}}
+{{- if .Inline}}
+{{- if or (not .AddressBytes) (not $.NeedsNetwork)}}
+typedef struct {{.CName}} {
+    size_t length;
+    size_t version;
+    {{.ElementSpelling}} data[{{.Capacity}}];
+} {{.CName}};
+{{- end}}
+static inline void hex_list_inline_push_{{.Suffix}}({{.CName}} *list, {{.ElementSpelling}} value) {
+    if (list->length == {{.Capacity}}) {
+        hex_runtime_trap("[Runtime Error] inline List capacity exceeded\n");
+    }
+    list->data[list->length] = value;
+    list->length++;
+    list->version++;
+}
+static inline {{.ElementSpelling}} hex_list_inline_pop_{{.Suffix}}({{.CName}} *list) {
+    if (list->length == 0) {
+        hex_runtime_trap("[Runtime Error] inline List is empty\n");
+    }
+    {{.ElementSpelling}} value = list->data[list->length - 1];
+    list->length--;
+    list->version++;
+    return value;
+}
+static inline void hex_list_inline_clear_{{.Suffix}}({{.CName}} *list) {
+    list->length = 0;
+    list->version++;
+}
+static inline {{.AtReadReturn}} hex_list_inline_at_{{.Suffix}}(const {{.CName}} *list, size_t index) {
+    if (index >= list->length) {
+        hex_runtime_trap("[Runtime Error] list index out of bounds\n");
+    }
+    return &list->data[index];
+}
+static inline {{.ElementSpelling}} *hex_list_inline_at_mut_{{.Suffix}}({{.CName}} *list, size_t index) {
+    if (index >= list->length) {
+        hex_runtime_trap("[Runtime Error] list index out of bounds\n");
+    }
+    return &list->data[index];
+}
+{{if .SliceCName}}static inline {{.SliceCName}} hex_list_inline_slice_{{.Suffix}}(const {{.CName}} *list, uint64_t start, uint64_t end) {
+    if (!(start <= end && end <= list->length)) {
+        hex_runtime_trap("[Runtime Error] list slice bounds out of range\n");
+    }
+    return ({{.SliceCName}}){&list->data[start], end - start};
+}
+{{end}}{{if .MutSliceCName}}static inline {{.MutSliceCName}} hex_list_inline_mut_slice_{{.Suffix}}({{.CName}} *list, uint64_t start, uint64_t end) {
+    if (!(start <= end && end <= list->length)) {
+        hex_runtime_trap("[Runtime Error] list slice bounds out of range\n");
+    }
+    return ({{.MutSliceCName}}){&list->data[start], end - start};
+}
+{{end}}{{if .AddressBytes}}static inline {{.CName}} hex_list_inline_check_address_bytes_{{.Suffix}}({{.CName}} value) {
+    if (value.length != {{.Capacity}}) {
+        hex_runtime_trap("[Runtime Error] network address byte length does not match address family\n");
+    }
+    return value;
+}
+{{end}}
+{{else}}
 typedef struct {{.CName}} {
     {{.ElementSpelling}} *data;
     size_t length;
@@ -115,7 +176,8 @@ static inline void hex_list_free_{{.Suffix}}(hex_heap h, {{.CName}} *list) {
     }
     return ({{.MutSliceCName}}){list->data == nullptr ? nullptr : &list->data[start], end - start};
 }
-{{end}}{{end}}
+{{end}}{{end -}}
+{{- end}}
 {{- end -}}
 #ifndef HEXAL_LIST_H
 #define HEXAL_LIST_H

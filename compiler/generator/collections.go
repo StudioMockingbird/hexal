@@ -2,7 +2,6 @@ package generator
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"hexal/compiler/checker"
@@ -29,122 +28,6 @@ func builtinMethodCallSymbol(owner specdata.TypePattern, name, suffix string) (s
 	// the generator writes a suffix, so this is a literal substitution, never
 	// a format string: a recorded symbol may contain other percent signs.
 	return strings.ReplaceAll(method.RuntimeSymbol, "%s", suffix), nil
-}
-
-// generatedArrayState records the array types that need struct and element
-// accessor definitions, in deterministic order.
-type generatedArrayState struct {
-	order []compilerTypes.Type
-	seen  map[*compilerTypes.ArrayInfo]bool
-	// demand records, per specialization, which accessor directions some
-	// access actually reaches after bounds-check elision. An Array whose only
-	// uses are for-in and constant indices reaches neither and gets no
-	// accessor at all.
-	demand map[*compilerTypes.ArrayInfo]arrayAccessorDemand
-}
-
-// arrayAccessorDemand is one specialization's surviving accessor need. read
-// selects hex_array_at_, write selects hex_array_at_mut_; the renderer picks
-// between them by receiver mutability, not by whether the access writes, so
-// a read through a mut binding still demands the mutable accessor.
-type arrayAccessorDemand struct {
-	read  bool
-	write bool
-}
-
-// arrayIndexCheckSurvives reports whether an index access still needs a
-// bounds check, and therefore an accessor. A constant index is one the
-// checker already proved in range: it rejects the failing half outright, so
-// the check is dead by construction.
-//
-// This is deliberately narrower than the checker's proof: the checker
-// resolves constants through immutable bindings, so `n: Size := 0` followed by
-// `a[n]` is proven at check time but arrives here as a variable reference.
-// Emitting a check that cannot fire is always correct, so only the literal
-// case is elided here.
-func arrayIndexCheckSurvives(node checker.Expression) bool {
-	if node.Kind != checker.IndexExpression || node.OperandType.Array == nil || len(node.Arguments) != 1 {
-		return false
-	}
-	return node.Arguments[0].Kind != checker.ConstantOperand
-}
-
-// recordArrayAccessorDemand marks the accessor direction one surviving access
-// needs. Callers filter with arrayIndexCheckSurvives first.
-func (state *generatedArrayState) recordArrayAccessorDemand(array *compilerTypes.ArrayInfo, writable bool) {
-	if state == nil || array == nil {
-		return
-	}
-	if state.demand == nil {
-		state.demand = make(map[*compilerTypes.ArrayInfo]arrayAccessorDemand)
-	}
-	entry := state.demand[array]
-	if writable {
-		entry.write = true
-	} else {
-		entry.read = true
-	}
-	state.demand[array] = entry
-}
-
-// accessorDemandFor returns one specialization's surviving accessor need.
-func (state *generatedArrayState) accessorDemandFor(array compilerTypes.Type) arrayAccessorDemand {
-	if state == nil || state.demand == nil || array.Array == nil {
-		return arrayAccessorDemand{}
-	}
-	return state.demand[array.Array]
-}
-
-// discoverGeneratedArrays walks every type reachable from the program and
-// collects the distinct array types. Discovery order is then sorted by C name
-// so the generated header is deterministic.
-func discoverGeneratedArrays(program checker.Program) *generatedArrayState {
-	state := &generatedArrayState{seen: make(map[*compilerTypes.ArrayInfo]bool)}
-	visitor := &programVisitor{
-		Type: func(typ compilerTypes.Type) error {
-			if typ.Array != nil {
-				if !state.seen[typ.Array] {
-					state.seen[typ.Array] = true
-					state.order = append(state.order, typ)
-				}
-			}
-			return nil
-		},
-	}
-	walkProgram(program, visitor)
-
-	slices.SortStableFunc(state.order, func(left, right compilerTypes.Type) int {
-		return strings.Compare(left.CName, right.CName)
-	})
-	return state
-}
-
-// arrayDependencyOrder orders array types so every element-array appears
-// before the array embedding it, preserving the discovery order otherwise.
-func arrayDependencyOrder(order []compilerTypes.Type) []compilerTypes.Type {
-	byName := make(map[string]compilerTypes.Type, len(order))
-	for _, array := range order {
-		byName[array.CName] = array
-	}
-	visited := make(map[string]bool)
-	result := make([]compilerTypes.Type, 0, len(order))
-	var visit func(array compilerTypes.Type)
-	visit = func(array compilerTypes.Type) {
-		if visited[array.CName] {
-			return
-		}
-		visited[array.CName] = true
-		if element := array.Array.Element; element.Array != nil {
-			if inner, ok := byName[element.CName]; ok {
-				visit(inner)
-			}
-		}
-		result = append(result, array)
-	}
-	for _, array := range order {
-		visit(array)
-	}
-	return result
 }
 
 // matchingSlice returns the discovered slice type over one element in the
@@ -181,20 +64,6 @@ func sliceSliceHelper(slice compilerTypes.Type) string {
 	return "hex_slice_slice_" + strings.TrimPrefix(slice.CName, "hex_slice_")
 }
 
-func arrayAccessorSuffix(array compilerTypes.Type) string {
-	return strings.TrimPrefix(array.CName, "hex_array_")
-}
-
-// arrayAccessorCName selects the read or write accessor for one array type;
-// writable selects the mutable variant.
-func arrayAccessorCName(array compilerTypes.Type, writable bool) string {
-	name := "hex_array_at_" + arrayAccessorSuffix(array)
-	if writable {
-		name = "hex_array_at_mut_" + arrayAccessorSuffix(array)
-	}
-	return name
-}
-
 func validateCollectionConstructor(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	switch node.Kind {
 	case checker.ListNewExpression:
@@ -225,8 +94,14 @@ func validateCollectionConstructor(node checker.Expression, expected *compilerTy
 
 func validateCollectionExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
 	switch node.Kind {
-	case checker.ArrayLiteralExpression:
-		if node.ResultType.Array == nil || !compilerTypes.Equal(node.OperandType, node.ResultType.Array.Element) || len(node.Arguments) != int(node.ResultType.Array.Length) || !supportedGeneratedTypeWithState(node.ResultType, state) {
+	case checker.InlineListLiteralExpression:
+		capacity := uint64(0)
+		element := compilerTypes.Type{}
+		if node.ResultType.InlineList != nil {
+			capacity = node.ResultType.InlineList.Capacity
+			element = node.ResultType.InlineList.Element
+		}
+		if element == (compilerTypes.Type{}) || !compilerTypes.Equal(node.OperandType, element) || uint64(len(node.Arguments)) > capacity || !supportedGeneratedTypeWithState(node.ResultType, state) {
 			return unknownExpressionDiagnostic()
 		}
 		if expected != nil && !compilerTypes.Equal(*expected, node.ResultType) {
@@ -242,12 +117,12 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 		}
 		return nil
 	case checker.IndexExpression:
-		if node.Operand == nil || len(node.Arguments) != 1 || node.OperandType.Array == nil && node.OperandType.Slice == nil && node.OperandType.List == nil || !supportedGeneratedTypeWithState(node.OperandType, state) {
+		if node.Operand == nil || len(node.Arguments) != 1 || node.OperandType.InlineList == nil && node.OperandType.Slice == nil && node.OperandType.List == nil || !supportedGeneratedTypeWithState(node.OperandType, state) {
 			return unknownExpressionDiagnostic()
 		}
 		var element compilerTypes.Type
-		if node.OperandType.Array != nil {
-			element = node.OperandType.Array.Element
+		if node.OperandType.InlineList != nil {
+			element = node.OperandType.InlineList.Element
 		} else if node.OperandType.Slice != nil {
 			element = node.OperandType.Slice.Element
 		} else {
@@ -264,12 +139,12 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 		}
 		return validateCheckedOperandWithState(node.Arguments[0], state)
 	case checker.CollectionMethodCallExpression:
-		if node.Operand == nil || node.OperandType.Array == nil && node.OperandType.Slice == nil && node.OperandType.List == nil && node.OperandType.Dict == nil || !supportedGeneratedTypeWithState(node.OperandType, state) {
+		if node.Operand == nil || node.OperandType.InlineList == nil && node.OperandType.Slice == nil && node.OperandType.List == nil && node.OperandType.Dict == nil || !supportedGeneratedTypeWithState(node.OperandType, state) {
 			return unknownExpressionDiagnostic()
 		}
 		element := node.Element
-		if node.OperandType.Array != nil {
-			element = node.OperandType.Array.Element
+		if node.OperandType.InlineList != nil {
+			element = node.OperandType.InlineList.Element
 		} else if node.OperandType.Slice != nil {
 			element = node.OperandType.Slice.Element
 		} else if node.OperandType.List != nil {
@@ -293,18 +168,18 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 				return unknownExpressionDiagnostic()
 			}
 		case "push":
-			if node.OperandType.List == nil || len(node.Arguments) != 1 || node.ResultType != (compilerTypes.Type{}) {
+			if node.OperandType.List == nil && node.OperandType.InlineList == nil || len(node.Arguments) != 1 || node.ResultType != (compilerTypes.Type{}) {
 				return unknownExpressionDiagnostic()
 			}
 			if err := validateCheckedOperandWithState(node.Arguments[0], state); err != nil {
 				return err
 			}
 		case "clear":
-			if node.OperandType.List == nil || len(node.Arguments) != 0 || node.ResultType != (compilerTypes.Type{}) {
+			if node.OperandType.List == nil && node.OperandType.InlineList == nil || len(node.Arguments) != 0 || node.ResultType != (compilerTypes.Type{}) {
 				return unknownExpressionDiagnostic()
 			}
 		case "pop":
-			if node.OperandType.List == nil || len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, element) {
+			if node.OperandType.List == nil && node.OperandType.InlineList == nil || len(node.Arguments) != 0 || !compilerTypes.Equal(node.ResultType, element) {
 				return unknownExpressionDiagnostic()
 			}
 		case "free":
@@ -355,12 +230,12 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 		}
 		return validateExpressionChildWithState(node.Operand, node.OperandType, state)
 	case checker.CollectionSliceExpression:
-		if node.Operand == nil || len(node.Arguments) != 2 || node.ResultType.Slice == nil || !compilerTypes.Equal(node.ResultType.Slice.Element, node.Element) || node.OperandType.Array == nil && node.OperandType.Slice == nil && node.OperandType.List == nil || !supportedGeneratedTypeWithState(node.OperandType, state) || !supportedGeneratedTypeWithState(node.ResultType, state) {
+		if node.Operand == nil || len(node.Arguments) != 2 || node.ResultType.Slice == nil || !compilerTypes.Equal(node.ResultType.Slice.Element, node.Element) || node.OperandType.InlineList == nil && node.OperandType.Slice == nil && node.OperandType.List == nil || !supportedGeneratedTypeWithState(node.OperandType, state) || !supportedGeneratedTypeWithState(node.ResultType, state) {
 			return unknownExpressionDiagnostic()
 		}
 		var element compilerTypes.Type
-		if node.OperandType.Array != nil {
-			element = node.OperandType.Array.Element
+		if node.OperandType.InlineList != nil {
+			element = node.OperandType.InlineList.Element
 		} else if node.OperandType.Slice != nil {
 			element = node.OperandType.Slice.Element
 		} else {
@@ -446,32 +321,31 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 			}
 			return "*hex_list_at_" + listSuffix(node.OperandType) + "(" + receiver + ", (size_t)(" + index + "))", nil
 		}
-		// An index the checker already proved in range needs no
-		// check, so it needs no accessor call either.
-		if !arrayIndexCheckSurvives(node) {
-			return receiver + ".data[" + index + "]", nil
-		}
-		// This call is the accessor's only demand, so it is recorded here
-		// rather than derived again from the checked tree.
-		if state != nil && state.generatedTypes != nil {
-			state.generatedTypes.arrays.recordArrayAccessorDemand(node.OperandType.Array, place.writable)
-		}
-		return "*" + arrayAccessorCName(node.OperandType, place.writable) + "(&" + receiver + ", (size_t)(" + index + "))", nil
-	case checker.ArrayLiteralExpression:
-		if node.ResultType.Array == nil {
-			return "", unknownExpressionDiagnostic()
-		}
-		elements := make([]string, len(node.Arguments))
-		for index, element := range node.Arguments {
-			rendered, elementErr := renderHoistedOperand(&node.Arguments[index].Node, element, state)
-			if elementErr != nil {
-				return "", elementErr
+		if node.OperandType.InlineList != nil {
+			accessor := "hex_list_inline_at_"
+			if place.writable {
+				accessor = "hex_list_inline_at_mut_"
 			}
-			elements[index] = rendered
+			return "*" + accessor + listSuffix(node.OperandType) + "(&(" + receiver + "), (size_t)(" + index + "))", nil
 		}
-		// The element region is the struct's single data member, so the
-		// compound literal carries one extra brace layer.
-		return "(" + node.ResultType.CName + "){{" + strings.Join(elements, ", ") + "}}", nil
+		return "", unknownExpressionDiagnostic()
+	case checker.InlineListLiteralExpression:
+		if node.ResultType.InlineList != nil {
+			elements := make([]string, len(node.Arguments))
+			for index, element := range node.Arguments {
+				rendered, elementErr := renderHoistedOperand(&node.Arguments[index].Node, element, state)
+				if elementErr != nil {
+					return "", elementErr
+				}
+				elements[index] = rendered
+			}
+			initializer := fmt.Sprintf(".length = %d, .version = 0", len(elements))
+			if len(elements) > 0 {
+				initializer += ", .data = {" + strings.Join(elements, ", ") + "}"
+			}
+			return "(" + node.ResultType.CName + "){ " + initializer + " }", nil
+		}
+		return "", unknownExpressionDiagnostic()
 	case checker.CollectionMethodCallExpression:
 		switch node.Name {
 		case "pointer":
@@ -487,9 +361,6 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 			// pointer is exactly the Nil result.
 			return "(" + receiver + ").data", nil
 		case "length":
-			if node.OperandType.Array != nil {
-				return fmt.Sprintf("(size_t)(%d)", node.OperandType.Array.Length), nil
-			}
 			receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
 			if receiverErr != nil {
 				return "", receiverErr
@@ -500,7 +371,7 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 			}
 			return "(" + receiver + ").length", nil
 		case "push", "clear", "pop":
-			if node.Operand == nil || node.OperandType.List == nil {
+			if node.Operand == nil || node.OperandType.List == nil && node.OperandType.InlineList == nil {
 				return "", unknownExpressionDiagnostic()
 			}
 			receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
@@ -508,7 +379,13 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 				return "", receiverErr
 			}
 			suffix := listSuffix(node.OperandType)
-			symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeList), node.Name, suffix)
+			owner := specdata.TypeList
+			receiverArgument := receiver
+			if node.OperandType.InlineList != nil {
+				owner = specdata.TypeInlineList
+				receiverArgument = "&( " + receiver + " )"
+			}
+			symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(owner), node.Name, suffix)
 			if symbolErr != nil {
 				return "", symbolErr
 			}
@@ -521,11 +398,11 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 				if valueErr != nil {
 					return "", valueErr
 				}
-				return symbol + "(" + receiver + ", " + value + ")", nil
+				return symbol + "(" + receiverArgument + ", " + value + ")", nil
 			case "clear":
-				return symbol + "(" + receiver + ")", nil
+				return symbol + "(" + receiverArgument + ")", nil
 			case "pop":
-				return symbol + "(" + receiver + ")", nil
+				return symbol + "(" + receiverArgument + ")", nil
 			}
 		case "free":
 			if node.Operand == nil || len(node.Arguments) != 1 {
@@ -631,55 +508,48 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 		if node.OperandType.Slice != nil {
 			return sliceSliceHelper(node.OperandType) + "(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
 		}
-		// A List or Array re-slice dispatches the recorded slice or
+		// A List re-slice dispatches the recorded slice or
 		// mut_slice method; the registry owns the emitted symbol and the
 		// receiver type supplies the per-specialization suffix.
-		if node.OperandType.List != nil {
+		if node.OperandType.List != nil || node.OperandType.InlineList != nil {
 			operation := "slice"
 			if node.ResultType.Slice != nil && node.ResultType.Slice.Writable {
 				operation = "mut_slice"
 			}
-			symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeList), operation, listSuffix(node.OperandType))
+			owner := specdata.TypeList
+			receiverArgument := receiver
+			if node.OperandType.InlineList != nil {
+				owner = specdata.TypeInlineList
+				receiverArgument = "&( " + receiver + " )"
+			}
+			symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(owner), operation, listSuffix(node.OperandType))
 			if symbolErr != nil {
 				return "", symbolErr
 			}
-			return symbol + "(" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
+			return symbol + "(" + receiverArgument + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
 		}
-		operation := "slice"
-		if node.ResultType.Slice != nil && node.ResultType.Slice.Writable {
-			operation = "mut_slice"
-		}
-		symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeArray), operation, arrayAccessorSuffix(node.OperandType))
-		if symbolErr != nil {
-			return "", symbolErr
-		}
-		return symbol + "(&" + receiver + ", (size_t)(" + start + "), (size_t)(" + end + "))", nil
+		return "", unknownExpressionDiagnostic()
 	}
 	return "", unknownExpressionDiagnostic()
 }
 
-// collectionsNeedSlice reports whether any reachable Array or List
+// collectionsNeedSlice reports whether any reachable List
 // specialization has a matching Slice in either access mode, which is the
-// only reason either component header names the slice component. A program
-// with arrays but no slicing needs no slice artifact and must not declare a
-// dependency on one: a component's declared dependencies are exactly what
-// its emitted content uses.
-func collectionsNeedSlice(arrays *generatedArrayState, lists *generatedListState, slices *generatedSliceState) bool {
+// only reason the component header names the slice component.
+func collectionsNeedSlice(lists *generatedListState, slices *generatedSliceState) bool {
 	if slices == nil {
 		return false
 	}
-	if arrays != nil {
-		for _, array := range arrays.order {
-			if matchingSlice(slices, array.Array.Element, false) != (compilerTypes.Type{}) ||
-				matchingSlice(slices, array.Array.Element, true) != (compilerTypes.Type{}) {
-				return true
-			}
-		}
-	}
 	if lists != nil {
 		for _, list := range lists.order {
-			if matchingSlice(slices, list.List.Element, false) != (compilerTypes.Type{}) ||
-				matchingSlice(slices, list.List.Element, true) != (compilerTypes.Type{}) {
+			element := compilerTypes.Type{}
+			if list.List != nil {
+				element = list.List.Element
+			} else if list.InlineList != nil {
+				element = list.InlineList.Element
+			}
+			if matchingSlice(slices, element, false) != (compilerTypes.Type{}) ||
+				matchingSlice(slices, element, true) != (compilerTypes.Type{}) {
 				return true
 			}
 		}

@@ -118,7 +118,7 @@ AliasTarget = PrimaryTypeExpression .
 TypeExpression = UnionTypeExpression .
 UnionTypeExpression = PrimaryTypeExpression
                          { "|"  PrimaryTypeExpression } .
-PrimaryTypeExpression = NamedType | GenericType | ArrayType
+PrimaryTypeExpression = NamedType | GenericType
                           | PointerType | SliceType | FunctionTypeExpression
                           | "("  TypeExpression  ")" .
 NamedType = identifier
@@ -130,10 +130,6 @@ TypeArgumentList = "<"  TypeArgument
                       { ","  TypeArgument }  ">" .
 TypeArgument = [ "mut" ]  TypeExpression | CapacityArgument .
 CapacityArgument = integer_literal | decimal_floating_literal .
-ArrayType = "Array"  "<"  TypeExpression
-              ","  PositiveDecimalLiteral  ">" .
-PositiveDecimalLiteral = nonzero_decimal_digit
-                            { decimal_digit | "_"  decimal_digit } .
 PointerType = "Ptr"  "<"  [ "mut" ]  TypeExpression  ">" .
 SliceType = "Slice"  "<"  [ "mut" ]  TypeExpression  ">" .
 FunctionTypeExpression = "Fun"  "<"  "("  [ FunctionTypeParameterList ]  ")"
@@ -173,7 +169,7 @@ Argument = [ identifier  "=" ]  Expression .
 IndexSuffix = "["  Expression  "]" .
 
 PrimaryExpression = identifier | "self"
-                     | ArrayLiteral | MatchExpression
+                     | InlineListLiteral | MatchExpression
                      | AnonymousFunctionLiteral
                      | integer_literal | decimal_floating_literal
                      | byte_literal | string_literal
@@ -190,7 +186,7 @@ Interpolation = "{{"  Expression  "}}" .
 InterpolationText = "meta" .
 AnonymousFunctionLiteral = "fun"  [ GenericParameterList ]
                               Signature  "do"  Block  "end" .
-ArrayLiteral = "["  [ Expression  { ","  Expression }  [ "," ] ]  "]" .
+InlineListLiteral = "["  [ Expression  { ","  Expression }  [ "," ] ]  "]" .
 
 MatchExpression = "match"  MatchScrutinee  [ "is" ]
                     MatchArm  { MatchArm }  "end" .

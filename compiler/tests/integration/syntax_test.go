@@ -176,7 +176,7 @@ func TestExplicitBlockOpenersAccepted(t *testing.T) {
 	assertCompiles(t, "fun reset() do\nend\nreset()\n")
 	assertCompiles(t, "let mut value: Int32 = 1 if value > 0 then value = 0 elseif value == 0 then value = 1 else value = 2 end\n")
 	assertCompiles(t, "let mut value: Int32 = 1 while value > 0 do value = 0 end\n")
-	assertCompiles(t, "fun sum(): Int32 do\n    let values: Array<Int32, 2> = [1, 2]\n    let mut total: Int32 = 0\n    for item in values do\n        total = item\n    end\n    return total\nend\nsum()\n")
+	assertCompiles(t, "fun sum(): Int32 do\n    let values: List<Int32, 2> = [1, 2]\n    let mut total: Int32 = 0\n    for item in values do\n        total = item\n    end\n    return total\nend\nsum()\n")
 	assertCompiles(t, "let value: Int32 = match 1\n| else then 1\nend\n")
 	assertCompiles(t, "fun choose(flag: Bool): Int32 do\n    if flag then\n        return 1\n    elseif !flag then\n        return 2\n    else\n        return 3\n    end\nend\n")
 }
@@ -239,12 +239,12 @@ func TestRemovedMethodSpellingsDiagnoseReplacement(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"let fixed: Array<Int32, 2> = [1, 2] let bad: Int32 = fixed.at(0)", "Array<Int32, 2> has no method at"},
+		{"let fixed: List<Int32, 2> = [1, 2] let bad: Int32 = fixed.at(0)", "List<Int32, 2> has no method at"},
 		{"fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    let first: Int32 = values.at(0)\nend", "List<Int32> has no method at"},
 		{"let text: String = \"hi\" let first: Byte = text.at(0)", "String has no method at"},
 		{"let label: String<8> = \"hi\" let first: Byte = label.at(0)", "String<8> has no method at"},
-		{"let fixed: Array<Int32, 2> = [1, 2] let bad: Bool = fixed.is_empty()", "Array<Int32, 2> has no method is_empty"},
-		{"let fixed: Array<Int32, 3> = [1, 2, 3] let view: Slice<Int32> = fixed.slice(0, 2) let bad: Bool = view.is_empty()", "Slice<Int32> has no method is_empty"},
+		{"let fixed: List<Int32, 2> = [1, 2] let bad: Bool = fixed.is_empty()", "List<Int32, 2> has no method is_empty"},
+		{"let fixed: List<Int32, 3> = [1, 2, 3] let view: Slice<Int32> = fixed.slice(0, 2) let bad: Bool = view.is_empty()", "Slice<Int32> has no method is_empty"},
 		{"fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    let empty: Bool = values.is_empty()\nend", "List<Int32> has no method is_empty"},
 		{"let text: String = \"hi\" let bad: Bool = text.is_empty()", "String has no method is_empty"},
 		{"let label: String<8> = \"hi\" let bad: Bool = label.is_empty()", "String<8> has no method is_empty"},

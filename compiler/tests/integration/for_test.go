@@ -7,14 +7,14 @@ import (
 )
 
 func TestForInSequenceLoops(t *testing.T) {
-	result := compileSource("fun demo() do\n    let fixed: Array<Int32, 3> = [10, 20, 30]\n    let mut total: Int32 = 0\n    for value in fixed do\n        total = total + value\n    end\n    for i, value in fixed do\n        total = total + value + i.to<Int32>()\n    end\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    for value in view do\n        total = total + value\n    end\nend\nfun list_sum(h: Heap): Int32 do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    let mut total: Int32 = 0\n    for i, value in values do\n        total = total + value + i.to<Int32>()\n    end\n    return total\nend")
+	result := compileSource("fun demo() do\n    let fixed: List<Int32, 3> = [10, 20, 30]\n    let mut total: Int32 = 0\n    for value in fixed do\n        total = total + value\n    end\n    for i, value in fixed do\n        total = total + value + i.to<Int32>()\n    end\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    for value in view do\n        total = total + value\n    end\nend\nfun list_sum(h: Heap): Int32 do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    let mut total: Int32 = 0\n    for i, value in values do\n        total = total + value + i.to<Int32>()\n    end\n    return total\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"hex_array_Int32_3 *const hex_for_1 = &(hex_v_fixed);",
-		"for (size_t hex_for_1_index = 0; hex_for_1_index < (size_t)(3); hex_for_1_index++) {",
-		"const int32_t hex_v_value = hex_for_1->data[hex_for_1_index];",
+		"hex_list_inline_Int32_3 *const hex_for_1 = &(hex_v_fixed);",
+		"for (size_t hex_for_1_index = 0; hex_for_1_index < hex_for_1->length; hex_for_1_index++, (hex_for_1->version != hex_for_1_version ? hex_runtime_trap",
+		"const int32_t hex_v_value = *hex_list_inline_at_Int32_3(hex_for_1, (size_t)(hex_for_1_index));",
 		"const size_t hex_v_i = hex_for_2_index;",
 		"const hex_slice_Int32 hex_for_3 = hex_v_view;",
 		"const hex_list_Int32 *const hex_for_1 = hex_v_values;",
@@ -25,13 +25,13 @@ func TestForInSequenceLoops(t *testing.T) {
 	}
 }
 
-func TestForInTemporaryArraySource(t *testing.T) {
-	result := compileSource("fun make_fixed(): Array<Int32, 2> do\n    return [1, 2]\nend\nfun demo() do\n    let mut total: Int32 = 0\n    for value in make_fixed() do\n        total = total + value\n    end\nend")
+func TestForInTemporaryInlineListSource(t *testing.T) {
+	result := compileSource("fun make_fixed(): List<Int32, 2> do\n    return [1, 2]\nend\nfun demo() do\n    let mut total: Int32 = 0\n    for value in make_fixed() do\n        total = total + value\n    end\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootC(t, result), "const hex_array_Int32_2 hex_for_1 = hex_f_m3_app_make_fixed();") {
-		t.Fatalf("modules/app.c = %q, want materialized temporary Array source", rootC(t, result))
+	if !strings.Contains(rootC(t, result), "const hex_list_inline_Int32_2 hex_for_1_value = hex_f_m3_app_make_fixed();") {
+		t.Fatalf("modules/app.c = %q, want materialized temporary inline List source", rootC(t, result))
 	}
 }
 
@@ -77,7 +77,7 @@ func TestForInDictEntries(t *testing.T) {
 }
 
 func TestForInBinderShadowingAndImmutability(t *testing.T) {
-	result := compileSource("fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let value: Int32 = 100\n    for value in fixed do\n        let current: Int32 = value\n    end\n    for value in fixed do\n        value = 10\n    end\nend")
+	result := compileSource("fun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    let value: Int32 = 100\n    for value in fixed do\n        let current: Int32 = value\n    end\n    for value in fixed do\n        value = 10\n    end\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "loop binder value is immutable") {
 		t.Fatalf("Compile stderr = %#v, want binder immutability diagnostic", result.Stderr)
 	}
@@ -90,10 +90,10 @@ func TestForInDiagnostics(t *testing.T) {
 		want   string
 	}{
 		{"not iterable", "fun demo() do\n    let count: Int32 = 3\n    for value in count do\n    end\nend", "value of type Int32 is not iterable"},
-		{"sequence arity", "fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    for a, b, c in fixed do\n    end\nend", "sequence iteration requires one value binder or index and value binders"},
+		{"sequence arity", "fun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    for a, b, c in fixed do\n    end\nend", "sequence iteration requires one value binder or index and value binders"},
 		{"dict arity", "fun demo(h: Heap) do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    for key in scores do\n    end\nend", "dictionary iteration requires key and value binders or index, key, and value binders"},
 		{"excess binders", "fun demo(h: Heap) do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    for i, key, value, extra in scores do\n    end\nend", "a for-in loop takes at most 3 binders"},
-		{"duplicate binder", "fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    for value, value in fixed do\n    end\nend", "duplicate loop binder name value"},
+		{"duplicate binder", "fun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    for value, value in fixed do\n    end\nend", "duplicate loop binder name value"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			result := compileSource(testCase.source)
@@ -122,7 +122,7 @@ func TestForInParserErrors(t *testing.T) {
 }
 
 func TestForInSourceEvaluatedOnce(t *testing.T) {
-	result := compileSource("fun count_calls(): Array<Int32, 2> do\n    return [1, 2]\nend\nfun demo() do\n    let mut total: Int32 = 0\n    for value in count_calls() do\n        total = total + value\n    end\nend")
+	result := compileSource("fun count_calls(): List<Int32, 2> do\n    return [1, 2]\nend\nfun demo() do\n    let mut total: Int32 = 0\n    for value in count_calls() do\n        total = total + value\n    end\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -250,7 +250,7 @@ func TestForInNestedTraversalsCaptureIndependentVersions(t *testing.T) {
 func TestForInBinderAnnotationsAgree(t *testing.T) {
 	result := compileSource("fun demo(h: Heap) do\n" +
 		"    let list: List<Int32> = List<Int32>(h)\n    defer list.free(h)\n" +
-		"    let fixed: Array<Int32, 2> = [1, 2]\n" +
+		"    let fixed: List<Int32, 2> = [1, 2]\n" +
 		"    let view: Slice<Int32> = fixed.slice(0, 2)\n" +
 		"    let bytes: Slice<Byte> = \"ab\".bytes()\n" +
 		"    let table: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer table.free(h)\n" +
@@ -276,7 +276,7 @@ func TestForInBinderAnnotationDiagnostics(t *testing.T) {
 		{"index", "fun demo(h: Heap) do\n    let list: List<Int32> = List<Int32>(h)\n    for i: Int32, x: Int32 in list do\n    end\nend", "for binder i is annotated Int32, but List<Int32> yields Size there"},
 		{"dict key", "fun demo(h: Heap) do\n    let table: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    for k: Int64, v: Int32 in table do\n    end\nend", "for binder k is annotated Int64, but Dict<Int32, Int32> yields Int32 there"},
 		{"mutable element", "fun demo(h: Heap) do\n    let views: List<Slice<mut Byte>> = List<Slice<mut Byte>>(h)\n    for v: Slice<Byte> in views do\n    end\nend", "for binder v is annotated Slice<UInt8>, but List<Slice<mut UInt8>> yields Slice<mut UInt8> there"},
-		{"binder immutable", "fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    for x: Int32 in fixed do\n        x = 3\n    end\nend", "loop binder x is immutable"},
+		{"binder immutable", "fun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    for x: Int32 in fixed do\n        x = 3\n    end\nend", "loop binder x is immutable"},
 	} {
 		result := compileSource(tc.source)
 		if result.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(result.Stderr, "\n"), tc.want) {

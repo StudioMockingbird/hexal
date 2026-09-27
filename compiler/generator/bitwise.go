@@ -244,7 +244,7 @@ type endianByteRecord struct {
 // template action delimiters, so it arrives as data and never as template
 // source, which text/template would parse as an action.
 type endianToBytesModel struct {
-	ArrayType      string
+	ListType       string
 	Name           string
 	CType          string
 	Unsigned       string
@@ -256,7 +256,7 @@ type endianToBytesModel struct {
 // shifts. ReturnLine carries the already-chosen signed or unsigned return
 // statement so the template holds no type logic.
 type endianFromBytesModel struct {
-	ArrayType  string
+	ListType   string
 	Name       string
 	CType      string
 	Unsigned   string
@@ -268,8 +268,8 @@ func writeEndianHelper(result *strings.Builder, spec endianSpec) error {
 	typ := spec.typ
 	width := uint(typ.Bits)
 	bytes := width / 8
-	arrayType := compilerTypes.NewEnvironment().ArrayType(compilerTypes.UInt8, uint64(bytes))
-	if arrayType == (compilerTypes.Type{}) {
+	listType := compilerTypes.NewEnvironment().InlineListType(compilerTypes.UInt8, uint64(bytes))
+	if listType == (compilerTypes.Type{}) {
 		return nil
 	}
 	unsigned, ok := unsignedCName(typ)
@@ -289,12 +289,12 @@ func writeEndianHelper(result *strings.Builder, spec endianSpec) error {
 	if !spec.from {
 		// to_le_bytes / to_be_bytes: value is the unsigned bit pattern.
 		return renderInto(result, "module.h", "endian_to_bytes", endianToBytesModel{
-			ArrayType:      arrayType.CName,
+			ListType:       listType.CName,
 			Name:           endianHelperName(spec),
 			CType:          typ.CName,
 			Unsigned:       unsigned,
 			Bytes:          byteRecords,
-			DesignatedInit: "{{0}}",
+			DesignatedInit: "{0}",
 		})
 	}
 	// from_le_bytes / from_be_bytes: assemble the unsigned pattern.
@@ -305,7 +305,7 @@ func writeEndianHelper(result *strings.Builder, spec endianSpec) error {
 		returnLine = fmt.Sprintf("return (%s)value;", typ.CName)
 	}
 	return renderInto(result, "module.h", "endian_from_bytes", endianFromBytesModel{
-		ArrayType:  arrayType.CName,
+		ListType:   listType.CName,
 		Name:       endianHelperName(spec),
 		CType:      typ.CName,
 		Unsigned:   unsigned,

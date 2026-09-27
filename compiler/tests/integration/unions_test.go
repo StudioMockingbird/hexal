@@ -391,7 +391,7 @@ func TestContextualReturnsInsideBlocksInjectSize(t *testing.T) {
 			"    while guard do\n        return 0\n    end\n" +
 			"    return 1\nend\n",
 		"for": "fun demo(): Size | Error do\n" +
-			"    let flags: Array<Bool, 2> = [true, false]\n" +
+			"    let flags: List<Bool, 2> = [true, false]\n" +
 			"    for flag in flags do\n        return 0\n    end\n" +
 			"    return 1\nend\n",
 		"match-arm": "fun demo(flag: Bool): Size | Error do\n" +

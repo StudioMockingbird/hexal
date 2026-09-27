@@ -56,7 +56,7 @@ func TestCImportPreparedBindingHeaderMismatch(t *testing.T) {
 // A foreign declaration whose type has no supported C ABI mapping fails closed
 // rather than emitting a guessed contract.
 func TestExternBlockFailsClosed(t *testing.T) {
-	source := "extern c from <adder.h> do\n    fun add(left: Array<Int32, 4>): Int32\nend\nlet value: Int32 = 1\n"
+	source := "extern c from <adder.h> do\n    fun add(left: List<Int32, 4>): Int32\nend\nlet value: Int32 = 1\n"
 	result := compiler.Compile(map[string]string{"app.hex": source}, "app.hex", compiler.Project{Target: compilerTypes.TargetX86_64WindowsGNU})
 	assertStderrContains(t, result, "has no supported C ABI mapping for target x86_64-windows-gnu-ucrt")
 }

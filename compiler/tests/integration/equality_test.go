@@ -123,11 +123,11 @@ func TestEqualityUnavailable(t *testing.T) {
 	}{
 		{"fun helper(value: Int32) do\nend\nfun demo() do\n    let callback: Fun<(Int32)> = helper\n    let other: Fun<(Int32)> = callback\n    let bad: Bool = callback == other\nend", "function values are not equality-comparable"},
 		{"fun helper(value: Int32) do\nend\nfun demo() do\n    let mixed: Fun<(Int32)> | Int32 = helper\n    let other: Fun<(Int32)> | Int32 = mixed\n    let bad: Bool = mixed == other\nend", "union member Fun<(Int32)> does not support equality"},
-		// An Array/Slice/List element that cannot compare must name its
+		// An inline List/Slice/allocated List element that cannot compare must name its
 		// element type; it must never fall back to an empty member name,
 		// which is what "member  does not support ==" would render as.
-		{"fun helper(x: Int32): Int32 do return x end\nlet a: Array<Fun<(Int32) : Int32>, 1> = [helper]\nlet b: Array<Fun<(Int32) : Int32>, 1> = [helper]\nlet x: Bool = a == b\n", "element type Fun<(Int32) : Int32> does not support =="},
-		{"let h1: Array<Heap, 1> = [Heap()]\nlet h2: Array<Heap, 1> = [Heap()]\nlet x: Bool = h1 == h2\n", "element type Heap does not support =="},
+		{"fun helper(x: Int32): Int32 do return x end\nlet a: List<Fun<(Int32) : Int32>, 1> = [helper]\nlet b: List<Fun<(Int32) : Int32>, 1> = [helper]\nlet x: Bool = a == b\n", "element type Fun<(Int32) : Int32> does not support =="},
+		{"let h1: List<Heap, 1> = [Heap()]\nlet h2: List<Heap, 1> = [Heap()]\nlet x: Bool = h1 == h2\n", "element type Heap does not support =="},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {
@@ -260,30 +260,31 @@ func TestTextEqualityRejectsNonTextOperand(t *testing.T) {
 }
 
 func TestSequenceEquality(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let other: Array<Int32, 2> = [1, 2]\n    let same: Bool = fixed == other\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    let total: Bool = view == fixed.slice(0, 2)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    let fixed: List<Int32, 2> = [1, 2]\n    let other: List<Int32, 2> = [1, 2]\n    let same: Bool = fixed == other\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    let total: Bool = view == fixed.slice(0, 2)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	equalityH := moduleFile(t, result, "hexal/equality.h")
 	for _, want := range []string{
-		"if (!((*left).data[0] == (*right).data[0])) return false;",
+		"if ((*left).length != (*right).length) return false;",
+		"for (size_t index = 0; index < (*left).length; index++)",
 	} {
 		if !strings.Contains(equalityH, want) {
 			t.Fatalf("hexal/equality.h = %q, want %q", equalityH, want)
 		}
 	}
-	if !strings.Contains(rootC(t, result), "hex_v_same = hex_equal_hex_array_Int32_2(&(hex_v_fixed), &(hex_v_other));") {
+	if !strings.Contains(rootC(t, result), "hex_v_same = hex_equal_hex_list_inline_Int32_2(&(hex_v_fixed), &(hex_v_other));") {
 		t.Fatalf("modules/app.c = %q, want the component equality call", rootC(t, result))
 	}
-	if strings.Contains(rootH(t, result), "static bool hex_equal_hex_array_Int32_2") {
-		t.Fatalf("modules/app.h re-emits the program-owned Array equality helper")
+	if strings.Contains(rootH(t, result), "static bool hex_equal_hex_list_inline_Int32_2") {
+		t.Fatalf("modules/app.h re-emits the program-owned inline List equality helper")
 	}
 }
 
 func TestProgramOwnedEqualitySharedAcrossModules(t *testing.T) {
 	compare := `fun compare(h: Heap): Bool do
-    let left: Array<Int32, 2> = [1, 2]
-    let right: Array<Int32, 2> = [1, 2]
+    let left: List<Int32, 2> = [1, 2]
+    let right: List<Int32, 2> = [1, 2]
     let leftView: Slice<Int32> = left.slice(0, 2)
     let rightView: Slice<Int32> = right.slice(0, 2)
     let leftList: List<Int32> = List<Int32>(h)
@@ -304,7 +305,7 @@ end
 	}
 	equality := result.Files["hexal/equality.h"]
 	for _, helper := range []string{
-		"hex_equal_hex_array_Int32_2",
+		"hex_equal_hex_list_inline_Int32_2",
 		"hex_equal_hex_slice_Int32",
 		"hex_equal_hex_list_Int32",
 		"hex_equal_hex_t_Error",
@@ -350,7 +351,7 @@ end
 }
 
 func TestSequenceEqualityRequiresSameShape(t *testing.T) {
-	result := compileSource("fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let other: Array<Int32, 3> = [1, 2, 3]\n    let bad: Bool = fixed == other\nend")
+	result := compileSource("fun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    let other: List<Int32, 3> = [1, 2, 3]\n    let bad: Bool = fixed == other\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "identical canonical non-numeric operand types") {
 		t.Fatalf("Compile stderr = %#v, want shape-mismatch diagnostic", result.Stderr)
 	}

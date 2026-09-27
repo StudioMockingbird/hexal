@@ -590,16 +590,16 @@ type PropertyExpression struct {
 
 func (PropertyExpression) expressionNode() {}
 
-// ArrayLiteralExpression is a bracket list of element expressions. The
+// InlineListLiteralExpression is a bracket list of element expressions. The
 // checker derives the array length from the element count and types the
 // elements from the first one.
-type ArrayLiteralExpression struct {
+type InlineListLiteralExpression struct {
 	OpenBracket  lexer.Token
 	Elements     []Expression
 	CloseBracket lexer.Token
 }
 
-func (ArrayLiteralExpression) expressionNode() {}
+func (InlineListLiteralExpression) expressionNode() {}
 
 // IndexExpression selects one element of an array by an index expression.
 type IndexExpression struct {

@@ -34,7 +34,7 @@ func TestEmptyUnsafeBlockCompiles(t *testing.T) {
 func TestOrdinaryDiagnosticsSurviveInsideUnsafe(t *testing.T) {
 	for _, testCase := range []struct{ source, want string }{
 		{"fun demo() do\n    unsafe do\n        let bad: Int32 = true\n    end\nend\n", "expected Int32 initializer"},
-		{"fun demo() do\n    unsafe do\n        let values: Array<Int32, 2> = [1, 2]\n        let bad: Int32 = values[5]\n    end\nend\n", "out of bounds"},
+		{"fun demo() do\n    unsafe do\n        let values: List<Int32, 2> = [1, 2]\n        let bad: Int32 = values[5]\n    end\nend\n", "out of bounds"},
 		{"fun demo(h: Heap) do\n    unsafe do\n        let p: Ptr<mut Int32> = h.allocate<Int32>(1)\n        h.free(p)\n        h.free(p)\n    end\nend\n", "already released"},
 		{"fun demo() do\n    unsafe do\n        let bad: Int32 = missing\n    end\nend\n", "unknown variable missing"},
 	} {
@@ -46,7 +46,7 @@ func TestOrdinaryDiagnosticsSurviveInsideUnsafe(t *testing.T) {
 // requirement.
 func TestSafeOperationsDoNotRequireUnsafe(t *testing.T) {
 	assertCompiles(t, "fun demo(): Slice<Int32> do\n    return Slice<Int32>.empty()\nend\n")
-	assertCompiles(t, "fun demo(): Int32 do\n    let fixed: Array<Int32, 4> = [1, 2, 3, 4]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    let tail: Slice<Int32> = view.slice(1, 2)\n    return tail[0]\nend\n")
+	assertCompiles(t, "fun demo(): Int32 do\n    let fixed: List<Int32, 4> = [1, 2, 3, 4]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    let tail: Slice<Int32> = view.slice(1, 2)\n    return tail[0]\nend\n")
 	assertCompiles(t, "type Node is struct amount: Int32 end\nfun demo(): Int32 do\n    let stash = Stash<Node>()\n    defer stash.destroy()\n    let first: Ptr<mut Node> = stash.allocate(Node(amount = 1))\n    let result: Int32 = (^first).amount\n    stash.reset()\n    return result\nend\n")
 	assertCompiles(t, "type Node is struct amount: Int32 end\nfun demo(): Int32 do\n    let pool = Pool<Node>(2)\n    defer pool.destroy()\n    let slot: Ptr<mut Node> = pool.allocate(Node(amount = 1))\n    pool.free(slot)\n    return 0\nend\n")
 }

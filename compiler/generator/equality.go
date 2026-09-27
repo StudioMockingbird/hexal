@@ -1,7 +1,6 @@
 package generator
 
 import (
-	"fmt"
 	"strings"
 
 	"hexal/compiler/checker"
@@ -16,15 +15,15 @@ import (
 // generatedEqualityState records the types needing equality helpers, in
 // dependency order.
 type generatedEqualityState struct {
-	order       []compilerTypes.Type
-	seenObjects map[*compilerTypes.ObjectType]bool
-	seenADTs    map[*compilerTypes.AdtType]bool
-	seenArrays  map[*compilerTypes.ArrayInfo]bool
-	seenSlices  map[*compilerTypes.SliceInfo]bool
-	seenLists   map[*compilerTypes.ListInfo]bool
-	seenUnions  map[*compilerTypes.UnionInfo]bool
-	needString  bool
-	compareNeed bool
+	order           []compilerTypes.Type
+	seenObjects     map[*compilerTypes.ObjectType]bool
+	seenADTs        map[*compilerTypes.AdtType]bool
+	seenSlices      map[*compilerTypes.SliceInfo]bool
+	seenLists       map[*compilerTypes.ListInfo]bool
+	seenInlineLists map[*compilerTypes.InlineListInfo]bool
+	seenUnions      map[*compilerTypes.UnionInfo]bool
+	needString      bool
+	compareNeed     bool
 }
 
 // equalityIneligibleElement reports whether element is a generation-checked
@@ -46,7 +45,7 @@ func equalityIneligibleElement(element compilerTypes.Type) bool {
 // recursively, a List member of a union that supports equality -- the one
 // case writeUnionEquality itself calls another type's helper directly
 // (unions.go) rather than inlining the comparison. Every other structural
-// descent (Object and Adt members, Array/Slice/List elements) is compared
+// descent (Object and Adt members, List/Slice elements) is compared
 // inline by writeEqualityComparisons and never calls a helper by name, so it
 // is deliberately not walked here: a type only this pass's own inlining ever
 // reaches needs no standalone definition, and emitting one anyway is
@@ -71,12 +70,6 @@ func (state *generatedEqualityState) addComparedType(typ compilerTypes.Type) {
 			return
 		}
 		state.order = append(state.order, typ)
-	case typ.Array != nil:
-		if state.seenArrays[typ.Array] || equalityIneligibleElement(typ.Array.Element) {
-			return
-		}
-		state.seenArrays[typ.Array] = true
-		state.order = append(state.order, typ)
 	case typ.Slice != nil:
 		if state.seenSlices[typ.Slice] || equalityIneligibleElement(typ.Slice.Element) {
 			return
@@ -88,6 +81,12 @@ func (state *generatedEqualityState) addComparedType(typ compilerTypes.Type) {
 			return
 		}
 		state.seenLists[typ.List] = true
+		state.order = append(state.order, typ)
+	case typ.InlineList != nil:
+		if state.seenInlineLists[typ.InlineList] || equalityIneligibleElement(typ.InlineList.Element) {
+			return
+		}
+		state.seenInlineLists[typ.InlineList] = true
 		state.order = append(state.order, typ)
 	case typ.Union != nil:
 		if state.seenUnions[typ.Union] {
@@ -113,12 +112,12 @@ func (state *generatedEqualityState) addComparedType(typ compilerTypes.Type) {
 // collected, even if it appears elsewhere in the program.
 func discoverEqualityTypes(program checker.Program) *generatedEqualityState {
 	state := &generatedEqualityState{
-		seenObjects: make(map[*compilerTypes.ObjectType]bool),
-		seenADTs:    make(map[*compilerTypes.AdtType]bool),
-		seenArrays:  make(map[*compilerTypes.ArrayInfo]bool),
-		seenSlices:  make(map[*compilerTypes.SliceInfo]bool),
-		seenLists:   make(map[*compilerTypes.ListInfo]bool),
-		seenUnions:  make(map[*compilerTypes.UnionInfo]bool),
+		seenObjects:     make(map[*compilerTypes.ObjectType]bool),
+		seenADTs:        make(map[*compilerTypes.AdtType]bool),
+		seenSlices:      make(map[*compilerTypes.SliceInfo]bool),
+		seenLists:       make(map[*compilerTypes.ListInfo]bool),
+		seenInlineLists: make(map[*compilerTypes.InlineListInfo]bool),
+		seenUnions:      make(map[*compilerTypes.UnionInfo]bool),
 	}
 	visitor := &programVisitor{
 		Expression: func(node checker.Expression) error {
@@ -191,12 +190,12 @@ func equalityTypeContainsString(typ compilerTypes.Type, seen map[string]bool) bo
 		}
 	case typ.NullableBase != nil:
 		return false
-	case typ.Array != nil:
-		return equalityTypeContainsString(typ.Array.Element, seen)
 	case typ.Slice != nil:
 		return equalityTypeContainsString(typ.Slice.Element, seen)
 	case typ.List != nil:
 		return equalityTypeContainsString(typ.List.Element, seen)
+	case typ.InlineList != nil:
+		return equalityTypeContainsString(typ.InlineList.Element, seen)
 	}
 	return false
 }
@@ -407,14 +406,20 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 		if err := emit("block_close", indentModel{Indent: indent}); err != nil {
 			return err
 		}
-	case typ.Array != nil:
-		for index := uint64(0); index < typ.Array.Length; index++ {
-			field := ".data[" + fmt.Sprint(index) + "]"
-			elementLeft := equalityOperand(left+field, typ.Array.Element)
-			elementRight := equalityOperand(right+field, typ.Array.Element)
-			if err := writeEqualityComparisons(body, elementLeft, elementRight, typ.Array.Element, indent, tags); err != nil {
-				return err
-			}
+	case typ.InlineList != nil:
+		if err := emit("eq_length_mismatch", compareLineModel{Indent: indent, Left: left, Right: right}); err != nil {
+			return err
+		}
+		if err := emit("eq_for_open", compareLineModel{Indent: indent, Left: left}); err != nil {
+			return err
+		}
+		elementLeft := equalityOperand(left+".data[index]", typ.InlineList.Element)
+		elementRight := equalityOperand(right+".data[index]", typ.InlineList.Element)
+		if err := writeEqualityComparisons(body, elementLeft, elementRight, typ.InlineList.Element, indent+"    ", tags); err != nil {
+			return err
+		}
+		if err := emit("block_close", indentModel{Indent: indent}); err != nil {
+			return err
 		}
 	case typ.Slice != nil:
 		if err := emit("eq_length_mismatch", compareLineModel{Indent: indent, Left: left, Right: right}); err != nil {

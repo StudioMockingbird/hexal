@@ -335,7 +335,7 @@ h.free(p)
 			name: "collection store preserves identity",
 			source: `let h: Heap = Heap()
 let p: Ptr<mut Int32> = h.allocate<Int32>(0)
-let slots: Array<Ptr<mut Int32>, 1> = [p]
+let slots: List<Ptr<mut Int32>, 1> = [p]
 h.free(p)
 h.free(p)
 `,
@@ -426,7 +426,7 @@ end
 		},
 		{
 			name: "collection element",
-			source: `fun release(h: Heap, pointers: Array<Ptr<mut Int32>, 1>) do
+			source: `fun release(h: Heap, pointers: List<Ptr<mut Int32>, 1>) do
     h.free(pointers[0])
 end
 `,
@@ -654,7 +654,7 @@ end
 		},
 		{
 			name: "heap free of collection element",
-			source: `fun release(h: Heap, pointers: Array<Ptr<mut Int32>, 1>) do
+			source: `fun release(h: Heap, pointers: List<Ptr<mut Int32>, 1>) do
     h.free(pointers[0])
 end
 `,

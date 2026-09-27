@@ -37,7 +37,6 @@ const (
 	ComponentPool        ComponentID = "pool"
 	ComponentList        ComponentID = "list"
 	ComponentDict        ComponentID = "dict"
-	ComponentArray       ComponentID = "array"
 	ComponentNumeric     ComponentID = "numeric"
 	ComponentPrint       ComponentID = "print"
 	ComponentEquality    ComponentID = "equality"
@@ -197,11 +196,6 @@ var componentRegistry = []ComponentSpec{
 		ID:               ComponentDict,
 		Files:            []string{"hexal/dict.h"},
 		RequiredCHeaders: []string{"stdckdint.h", "stddef.h", "stdint.h", "string.h"},
-	},
-	{
-		ID:               ComponentArray,
-		Files:            []string{"hexal/array.h"},
-		RequiredCHeaders: []string{"stdint.h"},
 	},
 	{
 		ID:               ComponentNumeric,

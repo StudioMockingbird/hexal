@@ -83,7 +83,7 @@ func TestObservabilityClassifiesEveryExpressionKind(t *testing.T) {
 		"UnionEqualityExpression":            true,
 		"AdtConstructExpression":             true,
 		"AdtPayloadExpression":               true,
-		"ArrayLiteralExpression":             true,
+		"InlineListLiteralExpression":        true,
 		"IndexExpression":                    true,
 		"CollectionSliceExpression":          true,
 		"StringLiteralExpression":            true,

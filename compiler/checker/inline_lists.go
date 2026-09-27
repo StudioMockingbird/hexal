@@ -2,7 +2,6 @@ package checker
 
 import (
 	"go/constant"
-	"strconv"
 
 	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
@@ -10,39 +9,22 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// resolveArrayTypeUse resolves the built-in Array<T, N> form. N must be a
-// positive decimal literal, and T must be an inline element class.
-func resolveArrayTypeUse(expression parser.ArrayTypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
-	elementUse, diagnostic := resolveTypeUse(expression.Element, expression.Keyword, typeEnvironment, generics)
-	if diagnostic != nil {
-		return compilerTypes.TypeUse{}, diagnostic
-	}
-	length, err := strconv.ParseUint(expression.Length.Lexeme, 10, 64)
-	if err != nil || length == 0 {
-		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Length, diag.InvalidArrayLength()))
-	}
-	array := typeEnvironment.ArrayType(elementUse.Type, length)
-	if array == (compilerTypes.Type{}) {
-		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Keyword, diag.InvalidArrayElementType(elementUse.Type.Name)))
-	}
-	return compilerTypes.NewTypeUse(array), nil
-}
-
-// checkArrayLiteral checks a bracket literal against an expected Array<T, N>
+// checkInlineListLiteral checks a bracket literal against an expected List<T, N>
 // destination. The literal must contain exactly N elements, each assignable
 // to T, evaluated left-to-right.
-func checkArrayLiteral(expression parser.ArrayLiteralExpression, expected compilerTypes.Type, ctx checkContext) checkedExpression {
-	if len(expression.Elements) == 0 {
-		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnosticAt(messageAt(expression.OpenBracket, diag.EmptyArrayLiteral()))}
+func checkInlineListLiteral(expression parser.InlineListLiteralExpression, expected compilerTypes.Type, ctx checkContext) checkedExpression {
+	elementType := compilerTypes.Type{}
+	capacity := uint64(0)
+	if expected.InlineList != nil {
+		elementType = expected.InlineList.Element
+		capacity = expected.InlineList.Capacity
+	} else {
+		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnosticAt(messageAt(expression.OpenBracket, diag.InlineListLiteralNeedsContext()))}
 	}
-	if expected.Array == nil {
-		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnosticAt(messageAt(expression.OpenBracket, diag.ArrayLiteralNeedsContext()))}
+	if expected.InlineList != nil && uint64(len(expression.Elements)) > capacity {
+		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnosticAt(messageAt(expression.OpenBracket, diag.InlineListLiteralCapacity(len(expression.Elements), capacity)))}
 	}
-	length := expected.Array.Length
-	if uint64(len(expression.Elements)) != length {
-		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnosticAt(messageAt(expression.OpenBracket, diag.ArrayLiteralElementCount(expected.Array.Element.Name, length, len(expression.Elements))))}
-	}
-	elementUse := compilerTypes.NewTypeUse(expected.Array.Element)
+	elementUse := compilerTypes.NewTypeUse(elementType)
 	diagnostics := make(compilerTypes.Diagnostics, 0)
 	elements := make([]Operand, 0, len(expression.Elements))
 	for _, element := range expression.Elements {
@@ -51,8 +33,8 @@ func checkArrayLiteral(expression parser.ArrayLiteralExpression, expected compil
 			diagnostics = append(diagnostics, nested...)
 			continue
 		}
-		if !assignable(expected.Array.Element, checked.typ) {
-			diagnostics = append(diagnostics, typeMismatchDiagnostic(expected.Array.Element, checked.typ, checked.token))
+		if !assignable(elementType, checked.typ) {
+			diagnostics = append(diagnostics, typeMismatchDiagnostic(elementType, checked.typ, checked.token))
 			continue
 		}
 		elements = append(elements, checked.source)
@@ -61,8 +43,8 @@ func checkArrayLiteral(expression parser.ArrayLiteralExpression, expected compil
 		return checkedExpression{token: expression.OpenBracket, diagnostics: diagnostics, diagnostic: &diagnostics[0]}
 	}
 	node := Expression{
-		Kind:        ArrayLiteralExpression,
-		OperandType: expected.Array.Element,
+		Kind:        InlineListLiteralExpression,
+		OperandType: elementType,
 		ResultType:  expected,
 		Arguments:   elements,
 	}
@@ -70,31 +52,31 @@ func checkArrayLiteral(expression parser.ArrayLiteralExpression, expected compil
 	return checkedExpression{source: source, typ: expected, token: expression.OpenBracket}
 }
 
-// checkArrayIndex checks one index operand of an array access: it must be an
+// checkSequenceIndex checks one index operand of a bounded sequence: it must be an
 // integer scalar, and a known constant must be non-negative. Constant bounds
-// against a known array length are checked by the caller. The known-value
+// against an inline List capacity are checked by the caller. The known-value
 // metadata is returned alongside the operand so the caller's constant-required
 // bounds check sees through reads of named immutable bindings.
-func checkArrayIndex(expression parser.Expression, fallback lexer.Token, ctx checkContext) (Operand, *Operand, *compilerTypes.Diagnostic) {
+func checkSequenceIndex(expression parser.Expression, fallback lexer.Token, ctx checkContext) (Operand, *Operand, *compilerTypes.Diagnostic) {
 	checked := checkExpression(expression, expressionContext{}, ctx)
 	if nested := initializerDiagnostics(checked); len(nested) > 0 {
 		return Operand{}, nil, &nested[0]
 	}
 	if !compilerTypes.IsInteger(checked.typ) {
-		diagnostic := messageAt(checked.token, diag.ArrayIndexNotInteger(checked.typ.Name))
+		diagnostic := messageAt(checked.token, diag.SequenceIndexNotInteger(checked.typ.Name))
 		return Operand{}, nil, &diagnostic
 	}
 	if checked.known != nil && checked.known.Kind == ConstantOperand && checked.known.Constant != nil && checked.known.Constant.Kind() == constant.Int {
 		if value, exact := constant.Int64Val(checked.known.Constant); exact && value < 0 {
-			diagnostic := messageAt(checked.token, diag.ArrayIndexNegative())
+			diagnostic := messageAt(checked.token, diag.SequenceIndexNegative())
 			return Operand{}, nil, &diagnostic
 		}
 	}
 	return checked.source, checked.known, nil
 }
 
-// checkIndexPlace resolves array[index] or slice[index] as a place:
-// readable always, writable for a mutable Array, a writable Slice, or any
+// checkIndexPlace resolves sequence[index] as a place:
+// readable always, writable for a writable inline List, a writable Slice, or any
 // List. A read-only Slice element place is never writable, though a MutPtr
 // element's pointee keeps its own capability.
 func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checkedExpression {
@@ -112,8 +94,8 @@ func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checke
 	}
 	element := compilerTypes.Type{}
 	writable := false
-	if receiver.typ.Array != nil {
-		element = receiver.typ.Array.Element
+	if receiver.typ.InlineList != nil {
+		element = receiver.typ.InlineList.Element
 		writable = receiver.source.Writable
 	} else if receiver.typ.Slice != nil {
 		element = receiver.typ.Slice.Element
@@ -140,14 +122,16 @@ func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checke
 		diagnostic := messageAt(expression.OpenBracket, diag.ValueNotIndexable(receiver.typ.Name))
 		return checkedExpression{token: expression.OpenBracket, diagnostic: &diagnostic}
 	}
-	index, indexKnown, diagnostic := checkArrayIndex(expression.Index, expression.OpenBracket, ctx)
+	index, indexKnown, diagnostic := checkSequenceIndex(expression.Index, expression.OpenBracket, ctx)
 	if diagnostic != nil {
 		return checkedExpression{token: expression.OpenBracket, diagnostic: diagnostic}
 	}
-	if indexKnown != nil && indexKnown.Constant != nil && indexKnown.Constant.Kind() == constant.Int && receiver.typ.Array != nil {
-		if value, exact := constant.Uint64Val(indexKnown.Constant); exact && value >= receiver.typ.Array.Length {
+	if indexKnown != nil && indexKnown.Constant != nil && indexKnown.Constant.Kind() == constant.Int && receiver.typ.InlineList != nil {
+		capacity := uint64(0)
+		capacity = receiver.typ.InlineList.Capacity
+		if value, exact := constant.Uint64Val(indexKnown.Constant); exact && value >= capacity {
 			indexToken := tokenOf(expression.Index)
-			diagnostic := messageAt(indexToken, diag.ArrayIndexOutOfBounds(value, receiver.typ.Name))
+			diagnostic := messageAt(indexToken, diag.SequenceIndexOutOfBounds(value, receiver.typ.Name))
 			return checkedExpression{token: expression.OpenBracket, diagnostic: &diagnostic}
 		}
 	}
@@ -178,8 +162,8 @@ func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checke
 	return checked
 }
 
-// checkCollectionMethodCall dispatches the built-in Array and Slice methods
-// length, slice, and mut_slice. The mutable form exists only for Array:
+// checkCollectionMethodCall dispatches built-in List and Slice methods. The
+// mutable slice form requires a writable inline List; re-slicing a Slice
 // re-slicing a Slice preserves the receiver's access mode through slice.
 func checkCollectionMethodCall(call methodCall) checkedExpression {
 	name := call.callee.Property.Lexeme

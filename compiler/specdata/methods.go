@@ -187,41 +187,12 @@ type MethodSpec struct {
 // methods is the registry. It is unexported so no importer can rewrite a
 // record, and every query clones the parameter slice it returns.
 var methods = []MethodSpec{
-	// Array and Slice share a read-only length. Array's is the compile-time
-	// extent and Slice's is a descriptor field, so neither emits a callable.
-	{
-		Owner:     ConstructorOwner(TypeArray),
-		Name:      "length",
-		Result:    ResultSpec{Type: ConcreteType(TypeSize)},
-		Component: ComponentArray,
-	},
+	// Slice length is a descriptor field, so it does not emit a callable.
 	{
 		Owner:     ConstructorOwner(TypeSlice),
 		Name:      "length",
 		Result:    ResultSpec{Type: ConcreteType(TypeSize)},
 		Component: ComponentSlice,
-	},
-	{
-		Owner: ConstructorOwner(TypeArray),
-		Name:  "slice",
-		Parameters: []ParameterSpec{
-			{Name: "start", Type: IntegerType()},
-			{Name: "end", Type: IntegerType()},
-		},
-		Result:        ResultSpec{Type: AppliedType(TypeSlice, AccessReadOnly, Param(0))},
-		RuntimeSymbol: "hex_array_slice_%s",
-		Component:     ComponentArray,
-	},
-	{
-		Owner: ConstructorOwner(TypeArray),
-		Name:  "mut_slice",
-		Parameters: []ParameterSpec{
-			{Name: "start", Type: IntegerType()},
-			{Name: "end", Type: IntegerType()},
-		},
-		Result:        ResultSpec{Type: AppliedType(TypeSlice, AccessMutable, Param(0))},
-		RuntimeSymbol: "hex_array_mut_slice_%s",
-		Component:     ComponentArray,
 	},
 	// Re-slicing a Slice preserves its access mode, which is why the result
 	// names the receiver rather than one fixed Slice form.
@@ -269,6 +240,54 @@ var methods = []MethodSpec{
 		Name:          "pop",
 		Result:        ResultSpec{Type: Param(0)},
 		RuntimeSymbol: "hex_list_pop_%s",
+		Component:     ComponentList,
+	},
+	{
+		Owner:     ConstructorOwner(TypeInlineList),
+		Name:      "length",
+		Result:    ResultSpec{Type: ConcreteType(TypeSize)},
+		Component: ComponentList,
+	},
+	{
+		Owner:         ConstructorOwner(TypeInlineList),
+		Name:          "push",
+		Parameters:    []ParameterSpec{{Name: "value", Type: Param(0)}},
+		RuntimeSymbol: "hex_list_inline_push_%s",
+		Component:     ComponentList,
+	},
+	{
+		Owner:         ConstructorOwner(TypeInlineList),
+		Name:          "pop",
+		Result:        ResultSpec{Type: Param(0)},
+		RuntimeSymbol: "hex_list_inline_pop_%s",
+		Component:     ComponentList,
+	},
+	{
+		Owner:         ConstructorOwner(TypeInlineList),
+		Name:          "clear",
+		RuntimeSymbol: "hex_list_inline_clear_%s",
+		Component:     ComponentList,
+	},
+	{
+		Owner: ConstructorOwner(TypeInlineList),
+		Name:  "slice",
+		Parameters: []ParameterSpec{
+			{Name: "start", Type: IntegerType()},
+			{Name: "end", Type: IntegerType()},
+		},
+		Result:        ResultSpec{Type: AppliedType(TypeSlice, AccessReadOnly, Param(0))},
+		RuntimeSymbol: "hex_list_inline_slice_%s",
+		Component:     ComponentList,
+	},
+	{
+		Owner: ConstructorOwner(TypeInlineList),
+		Name:  "mut_slice",
+		Parameters: []ParameterSpec{
+			{Name: "start", Type: IntegerType()},
+			{Name: "end", Type: IntegerType()},
+		},
+		Result:        ResultSpec{Type: AppliedType(TypeSlice, AccessMutable, Param(0))},
+		RuntimeSymbol: "hex_list_inline_mut_slice_%s",
 		Component:     ComponentList,
 	},
 	{

@@ -25,7 +25,7 @@ func isFreshAtomicConstruction(source Operand) bool {
 			}
 		}
 		return true
-	case ArrayLiteralExpression:
+	case InlineListLiteralExpression:
 		for _, element := range source.Node.Arguments {
 			if !isFreshAtomicConstruction(element) {
 				return false

@@ -49,7 +49,6 @@ type moduleEmission struct {
 	unionState  *generatedUnionState
 	heapState   *heapHelpers
 	adtState    *generatedAdtState
-	arrayState  *generatedArrayState
 	sliceState  *generatedSliceState
 	stringState *literalRegistry
 	stringUsed  bool // module-local text dependency selection
@@ -406,7 +405,6 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		stringState:    stringState,
 		tags:           merged.tags,
 		slices:         emission.sliceState,
-		arrays:         emission.arrayState,
 		lists:          emission.listState,
 		dicts:          emission.dictState,
 		pools:          emission.poolState,
@@ -480,12 +478,12 @@ func routedFrames(emission *moduleEmission, sites []spawnSite) []spawnSite {
 
 // moduleComponentHeaders returns the path-qualified component headers this
 // module's header includes, in dependency order: wrap, heap, slice,
-// string, error, seek, concurrency, stash, pool, list, dict, array. Each
+// string, error, seek, concurrency, stash, pool, list, dict. Each
 // migrated family selects itself here; a family still owned by hexal.h
 // during the component migration contributes nothing.
 //
-// concurrency precedes the generic containers (list, dict, array) because a
-// List<Task<T>>, Dict<K, Channel<T>>, or Array<Task<T>, N> specialization
+// concurrency precedes the generic containers (list and dict) because a
+// List<Task<T>>, Dict<K, Channel<T>>, or List<Task<T>, N> specialization
 // spells its element type as Task/Channel's per-instantiation typedef
 // (hex_task_T / hex_chan_T), and that typedef is declared in
 // hexal/concurrency.h, not defined by the container itself; the container's
@@ -504,7 +502,6 @@ func moduleComponentHeaders(emission *moduleEmission) []string {
 	components = append(components, modulePoolComponent(emission)...)
 	components = append(components, moduleListComponent(emission)...)
 	components = append(components, moduleDictComponent(emission)...)
-	components = append(components, moduleArrayComponent(emission)...)
 	components = append(components, moduleNumericComponent(emission)...)
 	components = append(components, modulePrintComponent(emission)...)
 	components = append(components, moduleStreamComponent(emission)...)

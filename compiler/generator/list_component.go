@@ -54,6 +54,9 @@ type listComponentRecord struct {
 	NeedsNetwork     bool
 	NeedsProcess     bool
 	NeedsSignal      bool
+	Inline           bool
+	Capacity         uint64
+	AddressBytes     bool
 }
 
 // listComponentRecordFor builds the spelling record of one List
@@ -61,7 +64,15 @@ type listComponentRecord struct {
 // the matching slice of a module element is a module-header slice, and the
 // record is only built for the artifact that owns the list.
 func listComponentRecordFor(list compilerTypes.Type, sliceState *generatedSliceState) listComponentRecord {
-	element := list.List.Element
+	inline := list.InlineList != nil
+	element := compilerTypes.Type{}
+	capacity := uint64(0)
+	if inline {
+		element = list.InlineList.Element
+		capacity = list.InlineList.Capacity
+	} else if list.List != nil {
+		element = list.List.Element
+	}
 	elementSpelling := typeSpelling(element)
 	atReadReturn := "const " + elementSpelling + " *"
 	if strings.Contains(elementSpelling, "*") {
@@ -75,9 +86,13 @@ func listComponentRecordFor(list compilerTypes.Type, sliceState *generatedSliceS
 	if slice := matchingSlice(sliceState, element, true); slice != (compilerTypes.Type{}) {
 		mutSliceCName = slice.CName
 	}
+	suffix := listSuffix(list)
+	if inline {
+		suffix = strings.TrimPrefix(list.CName, "hex_list_inline_")
+	}
 	return listComponentRecord{
 		CName:            list.CName,
-		Suffix:           listSuffix(list),
+		Suffix:           suffix,
 		ElementSpelling:  elementSpelling,
 		AtReadReturn:     atReadReturn,
 		SliceCName:       sliceCName,
@@ -88,6 +103,9 @@ func listComponentRecordFor(list compilerTypes.Type, sliceState *generatedSliceS
 		NeedsNetwork:     elementNeedsNetwork(element),
 		NeedsProcess:     elementNeedsProcess(element),
 		NeedsSignal:      elementNeedsSignal(element),
+		Inline:           inline,
+		Capacity:         capacity,
+		AddressBytes:     inline && compilerTypes.Equal(element, compilerTypes.UInt8) && (capacity == 4 || capacity == 16),
 	}
 }
 
@@ -113,7 +131,8 @@ func listComponents(merged *programEmission) ([]componentArtifact, error) {
 		template: "list.h",
 		model: listComponentModel{
 			Lists: records, NeedsSlice: listRecordsNeedSlice(records), NeedsHeapString: listRecordsNeedHeapString(records),
-			NeedsConcurrency: listRecordsNeedConcurrency(records), NeedsFile: listRecordsNeedFile(records), NeedsNetwork: listRecordsNeedNetwork(records),
+			NeedsConcurrency: listRecordsNeedConcurrency(records), NeedsFile: listRecordsNeedFile(records),
+			NeedsNetwork: listRecordsNeedNetwork(records) || merged.networkState != nil && merged.networkState.used,
 			NeedsProcess: listRecordsNeedProcess(records), NeedsSignal: listRecordsNeedSignal(records),
 		},
 	}}, nil

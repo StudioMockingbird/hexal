@@ -31,7 +31,6 @@ func TestPositionEligibilityMatrix(t *testing.T) {
 		PositionObjectMember,
 		PositionADTPayload,
 		PositionUnionMember,
-		PositionArrayElement,
 		PositionSliceElement,
 		PositionListElement,
 		PositionDictValue,
@@ -51,7 +50,7 @@ func TestPositionEligibilityMatrix(t *testing.T) {
 	want := map[Position]map[Type]bool{}
 	for _, position := range positions {
 		want[position] = map[Type]bool{
-			fun:     position == PositionBinding || position == PositionUnionMember || position == PositionFunctionParam || position == PositionObjectMember || position == PositionFunctionResult || position == PositionADTPayload || position == PositionArrayElement || position == PositionSliceElement || position == PositionListElement || position == PositionDictValue || position == PositionTaskArgument || position == PositionTaskResult || position == PositionChannelElement,
+			fun:     position == PositionBinding || position == PositionUnionMember || position == PositionFunctionParam || position == PositionObjectMember || position == PositionFunctionResult || position == PositionADTPayload || position == PositionSliceElement || position == PositionListElement || position == PositionDictValue || position == PositionTaskArgument || position == PositionTaskResult || position == PositionChannelElement,
 			Nil:     position == PositionUnionMember,
 			Unknown: false,
 			slice:   true,

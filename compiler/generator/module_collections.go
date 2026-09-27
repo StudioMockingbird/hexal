@@ -1,6 +1,6 @@
 package generator
 
-// Module-owned collection specializations: a list, dict, slice, array, or pool
+// Module-owned collection specializations: a list, dict, slice, or pool
 // over a module-emitted element type is emitted into each consuming module
 // header
 // immediately after that module's type definitions. A component artifact is
@@ -37,8 +37,8 @@ func typeIsModuleEmitted(typ compilerTypes.Type) bool {
 	if typ.Element != nil {
 		return typeIsModuleEmitted(*typ.Element)
 	}
-	if typ.Array != nil {
-		return typeIsModuleEmitted(typ.Array.Element)
+	if typ.InlineList != nil {
+		return typeIsModuleEmitted(typ.InlineList.Element)
 	}
 	if typ.Slice != nil {
 		return typeIsModuleEmitted(typ.Slice.Element)
@@ -73,11 +73,11 @@ func typeIsModuleEmitted(typ compilerTypes.Type) bool {
 // hexal/slice.h is positioned ahead of all of them precisely so they can
 // rely on it already being complete, so no shared component naming a Signal
 // specialization directly (slice.h itself, or another component's own
-// "matching slice" cross-reference to hex_slice_Signal, e.g. array.h's)
+// "matching slice" cross-reference to hex_slice_Signal)
 // can include hexal/signal.h without inverting that dependency direction.
 // The module header's own body renders after every component #include,
 // where hexal/signal.h -- pulled in by moduleSignalComponent -- is already
-// complete, so every Signal-element specialization (List, Array, Dict,
+// complete, so every Signal-element specialization (List, Dict,
 // Slice, Pool alike, not just the one directly reaching Signal) is routed
 // there together for one consistent, always-available definition. File,
 // TcpConnection, and Process have the identical layering conflict and are
@@ -87,14 +87,14 @@ func moduleRoutedElement(element compilerTypes.Type) bool {
 }
 
 // collectionElementModuleTyped reports whether one collection specialization
-// spells a module-emitted type: the element of a list, array, slice, or pool,
+// spells a module-emitted type: the element of a List, Slice, or Pool,
 // or the value of a dict (the key is always a builtin Int32 or String<N>).
 func collectionElementModuleTyped(typ compilerTypes.Type) bool {
 	switch {
 	case typ.List != nil:
 		return moduleRoutedElement(typ.List.Element)
-	case typ.Array != nil:
-		return moduleRoutedElement(typ.Array.Element)
+	case typ.InlineList != nil:
+		return moduleRoutedElement(typ.InlineList.Element)
 	case typ.Slice != nil:
 		return moduleRoutedElement(typ.Slice.Element)
 	case typ.Dict != nil:
@@ -108,15 +108,15 @@ func collectionElementModuleTyped(typ compilerTypes.Type) bool {
 // moduleCollectionDependencyOrder orders one module's module-owned collection
 // specializations so every specialization precedes any specialization it
 // spells: the element of a list, array, or slice may itself be a collection
-// (a handle, an inline array, or the element's matching slice), and a dict
+// (a handle, an inline List, or the element's matching Slice), and a dict
 // value may be any of those. Cross-family edges make a single pass over the
 // C-name-sorted family orders insufficient; the graph is small per module
 // and always acyclic because a specialization can only spell already-interned
 // types.
-func moduleCollectionDependencyOrder(slices, arrays, lists, dicts, pools []compilerTypes.Type, sliceState *generatedSliceState) []compilerTypes.Type {
+func moduleCollectionDependencyOrder(slices, lists, dicts, pools []compilerTypes.Type, sliceState *generatedSliceState) []compilerTypes.Type {
 	byName := make(map[string]compilerTypes.Type)
 	all := make([]compilerTypes.Type, 0)
-	for _, order := range [][]compilerTypes.Type{slices, arrays, lists, dicts, pools} {
+	for _, order := range [][]compilerTypes.Type{slices, lists, dicts, pools} {
 		for _, typ := range order {
 			if collectionElementModuleTyped(typ) {
 				byName[typ.CName] = typ
@@ -158,12 +158,12 @@ func spelledCollectionNames(typ compilerTypes.Type, sliceState *generatedSliceSt
 		case t.List != nil:
 			names = append(names, t.CName)
 			walk(t.List.Element)
+		case t.InlineList != nil:
+			names = append(names, t.CName)
+			walk(t.InlineList.Element)
 		case t.Dict != nil:
 			names = append(names, t.CName)
 			walk(t.Dict.Value)
-		case t.Array != nil:
-			names = append(names, t.CName)
-			walk(t.Array.Element)
 		case t.Slice != nil:
 			names = append(names, t.CName)
 			walk(t.Slice.Element)
@@ -178,10 +178,10 @@ func spelledCollectionNames(typ compilerTypes.Type, sliceState *generatedSliceSt
 	switch {
 	case typ.List != nil:
 		element = typ.List.Element
+	case typ.InlineList != nil:
+		element = typ.InlineList.Element
 	case typ.Dict != nil:
 		element = typ.Dict.Value
-	case typ.Array != nil:
-		element = typ.Array.Element
 	case typ.Slice != nil:
 		element = typ.Slice.Element
 	case typ.Pool != nil:
@@ -212,10 +212,6 @@ func writeModuleCollectionSpecializations(result *strings.Builder, input *module
 	if input.slices != nil {
 		slices = input.slices.slices
 	}
-	arrays := []compilerTypes.Type(nil)
-	if input.arrays != nil {
-		arrays = input.arrays.order
-	}
 	lists := []compilerTypes.Type(nil)
 	if input.lists != nil {
 		lists = input.lists.order
@@ -228,7 +224,7 @@ func writeModuleCollectionSpecializations(result *strings.Builder, input *module
 	if input.pools != nil {
 		pools = input.pools.order
 	}
-	ordered := moduleCollectionDependencyOrder(slices, arrays, lists, dicts, pools, input.slices)
+	ordered := moduleCollectionDependencyOrder(slices, lists, dicts, pools, input.slices)
 	if len(ordered) == 0 {
 		return nil
 	}
@@ -241,9 +237,7 @@ func writeModuleCollectionSpecializations(result *strings.Builder, input *module
 		switch {
 		case typ.Slice != nil:
 			artifact = componentArtifact{key: "hexal/slice.h", template: "slice.h", block: "slicebody", model: sliceComponentModel{Slices: []sliceComponentRecord{sliceComponentRecordFor(typ)}}}
-		case typ.Array != nil:
-			artifact = componentArtifact{key: "hexal/array.h", template: "array.h", block: "arraybody", model: arrayComponentModel{Arrays: []arrayComponentRecord{arrayComponentRecordFor(typ, input.slices, input.arrays)}}}
-		case typ.List != nil:
+		case typ.List != nil || typ.InlineList != nil:
 			artifact = componentArtifact{key: "hexal/list.h", template: "list.h", block: "listbody", model: listComponentModel{Lists: []listComponentRecord{listComponentRecordFor(typ, input.slices)}}}
 		case typ.Dict != nil:
 			artifact = componentArtifact{key: "hexal/dict.h", template: "dict.h", block: "dictbody", model: dictComponentModel{Dicts: []dictComponentRecord{dictComponentRecordFor(typ, hashEmitted)}}}

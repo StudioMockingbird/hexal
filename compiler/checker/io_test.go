@@ -130,7 +130,7 @@ func TestCheckStreamPlacementMatrix(t *testing.T) {
 	rejections := []struct{ name, source string }{
 		{"object member", "type Box is struct stream: IO, end"},
 		{"ADT payload", "type Held is union | Carry as stream: IO end | Empty end"},
-		{"array element", "type Box is struct pair: Array<IO, 2>, end"},
+		{"array element", "type Box is struct pair: List<IO, 2>, end"},
 		{"bytes object member", "type Box is struct stream: Bytes, end"},
 	}
 	for _, testCase := range rejections {

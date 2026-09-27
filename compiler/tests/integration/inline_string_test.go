@@ -100,7 +100,7 @@ func TestInlineStringIsAValueInEveryPosition(t *testing.T) {
 		"type W is union | A as text: String<8> end | B as n: Int32 end end\n" +
 		"fun make(): String<8> do\n    return \"task\"\nend\n" +
 		"fun demo(h: Heap): Bool do\n" +
-		"    let texts: Array<String<8>, 2> = [\"a\", \"bc\"]\n" +
+		"    let texts: List<String<8>, 2> = [\"a\", \"bc\"]\n" +
 		"    let view: Slice<String<8>> = texts.slice(0, 2)\n" +
 		"    let items: List<String<8>> = List<String<8>>(h)\n    defer items.free(h)\n    items.push(view[1])\n" +
 		"    let box: Box = Box(name = \"hi\", other = \"x\")\n" +
@@ -227,7 +227,7 @@ func TestTextProducingOperationResults(t *testing.T) {
 // concat appends to text that is already valid and validates only what it
 // appends.
 func TestInlineConcatValidatesTheJoinedResult(t *testing.T) {
-	result := assertCompiles(t, "fun demo(): Bool do\n    let lead: Array<Byte, 1> = [0xC3]\n    let tail: Array<Byte, 1> = [0xA9]\n    let joined: String<4> | Error = String<4>.concat(lead.slice(0, 1), tail.slice(0, 1))\n    return joined is String<4>\nend\n")
+	result := assertCompiles(t, "fun demo(): Bool do\n    let lead: List<Byte, 1> = [0xC3]\n    let tail: List<Byte, 1> = [0xA9]\n    let joined: String<4> | Error = String<4>.concat(lead.slice(0, 1), tail.slice(0, 1))\n    return joined is String<4>\nend\n")
 	header := rootH(t, result)
 	if !strings.Contains(header, "hex_utf8_valid(value.data, total)") {
 		t.Fatalf("inline concat does not validate the joined bytes:\n%s", header)

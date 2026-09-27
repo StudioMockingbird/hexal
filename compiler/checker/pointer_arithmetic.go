@@ -110,7 +110,7 @@ func checkPointerIndexPlace(expression parser.IndexExpression, receiver checkedE
 	// `pointer[index]` reading like ordinary collection indexing while
 	// meaning "the next collection" is the one confusion worth refusing
 	// outright: the two intents get their own spellings instead.
-	if element.Array != nil || element.Slice != nil || element.List != nil {
+	if element.InlineList != nil || element.Slice != nil || element.List != nil {
 		diagnostic := messageAt(bracket, diag.PointerIndexAmbiguous(receiver.typ.Name))
 		return checkedExpression{token: bracket, diagnostic: &diagnostic}
 	}

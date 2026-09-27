@@ -73,7 +73,7 @@ func discoverGeneratedPrint(program checker.Program) (*generatedPrintState, erro
 				seen[key] = true
 				state.types = append(state.types, typ)
 			}
-		case typ.Array != nil:
+		case typ.InlineList != nil:
 			if !seen[key] {
 				seen[key] = true
 				state.types = append(state.types, typ)
@@ -197,13 +197,6 @@ type printVariantFragment struct {
 type printNestedAdtModel struct {
 	CName    string
 	Variants []printVariantFragment
-}
-
-type printNestedArrayModel struct {
-	CName        string
-	Length       uint64
-	ElementCName string
-	ElementArg   string
 }
 
 type printNestedSequenceModel struct {
@@ -402,11 +395,10 @@ func printNestedFragment(typ compilerTypes.Type, tags *tagRegistry) (string, any
 			variants = append(variants, fragment)
 		}
 		return "print_nested_adt", printNestedAdtModel{CName: typ.CName, Variants: variants}, true
-	case typ.Array != nil:
-		element := typ.Array.Element
-		return "print_nested_array", printNestedArrayModel{
+	case typ.InlineList != nil:
+		element := typ.InlineList.Element
+		return "print_nested_sequence", printNestedSequenceModel{
 			CName:        typ.CName,
-			Length:       typ.Array.Length,
 			ElementCName: element.CName,
 			ElementArg:   printNestedAddress(element, "v->data[index]"),
 		}, true

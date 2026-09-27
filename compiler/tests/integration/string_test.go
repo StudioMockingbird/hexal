@@ -192,10 +192,10 @@ func TestStringLiteralFreeRejected(t *testing.T) {
 		"fun demo(h: Heap) do\n    let text: String = \"x\"\n    let alias: String = text\n    alias.free(h)\nend",
 		"type Box is struct text: String end\nfun demo(h: Heap) do\n    let box: Box = Box(text = \"x\")\n    box.text.free(h)\nend",
 		"type W is union | A as text: String end | B as x: Int32 end end\nlet h: Heap = Heap()\nlet w: W = W.A(text = \"x\")\nlet label: Int32 = match w is\n| W.A then w.text.free(h)\n| W.B then 0\nend",
-		"fun demo(h: Heap) do\n    let texts: Array<String, 2> = [\"a\", \"b\"]\n    texts[0].free(h)\nend",
+		"fun demo(h: Heap) do\n    let texts: List<String, 2> = [\"a\", \"b\"]\n    texts[0].free(h)\nend",
 		"fun demo(h: Heap) do\n    let mut text: String = \"x\".copy(h)\n    text = \"y\"\n    text.free(h)\nend",
 		"fun demo(h: Heap, release: Bool) do\n    let mut text: String = \"x\".copy(h)\n    if release then\n        text = \"y\"\n    end\n    text.free(h)\nend",
-		"fun demo(h: Heap) do\n    let mut texts: Array<String, 2> = [\"a\".copy(h), \"b\".copy(h)]\n    let i: Size = 0\n    texts[i] = \"lit\"\n    texts[0].free(h)\nend",
+		"fun demo(h: Heap) do\n    let mut texts: List<String, 2> = [\"a\".copy(h), \"b\".copy(h)]\n    let i: Size = 0\n    texts[i] = \"lit\"\n    texts[0].free(h)\nend",
 	}
 	for _, source := range rejected {
 		if result := compileSource(source); result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "cannot free a String literal") {
@@ -235,16 +235,16 @@ func TestStringParameterCopiesAreValid(t *testing.T) {
 	}
 }
 
-func TestStringInArrayIsStoredAndCopiedShallow(t *testing.T) {
-	// Array<String, N> is valid; element copies share the String handle,
+func TestStringInInlineListIsStoredAndCopiedShallow(t *testing.T) {
+	// List<String, N> is valid; element copies share the String handle,
 	// and the array never frees a stored literal.
-	result := compileSource("fun demo() do\n    let texts: Array<String, 2> = [\"a\", \"b\"]\n    let copy: Array<String, 2> = texts\n    let first: String = texts[0]\nend")
+	result := compileSource("fun demo() do\n    let texts: List<String, 2> = [\"a\", \"b\"]\n    let copy: List<String, 2> = texts\n    let first: String = texts[0]\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"const hex_array_String_2 hex_v_copy = hex_v_texts;",
-		"const hex_string *const hex_v_first = hex_v_texts.data[0];",
+		"const hex_list_inline_String_2 hex_v_copy = hex_v_texts;",
+		"const hex_string *const hex_v_first = *hex_list_inline_at_String_2(&(hex_v_texts), (size_t)(0));",
 	} {
 		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
 			t.Fatalf("generated output = %q %q, want %q", rootC(t, result), rootH(t, result), want)

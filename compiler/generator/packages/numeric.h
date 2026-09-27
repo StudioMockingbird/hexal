@@ -2,7 +2,7 @@
 #define HEXAL_NUMERIC_H
 
 #include "hexal.h"
-{{if .NeedArray}}#include "hexal/array.h"
+{{if .NeedList}}#include "hexal/list.h"
 {{end}}
 {{range .Conversions}}
 {{.Body}}

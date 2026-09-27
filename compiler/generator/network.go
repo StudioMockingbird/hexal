@@ -51,6 +51,12 @@ type generatedNetworkState struct {
 func discoverGeneratedNetwork(program checker.Program, logicalKey string, literals *literalRegistry) *generatedNetworkState {
 	state := &generatedNetworkState{}
 	visitor := &programVisitor{
+		Type: func(typ compilerTypes.Type) error {
+			if compilerTypes.IsAddress(typ) {
+				state.used = true
+			}
+			return nil
+		},
 		Expression: func(node checker.Expression) error {
 			if node.Kind != checker.NetworkExpression || isProcessOperation(node.Name) || isSignalOperation(node.Name) || isTerminalOperation(node.Name) {
 				// Process/Pipe, Signals, and Terminal operations share

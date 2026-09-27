@@ -583,6 +583,8 @@ func checkBareConstructorCall(call parser.CallExpression, callee parser.Variable
 			return checkPoolTypeCall(call, callee.Name, ctx), true
 		case "List":
 			return checkListTypeCall(call, callee.Name, ctx), true
+		case "Array":
+			return checkedExpression{token: callee.Name, diagnostic: diagnosticAt(messageAt(callee.Name, diag.ArrayTypeRemoved()))}, true
 		case "Dict":
 			return checkDictTypeCall(call, callee.Name, ctx), true
 		case "Channel":

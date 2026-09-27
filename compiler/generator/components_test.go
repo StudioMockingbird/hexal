@@ -11,7 +11,7 @@ import (
 func TestComponentTemplatesCompleteAndUnique(t *testing.T) {
 	required := []string{
 		"hexal.h", "runtime.c", "wrap.h", "heap.h", "heap.c", "slice.h",
-		"string.h", "string.c", "error.h", "list.h", "dict.h", "array.h",
+		"string.h", "string.c", "error.h", "list.h", "dict.h",
 		"numeric.h", "print.h", "print.c", "concurrency.h", "concurrency.c",
 		"equality.h", "io.h", "io.c", "seek.h", "stash.h", "stash.c", "pool.h",
 		"event.h", "event.c", "time.h", "time.c", "handle.h", "handle.c",
@@ -120,9 +120,9 @@ func TestComponentRenderingIsDeterministic(t *testing.T) {
 		artifacts []string
 	}{
 		{
-			name:      "array",
-			source:    "fun demo() do\n    let fixed: Array<Int32, 3> = [1, 2, 3]\n    let first: Int32 = fixed[0]\nend",
-			artifacts: []string{"hexal/array.h"},
+			name:      "inline-list",
+			source:    "fun demo() do\n    let fixed: List<Int32, 3> = [1, 2, 3]\n    let first: Int32 = fixed[0]\nend",
+			artifacts: []string{"hexal/list.h"},
 		},
 		{
 			name: "concurrency",
@@ -170,14 +170,12 @@ func TestComponentRenderingIsDeterministic(t *testing.T) {
 }
 
 // A scalar-only program selects no collection component and its module header
-// includes none. Array and List were byte-identical copies of this check;
-// Slice is deliberately not here: slice.h is emitted
-// transitively by the array component, so its absence has a different
-// precondition and keeps its own test.
+// includes none. Slice is deliberately not here: slice.h is independently
+// demand-driven and keeps its own test.
 func TestUnselectedCollectionComponentsAreAbsent(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo() do\n    let value: Int32 = 1\nend")
 	files := generateOne(t, program)
-	for _, artifact := range []string{"hexal/array.h", "hexal/list.h"} {
+	for _, artifact := range []string{"hexal/list.h", "hexal/dict.h"} {
 		if _, exists := files[artifact]; exists {
 			t.Errorf("scalar-only program emitted %s", artifact)
 		}

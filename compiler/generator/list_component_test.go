@@ -197,3 +197,17 @@ func TestListModuleOwnedElementSpecializationLivesInModuleHeader(t *testing.T) {
 		t.Fatalf("modules/app.h declares hex_list_Point at %d before its element type at %d; the element must precede it", specialization, element)
 	}
 }
+
+func TestInlineListModuleOwnedElementLivesInModuleHeader(t *testing.T) {
+	program := checkedGeneratorSource(t, "type Point is struct\n    x: Int32,\nend\nfun demo() do\n    let values: List<Point, 2> = [Point(x = 1)]\n    let first: Point = values[0]\nend")
+	files := generateOne(t, program)
+	if files["hexal/list.h"] != "" {
+		t.Fatalf("hexal/list.h = %q, want module-owned element specialization emitted locally", files["hexal/list.h"])
+	}
+	header := files["modules/app.h"]
+	list := strings.Index(header, "typedef struct hex_list_inline_Point_2 {")
+	element := strings.Index(header, "struct hex_t_m3_app_Point {")
+	if element < 0 || list < 0 || element > list {
+		t.Fatalf("modules/app.h must define Point before its inline List: %q", header)
+	}
+}

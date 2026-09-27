@@ -487,11 +487,11 @@ func checkTextMethodCall(call methodCall) checkedExpression {
 		if inline && !call.receiver.source.Addressable {
 			return fail(diagnosticsPkg.TemporaryCannotRootTextView("Slice", call.receiver.typ.Name))
 		}
-		start, _, diagnostic := checkArrayIndex(call.call.Arguments[0], property, call.ctx)
+		start, _, diagnostic := checkSequenceIndex(call.call.Arguments[0], property, call.ctx)
 		if diagnostic != nil {
 			return checkedExpression{token: property, diagnostic: diagnostic}
 		}
-		end, _, diagnostic := checkArrayIndex(call.call.Arguments[1], property, call.ctx)
+		end, _, diagnostic := checkSequenceIndex(call.call.Arguments[1], property, call.ctx)
 		if diagnostic != nil {
 			return checkedExpression{token: property, diagnostic: diagnostic}
 		}

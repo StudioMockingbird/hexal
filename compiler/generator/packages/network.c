@@ -64,7 +64,7 @@ hex_address_parsed hex_address_parse(const hex_string *text, uint16_t port) {
 
     struct sockaddr_in v4;
     if (uv_ip4_addr(copy, 0, &v4) == 0) {
-        hex_t_Address address = {.tag = 0};
+        hex_t_Address address = {.tag = 0, .payload.IPv4.hex_m_bytes.length = 4};
         memcpy(address.payload.IPv4.hex_m_bytes.data, &v4.sin_addr, 4);
         address.payload.IPv4.hex_m_port = port;
         return (hex_address_parsed){.status = 0, .address = address};
@@ -74,7 +74,7 @@ hex_address_parsed hex_address_parse(const hex_string *text, uint16_t port) {
     if (hex_address_scan_scope(copy, text->byte_length, host, sizeof(host), &scope)) {
         struct sockaddr_in6 v6;
         if (uv_ip6_addr(host, 0, &v6) == 0) {
-            hex_t_Address address = {.tag = 1};
+            hex_t_Address address = {.tag = 1, .payload.IPv6.hex_m_bytes.length = 16};
             memcpy(address.payload.IPv6.hex_m_bytes.data, &v6.sin6_addr, 16);
             address.payload.IPv6.hex_m_port = port;
             address.payload.IPv6.hex_m_scope = scope;
@@ -202,11 +202,13 @@ hex_dns_result hex_dns_resolve(const hex_string *host, const hex_string *service
         if (entry->ai_family == AF_INET) {
             struct sockaddr_in *v4 = (struct sockaddr_in *)entry->ai_addr;
             address.tag = 0;
+            address.payload.IPv4.hex_m_bytes.length = 4;
             memcpy(address.payload.IPv4.hex_m_bytes.data, &v4->sin_addr, 4);
             address.payload.IPv4.hex_m_port = ntohs(v4->sin_port);
         } else if (entry->ai_family == AF_INET6) {
             struct sockaddr_in6 *v6 = (struct sockaddr_in6 *)entry->ai_addr;
             address.tag = 1;
+            address.payload.IPv6.hex_m_bytes.length = 16;
             memcpy(address.payload.IPv6.hex_m_bytes.data, &v6->sin6_addr, 16);
             address.payload.IPv6.hex_m_port = ntohs(v6->sin6_port);
             address.payload.IPv6.hex_m_scope = v6->sin6_scope_id;

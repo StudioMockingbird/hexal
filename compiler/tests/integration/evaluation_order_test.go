@@ -70,12 +70,12 @@ func TestBinaryOperandsEvaluateLeftToRight(t *testing.T) {
 	requireAscending(t, positions, "a()", "b()", "add(...)")
 }
 
-func TestArrayLiteralElementsEvaluateLeftToRight(t *testing.T) {
+func TestInlineListLiteralElementsEvaluateLeftToRight(t *testing.T) {
 	result := assertCompiles(t, "fun a(): Int32 do\n    return 1\nend\n"+
 		"fun b(): Int32 do\n    return 2\nend\n"+
-		"let values: Array<Int32, 2> = [a(), b()]\n")
+		"let values: List<Int32, 2> = [a(), b()]\n")
 	body := rootC(t, result)
-	positions := order(t, body, "_a();", "_b();", "{{hex_seq_1, hex_seq_2}}")
+	positions := order(t, body, "_a();", "_b();", ".data = {hex_seq_1, hex_seq_2}")
 	requireAscending(t, positions, "a()", "b()", "array literal")
 }
 
@@ -153,7 +153,7 @@ func TestAtomicCompareExchangeOperandsEvaluateLeftToRight(t *testing.T) {
 func TestAssignmentEvaluatesTargetBeforeSource(t *testing.T) {
 	result := assertCompiles(t, "fun idx(): Size do\n    return 1\nend\n"+
 		"fun value(): Int32 do\n    return 9\nend\n"+
-		"let mut values: Array<Int32, 3> = [0, 0, 0]\n"+
+		"let mut values: List<Int32, 3> = [0, 0, 0]\n"+
 		"values[idx()] = value()\n")
 	body := rootC(t, result)
 	positions := order(t, body, "_idx();", "_value();")

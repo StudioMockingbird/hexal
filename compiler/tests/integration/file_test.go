@@ -50,8 +50,8 @@ func TestFileOccupiesEveryCommonHandleStoragePosition(t *testing.T) {
 		"import\n  Fs from std.fs\nend\ntype Holder is struct f: Fs.File end\nfun make(h: Heap): Nil | Error do\n    let x = try Fs.open(\"a\", Fs.FileMode.Write())\n    let holder = Holder(f = x)\n    try holder.f.close()\n    return nil\nend",
 		// ADT payload.
 		"import\n  Fs from std.fs\nend\ntype Wrapped is union | Present as f: Fs.File end | Absent end\nfun make(): Nil | Error do\n    let x = try Fs.open(\"a\", Fs.FileMode.Write())\n    let w = Wrapped.Present(f = x)\n    return nil\nend",
-		// Array element.
-		"import\n  Fs from std.fs\nend\nfun make(): Nil | Error do\n    let x = try Fs.open(\"a\", Fs.FileMode.Write())\n    let files: Array<Fs.File, 1> = [x]\n    try files[0].close()\n    return nil\nend",
+		// Inline List element.
+		"import\n  Fs from std.fs\nend\nfun make(): Nil | Error do\n    let x = try Fs.open(\"a\", Fs.FileMode.Write())\n    let files: List<Fs.File, 1> = [x]\n    try files[0].close()\n    return nil\nend",
 		// List element and Dict value.
 		"import\n  Fs from std.fs\nend\nfun make(h: Heap): Nil | Error do\n    let x = try Fs.open(\"a\", Fs.FileMode.Write())\n    let files: List<Fs.File> = List<Fs.File>(h)\n    defer files.free(h)\n    files.push(x)\n    try files[0].close()\n    return nil\nend",
 		"import\n  Fs from std.fs\nend\nfun make(h: Heap): Nil | Error do\n    let x = try Fs.open(\"a\", Fs.FileMode.Write())\n    let files: Dict<Int32, Fs.File> = Dict<Int32, Fs.File>(h)\n    defer files.free(h)\n    files.insert(1, x)\n    try files.get(1).close()\n    return nil\nend",

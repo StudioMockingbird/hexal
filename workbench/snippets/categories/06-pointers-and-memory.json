@@ -97,7 +97,7 @@
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "fun demo(h: Heap): Int32 do",
-        "    let block: Ptr\u003cmut Array\u003cInt32, 4\u003e\u003e = h.allocate\u003cArray\u003cInt32, 4\u003e\u003e([10, 20, 30, 40])",
+        "    let block: Ptr\u003cmut List\u003cInt32, 4\u003e\u003e = h.allocate\u003cList\u003cInt32, 4\u003e\u003e([10, 20, 30, 40])",
         "    defer h.free(block)",
         "    unsafe do",
         "        let first: Ptr\u003cmut Int32\u003e = block.cast\u003cInt32\u003e()",
@@ -106,7 +106,7 @@
         "    end",
         "end"
       ]},
-      "features": ["pointer-arithmetic", "unsafe", "pointers", "heap-allocation", "arrays"],
+      "features": ["pointer-arithmetic", "unsafe", "pointers", "heap-allocation", "inline-lists"],
       "reservedWords": ["fun", "return", "end", "do", "defer", "unsafe"]
     },
     {
@@ -237,7 +237,7 @@
     },
     {
       "id": "memory-array-element-pointer",
-      "name": "Array element pointer",
+      "name": "Inline list element pointer",
       "description": "Take a mutable pointer to an array element and update it.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
@@ -245,12 +245,12 @@
         "    ^value = ^value + 1",
         "end",
         "fun demo(): Int32 do",
-        "    let mut values: Array\u003cInt32, 2\u003e = [1, 2]",
+        "    let mut values: List\u003cInt32, 2\u003e = [1, 2]",
         "    bump(@values[1])",
         "    return values[1]",
         "end"
       ]},
-      "features": ["pointers", "arrays", "functions", "no-result-functions"],
+      "features": ["pointers", "inline-lists", "functions", "no-result-functions"],
       "reservedWords": ["fun", "mut", "return", "end", "@", "do"]
     },
     {

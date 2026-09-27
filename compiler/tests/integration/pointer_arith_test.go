@@ -119,12 +119,12 @@ func TestFencedPointerOperationsCannotUpgradeAccess(t *testing.T) {
 // the two possible intents get two distinct spellings instead.
 func TestPointerIndexingOfCollectionPointeeIsAmbiguous(t *testing.T) {
 	assertRejects(t,
-		"fun demo(p: Ptr<Array<Int32, 4>>) do\n    unsafe do\n        let bad: Int32 = p[0]\n    end\nend\n",
-		"pointer indexing of Ptr<Array<Int32, 4>> is ambiguous; use (^pointer)[index] to index the collection or pointer.offset(index) to advance the pointer")
+		"fun demo(p: Ptr<List<Int32, 4>>) do\n    unsafe do\n        let bad: Int32 = p[0]\n    end\nend\n",
+		"pointer indexing of Ptr<List<Int32, 4>> is ambiguous; use (^pointer)[index] to index the collection or pointer.offset(index) to advance the pointer")
 	// Both explicit spellings remain available and keep their own meaning.
-	assertCompiles(t, "fun demo(p: Ptr<Array<Int32, 4>>) do\n    let item: Int32 = (^p)[2]\n    unsafe do\n        let next: Ptr<Array<Int32, 4>> = p.offset(1)\n    end\nend\n")
+	assertCompiles(t, "fun demo(p: Ptr<List<Int32, 4>>) do\n    let item: Int32 = (^p)[2]\n    unsafe do\n        let next: Ptr<List<Int32, 4>> = p.offset(1)\n    end\nend\n")
 	assertRejects(t,
-		"fun demo(p: Ptr<Array<Int32, 4>>) do\n    let bad: Int32 = (^p)[9]\nend\n",
+		"fun demo(p: Ptr<List<Int32, 4>>) do\n    let bad: Int32 = (^p)[9]\nend\n",
 		"out of bounds")
 }
 
@@ -210,7 +210,7 @@ func TestOnePastPointerMayBeFormedAndCompared(t *testing.T) {
 }
 
 func TestPointerDereferenceThenCheckedIndexIsValid(t *testing.T) {
-	result := compileSource("fun demo() do\n    let mut values: Array<Int32, 4> = [10, 20, 30, 40]\n    let array_pointer: Ptr<mut Array<Int32, 4>> = @values\n    let item: Int32 = (^array_pointer)[2]\n    let element: Ptr<mut Int32> = @values[2]\n    let copy: Int32 = ^element\nend")
+	result := compileSource("fun demo() do\n    let mut values: List<Int32, 4> = [10, 20, 30, 40]\n    let array_pointer: Ptr<mut List<Int32, 4>> = @values\n    let item: Int32 = (^array_pointer)[2]\n    let element: Ptr<mut Int32> = @values[2]\n    let copy: Int32 = ^element\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

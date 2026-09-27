@@ -111,13 +111,6 @@ func collectModuleRequirements(module *moduleEmission, requirements *cHeaderRequ
 		}
 		requirements.trap = true
 	}
-	if module.arrayState != nil && len(module.arrayState.order) > 0 {
-		// Array accessors use UINT64_C bounds and trap.
-		if err := requirements.addComponentHeaders(specdata.ComponentArray); err != nil {
-			return err
-		}
-		requirements.trap = true
-	}
 	if module.stringUsed {
 		// hex_string storage, the inline text structs, and the UTF-8 validator use
 		// uint8_t, size_t, free, ckd_add, and memcpy (<string.h>);

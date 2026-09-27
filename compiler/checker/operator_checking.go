@@ -528,8 +528,8 @@ func inferExpressionType(expression parser.Expression, expected compilerTypes.Ty
 	case parser.VariableExpression, parser.PropertyExpression, parser.IndexExpression:
 		place := checkPlace(expression, ctx)
 		return expressionTypeHint{typ: place.typ, token: place.token, diagnostic: place.diagnostic}
-	case parser.ArrayLiteralExpression:
-		checked := checkArrayLiteral(expression, expected, ctx)
+	case parser.InlineListLiteralExpression:
+		checked := checkInlineListLiteral(expression, expected, ctx)
 		return expressionTypeHint{typ: checked.typ, token: checked.token, diagnostic: checked.diagnostic}
 	case parser.MatchExpression:
 		checked := checkMatchExpression(expression, expressionContext{expected: compilerTypes.NewTypeUse(expected)}, ctx)

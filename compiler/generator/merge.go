@@ -23,7 +23,6 @@ type programEmission struct {
 	stringState      *literalRegistry
 	listState        *generatedListState
 	dictState        *generatedDictState
-	arrayState       *generatedArrayState
 	concurrencyState *generatedConcurrencyState
 	wrapState        *generatedWrapState
 	sizeLiterals     []string
@@ -160,10 +159,9 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		heapState:   &heapHelpers{seen: make(map[string]bool), alignedSeen: make(map[string]bool)},
 		sliceState:  &generatedSliceState{seen: make(map[*compilerTypes.SliceInfo]bool)},
 		stringState: literals,
-		listState:   &generatedListState{seen: make(map[*compilerTypes.ListInfo]bool)},
+		listState:   &generatedListState{seen: make(map[*compilerTypes.ListInfo]bool), seenInline: make(map[*compilerTypes.InlineListInfo]bool)},
 		dictState:   &generatedDictState{seen: make(map[*compilerTypes.DictInfo]bool)},
 		poolState:   &generatedPoolState{seen: make(map[*compilerTypes.PoolInfo]bool)},
-		arrayState:  &generatedArrayState{seen: make(map[*compilerTypes.ArrayInfo]bool), demand: make(map[*compilerTypes.ArrayInfo]arrayAccessorDemand)},
 		concurrencyState: &generatedConcurrencyState{
 			taskTypes:            make(map[string]compilerTypes.Type),
 			joinTypes:            make(map[string]compilerTypes.Type),
@@ -185,7 +183,6 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		adapterSites:  make(map[string][]spawnSite),
 	}
 	viewOrders := make([][]compilerTypes.Type, 0, len(modules))
-	arrayOrders := make([][]compilerTypes.Type, 0, len(modules))
 	listOrders := make([][]compilerTypes.Type, 0, len(modules))
 	dictOrders := make([][]compilerTypes.Type, 0, len(modules))
 	poolOrders := make([][]compilerTypes.Type, 0, len(modules))
@@ -256,14 +253,6 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		if module.adtState != nil {
 			adtOrders = append(adtOrders, module.adtState.order)
 		}
-		if module.arrayState != nil {
-			arrayOrders = append(arrayOrders, module.arrayState.order)
-			// Accessor demand is recorded while a module body renders, which
-			// happens after this merge. Every module state therefore shares
-			// the merged map, so a write from any renderer is visible to the
-			// component builders that run once every module has rendered.
-			module.arrayState.demand = merged.arrayState.demand
-		}
 		if module.sliceState != nil {
 			viewOrders = append(viewOrders, module.sliceState.slices)
 			merged.sliceState.required = merged.sliceState.required || module.sliceState.required
@@ -319,7 +308,6 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 	sortMergedNumericSpecs(merged)
 	sortMergedEqualityTypes(merged)
 	merged.sliceState.slices = mergeTypeOrders(viewOrders)
-	merged.arrayState.order = mergeTypeOrders(arrayOrders)
 	merged.listState.order = mergeTypeOrders(listOrders)
 	merged.dictState.order = mergeTypeOrders(dictOrders)
 	merged.poolState.order = mergeTypeOrders(poolOrders)

@@ -40,8 +40,8 @@ func printable(typ compilerTypes.Type) bool {
 			}
 		}
 		return true
-	case typ.Array != nil:
-		return printable(typ.Array.Element)
+	case typ.InlineList != nil:
+		return printable(typ.InlineList.Element)
 	case typ.Slice != nil:
 		return printable(typ.Slice.Element)
 	case typ.List != nil:
@@ -70,8 +70,8 @@ func printUnsupportedDetails(typ compilerTypes.Type) diag.PrintUnsupportedDetail
 				}
 			}
 		}
-	case typ.Array != nil:
-		return diag.PrintUnsupportedDetails{Kind: diag.PrintUnsupportedAggregateElement, ValueType: typ.Array.Element.Name}
+	case typ.InlineList != nil:
+		return diag.PrintUnsupportedDetails{Kind: diag.PrintUnsupportedAggregateElement, ValueType: typ.InlineList.Element.Name}
 	case typ.Slice != nil:
 		return diag.PrintUnsupportedDetails{Kind: diag.PrintUnsupportedAggregateElement, ValueType: typ.Slice.Element.Name}
 	case typ.List != nil:

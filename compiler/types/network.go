@@ -8,14 +8,10 @@ import "strconv"
 // declaration can create or shadow them.
 
 var (
-	// addressIPv4Bytes and addressIPv6Bytes are fixed, globally interned
-	// array shapes reserved for Address's own payload fields only. They are
-	// not registered in any per-compilation array arena, so a program's own
-	// independently declared Array<Byte, 4> is a distinct identity; only a
-	// direct array literal, never an existing binding, may fill an Address
-	// variant's bytes field.
-	addressIPv4Bytes = builtinArrayType("hex_addr_ipv4_bytes", "builtin-array:address-ipv4-bytes", UInt8, 4)
-	addressIPv6Bytes = builtinArrayType("hex_addr_ipv6_bytes", "builtin-array:address-ipv6-bytes", UInt8, 16)
+	// These canonical inline Lists seed each compilation arena so Address
+	// payloads and source List<Byte, N> values share one type identity.
+	addressIPv4Bytes = builtinInlineListType(UInt8, 4)
+	addressIPv6Bytes = builtinInlineListType(UInt8, 16)
 
 	// AddressType is the protected inline network address ADT: IPv4 stores
 	// four network-order bytes and a host-order port; IPv6 stores sixteen
@@ -40,14 +36,15 @@ var (
 	}
 )
 
-func builtinArrayType(cName, canonicalKey string, element Type, length uint64) Type {
+func builtinInlineListType(element Type, capacity uint64) Type {
+	canonicalKey := "inline-list:" + element.CanonicalKey + "," + strconv.FormatUint(capacity, 10)
 	identity := newTypeIdentity()
 	identity.signature = canonicalKey
 	return Type{
-		Name:         "Array<" + element.Name + ", " + strconv.FormatUint(length, 10) + ">",
-		CName:        cName,
+		Name:         "List<" + element.Name + ", " + strconv.FormatUint(capacity, 10) + ">",
+		CName:        "hex_list_inline_" + SanitizeIdentifier(element.Name) + "_" + strconv.FormatUint(capacity, 10),
 		CanonicalKey: canonicalKey,
-		Array:        &ArrayInfo{Element: element, Length: length},
+		InlineList:   &InlineListInfo{Element: element, Capacity: capacity},
 		identity:     identity,
 	}
 }

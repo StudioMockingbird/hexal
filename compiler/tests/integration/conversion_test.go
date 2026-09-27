@@ -102,9 +102,9 @@ func TestSizeHasNoImplicitNumericMixing(t *testing.T) {
 			t.Fatalf("want accept; got exit=%d stderr=%v\nsource: %s", result.ExitCode, result.Stderr, source)
 		}
 	}
-	bad := "let a: Array<Size, 2> = [1, 2]\nlet b: Array<UInt64, 2> = a\n"
+	bad := "let a: List<Size, 2> = [1, 2]\nlet b: List<UInt64, 2> = a\n"
 	if result := compileSource(bad); result.ExitCode != compiler.ExitFailure {
-		t.Fatalf("want Array<Size> and Array<UInt64> distinct; got accept")
+		t.Fatalf("want List<Size> and List<UInt64> distinct; got accept")
 	}
 }
 

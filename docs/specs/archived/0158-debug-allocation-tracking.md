@@ -1,8 +1,10 @@
 # RFC 0158: Leak Detection on the Linux Lane
 
 - Kind: Tooling Proposal
-- Status: Implementation ready, for the Linux lane only. Rescoped 2026-09-23
-  from a Hexal-owned tracking allocator to a LeakSanitizer gate, after a sweep
+- Status: Rejected 2026-09-26. LeakSanitizer is not enabled in user debug builds
+  on any target; equivalent shipped capabilities across targets take priority.
+  Rescoped 2026-09-23 from a Hexal-owned tracking allocator to a LeakSanitizer
+  gate, after a sweep
   showed the vendored mimalloc cannot enumerate the runtime's allocations and
   that the only fix costs 7-12% on every allocation. Consuming receivers were
   withdrawn earlier and are not revisited

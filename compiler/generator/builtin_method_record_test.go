@@ -162,11 +162,15 @@ func TestDictFindLoweringReadsTheRegistry(t *testing.T) {
 }
 
 // migratedSymbolProgram reaches every runtime symbol migrated out of a
-// handwritten helper-name composer: the Array and List re-slices, the Stash and
+// handwritten helper-name composer: the inline and allocated List operations, the Stash and
 // Pool typed operations (direct and deferred), and the heap and inline text
 // methods.
 const migratedSymbolProgram = "fun demo(h: Heap) do\n" +
-	"    let mut data: Array<Int32, 4> = [1, 2, 3, 4]\n" +
+	"    let mut data: List<Int32, 4> = [1, 2, 3, 4]\n" +
+	"    data.push(5)\n" +
+	"    let removed: Int32 | Nil = data.pop()\n" +
+	"    data.clear()\n" +
+	"    data.push(1)\n" +
 	"    let array_read: Slice<Int32> = data.slice(0, 2)\n" +
 	"    let array_write: Slice<mut Int32> = data.mut_slice(0, 2)\n" +
 	"    array_write[0] = 9\n" +
@@ -217,9 +221,9 @@ const migratedSymbolProgram = "fun demo(h: Heap) do\n" +
 // symbol, so a site that still spells the operation by hand keeps the old name
 // and fails the absence check below.
 var migratedSymbolProbes = map[specdata.TypePattern]map[string]string{
-	specdata.ConstructorOwner(specdata.TypeArray): {
-		"slice":     "hex_probe_array_slice_%s",
-		"mut_slice": "hex_probe_array_mut_slice_%s",
+	specdata.ConstructorOwner(specdata.TypeInlineList): {
+		"slice":     "hex_probe_list_inline_slice_%s",
+		"mut_slice": "hex_probe_list_inline_mut_slice_%s",
 	},
 	specdata.ConstructorOwner(specdata.TypeList): {
 		"slice":     "hex_probe_list_slice_%s",
@@ -273,8 +277,11 @@ func TestMigratedRuntimeSymbolsReadTheRegistry(t *testing.T) {
 	program := checkedGeneratorSource(t, migratedSymbolProgram)
 	baseline := generateOne(t, program)["modules/app.c"]
 	for _, want := range []string{
-		"hex_array_slice_Int32_4(",
-		"hex_array_mut_slice_Int32_4(",
+		"hex_list_inline_slice_Int32_4(",
+		"hex_list_inline_mut_slice_Int32_4(",
+		"hex_list_inline_push_Int32_4(",
+		"hex_list_inline_pop_Int32_4(",
+		"hex_list_inline_clear_Int32_4(",
 		"hex_list_slice_Int32(",
 		"hex_list_mut_slice_Int32(",
 		"hex_stash_alloc_int32_t(",
@@ -315,8 +322,8 @@ func TestMigratedRuntimeSymbolsReadTheRegistry(t *testing.T) {
 
 	corrupted := generateOne(t, program)["modules/app.c"]
 	for _, want := range []string{
-		"hex_probe_array_slice_Int32_4(",
-		"hex_probe_array_mut_slice_Int32_4(",
+		"hex_probe_list_inline_slice_Int32_4(",
+		"hex_probe_list_inline_mut_slice_Int32_4(",
 		"hex_probe_list_slice_Int32(",
 		"hex_probe_list_mut_slice_Int32(",
 		"hex_probe_stash_alloc_int32_t(",
@@ -355,8 +362,8 @@ func TestMigratedRuntimeSymbolsReadTheRegistry(t *testing.T) {
 		}
 	}
 	for _, gone := range []string{
-		"hex_array_slice_",
-		"hex_array_mut_slice_",
+		"hex_list_inline_slice_",
+		"hex_list_inline_mut_slice_",
 		"hex_list_slice_",
 		"hex_list_mut_slice_",
 		"hex_stash_alloc_",

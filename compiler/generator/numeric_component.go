@@ -18,7 +18,7 @@ type numericComponentModel struct {
 	Shifts      []numericHelperRecord
 	BitCasts    []numericHelperRecord
 	Endians     []numericHelperRecord
-	NeedArray   bool
+	NeedList    bool
 }
 
 // numericHelperRecord carries a pre-rendered static inline C helper body.
@@ -91,16 +91,16 @@ func buildNumericModel(merged *programEmission) (numericComponentModel, error) {
 			return model, err
 		}
 		model.Endians = append(model.Endians, numericHelperRecord{Body: buf.String()})
-		if needsEndianArray(spec) {
-			model.NeedArray = true
+		if needsEndianList(spec) {
+			model.NeedList = true
 		}
 	}
 	return model, nil
 }
 
-// needsEndianArray reports whether the endian helper's to_bytes variant
-// returns an Array<UInt8, N>.
-func needsEndianArray(spec endianSpec) bool {
+// needsEndianList reports whether the endian helper's to_bytes variant
+// returns an inline List<UInt8, N>.
+func needsEndianList(spec endianSpec) bool {
 	return !spec.from
 }
 

@@ -15,10 +15,6 @@ func SliceRootedInTemporary(kind string) Message {
 	return message("type.slice-rooted-in-temporary", CategoryType, StageChecker, "a Slice cannot be rooted in a temporary "+kind)
 }
 
-func MutSliceRequiresWritableArray() Message {
-	return message("type.mut-slice-requires-writable-array", CategoryType, StageChecker, "mut_slice requires a writable Array place")
-}
-
 func SliceRangeOutOfBounds(start, end int64, array string) Message {
 	return message("type.slice-range-out-of-bounds", CategoryType, StageChecker,
 		fmt.Sprintf("slice range [%d, %d) is out of bounds for %s", start, end, array))

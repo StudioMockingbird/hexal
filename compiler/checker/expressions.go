@@ -367,8 +367,8 @@ func checkExpression(expression parser.Expression, context expressionContext, ct
 		return checkByteLiteral(expression)
 	case parser.RuneLiteral:
 		return checkRuneLiteral(expression)
-	case parser.ArrayLiteralExpression:
-		return checkArrayLiteral(expression, context.expected.Type, ctx)
+	case parser.InlineListLiteralExpression:
+		return checkInlineListLiteral(expression, context.expected.Type, ctx)
 	case parser.MatchExpression:
 		return checkMatchExpression(expression, context, ctx)
 	case parser.VariableExpression, parser.PropertyExpression, parser.IndexExpression:

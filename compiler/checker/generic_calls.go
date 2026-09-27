@@ -138,13 +138,13 @@ func typeContainsPlaceholder(typ, placeholder compilerTypes.Type) bool {
 	if typ.NullableBase != nil && typeContainsPlaceholder(*typ.NullableBase, placeholder) {
 		return true
 	}
-	if typ.Array != nil && typeContainsPlaceholder(typ.Array.Element, placeholder) {
-		return true
-	}
 	if typ.Slice != nil && typeContainsPlaceholder(typ.Slice.Element, placeholder) {
 		return true
 	}
 	if typ.List != nil && typeContainsPlaceholder(typ.List.Element, placeholder) {
+		return true
+	}
+	if typ.InlineList != nil && typeContainsPlaceholder(typ.InlineList.Element, placeholder) {
 		return true
 	}
 	if typ.Dict != nil && (typeContainsPlaceholder(typ.Dict.Key, placeholder) || typeContainsPlaceholder(typ.Dict.Value, placeholder)) {

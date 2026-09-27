@@ -91,11 +91,6 @@ func withoutLineDirectives(source string) string {
 
 // The component-artifact accessors live here beside hexalH, rootC, and rootH
 // rather than in whichever feature test first needed one.
-func arrayH(t *testing.T, result compiler.CompilationResult) string {
-	t.Helper()
-	return moduleFile(t, result, "hexal/array.h")
-}
-
 func dictH(t *testing.T, result compiler.CompilationResult) string {
 	t.Helper()
 	return moduleFile(t, result, "hexal/dict.h")

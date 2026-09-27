@@ -208,7 +208,7 @@ end`,
     defer totals.free(h)
     totals.insert(1, 90)
     totals.insert(2, 75)
-    let fixed: Array<Float64, 4> = [1.5, 2.5, 3.5, 4.5]
+    let fixed: List<Float64, 4> = [1.5, 2.5, 3.5, 4.5]
     let view: Slice<Float64> = fixed.slice(0, 4)
     let names: List<String<8>> = List<String<8>>(h)
     defer names.free(h)

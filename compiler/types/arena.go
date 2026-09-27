@@ -11,20 +11,20 @@ import (
 // generic declarations stay on Environment; only the constructed-type family
 // maps are compilation-global.
 type Arena struct {
-	pointerTypes  map[string]Type
-	nullableTypes map[string]Type
-	funTypes      map[string]Type
-	arrayTypes    map[string]Type
-	stringTypes   map[string]Type
-	sliceTypes    map[string]Type
-	listTypes     map[string]Type
-	dictTypes     map[string]Type
-	taskTypes     map[string]Type
-	channelTypes  map[string]Type
-	atomicTypes   map[string]Type
-	stashTypes    map[string]Type
-	poolTypes     map[string]Type
-	unionTypes    map[string]Type
+	pointerTypes    map[string]Type
+	nullableTypes   map[string]Type
+	funTypes        map[string]Type
+	inlineListTypes map[string]Type
+	stringTypes     map[string]Type
+	sliceTypes      map[string]Type
+	listTypes       map[string]Type
+	dictTypes       map[string]Type
+	taskTypes       map[string]Type
+	channelTypes    map[string]Type
+	atomicTypes     map[string]Type
+	stashTypes      map[string]Type
+	poolTypes       map[string]Type
+	unionTypes      map[string]Type
 	// definitionNames owns cross-family uniqueness for definition-keying
 	// generated C names: a name that a typedef introduces a type under. The
 	// map resolves a name to the canonical type that owns it, so two distinct
@@ -51,7 +51,7 @@ func NewArena() *Arena {
 		pointerTypes:     make(map[string]Type),
 		nullableTypes:    make(map[string]Type),
 		funTypes:         make(map[string]Type),
-		arrayTypes:       make(map[string]Type),
+		inlineListTypes:  make(map[string]Type),
 		stringTypes:      make(map[string]Type),
 		sliceTypes:       make(map[string]Type),
 		listTypes:        make(map[string]Type),
@@ -73,6 +73,11 @@ func NewArena() *Arena {
 		arena.stringTypes[text.CanonicalKey] = text
 		arena.collectionCNames[text.CName] = true
 		arena.ReserveDefinitionName(text.CName, text)
+	}
+	for _, list := range []Type{addressIPv4Bytes, addressIPv6Bytes} {
+		arena.inlineListTypes[list.CanonicalKey] = list
+		arena.collectionCNames[list.CName] = true
+		arena.ReserveDefinitionName(list.CName, list)
 	}
 	for _, union := range builtinStructuralUnions {
 		arena.unionTypes[union.CanonicalKey] = union
@@ -225,12 +230,12 @@ func nominalModuleOf(typ Type) string {
 		return nominalModuleOf(*typ.Element)
 	case typ.NullableBase != nil:
 		return nominalModuleOf(*typ.NullableBase)
-	case typ.Array != nil:
-		return nominalModuleOf(typ.Array.Element)
 	case typ.Slice != nil:
 		return nominalModuleOf(typ.Slice.Element)
 	case typ.List != nil:
 		return nominalModuleOf(typ.List.Element)
+	case typ.InlineList != nil:
+		return nominalModuleOf(typ.InlineList.Element)
 	case typ.Dict != nil:
 		if module := nominalModuleOf(typ.Dict.Value); module != "" {
 			return module

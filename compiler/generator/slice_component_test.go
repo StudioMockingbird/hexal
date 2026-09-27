@@ -94,18 +94,13 @@ static inline hex_slice_Int32 hex_slice_slice_Int32(hex_slice_Int32 slice, uint6
 	}
 }
 
-// An array that is never sliced reaches no slice, and the array component
-// renders no slice helper: nothing names the slice component and no
-// artifact is emitted for it. A component that declared the dependency
-// anyway would ship a header holding only its include guard.
+// An inline List that is never sliced reaches no slice helper: nothing names
+// the slice component and no artifact is emitted for it.
 func TestSliceComponentAbsentWithoutReachableSlices(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo() do\n    let fixed: Array<Int32, 3> = [1, 2, 3]\n    let first: Int32 = fixed[0]\nend")
+	program := checkedGeneratorSource(t, "fun demo() do\n    let fixed: List<Int32, 3> = [1, 2, 3]\n    let first: Int32 = fixed[0]\nend")
 	files := generateOne(t, program)
 	if viewH, exists := files["hexal/slice.h"]; exists {
 		t.Fatalf("array-only program emitted hexal/slice.h with nothing to declare: %q", viewH)
-	}
-	if strings.Contains(files["hexal/array.h"], "hexal/slice.h") {
-		t.Fatalf("hexal/array.h = %q, want no slice include: no specialization has a slice helper", files["hexal/array.h"])
 	}
 	if strings.Contains(files["modules/app.h"], "hexal/slice.h") {
 		t.Fatalf("modules/app.h = %q, want no slice include", files["modules/app.h"])

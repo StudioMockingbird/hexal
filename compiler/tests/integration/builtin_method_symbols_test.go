@@ -21,7 +21,11 @@ import (
 // record cannot arrive unverified.
 
 const arraySliceProgram = "fun demo() do\n" +
-	"    let mut data: Array<Int32, 4> = [1, 2, 3, 4]\n" +
+	"    let mut data: List<Int32, 4> = [1, 2, 3, 4]\n" +
+	"    data.push(5)\n" +
+	"    let last: Int32 = data.pop()\n" +
+	"    data.clear()\n" +
+	"    data.push(last)\n" +
 	"    let view: Slice<Int32> = data.slice(0, 2)\n" +
 	"    let mut_view: Slice<mut Int32> = data.mut_slice(0, 2)\n" +
 	"    mut_view[0] = 9\n" +
@@ -203,8 +207,11 @@ const inlineStringMethodsProgram = "fun demo(h: Heap) do\n" +
 // methodSources binds one program to each registered method whose record names
 // a runtime symbol.
 var methodSources = map[string]string{
-	"Array.slice":                  arraySliceProgram,
-	"Array.mut_slice":              arraySliceProgram,
+	"InlineList.slice":             arraySliceProgram,
+	"InlineList.mut_slice":         arraySliceProgram,
+	"InlineList.push":              arraySliceProgram,
+	"InlineList.pop":               arraySliceProgram,
+	"InlineList.clear":             arraySliceProgram,
 	"Slice.slice":                  arraySliceProgram,
 	"Slice.pointer":                arraySliceProgram,
 	"List.push":                    listMethodsProgram,

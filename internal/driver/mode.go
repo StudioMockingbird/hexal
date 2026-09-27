@@ -99,13 +99,12 @@ var modeOptionTable = map[BuildMode]ModeOptions{
 }
 
 // Options returns mode's backend option set for the given target profile.
-// Debug builds for a Linux profile add -fsanitize=leak beside the existing
-// undefined-behavior backstop; debug builds for every other profile replace
-// -fno-sanitize-recover=all with -fsanitize-trap=undefined so the link never
-// needs a MinGW UBSan runtime this release does not ship. Release and every
-// option set outside debug are identical across targets. The returned slices
-// are fresh copies: callers append their own include and dependency options
-// to them.
+// Debug builds for every profile use the same undefined-behavior backstop;
+// non-Linux profiles replace -fno-sanitize-recover=all with
+// -fsanitize-trap=undefined so the link never needs a UBSan runtime this
+// release does not ship. Release options are identical across targets. The
+// returned slices are fresh copies: callers append their own include and
+// dependency options to them.
 func Options(mode BuildMode, target compilerTypes.TargetProfileID) ModeOptions {
 	table := modeOptionTable[mode]
 	options := ModeOptions{
@@ -115,13 +114,10 @@ func Options(mode BuildMode, target compilerTypes.TargetProfileID) ModeOptions {
 	if mode != ModeDebug {
 		return options
 	}
-	if isLinuxTarget(target) {
-		options.Compile = append(options.Compile, "-fsanitize=leak")
-		options.Link = append(options.Link, "-fsanitize=leak")
-		return options
+	if !isLinuxTarget(target) {
+		options.Compile = replaceRecoverWithTrap(options.Compile)
+		options.Link = replaceRecoverWithTrap(options.Link)
 	}
-	options.Compile = replaceRecoverWithTrap(options.Compile)
-	options.Link = replaceRecoverWithTrap(options.Link)
 	return options
 }
 
@@ -140,10 +136,9 @@ func replaceRecoverWithTrap(options []string) []string {
 	return replaced
 }
 
-// isLinuxTarget reports whether the profile is a POSIX/Linux target. LSan
-// exists only on that lane, so the leak flag is gated here rather than by the
-// host check alone, which would re-arm a MinGW link failure when the Windows
-// driver returns.
+// isLinuxTarget reports whether the profile is a POSIX/Linux target. Linux
+// can use the diagnostic UBSan runtime; other targets use trap mode because
+// this release does not ship the MinGW UBSan runtime.
 func isLinuxTarget(target compilerTypes.TargetProfileID) bool {
 	return strings.Contains(string(target), "linux")
 }

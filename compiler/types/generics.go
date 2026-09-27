@@ -90,6 +90,9 @@ func containsTypeParameter(typ Type, seenObjects map[*typeIdentity]bool) bool {
 	if typ.List != nil {
 		return containsTypeParameter(typ.List.Element, seenObjects)
 	}
+	if typ.InlineList != nil {
+		return containsTypeParameter(typ.InlineList.Element, seenObjects)
+	}
 	if typ.Dict != nil {
 		if containsTypeParameter(typ.Dict.Key, seenObjects) || containsTypeParameter(typ.Dict.Value, seenObjects) {
 			return true

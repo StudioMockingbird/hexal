@@ -15,9 +15,9 @@ var fixtureCatalog = []fixture{
 	// Compile-only: representative programs across the constructs whose
 	// generated C has never been read by a compiler before this suite.
 	{
-		name:       "array-view-compiles",
+		name:       "inline-list-view-compiles",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "type Pair is struct mut values: Array<Int32, 2> end\n" +
+		sources: map[string]string{"app.hex": "type Pair is struct mut values: List<Int32, 2> end\n" +
 			"fun sum(values: Slice<Int32>): Int32 do\n    return values[0] + values[1]\nend\n" +
 			"fun demo() do\n    let mut pair: Pair = Pair(values = [3, 4])\n    let view: Slice<Int32> = pair.values.slice(0, 2)\n    let total: Int32 = sum(view)\n    let last: Int32 = view[1]\n    pair.values[0] = 9\nend"},
 	},
@@ -34,7 +34,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "equality-compiles",
 		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "type Point is struct x: Int32, y: Int32 end\ntype Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nfun demo(h: Heap) do\n    let left: Point = Point(x = 1, y = 2)\n    let right: Point = Point(x = 1, y = 2)\n    let same: Bool = left == right\n    let different: Bool = left != right\n    let i32: Int32 = 1\n    let i64: Int64 = 2\n    let widened: Bool = i32 == i64\n    let text: String = \"abc\"\n    let other: String = \"abd\"\n    let textOrder: Bool = text < other\n    let fixed: Array<Int32, 2> = [1, 2]\n    let twin: Array<Int32, 2> = [1, 2]\n    let arrays: Bool = fixed == twin\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    let lists: Bool = values == values\n    let circle: Shape = Shape.Circle(r = 1)\n    let square: Shape = Shape.Square(a = 1)\n    let shapes: Bool = circle == square\n    let mut value: Int32 = 3\n    let pointer: Ptr<Int32> = @value\n    let twinPointer: Ptr<Int32> = pointer\n    let pointers: Bool = pointer == twinPointer\nend"},
+		sources:    map[string]string{"app.hex": "type Point is struct x: Int32, y: Int32 end\ntype Shape is union | Circle as r: Int32 end | Square as a: Int32 end end\nfun demo(h: Heap) do\n    let left: Point = Point(x = 1, y = 2)\n    let right: Point = Point(x = 1, y = 2)\n    let same: Bool = left == right\n    let different: Bool = left != right\n    let i32: Int32 = 1\n    let i64: Int64 = 2\n    let widened: Bool = i32 == i64\n    let text: String = \"abc\"\n    let other: String = \"abd\"\n    let textOrder: Bool = text < other\n    let fixed: List<Int32, 2> = [1, 2]\n    let twin: List<Int32, 2> = [1, 2]\n    let arrays: Bool = fixed == twin\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    let lists: Bool = values == values\n    let circle: Shape = Shape.Circle(r = 1)\n    let square: Shape = Shape.Square(a = 1)\n    let shapes: Bool = circle == square\n    let mut value: Int32 = 3\n    let pointer: Ptr<Int32> = @value\n    let twinPointer: Ptr<Int32> = pointer\n    let pointers: Bool = pointer == twinPointer\nend"},
 	},
 	{
 		name:       "string-compiles",
@@ -49,12 +49,12 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "bitwise-compiles",
 		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "fun demo() do\n    let mut flags: UInt32 = 0xFFFF0000\n    let masked: UInt32 = flags & 0x00FF\n    let combined: UInt32 = masked | 0xF0\n    let xor: UInt32 = combined ^ 0x0F0F\n    let complement: UInt8 = ~0x0F\n    let shifted: UInt32 = flags << 4\n    let back: UInt32 = shifted >> 8\n    let mut signed: Int8 = 64\n    let wrapped: Int8 = signed << 1\n    let mut negative: Int8 = -4\n    let halved: Int8 = negative >> 1\n    let floating: Float64 = 1.5\n    let bits: UInt64 = floating.bit_cast<UInt64>()\n    let again: Float64 = bits.bit_cast<Float64>()\n    let value: UInt32 = 0x01020304\n    let little: Array<UInt8, 4> = value.to_le_bytes()\n    let big: Array<UInt8, 4> = value.to_be_bytes()\n    let from_little: UInt32 = UInt32.from_le_bytes(little)\n    let from_big: UInt32 = UInt32.from_be_bytes(big)\n    let mut signed16: Int16 = -2\n    let signed_little: Array<UInt8, 2> = signed16.to_le_bytes()\n    let signed_back: Int16 = Int16.from_le_bytes(signed_little)\nend"},
+		sources:    map[string]string{"app.hex": "fun demo() do\n    let mut flags: UInt32 = 0xFFFF0000\n    let masked: UInt32 = flags & 0x00FF\n    let combined: UInt32 = masked | 0xF0\n    let xor: UInt32 = combined ^ 0x0F0F\n    let complement: UInt8 = ~0x0F\n    let shifted: UInt32 = flags << 4\n    let back: UInt32 = shifted >> 8\n    let mut signed: Int8 = 64\n    let wrapped: Int8 = signed << 1\n    let mut negative: Int8 = -4\n    let halved: Int8 = negative >> 1\n    let floating: Float64 = 1.5\n    let bits: UInt64 = floating.bit_cast<UInt64>()\n    let again: Float64 = bits.bit_cast<Float64>()\n    let value: UInt32 = 0x01020304\n    let little: List<UInt8, 4> = value.to_le_bytes()\n    let big: List<UInt8, 4> = value.to_be_bytes()\n    let from_little: UInt32 = UInt32.from_le_bytes(little)\n    let from_big: UInt32 = UInt32.from_be_bytes(big)\n    let mut signed16: Int16 = -2\n    let signed_little: List<UInt8, 2> = signed16.to_le_bytes()\n    let signed_back: Int16 = Int16.from_le_bytes(signed_little)\nend"},
 	},
 	{
 		name:       "numeric-iteration-compiles",
 		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "fun demo(h: Heap) do\n    let wide: Int64 = 9_000_000_000\n    let narrowed: Int8 = wide.to<Int8>()\n    let wrapped: UInt8 = (200).to<UInt8>()\n    let whole: Int32 = 3.75.to<Int32>()\n    let mut left: Int32 = 7\n    let mut right: Int32 = 3\n    let quotient: Int32 = left / right\n    let remainder: Int32 = left % right\n    let fixed: Array<Int32, 3> = [10, 20, 30]\n    let mut total: Int32 = 0\n    for value in fixed do\n        total = total + value\n    end\n    for i, value in fixed do\n        total = total + value + i.to<Int32>()\n    end\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    for value in view do\n        total = total + value\n    end\n    let text: String = \"cafe\"\n    let mut runes: Int32 = 0\n    for rune: Byte in text do\n        runes = runes + 1\n    end\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    for value in values do\n        total = total + value\n    end\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    for key, value in scores do\n        total = total + key + value\n    end\n    let size: Size = values.length()\nend"},
+		sources:    map[string]string{"app.hex": "fun demo(h: Heap) do\n    let wide: Int64 = 9_000_000_000\n    let narrowed: Int8 = wide.to<Int8>()\n    let wrapped: UInt8 = (200).to<UInt8>()\n    let whole: Int32 = 3.75.to<Int32>()\n    let mut left: Int32 = 7\n    let mut right: Int32 = 3\n    let quotient: Int32 = left / right\n    let remainder: Int32 = left % right\n    let fixed: List<Int32, 3> = [10, 20, 30]\n    let mut total: Int32 = 0\n    for value in fixed do\n        total = total + value\n    end\n    for i, value in fixed do\n        total = total + value + i.to<Int32>()\n    end\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    for value in view do\n        total = total + value\n    end\n    let text: String = \"cafe\"\n    let mut runes: Int32 = 0\n    for rune: Byte in text do\n        runes = runes + 1\n    end\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    for value in values do\n        total = total + value\n    end\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    for key, value in scores do\n        total = total + key + value\n    end\n    let size: Size = values.length()\nend"},
 	},
 
 	// Tier 2: exact runtime output.
@@ -65,9 +65,24 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
+		name:       "inline-list-construction-copy-and-nesting-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun run(): Bool do\n" +
+			"    let mut empty: List<Int32, 3> = List<Int32, 3>()\n" +
+			"    let partial: List<Int32, 3> = [7]\n" +
+			"    let full: List<Int32, 3> = [1, 2, 3]\n" +
+			"    let nested: List<List<Int32, 2>, 2> = [[4], [5, 6]]\n" +
+			"    let mut copy: List<Int32, 3> = full\n" +
+			"    empty.push(8)\n" +
+			"    copy[0] = 9\n" +
+			"    return (empty.length() == 1) and (partial.length() == 1) and (full[0] == 1) and (copy[0] == 9) and (nested[1][1] == 6)\n" +
+			"end\nprint(run())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
 		name:        "text-construction-validates-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun check(h: Heap, bytes: Slice<Byte>): Bool do\n    let result: String | Error = String.from_bytes(h, bytes)\n    if result is String then\n        result.free(h)\n        return true\n    end\n    return false\nend\nfun run(h: Heap): Bool do\n    let two: Array<Byte, 2> = [b'\\xC2', b'\\xA2']\n    let overlong: Array<Byte, 2> = [b'\\xC0', b'\\x80']\n    let surrogate: Array<Byte, 3> = [b'\\xED', b'\\xA0', b'\\x80']\n    let truncated: Array<Byte, 1> = [b'\\xE2']\n    let astral: Array<Byte, 4> = [b'\\xF0', b'\\x9F', b'\\x98', b'\\x80']\n    return check(h, two.slice(0, 2)) and !check(h, overlong.slice(0, 2)) and !check(h, surrogate.slice(0, 3)) and !check(h, truncated.slice(0, 1)) and check(h, astral.slice(0, 4))\nend\nprint(run(Heap()))\n"},
+		sources:     map[string]string{"app.hex": "fun check(h: Heap, bytes: Slice<Byte>): Bool do\n    let result: String | Error = String.from_bytes(h, bytes)\n    if result is String then\n        result.free(h)\n        return true\n    end\n    return false\nend\nfun run(h: Heap): Bool do\n    let two: List<Byte, 2> = [b'\\xC2', b'\\xA2']\n    let overlong: List<Byte, 2> = [b'\\xC0', b'\\x80']\n    let surrogate: List<Byte, 3> = [b'\\xED', b'\\xA0', b'\\x80']\n    let truncated: List<Byte, 1> = [b'\\xE2']\n    let astral: List<Byte, 4> = [b'\\xF0', b'\\x9F', b'\\x98', b'\\x80']\n    return check(h, two.slice(0, 2)) and !check(h, overlong.slice(0, 2)) and !check(h, surrogate.slice(0, 3)) and !check(h, truncated.slice(0, 1)) and check(h, astral.slice(0, 4))\nend\nprint(run(Heap()))\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
@@ -534,7 +549,7 @@ var fixtureCatalog = []fixture{
 		name:       "string-from-runes-runs",
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
-			"    let values: Array<Rune, 3> = ['a', '\\u{20AC}', '\\u{1F600}']\n" +
+			"    let values: List<Rune, 3> = ['a', '\\u{20AC}', '\\u{1F600}']\n" +
 			"    let view: Slice<Rune> = values.slice(0, 3)\n" +
 			"    let built: String | Error = String.from_runes(h, view)\n" +
 			"    if built is Error then\n" +
@@ -542,7 +557,7 @@ var fixtureCatalog = []fixture{
 			"    end\n" +
 			"    let text: String = built\n" +
 			"    defer text.free(h)\n" +
-			"    let bad: Array<Rune, 1> = [0xD800]\n" +
+			"    let bad: List<Rune, 1> = [0xD800]\n" +
 			"    let bad_view: Slice<Rune> = bad.slice(0, 1)\n" +
 			"    let rejected: String | Error = String.from_runes(h, bad_view)\n" +
 			"    return (text.rune_length() == 3) and (text.length() == 8) and (rejected is Error)\n" +
@@ -662,12 +677,12 @@ var fixtureCatalog = []fixture{
 			"    print(\"heap ok\\n\")\n" +
 			"end\n" +
 			"fun demo(h: Heap) do\n" +
-			"    let exact: Array<Byte, 4> = [97, 98, 99, 100]\n" +
-			"    let over: Array<Byte, 5> = [97, 98, 99, 100, 101]\n" +
-			"    let bad: Array<Byte, 2> = [0xC3, 0x28]\n" +
-			"    let both: Array<Byte, 5> = [0xFF, 97, 97, 97, 97]\n" +
-			"    let lead: Array<Byte, 1> = [0xC3]\n" +
-			"    let tail: Array<Byte, 1> = [0xA9]\n" +
+			"    let exact: List<Byte, 4> = [97, 98, 99, 100]\n" +
+			"    let over: List<Byte, 5> = [97, 98, 99, 100, 101]\n" +
+			"    let bad: List<Byte, 2> = [0xC3, 0x28]\n" +
+			"    let both: List<Byte, 5> = [0xFF, 97, 97, 97, 97]\n" +
+			"    let lead: List<Byte, 1> = [0xC3]\n" +
+			"    let tail: List<Byte, 1> = [0xA9]\n" +
 			"    classify(String<4>.from_bytes(exact.slice(0, 4)))\n" +
 			"    classify(String<4>.from_bytes(over.slice(0, 5)))\n" +
 			"    classify(String<4>.from_bytes(bad.slice(0, 2)))\n" +
@@ -779,7 +794,7 @@ var fixtureCatalog = []fixture{
 			"    let split_ok: Bool = split.length() == 1\n" +
 			"    let base: String = \"abc\".copy(h)\n" +
 			"    defer base.free(h)\n" +
-			"    let piece: Array<Byte, 3> = [97, 98, 99]\n" +
+			"    let piece: List<Byte, 3> = [97, 98, 99]\n" +
 			"    let built: String | Error = String.from_bytes(h, piece.slice(0, 3))\n" +
 			"    if built is Error then\n" +
 			"        return false\n" +
@@ -878,7 +893,7 @@ var fixtureCatalog = []fixture{
 			"    for i: Size, v: Int32 in list do\n" +
 			"        sum = sum + i.to<Int32>()\n" +
 			"    end\n" +
-			"    let fixed: Array<Int32, 3> = [1, 2, 3]\n" +
+			"    let fixed: List<Int32, 3> = [1, 2, 3]\n" +
 			"    for v: Int32 in fixed do\n" +
 			"        sum = sum + v\n" +
 			"    end\n" +
@@ -1121,6 +1136,16 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] list index out of bounds"},
 	},
 	{
+		name:       "inline-list-mutation-during-final-iteration-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun run() do\n" +
+			"    let mut values: List<Int32, 2> = [1]\n" +
+			"    for value in values do\n" +
+			"        values.push(2)\n" +
+			"    end\nend\nrun()\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] collection modified during iteration"},
+	},
+	{
 		name:        "missing-dict-get-traps",
 		entrypoint:  "app.hex",
 		sources:     map[string]string{"app.hex": "fun demo(h: Heap) do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    let missing: Int32 = scores.get(2)\n    print(missing)\nend\ndemo(Heap())\n"},
@@ -1136,16 +1161,16 @@ var fixtureCatalog = []fixture{
 		// Static bounds are compile errors and constant propagation sees
 		// through local bindings, so a parameter supplies the runtime
 		// bounds-check path.
-		name:        "array-index-out-of-bounds-traps",
+		name:        "inline-list-index-out-of-bounds-traps",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(index: Int32) do\n    let fixed: Array<Int32, 3> = [10, 20, 30]\n    let out: Int32 = fixed[index]\n    print(out)\nend\ndemo(5)\n"},
-		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] array index out of bounds"},
+		sources:     map[string]string{"app.hex": "fun demo(index: Int32) do\n    let fixed: List<Int32, 3> = [10, 20, 30]\n    let out: Int32 = fixed[index]\n    print(out)\nend\ndemo(5)\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] list index out of bounds"},
 	},
 	{
-		name:        "array-slice-bounds-traps",
+		name:        "inline-list-slice-bounds-traps",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(stop: Int32) do\n    let fixed: Array<Int32, 3> = [10, 20, 30]\n    let view: Slice<Int32> = fixed.slice(1, stop)\n    print(view.length())\nend\ndemo(5)\n"},
-		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] array slice bounds out of range"},
+		sources:     map[string]string{"app.hex": "fun demo(stop: Int32) do\n    let fixed: List<Int32, 3> = [10, 20, 30]\n    let view: Slice<Int32> = fixed.slice(1, stop)\n    print(view.length())\nend\ndemo(5)\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] list slice bounds out of range"},
 	},
 	{
 		name:        "list-slice-bounds-traps",
@@ -1170,13 +1195,13 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "slice-index-out-of-bounds-traps",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    let out: Int32 = view[5]\n    print(out)\nend\ndemo()\n"},
+		sources:     map[string]string{"app.hex": "fun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    let out: Int32 = view[5]\n    print(out)\nend\ndemo()\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] slice index out of bounds"},
 	},
 	{
 		name:        "slice-slice-bounds-traps",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo() do\n    let fixed: Array<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    let bad: Slice<Int32> = view.slice(0, 5)\n    print(bad.length())\nend\ndemo()\n"},
+		sources:     map[string]string{"app.hex": "fun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    let bad: Slice<Int32> = view.slice(0, 5)\n    print(bad.length())\nend\ndemo()\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] slice slice bounds out of range"},
 	},
 	{
@@ -1563,6 +1588,28 @@ var fixtureCatalog = []fixture{
 			"let out: Nil | Error = demo(Heap())\n"},
 	},
 	{
+		name:       "inline-address-lists-run",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "import\n  Net from std.net\nend\n" +
+			"fun run(): Bool do\n" +
+			"    let four: List<Byte, 4> = [b'1', b'2', b'3', b'4']\n" +
+			"    let sixteen: List<Byte, 16> = [b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'8', b'9', b'a', b'b', b'c', b'd', b'e', b'f']\n" +
+			"    let v4: Net.Address = Net.Address.IPv4(bytes = four, port = 80)\n" +
+			"    let v6: Net.Address = Net.Address.IPv6(bytes = sixteen, port = 80, scope = 0)\n" +
+			"    return (v4 == v4) and (v6 == v6)\nend\nprint(run())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "inline-address-length-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "import\n  Net from std.net\nend\n" +
+			"fun run() do\n" +
+			"    let bytes: List<Byte, 4> = [b'1', b'2']\n" +
+			"    let address: Net.Address = Net.Address.IPv4(bytes = bytes, port = 80)\n" +
+			"    print(address)\nend\nrun()\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] network address byte length does not match address family"},
+	},
+	{
 		name:       "network-tcp-loopback-runs",
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "import\n  Net from std.net\nend\nfun serve(listener: Net.TcpListener): Nil | Error do\n" +
@@ -1819,7 +1866,7 @@ var fixtureCatalog = []fixture{
 			"    files.push(x)\n" +
 			"    try files[0].close()\n" +
 			"    let y = try Fs.open(\"b\", Fs.FileMode.Write())\n" +
-			"    let fixed: Array<Fs.File, 1> = [y]\n" +
+			"    let fixed: List<Fs.File, 1> = [y]\n" +
 			"    try fixed[0].close()\n" +
 			"    let z = try Fs.open(\"c\", Fs.FileMode.Write())\n" +
 			"    let byOwner: Dict<Int32, Fs.File> = Dict<Int32, Fs.File>(h)\n" +
@@ -1850,7 +1897,7 @@ var fixtureCatalog = []fixture{
 			"    processes.push(started.process)\n" +
 			"    try processes[0].close()\n" +
 			"    let started2 = try Proc.start(options)\n" +
-			"    let fixed: Array<Proc.Process, 1> = [started2.process]\n" +
+			"    let fixed: List<Proc.Process, 1> = [started2.process]\n" +
 			"    try fixed[0].close()\n" +
 			"    return nil\n" +
 			"end\n" +
@@ -1860,7 +1907,7 @@ var fixtureCatalog = []fixture{
 		name:       "signals-subscribe-compiles",
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "import\n  Sig from std.signal\nend\nfun wait_for_shutdown(): Sig.Signal | EoS | Error do\n" +
-			"    let wanted: Array<Sig.Signal, 2> = [Sig.Signal.Interrupt(), Sig.Signal.Hangup()]\n" +
+			"    let wanted: List<Sig.Signal, 2> = [Sig.Signal.Interrupt(), Sig.Signal.Hangup()]\n" +
 			"    let signals = try Sig.subscribe(wanted.slice(0, wanted.length()))\n" +
 			"    defer signals.close()\n" +
 			"    let signal = try signals.next()\n" +
@@ -1875,7 +1922,7 @@ var fixtureCatalog = []fixture{
 			"    return s.next()\n" +
 			"end\n" +
 			"fun run(): Bool | Error do\n" +
-			"    let wanted: Array<Sig.Signal, 1> = [Sig.Signal.Interrupt()]\n" +
+			"    let wanted: List<Sig.Signal, 1> = [Sig.Signal.Interrupt()]\n" +
 			"    let signals = try Sig.subscribe(wanted.slice(0, wanted.length()))\n" +
 			"    let task = try spawn waiter(signals)\n" +
 			"    try signals.close()\n" +
@@ -1985,7 +2032,7 @@ var fixtureCatalog = []fixture{
 		name:       "fenced-pointer-arithmetic-runs",
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "fun demo(h: Heap): Int32 do\n" +
-			"    let block: Ptr<mut Array<Int32, 4>> = h.allocate<Array<Int32, 4>>([10, 20, 30, 40])\n" +
+			"    let block: Ptr<mut List<Int32, 4>> = h.allocate<List<Int32, 4>>([10, 20, 30, 40])\n" +
 			"    defer h.free(block)\n" +
 			"    unsafe do\n" +
 			"        let first: Ptr<mut Int32> = block.cast<Int32>()\n" +
@@ -2106,7 +2153,7 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{zeroExit: true, exactStdout: strings.Repeat("Point { x = 1, y = 2 }", 8)},
 	},
 	// The formatter families the print catalog does not otherwise execute:
-	// inline text, Array, Slice, and a union variant with a payload. Each
+	// inline text, inline List, Slice, and a union variant with a payload. Each
 	// one appends to the same call's builder, so a helper threading the
 	// wrong destination shows up as missing output. Error printing is not
 	// included here.
@@ -2120,7 +2167,7 @@ var fixtureCatalog = []fixture{
 			"fun demo() do\n" +
 			"    let letter: Byte = b'A'\n" +
 			"    let label: String<8> = \"tag\"\n" +
-			"    let mut fixed: Array<Int32, 2> = [1, 2]\n" +
+			"    let mut fixed: List<Int32, 2> = [1, 2]\n" +
 			"    let view: Slice<Int32> = fixed.slice(0, 2)\n" +
 			"    let shape: Shape = Shape.Circle(r = 7)\n" +
 			"    print(letter, label, fixed, view, shape)\n" +

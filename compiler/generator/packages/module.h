@@ -113,15 +113,6 @@
         abort();
     }
 }
-{{end}}{{define "print_nested_array"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, const void *value) {
-    const {{.CName}} *v = value;
-    hex_print_text(out, (const uint8_t *)"[", 1);
-    for (size_t index = 0; index < {{.Length}}; index++) {
-        if (index > 0) { hex_print_text(out, (const uint8_t *)", ", 2); }
-        hex_print_nested_{{.ElementCName}}(out, {{.ElementArg}});
-    }
-    hex_print_text(out, (const uint8_t *)"]", 1);
-}
 {{end}}{{define "print_nested_sequence"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, const void *value) {
     const {{.CName}} *v = value;
     hex_print_text(out, (const uint8_t *)"[", 1);
@@ -160,13 +151,16 @@ static inline {{.Target}} {{.Name}}({{.Source}} value) {
     return result;
 }
 {{end}}{{define "endian_to_bytes"}}
-static inline {{.ArrayType}} {{.Name}}({{.CType}} value) {
-    {{.ArrayType}} result = ( {{.ArrayType}} ){{.DesignatedInit}};
+static inline {{.ListType}} {{.Name}}({{.CType}} value) {
+    {{.ListType}} result = { .length = {{len .Bytes}}, .version = 0, .data = {{.DesignatedInit}} };
 {{$unsigned := .Unsigned}}{{range .Bytes}}    result.data[{{.Index}}] = (uint8_t)(({{$unsigned}})value >> {{.Shift}});
 {{end}}    return result;
 }
 {{end}}{{define "endian_from_bytes"}}
-static inline {{.CType}} {{.Name}}(const {{.ArrayType}} *bytes) {
+static inline {{.CType}} {{.Name}}(const {{.ListType}} *bytes) {
+    if (bytes->length != {{len .Bytes}}) {
+        hex_runtime_trap("[Runtime Error] byte list length does not match numeric width\n");
+    }
     {{.Unsigned}} value = 0;
 {{$unsigned := .Unsigned}}{{range .Bytes}}    value |= ({{$unsigned}})(bytes->data[{{.Index}}]) << {{.Shift}};
 {{end}}    {{.ReturnLine}}

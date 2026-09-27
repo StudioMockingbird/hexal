@@ -168,7 +168,7 @@ func writeNominalBodies(result *strings.Builder, objects []*compilerTypes.Object
 }
 
 // ensureType writes whatever by-value nominal body one member's type still
-// needs before that member can be spelled: an array's inline element,
+// needs before that member can be spelled: an inline List's element,
 // recursively, and an object, ADT, or non-nullable union in whichever of the
 // three categories it belongs to. A nullable union (Ptr<T> | Nil and its
 // kind) lowers to a bare pointer or an inline tag-and-pointer pair, never the
@@ -186,8 +186,6 @@ func (writer *nominalBodyWriter) ensureType(typ compilerTypes.Type) error {
 		return writer.ensureAdt(typ)
 	case typ.Union != nil:
 		return writer.ensureUnion(typ)
-	case typ.Array != nil:
-		return writer.ensureType(typ.Array.Element)
 	}
 	return nil
 }

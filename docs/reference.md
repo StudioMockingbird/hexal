@@ -17,7 +17,7 @@ Nine lexical/parser rules are not expressible in EBNF:
   type expression as a union separator and is never read as the following `binary-tail`.
 - Within one independently delimited expression, every `binary-tail` must repeat the same token
   kind (`is` counts as its own kind, distinct from every other). A grouping `( expression )`, each
-  call argument, index expression, array element, and match scrutinee or arm
+  call argument, index expression, inline List element, and match scrutinee or arm
   result independently delimits a fresh expression with its own requirement. Hexal has no
   binary-operator precedence: this is the entire rule for how a mixed chain must be written.
 - A `<` immediately after a postfix expression opens a type-argument list only when a balanced
@@ -45,7 +45,7 @@ Nine lexical/parser rules are not expressible in EBNF:
   chain, so the parser peels the final `. identifier` back out of the receiver as the method name;
   `Ptr<Point>.length` peels the same way.
 - A trailing comma is accepted in a value or member list -- struct members, ADT payload fields, call
-  and method arguments, and array elements -- and rejected in a declaration or type list -- imports,
+  and method arguments, and inline List elements -- and rejected in a declaration or type list -- imports,
   exports, parameters, generic parameters, and type arguments. The grammar's `[ "," ]` alternatives
   encode exactly this policy.
 - Maximal munch resolves comments: `--[` begins a multiline comment, and any other `--` begins a
@@ -91,7 +91,7 @@ The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using 
   Protected types are every scalar plus `Size`, `Byte`, `String`, `Nil`, `EoS`,
    `Unknown`, `Heap`, `Error`, `ErrorKind`, `Mutex`,
    and constructors `Ptr`,
-   `Slice`, `Fun`, `Array`, `List`, `Dict`, `Task`, `Channel`, `Atomic`, `Stash`, `Pool`.
+   `Slice`, `Fun`, `List`, `Dict`, `Task`, `Channel`, `Atomic`, `Stash`, `Pool`.
    The retired `MutPtr` and `View` names stay reserved but name no type; the never-implemented
    `Ref`, `MutRef`, `Box`, and `MutSlice` names are free for user declaration.
   Protected operations are `print`, `size_of`, and `align_of`.
@@ -105,7 +105,7 @@ The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using 
 - Every value-binding declaration is introduced by `let` and states its type exactly once, on one
   side or the other. `let name: T = initializer` states it on the left; `let name = initializer`
   says the initializer states it, and is rejected when the initializer is contextual — an integer,
-  float, or string literal, `nil`, an array literal, or a `match` whose every arm is contextual.
+  float, or string literal, `nil`, an inline List literal, or a `match` whose every arm is contextual.
   Stating it on neither side is an error. Written parameters, members, ADT payloads, and results
   always require an explicit type. Compiler-typed `self` and `for` binders are the remaining
   exceptions; a `for` binder may also be written with a type, which must equal the type it would
@@ -176,10 +176,10 @@ The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using 
 - A fixed top-level `let name [: type] = expr` in an imported module declares a module constant:
   immutable program-lifetime storage private to its defining module unless named in that module's
   export block. Its initializer must be built entirely from the closed static-initializer set:
-  literals, `Array` literals, struct construction, ADT variant construction, and structural-union
+  literals, inline List literals, struct construction, ADT variant construction, and structural-union
   injection, applied recursively. Every binding reference, including a reference to another module
   constant, is excluded, so no dependency graph or cycle rule exists. A module constant's type may
-  not contain `Atomic` directly or through an alias, array, aggregate, ADT, union, or specialized
+  not contain `Atomic` directly or through an alias, List, aggregate, ADT, union, or specialized
   generic value field; pointer, view, and function indirection stop the containment walk. A
   top-level `let mut` in an imported module is rejected: mutable library state is passed explicitly.
   A module constant is visible to every declaration and statement in its own module regardless of
@@ -370,7 +370,7 @@ ABI type set on a qualified target:
   storage the scheduler reclaims through join or detach, and Stash, which exposes `reset`/`destroy`
   in place of `free`. A type that is inline or borrows
    storage is a value: it is passed by value and a copy copies its region. These are scalars,
-   `String<N>`, Array, objects, ADTs, and Slice. A new type derives its representation from this
+   `String<N>`, inline `List<T, N>`, objects, ADTs, and Slice. A new type derives its representation from this
    rule rather than from resemblance to an existing one. `String<N>` is the case the rule exists
    for: it is text like `String`, but it owns no allocation and exposes no `free`, so it is a
    value, while the unparameterized `String` owns its bytes and is a handle.
@@ -378,7 +378,7 @@ ABI type set on a qualified target:
   are both a pointer and a length, and differ only in that `String` owns its bytes while a Slice
   borrows them. `String` is therefore a handle and a Slice is a descriptor value.
 - Every value is stored inline. Every copy copies the C representation. Scalars and
-  inline aggregates (`String<N>`, Array, objects, ADTs) copy all inline bytes. Pointers and
+  inline aggregates (`String<N>`, `List<T, N>`, objects, ADTs) copy all inline bytes. Pointers and
   `String`, List, Dict, Task, Channel, Mutex, Stash, Pool copy their handle representation. Slice
   copies its pointer-length descriptor. Copies of a writable Slice alias the same elements;
   correct exclusive use is the programmer's responsibility. Heap copies a stateless token that selects the one default
@@ -388,7 +388,7 @@ ABI type set on a qualified target:
 - Values referring to external state include String, List, Dict, Task, Channel, Mutex, Stash, Pool,
   Slice, and aggregates containing them. Copies alias the same state. Freeing one
   alias leaves others dangling; losing the last handle can leak. A Slice additionally never
-  owns its backing Array, List, String, allocation, or foreign region: keeping that storage
+  owns its backing inline List, allocated List, String, allocation, or foreign region: keeping that storage
   alive and unreallocated for every Slice use is the programmer's responsibility, and misuse
   may produce undefined behavior in generated C. This is an explicit narrowing of the
   no-undefined-behavior goal, chosen to avoid a language-wide lifetime system.
@@ -399,7 +399,7 @@ ABI type set on a qualified target:
   structure and a repeated operator's left associativity; a unary expression evaluates its
   operand before the operator applies; a
   receiver evaluates before a call's or method's arguments, which then evaluate left to right in
-  written order; array elements and object/ADT initializers evaluate left to right in written
+  written order; inline List elements and object/ADT initializers evaluate left to right in written
   order regardless of storage layout order; a union initializer evaluates its source once before
   selecting or writing the active member; an assignment evaluates its target place, including any
   receiver and index, before its source value. `and`/`or` keep left-to-right short-circuit
@@ -416,7 +416,7 @@ they accept.
 
 ```text
 Binding          ObjectMember     ADTPayload       UnionMember
-ArrayElement     SliceElement     ListElement      DictValue
+InlineListElement SliceElement    ListElement      DictValue
 FunctionParam    FunctionResult   TaskArgument     TaskResult
 ChannelElement   Pointee
 HeapAllocation
@@ -449,7 +449,7 @@ HeapAllocation
 | `EoS` | zero-state completion `eos`; valid standalone | no stable foreign ABI |
 
 - `Byte` is the canonical spelling wherever the value is raw storage rather than a number:
-  `Slice<Byte>`, `Array<Byte, N>`, `List<Byte>`, and byte-oriented parameters and results. `UInt8`
+  `Slice<Byte>`, `List<Byte, N>`, `List<Byte>`, and byte-oriented parameters and results. `UInt8`
   is canonical wherever the value is an 8-bit integer participating in arithmetic, comparison, or
   conversion. Both remain the same canonical type; this rule governs spelling, not semantics.
 
@@ -495,7 +495,7 @@ HeapAllocation
   `unsigned char` field; `size_of`/`align_of` both report 1.
 - Identity is canonical and recursive, never derived from display names: same-named nominal types
   in distinct modules are distinct, identical layouts included, and constructed builtin generic
-   types (pointer, nullable, function, Array, Slice, List, Dict, Task, Channel, Atomic, Stash, Pool,
+   types (pointer, nullable, function, inline List, Slice, allocated List, Dict, Task, Channel, Atomic, Stash, Pool,
    union) intern once per compilation and are shared by every module. `List<Int32>` written in two
   modules is one type, while `List<m.Point>` and `List<s.Point>` over same-named `Point` types are
   two.
@@ -516,7 +516,7 @@ HeapAllocation
 - A directly returned `@` of a local binding of the returning function is rejected, including
   when the result widens to `Ptr | Nil`; parameter-reached, `self`-reached, and
   Heap/Stash/Pool-allocated pointers remain returnable. A
-  local-rooted Ptr nested inside a returned object, ADT, union, or Array is not yet tracked;
+  local-rooted Ptr nested inside a returned object, ADT, union, or inline List is not yet tracked;
   this covers the direct case only.
 - `Ptr<mut T>` weakens implicitly to `Ptr<T>` at the outermost layer only. No upgrade or nested weakening.
 - `^pointer` dereferences to a place, writable exactly for `Ptr<mut T>`. `^^pp` dereferences
@@ -538,7 +538,7 @@ HeapAllocation
   advanced by `count`; pointer indexing `pointer[index]` is a place equivalent to
   `^pointer.offset(index)`; and `Ptr<T>.cast<U>()` / `Ptr<mut T>.cast<U>()` change only the pointee
   type while preserving the outer access mode. `offset` and indexing require a complete pointee and
-  reject an Array, Slice, or List pointee; `cast` permits an erased or incomplete one. A nullable
+  reject an inline List, Slice, or allocated List pointee; `cast` permits an erased or incomplete one. A nullable
   pointer must be narrowed before any of the three, and no implicit pointer cast is introduced.
 
 ### Functions and methods
@@ -555,7 +555,7 @@ HeapAllocation
 - The rest-backed Slice is a non-owning descriptor over that region. It may be read (`length`,
   indexing, slicing, iteration), bound to a fixed local alias, or have an element copied out;
   returning or storing the descriptor or a derived Slice, binding it to a mutable alias, assigning
-  it, placing it in an object/ADT/union/Array/List/Dict/Channel/Task/module storage position,
+  it, placing it in an object/ADT/union/List/Dict/Channel/Task/module storage position,
   passing it to a function, method, function value, or foreign declaration, taking an address inside
   the region, or capturing it in `defer`, `errdefer`, or `spawn` is rejected with `rest-backed Slice
   cannot escape its function invocation` (a mutable alias reports `rest-backed Slice requires a
@@ -567,7 +567,7 @@ HeapAllocation
   arguments are not supported; pass explicit values`. Rest is not permitted on foreign declarations,
   constructors, compiler-owned operations, or `print`.
 - Fun is valid as a binding, function parameter, parameter inside another Fun, function result,
-  object member, ADT payload, Array/Slice/List element, Dict value, Task argument or result,
+  object member, ADT payload, inline List/Slice/allocated List element, Dict value, Task argument or result,
   Channel element, or union member. It is invalid as a `Ptr` pointee, a `@` target, a
   Dict key (function values have no equality or hash contract), and a direct heap-allocation
   type. Function declarations are not addressable. Every accepted position stores or copies one
@@ -662,7 +662,7 @@ HeapAllocation
 
 ### Generics
 
-- User parameters are types only. Compiler-owned `Array<T, N>` uses a positive integer literal N.
+- User parameters are types only. Compiler-owned `List<T, N>` uses a positive decimal integer literal N.
 - Specializations are invariant and keyed by declaration identity plus canonical arguments; repeated
   requests reuse one. Only reachable concrete specializations emit C; there is no erasure or runtime
   generic representation.
@@ -824,7 +824,7 @@ destinations only. `none` means no fixed-width destination.
   fail and bad dynamic counts trap. Signed right shift is arithmetic, unsigned zero-filling.
 - `bit_cast<T>()` supports equal-width fixed integers and Float32/64, excluding pointers, Size,
   and aggregates. Fixed integers provide `to_le_bytes()`/`to_be_bytes()` and
-  `T.from_le_bytes(array)`/`T.from_be_bytes(array)` through exact `Array<Byte, N>`.
+  `T.from_le_bytes(bytes)`/`T.from_be_bytes(bytes)` through exact `List<Byte, N>`.
 
 ### Equality, ordering, and truthiness
 
@@ -832,7 +832,7 @@ destinations only. `none` means no fixed-width destination.
   types, except that any two text operands (`String` and `String<N>` of any capacity) compare
   with each other. Bool and EoS compare by value; pointers by identity; text by its bytes, so
   equal bytes are equal regardless of form or capacity and canonically equivalent but
-  byte-different text is unequal; objects by members; ADTs by tag/payload; unions by member; Array/Slice/List by length then elements.
+  byte-different text is unequal; objects by members; ADTs by tag/payload; unions by member; inline List/Slice/allocated List by logical length then active elements.
 - `== nil` and `!= nil` test whether a union's active member is Nil. They require a union containing
   Nil, are the only Nil comparison, and read no payload. Nil has no standalone value to compare.
 - Functions, allocators, and Dicts have no equality. An aggregate is comparable only when all
@@ -887,8 +887,8 @@ destinations only. `none` means no fixed-width destination.
 
 | Source | Binders | Binder types and order |
 | --- | ---: | --- |
-| Array, Slice, List, String, `String<N>` | 1 | value |
-| Array, Slice, List, String, `String<N>` | 2 | `index: Size`, value |
+| Inline List, Slice, allocated List, String, `String<N>` | 1 | value |
+| Inline List, Slice, allocated List, String, `String<N>` | 2 | `index: Size`, value |
 | Dict | 2 | key, value |
 | Dict | 3 | `index: Size`, key, value |
 
@@ -903,20 +903,20 @@ Every other source/arity combination is invalid.
   `for r: Rune in text`, or `for g: Grapheme in text`. The index binder is `Size`. A
   `List<X | Y>` element binder is the whole
   union, so annotating it with one member is rejected.
-- Finite-source traversal boundaries are captured once. Array places iterate in place; temporary
-  Arrays materialize once and an inline text source is read from a copy taken before the loop, so
+- Finite-source traversal boundaries are captured once. Inline List places iterate in place; temporary
+  inline Lists materialize once and an inline text source is read from a copy taken before the loop, so
   reassigning the text inside the body changes neither the bytes read nor their count; handles
   copy shallowly.
 - Binders are fresh immutable copies each iteration and names in one header are distinct. Nullable or
   union sources must first narrow to one iterable type.
-- Array and Slice traversal has a fixed boundary. Element replacement is valid; there is no structural resize operation.
+- Inline List and Slice traversal uses a captured logical length. Element replacement is valid; inline List push, pop, or clear is a structural mutation.
 - List traversal captures the source's structural version. `push`, `pop`, `clear`, `free`, and any operation that changes storage or length invalidate the traversal. A `push` that would extend the traversal traps with `collection modified during iteration` rather than extending or terminating.
 - Dict traversal captures the source's structural version. `insert`, replacement, `remove`, `free`, and any bucket/topology change invalidate the traversal.
 - Mutation through any alias observes and updates the same version because copied handles refer to the same collection state.
-- A traversal checks its version immediately before each iteration body with `if (version != captured) hex_runtime_trap("[Runtime Error] collection modified during iteration\\n")`. No check is required at the loop increment; the next body's check covers the transition. When the checker proves that no operation in the traversing scope or any reachable call can mutate the source (proven-safe elision), the check may be omitted.
+- A List traversal checks its version immediately before each iteration body and after each body through the loop update, including a final body or `continue`. A structural change traps with `[Runtime Error] collection modified during iteration`; element replacement is allowed. The checker does not elide either check.
 - The version is a monotonic `Size` (`size_t`) counter incremented on every structural change; it wraps modulo `2^N` and a wrapped version that coincides with a live traversal's captured token is an accepted false negative.
 - Freeing the traversed List or Dict, or an alias that refers to it, is always rejected while the traversal is active. Passing the traversed collection or an alias to an unproven call is rejected; the checker must not rely on a post-call version check after a possible free.
-- A mutation after `break` or after the traversal's scope exits is valid when no separate lifetime rule rejects it. Nested traversals capture independent versions. Array/List element replacement remains valid.
+- A mutation after `break` or after the traversal's scope exits is valid when no separate lifetime rule rejects it. Nested traversals capture independent versions. Inline and allocated List element replacement remains valid.
 
 ## Errors
 
@@ -1134,24 +1134,41 @@ Pool<T>.destroy() -> no value
 - Ranges are zero-based and end-exclusive. `length`, indexing, and `slice` use the
   same bounds where available. No type has `at` or `is_empty`: `receiver[index]` and
   `receiver.length() == 0` are their identical replacements.
-- Array/Slice/List equality compares length then elements. No collection ordering; no Dict equality.
+- Inline and allocated List equality compares logical length then active elements. No collection
+  ordering; no Dict equality.
 
-### `Array<T, N>`
+### `List<T, N>`
 
 ```text
-Array<T,N>.length() -> Size
-Array<T,N>[index: Integer] -> place<T>
-Array<T,N>.slice(start: Integer, end: Integer) -> Slice<T>
-Array<T,N>.mut_slice(start: Integer, end: Integer) -> Slice<mut T>
+List<T, N>() -> List<T, N>
+List<T, N>[index: Integer] -> place<T>
+List<T, N>.length() -> Size
+List<T, N>.push(value: T) -> no value
+List<T, N>.pop() -> T
+List<T, N>.clear() -> no value
+List<T, N>.slice(start: Integer, end: Integer) -> Slice<T>
+List<T, N>.mut_slice(start: Integer, end: Integer) -> Slice<mut T>
 ```
 
-- Fixed inline sequence; N is a positive integer literal. A contextual `[a, ...]` must contain
-  exactly N elements, evaluated left-to-right.
-- Assignment, arguments, and returns copy the inline region. Element writes require a writable Array
-  place. Indexing is checked; `slice` returns a read-only Slice, `mut_slice` returns a writable
-  Slice and requires a writable Array place.
-- T follows general storability, including nested Arrays. Arrays free nothing; external-state
-  elements copy only their references.
+- N is a positive decimal integer literal. The complete estimated storage of the inline List must
+  be strictly below `MaxInlineListEstimatedBytes`; estimation is deterministic, target-independent,
+  recursively checked for overflow, and deferred for an open generic until substitution.
+- Empty construction and contextual bracket literals create zero-initialized by-value structs with
+  runtime logical length. A literal may contain from zero through N elements, evaluated once from
+  left to right; an uncontextual literal and a literal above capacity are rejected.
+- Every inline List contains `Size length`, `Size version`, and `T data[N]`. Capacity is not an exact
+  length proof. Indexing and slicing validate logical length; constant indexes at or above capacity
+  are compile-time errors, while indexes below capacity retain runtime checks.
+- Assignment, arguments, and returns copy the complete inline struct. A writable binding permits
+  element writes and structural mutation; an immutable binding permits reads and copy only. A
+  Slice derived from an inline List points into that exact source value and is not retargeted by
+  copying the List.
+- `push` stores before increasing length and traps at capacity; `pop` reads before reducing length
+  and traps when empty; `clear` sets length to zero. Each structural operation increments version.
+  Elements follow general storability and copy or discard shallowly; clearing never frees referents.
+- `free` is invalid for inline Lists. Allocated `List<T>` remains a heap-owned handle with its
+  existing constructor, mutation, sharing, and `free(heap)` contracts.
+- Equality and printing compare or render only active elements; inactive capacity is ignored.
 
 ### `Slice<T>` and `Slice<mut T>`
 
@@ -1180,8 +1197,8 @@ Slice<mut T>.slice(start: Integer, end: Integer) -> Slice<mut T>
   allocation's length, alignment, initialization, lifetime, provenance, or future validity.
   `empty()` and an empty slice of an empty List use null data plus zero length; no valid
   operation dereferences it.
-- Slicing a temporary Array is rejected because no source place exists. Every other backing
-  store — Array, List, String, allocation, or foreign region — is the programmer's
+- Slicing a temporary inline List is rejected because no source place exists. Every other backing
+  store — inline List, allocated List, String, allocation, or foreign region — is the programmer's
   responsibility: it must remain alive and unreallocated for every Slice use. Growing or
   freeing a List, freeing a String, or resetting/destroying an allocator invalidates Slices
   into its old storage. Such misuse is outside the Slice contract and may produce undefined
@@ -1191,7 +1208,7 @@ Slice<mut T>.slice(start: Integer, end: Integer) -> Slice<mut T>
   and preserves the receiver's access mode. Bounds checks validate only the descriptor
   length, never liveness of the backing storage.
 - Slice has no storage-position restriction beyond the general rules: bindings, results,
-  members, payloads, union members, Array/Slice/List elements, Dict values, function
+  members, payloads, union members, inline List/Slice/allocated List elements, Dict values, function
   parameters/results, Task arguments/results, and Channel elements. It is invalid as a `Ptr`
   pointee. Equality compares length then elements; printing, truthiness, and iteration follow
   the collection contracts.
@@ -1417,7 +1434,7 @@ heap-only: an inline destination converts through `String<N>.from_bytes`.
   interpolation; a plain literal with no braces or a raw literal is rejected, since raw text never
   interpolates. Interpolation supports exactly Bool, every fixed-width signed and unsigned
   integer, Size, Byte, Float32, Float64, and text of any form; Nil, pointers, unions, structs, ADTs,
-  arrays, slices, lists, dictionaries, allocators, concurrency values, Error, and Fun are rejected.
+  inline Lists, slices, allocated Lists, dictionaries, allocators, concurrency values, Error, and Fun are rejected.
   The heap result follows the ordinary String allocation/free contract; borrowed text operands
   contribute only their bytes and gain no new lifetime relation to the result.
 
@@ -1432,7 +1449,7 @@ print(first: Printable, rest: Printable...) -> no value
 - `print(arg, ...)` is protected, requires at least one argument, inserts no separator/newline, and
   returns no value. Arguments evaluate once left-to-right; output starts only after all evaluation.
 - Directly printable: Bool, fixed-width integers, Size, Byte, Float32, Float64, text of any form
-  (`String` and `String<N>`), Nil, and Error. Objects, ADTs, Array, Slice, List, and Dict are printable exactly when every
+  (`String` and `String<N>`), Nil, and Error. Objects, ADTs, inline Lists, Slice, allocated List, and Dict are printable exactly when every
   recursively visited component is printable. Every other canonical type is non-printable; unions
   must narrow to a printable member first. Failure identifies the first non-printable member path in
   declaration order.
@@ -1445,12 +1462,12 @@ print(first: Printable, rest: Printable...) -> no value
 object:             <Type> { <member> = <value>, ... }
 unit ADT variant:   <ADT>.<Variant>
 record ADT variant: <ADT>.<Variant> { <field> = <value>, ... }
-Array/Slice/List:    [<value>, ...]
+Inline List/Slice/allocated List: [<value>, ...]
 Dict:               {<key>: <value>, ...}
 ```
 
 Object members use declaration order and ` = `. Record variants print only the active payload.
-Array/Slice/List use `[]` when empty. Dict uses `:`, `{}` when empty, and unspecified entry order.
+Inline List/Slice/allocated List use `[]` when empty. Dict uses `:`, `{}` when empty, and unspecified entry order.
 
 - Float32/64 use `%g` precision 9/17; signed zero and `inf`, `-inf`, `nan` are preserved. A direct
   Error prints `file:line:column: header: message` with no trailing newline, where `header` is
@@ -1712,7 +1729,7 @@ type FileMode is Read | Write | Append | ReadWrite | CreateNew end
 - A File value is an ordinary copyable handle: every copy names the same descriptor and observes
   one shared lifecycle. Because closing is generation-checked rather than relying on a shallow-copy
   alias lifetime, File occupies every ordinary complete-value position -- bindings, parameters,
-  results, struct and ADT payload members, union members, Array/Slice/List elements, Dict values,
+  results, struct and ADT payload members, union members, inline List/Slice/allocated List elements, Dict values,
   pointer pointees, Heap/Stash/Pool allocations, Task arguments/results, and Channel elements --
   unlike IO, which is restricted to the ephemeral positions its own shallow-copy model allows. File
   has no equality, ordering, hash, or print contract and is invalid as a Dict key.
@@ -1799,8 +1816,8 @@ each defining its own liveness state and libuv error switch.
 
 ```text
 type Address is union
-    | IPv4 as bytes: Array<Byte, 4>, port: UInt16 end
-    | IPv6 as bytes: Array<Byte, 16>, port: UInt16, scope: UInt32 end
+    | IPv4 as bytes: List<Byte, 4>, port: UInt16 end
+    | IPv6 as bytes: List<Byte, 16>, port: UInt16, scope: UInt32 end
 end
 
 -- std/net module functions
@@ -2041,7 +2058,7 @@ Signals.close()                       -> Nil | Error
   no scheduler or libuv cost of its own). A reachable `std/signal.subscribe` call, `next`, or `close`
   additionally emits `hexal/signal.c` and selects the handle component, the event bridge, the
   scheduler bootstrap, libuv, and the native bootstrap. A collection specialized over `Signal`
-  (`List<Signal>`, `Array<Signal, N>`, `Slice<Signal>`, `Dict<K, Signal>`, `Pool<Signal>`) is
+  (`List<Signal>`, `List<Signal, N>`, `Slice<Signal>`, `Dict<K, Signal>`, `Pool<Signal>`) is
   rendered in each consuming module's own header rather than the shared collection component, a
   header-ordering accommodation with no effect on program behavior; equality (`==`/`!=`) over such
   a collection is not part of this implementation, though bare `Signal == Signal` comparison is.
@@ -2115,7 +2132,7 @@ align_of<T>() -> Size
 
 - `size_of<T>()` and `align_of<T>()` require one explicit complete finite type and return Size C
   constant expressions. Reference-like types report source handle size. These operations do not make
-  arbitrary Array lengths valid. `String<N>` reports its inline size and alignment (`size_of<String<31>>()`
+  arbitrary inline List capacities valid. `String<N>` reports its inline size and alignment (`size_of<String<31>>()`
   is 40 and `align_of<String<31>>()` is 8 on `x86_64-linux-gnu`) and requires a literal capacity;
   `size_of<Error>()` is 432 there.
 
@@ -2259,7 +2276,7 @@ Ptr<mut T>.write_volatile(value: T) -> no value
   `<stdbool.h>`, `<limits.h>`, and `<float.h>` are never emitted), followed by the retained
   source-dependent `Size`-literal `SIZE_MAX` assertions, the shared `hex_eos` typedef exactly when
   generated C represents EoS, and the declaration of the one program-wide `hex_runtime_trap` when a
-  selected path can trap. It contains no Heap, Slice, String, `String<N>`, Error, List, Dict, Array, Task,
+  selected path can trap. It contains no Heap, Slice, String, `String<N>`, Error, List, Dict, Task,
   Channel, Mutex, or Atomic representation or helper, no String literal storage, no process-wide
   runtime state, no generic integer, byte-width, or float target probe, and no user-declared
   module-type definition or exported/cross-module user prototype. Its guard is `HEXAL_H`; every
@@ -2267,7 +2284,7 @@ Ptr<mut T>.write_volatile(value: T) -> no value
 - The component artifacts under `hexal/` own the generated runtime support, one family per file,
   emitted only when that family is reachable:   `hexal/runtime.c` (the `hex_runtime_trap`
   definition), `hexal/wrap.h`, `hexal/heap.h`/`hexal/heap.c`, `hexal/slice.h`, `hexal/string.h`/
-  `hexal/string.c`, `hexal/error.h`, `hexal/list.h`, `hexal/dict.h`, `hexal/array.h`,
+  `hexal/string.c`, `hexal/error.h`, `hexal/list.h`, `hexal/dict.h`,
   `hexal/numeric.h`, `hexal/print.h`/`hexal/print.c`, `hexal/equality.h`,
   `hexal/concurrency.h`/`hexal/concurrency.c`, `hexal/io.h`/`hexal/io.c`, `hexal/seek.h`,
   `hexal/event.h`/`hexal/event.c`, `hexal/time.h`/`hexal/time.c`, `hexal/handle.h`/
@@ -2287,7 +2304,7 @@ Ptr<mut T>.write_volatile(value: T) -> no value
 - `hexal/numeric.h` is selected only when a reachable checked conversion, guarded integer division
   or remainder, guarded shift, same-width `bit_cast`, or endian conversion needs a helper. Direct
   and identity conversions select none. The header contains the merged canonical-key-sorted helper
-  set once; endian helpers include the Array component they name.
+  set once; endian helpers use inline List components.
 - `hexal/print.h` and `hexal/print.c` are selected atomically when any reachable `print` call exists.
   Primitive `hex_print_*` declarations and definitions have one program-wide owner in that pair;
   module-owned aggregate print adapters remain in the consuming module header and include
@@ -2300,7 +2317,7 @@ Ptr<mut T>.write_volatile(value: T) -> no value
   The `String<N>` struct for each demanded capacity is defined once in `hexal/string.h`, before
   every header that names it, and none is emitted for a capacity the program does not use.
 - `hexal/equality.h` owns one helper per canonical program-owned equality aggregate: builtin-element
-  Array, Slice, and List specializations and the compiler-owned Error object, including recursively
+  inline List, Slice, and allocated List specializations and the compiler-owned Error object, including recursively
   composed program-owned forms. User objects, ADTs, structural unions, and collections whose
   definitions are module-owned retain helpers in module headers. A program-owned helper is never
   duplicated in a module header; the component includes every required type-family header and
@@ -2371,7 +2388,7 @@ Ptr<mut T>.write_volatile(value: T) -> no value
   registry: a lookup for an identity that was never collected is a compiler error, never a
   locally reconstructed name or ordinal.
 - Collection C names derive from the element's display name (`hex_list_`, `hex_dict_`, `hex_slice_`,
-  `hex_mut_slice_`, `hex_array_`, `hex_task_`, `hex_channel_`, `hex_atomic_`). When same-named elements from distinct
+  `hex_mut_slice_`, `hex_task_`, `hex_channel_`, `hex_atomic_`). When same-named elements from distinct
   modules would derive one C name, the later interned specialization appends `_` plus the encoded
   owner of its element's defining module; resolution happens once at interning, so a typedef and
   every helper suffix derived from its name stay paired.
@@ -2400,11 +2417,8 @@ Ptr<mut T>.write_volatile(value: T) -> no value
   runtime (`-fsanitize=undefined -fno-sanitize-recover=all`) and reports which check failed and
   where; on the Windows lane it uses trap mode
   (`-fsanitize=undefined -fsanitize-trap=undefined`) because this release ships no MinGW UBSan
-  runtime, so the same faults halt with no diagnostic text. Debug on the Linux lane also carries
-  `-fsanitize=leak`: allocations still live at exit are reported on stderr with their allocation
-  stack traces, and the report does not change exit status — holding an allocation to process exit
-  is not an error in a language with explicit manual cleanup. `LSAN_OPTIONS` overrides that
-  default. The leak report is absent on lanes without LeakSanitizer and absent in release.
+  runtime, so the same faults halt with no diagnostic text. Debug builds do not enable
+  LeakSanitizer on any target.
 - **Release** optimizes, emits no debug information, strips the executable, and discards unused
   sections. It carries no sanitizer instrumentation.
 - Neither mode is a correctness contract: a program correct in one is correct in the other.

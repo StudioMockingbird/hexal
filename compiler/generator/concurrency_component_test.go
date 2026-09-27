@@ -424,7 +424,7 @@ func TestGenerateSpawnNestingShapesEmitOneSite(t *testing.T) {
 		{"if", spawned + "fun run(): Int32 | Error do\n    if true then\n        let task: Task<Int32> = try spawn square(6)\n        task.join()\n    end\n    return 0\nend\n"},
 		{"while", spawned + "fun run(): Int32 | Error do\n    let mut n: Int32 = 1\n    while n > 0 do\n        let task: Task<Int32> = try spawn square(6)\n        task.join()\n        n = n - 1\n    end\n    return 0\nend\n"},
 		{"nested if inside while", spawned + "fun run(): Int32 | Error do\n    let mut n: Int32 = 1\n    while n > 0 do\n        if n > 0 then\n            let task: Task<Int32> = try spawn square(6)\n            task.join()\n        end\n        n = n - 1\n    end\n    return 0\nend\n"},
-		{"for", "fun burn(value: Int64): Int64 do\n    return value\nend\nfun run(): Int64 | Error do\n    let a: Array<Int64, 3> = [1, 2, 3]\n    for v in a do\n        let w: Task<Int64> = try spawn burn(v)\n        w.join()\n    end\n    return 0\nend\n"},
+		{"for", "fun burn(value: Int64): Int64 do\n    return value\nend\nfun run(): Int64 | Error do\n    let a: List<Int64, 3> = [1, 2, 3]\n    for v in a do\n        let w: Task<Int64> = try spawn burn(v)\n        w.join()\n    end\n    return 0\nend\n"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			program := checkedGeneratorSource(t, testCase.source)

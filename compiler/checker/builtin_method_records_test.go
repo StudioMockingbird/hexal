@@ -43,9 +43,9 @@ func TestBuiltinMethodDispatchReadsTheRegistry(t *testing.T) {
 			want:   "Pool has no method destroy; use allocate, free, or destroy",
 		},
 		{
-			family: "Array",
-			source: "let mut data: Array<Int32, 2> = [1, 2]\nlet view: Slice<Int32> = data.slice(0, 1)\n",
-			want:   "Array<Int32, 2> has no method slice",
+			family: "InlineList",
+			source: "let mut data: List<Int32, 2> = [1, 2]\nlet view: Slice<Int32> = data.slice(0, 1)\n",
+			want:   "List<Int32, 2> has no method slice",
 		},
 		{
 			family: "Slice",
@@ -106,7 +106,7 @@ func TestPerFamilyDispatchMatchesTheRegistry(t *testing.T) {
 		declared[string(owner)][method.Name] = true
 	}
 	for owner, names := range map[string][]string{
-		"Array":        {"length", "slice", "mut_slice"},
+		"InlineList":   {"length", "slice", "mut_slice", "push", "clear", "pop"},
 		"Slice":        {"length", "slice", "pointer"},
 		"List":         {"length", "slice", "mut_slice", "push", "clear", "pop", "free"},
 		"Dict":         {"length", "insert", "get", "find", "remove", "contains", "free"},
