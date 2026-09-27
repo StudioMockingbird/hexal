@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -98,6 +99,152 @@ func TestDictInt32Lifecycle(t *testing.T) {
 	}
 }
 
+func TestDictClearRetainsStorageAndInvalidatesTraversal(t *testing.T) {
+	result := compileSource("fun demo(h: Heap) do\n    let d: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer d.free(h)\n    d.insert(1, 10)\n    for key: Int32, value: Int32 in d do\n        d.clear()\n    end\nend")
+	if result.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(result.Stderr, "\n"), "cannot mutate collection during iteration") {
+		t.Fatalf("Compile stderr = %#v, want active traversal invalidation diagnostic", result.Stderr)
+	}
+	result = compileSource("fun demo(h: Heap) do\n    let d: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer d.free(h)\n    d.insert(1, 10)\n    d.clear()\n    let empty: Size = d.length()\n    d.insert(2, 20)\n    let value: Int32 = d.get(2)\n    d.clear()\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	header := dictH(t, result)
+	clearAt := strings.Index(header, "static inline void hex_dict_clear_Int32_Int32")
+	if clearAt < 0 {
+		t.Fatalf("hexal/dict.h lacks clear helper:\\n%s", header)
+	}
+	clearEnd := strings.Index(header[clearAt:], "\n}\n")
+	if clearEnd < 0 {
+		t.Fatalf("cannot find the end of the generated clear helper: %s", header[clearAt:])
+	}
+	clear := header[clearAt : clearAt+clearEnd+2]
+	for _, want := range []string{"index < dict->capacity", "dict->buckets[index].active = false;", "dict->length = 0;", "dict->version++;"} {
+		if !strings.Contains(clear, want) {
+			t.Fatalf("clear helper lacks %q:\\n%s", want, clear)
+		}
+	}
+	if strings.Contains(clear, "hex_heap_") || strings.Contains(clear, "free(") || strings.Contains(clear, "dict->buckets =") || strings.Contains(clear, "dict->capacity =") {
+		t.Fatalf("clear helper releases storage or referents:\\n%s", clear)
+	}
+	stringValues := compileSource(`fun demo(h: Heap) do
+    let d: Dict<Int32, String> = Dict<Int32, String>(h)
+    defer d.free(h)
+    let value: String = "owned".copy(h)
+    defer value.free(h)
+    d.insert(1, value)
+    d.clear()
+end`)
+	if stringValues.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile String-valued Dict exit code = %d (%v), want %d", stringValues.ExitCode, stringValues.Stderr, compiler.ExitSuccess)
+	}
+	if strings.Contains(dictH(t, stringValues), "hex_string_free") {
+		t.Fatalf("Dict.clear emitted cleanup for its String referents:\\n%s", dictH(t, stringValues))
+	}
+}
+
+func TestDictScalarKeyFamilies(t *testing.T) {
+	type testKey struct {
+		name, literal string
+	}
+	keys := []testKey{
+		{"Bool", "true"}, {"Int8", "-1"}, {"Int16", "-2"}, {"Int32", "-3"}, {"Int64", "-4"},
+		{"UInt8", "5"}, {"UInt16", "6"}, {"UInt32", "7"}, {"UInt64", "8"}, {"Size", "9"}, {"Rune", "'x'"},
+		{"String<16>", `"key"`},
+	}
+	var builder strings.Builder
+	builder.WriteString("fun retrieve<K, V>(dict: Dict<K, V>, key: K): V do\n    return dict.get(key)\nend\nfun demo(h: Heap) do\n")
+	for index, key := range keys {
+		name := fmt.Sprintf("d%d", index)
+		fmt.Fprintf(&builder, "    let %s: Dict<%s, Int32> = Dict<%s, Int32>(h)\n", name, key.name, key.name)
+		fmt.Fprintf(&builder, "    defer %s.free(h)\n", name)
+		fmt.Fprintf(&builder, "    let key%d: %s = %s\n", index, key.name, key.literal)
+		fmt.Fprintf(&builder, "    %s.insert(key%d, %d)\n", name, index, index)
+		fmt.Fprintf(&builder, "    let generic%d: Int32 = retrieve<%s, Int32>(%s, key%d)\n", index, key.name, name, index)
+		fmt.Fprintf(&builder, "    let found%d: Int32 | Nil = %s.find(key%d)\n", index, name, index)
+		fmt.Fprintf(&builder, "    let present%d: Bool = %s.contains(key%d)\n", index, name, index)
+		fmt.Fprintf(&builder, "    let value%d: Int32 = %s.get(key%d)\n", index, name, index)
+		fmt.Fprintf(&builder, "    let removed%d: Int32 = %s.remove(key%d)\n", index, name, index)
+	}
+	builder.WriteString("    let byte_key: Dict<Byte, Int32> = Dict<Byte, Int32>(h)\n    defer byte_key.free(h)\n    let u8_key: Dict<UInt8, Int32> = byte_key\n    let alias: Int32 | Nil = u8_key.find(1)\n    let generic_alias: Int32 = retrieve<Byte, Int32>(u8_key, 1)\nend\n")
+	source := builder.String()
+	result := compileSource(source)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	header := dictH(t, result)
+	if strings.Count(header, "static inline uint64_t hex_hash_scalar(") != 1 {
+		t.Fatalf("scalar hash helper must be emitted once:\\n%s", header)
+	}
+	for _, invalid := range []string{"Float32", "Float64", "EoS"} {
+		if strings.Contains(header, "hex_dict_entry_"+invalid) {
+			t.Fatalf("unexpected Dict specialization for %q:\\n%s", invalid, header)
+		}
+	}
+	wrongWidth := compileSource("fun demo(h: Heap) do\n    let d: Dict<Int16, Int32> = Dict<Int16, Int32>(h)\n    let key: Int8 = 1\n    let x: Int32 = d.get(key)\nend\n")
+	if wrongWidth.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(wrongWidth.Stderr, "\n"), "dictionary key requires Int16; got Int8") {
+		t.Fatalf("cross-width lookup stderr = %#v, want exact key-type rejection", wrongWidth.Stderr)
+	}
+	invalidSpecialization := compileSource(`type Point is struct x: Int32 end
+fun make_dict<K>(h: Heap, key: K) do
+    let d: Dict<K, Int32> = Dict<K, Int32>(h)
+    defer d.free(h)
+    d.insert(key, 1)
+end
+fun demo(h: Heap) do
+    make_dict<Point>(h, Point(x = 1))
+end`)
+	if invalidSpecialization.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(invalidSpecialization.Stderr, "\n"), "dictionary key type must be Bool, an integer, Size, Rune, or String<N>") {
+		t.Fatalf("invalid generic key specialization stderr = %#v, want key-type rejection", invalidSpecialization.Stderr)
+	}
+}
+
+func TestFreedCollectionBindingsAreRejectedLocally(t *testing.T) {
+	for _, operation := range []string{"length()", "clear()", "insert(1, 2)", "get(1)", "find(1)", "contains(1)", "remove(1)"} {
+		source := "fun demo(h: Heap) do\n    let d: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    d.free(h)\n    d." + operation + "\nend"
+		result := compileSource(source)
+		if result.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(result.Stderr, "\n"), "released on every path") {
+			t.Fatalf("Compile(%q) stderr = %#v, want use-after-free diagnostic", source, result.Stderr)
+		}
+	}
+	for _, operation := range []string{"free(h)", "length()", "slice(0, 0)", "mut_slice(0, 0)", "push(1)", "clear()", "pop()"} {
+		source := "fun demo(h: Heap) do\n    let xs: List<Int32> = List<Int32>(h)\n    xs.free(h)\n    xs." + operation + "\nend"
+		result := compileSource(source)
+		want := "released on every path"
+		if operation == "free(h)" {
+			want = "free releases storage already released"
+		}
+		if result.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(result.Stderr, "\n"), want) {
+			t.Fatalf("Compile(%q) stderr = %#v, want %q", source, result.Stderr, want)
+		}
+	}
+	for _, source := range []string{
+		"fun demo(h: Heap) do\n    let d: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    d.free(h)\n    d.free(h)\nend",
+		"fun demo(h: Heap) do\n    let xs: List<Int32> = List<Int32>(h)\n    xs.free(h)\n    let value: Int32 = xs[0]\nend",
+		"fun demo(h: Heap) do\n    let xs: List<Int32> = List<Int32>(h)\n    xs.free(h)\n    for value: Int32 in xs do\n    end\nend",
+		"fun demo(h: Heap) do\n    let d: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    d.free(h)\n    for k: Int32, v: Int32 in d do\n    end\nend",
+		"fun demo(h: Heap, release: Bool) do\n    let d: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    if release then\n        d.free(h)\n    else\n        d.free(h)\n    end\n    d.length()\nend",
+	} {
+		result := compileSource(source)
+		want := "released on every path"
+		if strings.Contains(source, ".free(h)\n    d.free(h)") {
+			want = "free releases storage already released"
+		}
+		if result.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(result.Stderr, "\n"), want) {
+			t.Fatalf("Compile(%q) stderr = %#v, want %q", source, result.Stderr, want)
+		}
+	}
+	for _, source := range []string{
+		"fun demo(h: Heap, release: Bool) do\n    let d: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    if release then\n        d.free(h)\n    end\n    d.length()\nend",
+		"fun demo(h: Heap) do\n    let d: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer d.free(h)\n    d.length()\nend",
+		"fun demo(h: Heap) do\n    let mut d: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    d.free(h)\n    d = Dict<Int32, Int32>(h)\n    d.length()\n    d.free(h)\nend",
+		"fun demo(h: Heap) do\n    let d: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    let alias: Dict<Int32, Int32> = d\n    d.free(h)\n    alias.length()\nend",
+	} {
+		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
+			t.Fatalf("Compile(%q) exit code = %d (%v), want 0", source, result.ExitCode, result.Stderr)
+		}
+	}
+}
+
 func TestDictStringKeys(t *testing.T) {
 	result := compileSource("fun demo(h: Heap) do\n    let labels: Dict<String<128>, Int32> = Dict<String<128>, Int32>(h)\n    defer labels.free(h)\n    labels.insert(\"alice\", 1)\n    labels.insert(\"bob\", 2)\n    let present: Bool = labels.contains(\"alice\")\n    let score: Int32 = labels.get(\"bob\")\n    let key: String<128> = \"carol\"\n    labels.insert(key, 3)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
@@ -162,7 +309,7 @@ func TestDictKeyCapacitiesAreDistinctTypes(t *testing.T) {
 	}
 }
 
-// Only Int32 and String<N> are keys; the heap String, which does not own its
+// Only scalar values and String<N> are keys; the heap String, which does not own its
 // bytes, and every other type report their own diagnostic. Literal keys are
 // measured against the key capacity and other capacities are converted by hand.
 func TestDictKeyDiagnostics(t *testing.T) {
@@ -175,7 +322,16 @@ func TestDictKeyDiagnostics(t *testing.T) {
 		}
 	}
 	assertKey("fun demo(h: Heap) do\n    let d: Dict<String, Int32> = Dict<String, Int32>(h)\nend", "dictionary key type String is not allowed: a Dict stores its keys, and String does not own its bytes; use String<N>")
-	assertKey("fun demo(h: Heap) do\n    let d: Dict<Bool, Int32> = Dict<Bool, Int32>(h)\nend", "dictionary key type must be Int32 or String<N>")
+	assertKey("fun demo(h: Heap) do\n    let d: Dict<Float64, Int32> = Dict<Float64, Int32>(h)\nend", "dictionary key type must be Bool, an integer, Size, Rune, or String<N>")
+	for _, invalid := range []string{
+		"Float32", "EoS", "Nil", "Heap", "Ptr<Int32>", "Slice<Int32>", "List<Int32>",
+		"Dict<Int32, Int32>", "Fun<(Int32) : Int32>", "Int32 | Bool",
+	} {
+		source := "fun demo(h: Heap) do\n    let d: Dict<" + invalid + ", Int32> = Dict<" + invalid + ", Int32>(h)\nend"
+		assertKey(source, "type.dict-key-type-invalid] dictionary key type must be Bool, an integer, Size, Rune, or String<N>")
+	}
+	assertKey("type Point is struct x: Int32 end\nfun demo(h: Heap) do\n    let d: Dict<Point, Int32> = Dict<Point, Int32>(h)\nend", "type.dict-key-type-invalid]")
+	assertKey("type Choice is union | A | B end\nfun demo(h: Heap) do\n    let d: Dict<Choice, Int32> = Dict<Choice, Int32>(h)\nend", "type.dict-key-type-invalid]")
 	assertKey("fun demo(h: Heap) do\n    let d: Dict<String<128>, Int32> = Dict<String<128>, Int32>(h)\n    d.insert(\""+long128+"b\", 1)\nend", "String<128> literal exceeds 128 UTF-8 bytes")
 	for _, call := range []string{"insert(key, 1)", "get(key)", "find(key)", "contains(key)", "remove(key)"} {
 		assertKey("fun demo(h: Heap) do\n    let d: Dict<String<128>, Int32> = Dict<String<128>, Int32>(h)\n    let key: String<16> = \"x\"\n    d."+call+"\nend", "dictionary key requires String<128>; got String<16>; use widen<128>()")
@@ -260,7 +416,6 @@ func TestDictBorrowAllowsLookups(t *testing.T) {
 func TestDictShallowCopySemantics(t *testing.T) {
 	for _, source := range []string{
 		"fun demo(h: Heap) do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\nend",
-		"fun demo(h: Heap) do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    scores.free(h)\n    scores.free(h)\nend",
 		"fun demo(h: Heap) do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    let other: Dict<Int32, Int32> = scores\nend",
 		"fun demo(h: Heap, scores: Dict<Int32, Int32>) do\n    scores.free(h)\nend",
 	} {
@@ -272,7 +427,7 @@ func TestDictShallowCopySemantics(t *testing.T) {
 		source string
 		want   string
 	}{
-		{"fun demo(h: Heap) do\n    let scores: Dict<Bool, Int32> = Dict<Bool, Int32>(h)\nend", "dictionary key type must be Int32 or String<N>"},
+		{"fun demo(h: Heap) do\n    let scores: Dict<Float64, Int32> = Dict<Float64, Int32>(h)\nend", "dictionary key type must be Bool, an integer, Size, Rune, or String<N>"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {

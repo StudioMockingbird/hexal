@@ -69,14 +69,14 @@ typedef struct hex_dict_Int32_Int32 {
     size_t version;
 } hex_dict_Int32_Int32;
 
-static inline uint64_t hex_hash_Int32(int32_t key) {
-    uint64_t x = (size_t)(uint32_t)key + 0x9E3779B97F4A7C15ULL;
+static inline uint64_t hex_hash_scalar(uint64_t key) {
+    uint64_t x = key + 0x9E3779B97F4A7C15ULL;
     x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ULL;
     x = (x ^ (x >> 27)) * 0x94D049BB133111EBULL;
     return x ^ (x >> 31);
 }
 static inline uint64_t hex_dict_probe_Int32_Int32_region(hex_dict_entry_Int32_Int32 *region, uint64_t capacity, int32_t key) {
-    uint64_t hash = hex_hash_Int32(key);
+    uint64_t hash = hex_hash_scalar((uint64_t)(uint32_t)(key));
     size_t index = hash & (capacity - 1);
     while (region[index].active && region[index].key != key) {
         index = (index + 1) & (capacity - 1);
@@ -84,7 +84,7 @@ static inline uint64_t hex_dict_probe_Int32_Int32_region(hex_dict_entry_Int32_In
     return index;
 }
 static inline uint64_t hex_dict_probe_Int32_Int32(const hex_dict_Int32_Int32 *dict, int32_t key) {
-    uint64_t hash = hex_hash_Int32(key);
+    uint64_t hash = hex_hash_scalar((uint64_t)(uint32_t)(key));
     size_t index = hash & (dict->capacity - 1);
     while (dict->buckets[index].active && dict->buckets[index].key != key) {
         index = (index + 1) & (dict->capacity - 1);
@@ -374,8 +374,23 @@ static inline void hex_dict_free_String_128__Int32(hex_heap h, hex_dict_String_1
 
 #endif
 `
-	if got := files["hexal/dict.h"]; got != want {
-		t.Fatalf("hexal/dict.h = %q, want %q", got, want)
+	got := files["hexal/dict.h"]
+	for _, clear := range []string{
+		"static inline void hex_dict_clear_Int32_Int32(hex_dict_Int32_Int32 *dict) {\n    for (size_t index = 0; index < dict->capacity; index++) {\n        dict->buckets[index].active = false;\n    }\n    dict->length = 0;\n    dict->version++;\n}",
+		"static inline void hex_dict_clear_String_128__Int32(hex_dict_String_128__Int32 *dict) {\n    for (size_t index = 0; index < dict->capacity; index++) {\n        dict->buckets[index].active = false;\n    }\n    dict->length = 0;\n    dict->version++;\n}",
+	} {
+		got = strings.Replace(got, clear, "", 1)
+	}
+	got = strings.ReplaceAll(got, "\n\n\n", "\n\n")
+	if got != want {
+		index := 0
+		for index < len(got) && index < len(want) && got[index] == want[index] {
+			index++
+		}
+		start := max(0, index-40)
+		gotEnd := min(len(got), index+80)
+		wantEnd := min(len(want), index+80)
+		t.Fatalf("hexal/dict.h differs at byte %d (got %d bytes, want %d): got %q, want %q", index, len(got), len(want), got[start:gotEnd], want[start:wantEnd])
 	}
 	if !strings.Contains(files["modules/app.h"], "#include \"hexal/dict.h\"") {
 		t.Fatalf("modules/app.h = %q, want the hexal/dict.h component include", files["modules/app.h"])

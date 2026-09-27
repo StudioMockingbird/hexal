@@ -230,7 +230,7 @@ const (
 	// detach (yields Nil). Operand is the handle; OperandType is the Task
 	// type; Element is R.
 	TaskMethodCallExpression
-	// ChannelConstructorExpression is Channel<T>.new(heap, capacity), which
+	// ChannelConstructorExpression is Channel<T>(heap, capacity), which
 	// yields Channel<T> | Error. Arguments holds heap and capacity;
 	// OperandType is the Channel type; Element is T.
 	ChannelConstructorExpression
@@ -238,13 +238,13 @@ const (
 	// receive, close, length, capacity, is_closed, or free. Operand is the
 	// handle; OperandType is the Channel type; Element is T.
 	ChannelMethodCallExpression
-	// MutexConstructorExpression is Mutex.new(heap), which yields Mutex |
+	// MutexConstructorExpression is Mutex(heap), which yields Mutex |
 	// Error. Arguments holds the heap.
 	MutexConstructorExpression
 	// MutexMethodCallExpression is one Mutex handle method: lock, unlock, or
 	// free. Operand is the handle.
 	MutexMethodCallExpression
-	// AtomicConstructorExpression is Atomic<T>.new(initial), which yields an
+	// AtomicConstructorExpression is Atomic<T>(initial), which yields an
 	// inline Atomic<T>. Arguments holds the initial value; OperandType is the
 	// Atomic type; Element is T.
 	AtomicConstructorExpression
@@ -252,7 +252,7 @@ const (
 	// fetch_add, fetch_sub, or compare_exchange. Operand is the Atomic
 	// lvalue; OperandType is the Atomic type; Element is T.
 	AtomicMethodCallExpression
-	// StashConstructorExpression is Stash<T>.new(), which yields an
+	// StashConstructorExpression is Stash<T>(), which yields an
 	// independent typed bump-allocator handle. Takes no arguments;
 	// OperandType is the Stash type; Element is T.
 	StashConstructorExpression
@@ -262,7 +262,7 @@ const (
 	// holds the initializer and ResultType is Ptr<mut T>; reset and destroy
 	// take no arguments and yield no value.
 	StashMethodCallExpression
-	// PoolConstructorExpression is Pool<T>.new(capacity), which yields an
+	// PoolConstructorExpression is Pool<T>(capacity), which yields an
 	// independent typed fixed-capacity slot-allocator handle. Arguments
 	// holds the capacity; OperandType is the Pool type; Element is T.
 	PoolConstructorExpression

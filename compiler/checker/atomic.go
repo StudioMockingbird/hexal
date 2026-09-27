@@ -7,7 +7,7 @@ import (
 )
 
 // isFreshAtomicConstruction reports whether source builds an Atomic-containing
-// value entirely from fresh .new() constructions, with no read of existing
+// value entirely from fresh canonical constructions, with no read of existing
 // storage. Such an expression may initialize a Binding or ObjectMember in
 // place; any other use of an Atomic-containing value is a copy and is
 // rejected.

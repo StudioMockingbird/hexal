@@ -22,10 +22,9 @@ type dictComponentModel struct {
 
 // dictComponentRecord is one reachable Dict specialization's spelling and
 // selection facts: the struct C names, the accessor suffix, the spelled key
-// and value types, the once-per-header hash helper name, whether the key is
-// text (an inline String<N>, probed and hashed over its logical bytes by the
-// shared text helpers), and whether this specialization is the first Int32
-// key and therefore emits that key's hash helper. The template lays out the structs and the typed inline operations
+// and value types, whether the key is inline text, the scalar hash expression,
+// and whether this specialization emits the shared scalar hash helper. The
+// template lays out the structs and the typed inline operations
 // from these fields; canonical naming, ordering, and C spelling stay Go
 // decisions.
 type dictComponentRecord struct {
@@ -42,6 +41,7 @@ type dictComponentRecord struct {
 	// produces "const const hex_string * *", a duplicate qualifier.
 	FindValueSpelling string
 	TextKey           bool
+	ScalarHash        string
 	EmitHash          bool
 	NeedsFile         bool
 	NeedsNetwork      bool
@@ -50,13 +50,13 @@ type dictComponentRecord struct {
 }
 
 // dictComponentRecordFor builds the spelling record of one Dict
-// specialization. hashEmitted is per rendered header: the first Int32-key
-// dict of the header emits the Int32 hash helper. A text key needs none of its
+// specialization. hashEmitted is per rendered header: the first scalar-key
+// Dict emits the shared scalar hash helper. A text key needs none of its
 // own: hex_hash_text and hex_equal_text serve every capacity.
 func dictComponentRecordFor(dict compilerTypes.Type, hashEmitted map[string]bool) dictComponentRecord {
 	key := dict.Dict.Key
 	textKey := compilerTypes.IsText(key)
-	hashHelper := "hex_hash_Int32"
+	scalarHash := dictScalarHashExpression(key)
 	suffix := dictSuffix(dict)
 	valueSpelling := typeSpelling(dict.Dict.Value)
 	findValueSpelling := "const " + valueSpelling
@@ -71,11 +71,26 @@ func dictComponentRecordFor(dict compilerTypes.Type, hashEmitted map[string]bool
 		ValueSpelling:     valueSpelling,
 		FindValueSpelling: findValueSpelling,
 		TextKey:           textKey,
-		EmitHash:          !textKey && !hashEmitted[hashHelper],
+		ScalarHash:        scalarHash,
+		EmitHash:          scalarHash != "" && !hashEmitted["scalar"],
 		NeedsFile:         compilerTypes.IsFile(dict.Dict.Value),
 		NeedsNetwork:      elementNeedsNetwork(dict.Dict.Value),
 		NeedsProcess:      elementNeedsProcess(dict.Dict.Value),
 		NeedsSignal:       elementNeedsSignal(dict.Dict.Value),
+	}
+}
+
+func dictScalarHashExpression(key compilerTypes.Type) string {
+	switch {
+	case key.ScalarKind == compilerTypes.ScalarBool:
+		return "(uint64_t)(key ? 1 : 0)"
+	case compilerTypes.IsSignedInteger(key):
+		unsignedName := strings.Replace(key.CName, "int", "uint", 1)
+		return "(uint64_t)(" + unsignedName + ")(key)"
+	case compilerTypes.IsInteger(key), compilerTypes.IsSize(key):
+		return "(uint64_t)(key)"
+	default:
+		return ""
 	}
 }
 
@@ -93,8 +108,8 @@ func dictComponents(merged *programEmission) ([]componentArtifact, error) {
 			continue
 		}
 		record := dictComponentRecordFor(dict, hashEmitted)
-		if !record.TextKey {
-			hashEmitted["hex_hash_Int32"] = true
+		if record.ScalarHash != "" {
+			hashEmitted["scalar"] = true
 		}
 		records = append(records, record)
 	}

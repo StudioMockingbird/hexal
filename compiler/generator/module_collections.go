@@ -88,7 +88,7 @@ func moduleRoutedElement(element compilerTypes.Type) bool {
 
 // collectionElementModuleTyped reports whether one collection specialization
 // spells a module-emitted type: the element of a List, Slice, or Pool,
-// or the value of a dict (the key is always a builtin Int32 or String<N>).
+// or the value of a Dict (keys are scalar or inline String<N> values).
 func collectionElementModuleTyped(typ compilerTypes.Type) bool {
 	switch {
 	case typ.List != nil:

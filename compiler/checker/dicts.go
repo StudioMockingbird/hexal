@@ -8,18 +8,21 @@ import (
 )
 
 // resolveDictTypeUse resolves the built-in Dict<K, V> form written as an
-// ordinary generic type expression. K must be exactly Int32 or String<N>; V
-// must be a collection element.
+// ordinary generic type expression. K must be a supported scalar or String<N>;
+// V must be a collection element.
 func resolveDictTypeUse(expression parser.GenericTypeExpression, fallback lexer.Token, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
 	if len(expression.Arguments) != 2 {
 		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diag.DictTypeArgumentCount()))
+	}
+	keyToken := typeExpressionToken(expression.Arguments[0], expression.Name)
+	if keyToken.Lexeme == "Nil" {
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(keyToken, diag.DictKeyTypeInvalid()))
 	}
 	keyUse, diagnostic := resolveTypeUse(expression.Arguments[0], fallback, typeEnvironment, generics)
 	if diagnostic != nil {
 		return compilerTypes.TypeUse{}, diagnostic
 	}
 	if !compilerTypes.IsDictKey(keyUse.Type) {
-		keyToken := typeExpressionToken(expression.Arguments[0], expression.Name)
 		if compilerTypes.IsString(keyUse.Type) {
 			return compilerTypes.TypeUse{}, diagnosticAt(messageAt(keyToken, diag.DictKeyStringNotAllowed()))
 		}
@@ -73,6 +76,15 @@ func checkDictMethodCall(call methodCall) checkedExpression {
 	dictType := call.receiver.typ
 	keyType := dictType.Dict.Key
 	valueType := dictType.Dict.Value
+	var freedDiagnostic *compilerTypes.Diagnostic
+	if name == "free" {
+		freedDiagnostic = checkFreedCollectionFree(call.receiver.source, call.callee.Property, call.ctx.names.flow)
+	} else {
+		freedDiagnostic = checkFreedCollectionUse(call.receiver.source, call.callee.Property, call.ctx.names.flow)
+	}
+	if freedDiagnostic != nil {
+		return checkedExpression{token: call.callee.Property, diagnostic: freedDiagnostic}
+	}
 	if !hasBuiltinMethod(dictType, name) {
 		diagnostic := messageAt(call.callee.Property, diag.CollectionHasNoMethod(dictType.Name, name))
 		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
@@ -88,6 +100,14 @@ func checkDictMethodCall(call methodCall) checkedExpression {
 		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: dictType, ResultType: compilerTypes.SizeType, Element: valueType}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.SizeType, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.SizeType, token: call.callee.Property}
+	case "clear":
+		if len(call.call.Arguments) != 0 {
+			diagnostic := messageAt(call.callee.Property, diag.CollectionMethodNoArguments("clear"))
+			return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
+		}
+		node := Expression{Kind: CollectionMethodCallExpression, Name: name, Operand: &call.receiver.source.Node, OperandType: dictType, ResultType: compilerTypes.Type{}, Element: valueType}
+		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
+		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 	case "insert":
 		if len(call.call.Arguments) != 2 {
 			diagnostic := messageAt(call.callee.Property, diag.DictMethodArity("insert", 2, len(call.call.Arguments)))
@@ -158,6 +178,9 @@ func checkDictMethodCall(call methodCall) checkedExpression {
 			ResultType:  compilerTypes.Type{},
 			Element:     valueType,
 		}
+		if call.ctx.names.flow != nil && call.ctx.names.cleanupDepth == 0 {
+			markFreedCollection(call.receiver.source, call.ctx.names.flow)
+		}
 		source := Operand{Kind: ExpressionOperand, Type: compilerTypes.Type{}, Name: name, Node: node}
 		return checkedExpression{source: source, typ: compilerTypes.Type{}, token: call.callee.Property}
 	default:
@@ -169,13 +192,28 @@ func checkDictMethodCall(call methodCall) checkedExpression {
 // key type. A string literal in a String<N> position is measured against N at
 // compile time; any other text must already be exactly the key type.
 func checkDictKeyArgument(expression parser.Expression, fallback lexer.Token, keyType compilerTypes.Type, ctx checkContext) (Operand, *compilerTypes.Diagnostic) {
-	checked := checkInitializer(expression, compilerTypes.NewTypeUse(keyType), fallback, ctx)
+	var checked checkedExpression
+	if contextualDictKeyLiteral(expression) {
+		checked = checkInitializer(expression, compilerTypes.NewTypeUse(keyType), fallback, ctx)
+	} else {
+		checked = checkValue(expression, ctx)
+	}
 	if diagnostics := initializerDiagnostics(checked); len(diagnostics) > 0 {
 		return Operand{}, &diagnostics[0]
 	}
-	if !assignable(keyType, checked.typ) {
+	if !compilerTypes.Equal(keyType, checked.typ) {
 		diagnostic := messageAt(checked.token, diag.DictKeyTypeMismatch(keyType.Name, checked.typ.Name, textMismatchDetails(keyType, checked.typ)))
 		return Operand{}, &diagnostic
 	}
 	return checked.source, nil
+}
+
+func contextualDictKeyLiteral(expression parser.Expression) bool {
+	switch expression.(type) {
+	case parser.IntegerLiteral, parser.NegatedNumericLiteral, parser.BooleanLiteral,
+		parser.StringLiteral, parser.RawStringLiteral, parser.ByteLiteral, parser.RuneLiteral:
+		return true
+	default:
+		return false
+	}
 }

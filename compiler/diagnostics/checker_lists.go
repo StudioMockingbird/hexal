@@ -56,7 +56,7 @@ func ListConstructorArgumentShape() Message {
 }
 
 func ListConstructorHeapType(actual string) Message {
-	return message("type.list-constructor-heap-type", CategoryType, StageChecker, "List<T>.new requires a Heap; got "+actual)
+	return message("type.list-constructor-heap-type", CategoryType, StageChecker, "List<T> requires a Heap; got "+actual)
 }
 
 func ListMethodArgumentCount(method string, expected, got int) Message {

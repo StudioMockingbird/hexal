@@ -92,6 +92,11 @@ func checkIndexPlace(expression parser.IndexExpression, ctx checkContext) checke
 	if receiver.diagnostic != nil {
 		return receiver
 	}
+	if receiver.typ.List != nil {
+		if diagnostic := checkFreedCollectionUse(receiver.source, expression.OpenBracket, ctx.names.flow); diagnostic != nil {
+			return checkedExpression{token: expression.OpenBracket, diagnostic: diagnostic}
+		}
+	}
 	element := compilerTypes.Type{}
 	writable := false
 	if receiver.typ.InlineList != nil {

@@ -335,6 +335,12 @@ var methods = []MethodSpec{
 		// emitted.
 	},
 	{
+		Owner:         ConstructorOwner(TypeDict),
+		Name:          "clear",
+		RuntimeSymbol: "hex_dict_clear_%s",
+		Component:     ComponentDict,
+	},
+	{
 		Owner: ConstructorOwner(TypeDict),
 		Name:  "insert",
 		Parameters: []ParameterSpec{

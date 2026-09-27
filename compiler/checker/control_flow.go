@@ -426,6 +426,11 @@ func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDept
 	if diagnosticsFromSource := initializerDiagnostics(source); len(diagnosticsFromSource) > 0 {
 		return checked, append(diagnostics, diagnosticsFromSource...)
 	}
+	if source.typ.List != nil || source.typ.Dict != nil {
+		if diagnostic := checkFreedCollectionUse(source.source, statement.Keyword, ctx.names.flow); diagnostic != nil {
+			return checked, append(diagnostics, *diagnostic)
+		}
+	}
 
 	binderNames := make([]lexer.Token, len(statement.Binders))
 	for index, binder := range statement.Binders {

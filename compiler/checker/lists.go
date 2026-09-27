@@ -120,6 +120,17 @@ func checkListMethodCall(call methodCall) checkedExpression {
 		diagnostic := messageAt(call.callee.Property, diag.CollectionHasNoMethod(listType.Name, name))
 		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
+	if listType.List != nil {
+		var diagnostic *compilerTypes.Diagnostic
+		if name == "free" {
+			diagnostic = checkFreedCollectionFree(call.receiver.source, call.callee.Property, call.ctx.names.flow)
+		} else {
+			diagnostic = checkFreedCollectionUse(call.receiver.source, call.callee.Property, call.ctx.names.flow)
+		}
+		if diagnostic != nil {
+			return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
+		}
+	}
 	switch name {
 	case "length":
 		if len(call.call.Arguments) != 0 {
@@ -192,6 +203,7 @@ func checkListMethodCall(call methodCall) checkedExpression {
 		// deferred free releases at scope exit, outside local proof, so it
 		// takes the documented unknown-state envelope instead.
 		if call.ctx.names.flow != nil && call.ctx.names.cleanupDepth == 0 {
+			markFreedCollection(call.receiver.source, call.ctx.names.flow)
 			if binding := baseBindingID(&call.receiver.source.Node); binding != 0 {
 				call.ctx.names.flow.releaseSource(binding)
 			}

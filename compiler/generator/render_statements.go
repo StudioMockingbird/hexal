@@ -295,7 +295,7 @@ func validateCallStatement(statement checker.CallStatement, state *expressionVal
 
 func renderCallStatement(statement checker.CallStatement, state *expressionValidation) (string, error) {
 	if statement.Call.Kind == checker.ObjectOperand {
-		// Error.new(...) checks to an ObjectOperand rather than a Node-carrying
+		// Error(...) checks to an ObjectOperand rather than a Node-carrying
 		// ExpressionOperand; discarding it (like any other call result) is
 		// legal, but it has no Node for the switch below to dispatch on.
 		if statement.Call.Object == nil || !compilerTypes.Equal(statement.Call.Type, statement.Call.Object.Type) {

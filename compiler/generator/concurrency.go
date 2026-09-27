@@ -927,7 +927,7 @@ func renderTaskMethod(node checker.Expression, state *expressionValidation) (str
 	return "", unknownExpressionDiagnostic()
 }
 
-// renderChannelConstructor renders Channel<T>.new(heap, capacity) as its
+// renderChannelConstructor renders Channel<T>(heap, capacity) as its
 // Channel | Error union.
 func renderChannelConstructor(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.OperandType.Channel == nil || len(node.Arguments) != 2 {
@@ -1024,7 +1024,7 @@ func renderChannelMethod(node checker.Expression, state *expressionValidation) (
 	return "", unknownExpressionDiagnostic()
 }
 
-// renderMutexConstructor renders Mutex.new(heap) as its Mutex | Error union.
+// renderMutexConstructor renders Mutex(heap) as its Mutex | Error union.
 func renderMutexConstructor(node checker.Expression, state *expressionValidation) (string, error) {
 	if len(node.Arguments) != 1 {
 		return "", unknownExpressionDiagnostic()
@@ -1073,7 +1073,7 @@ func renderMutexMethod(node checker.Expression, state *expressionValidation) (st
 	return "", unknownExpressionDiagnostic()
 }
 
-// renderAtomicConstructor renders Atomic<T>.new(initial).
+// renderAtomicConstructor renders Atomic<T>(initial).
 func renderAtomicConstructor(node checker.Expression, state *expressionValidation) (string, error) {
 	if node.OperandType.Atomic == nil || len(node.Arguments) != 1 {
 		return "", unknownExpressionDiagnostic()

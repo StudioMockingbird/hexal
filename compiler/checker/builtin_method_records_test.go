@@ -109,7 +109,7 @@ func TestPerFamilyDispatchMatchesTheRegistry(t *testing.T) {
 		"InlineList":   {"length", "slice", "mut_slice", "push", "clear", "pop"},
 		"Slice":        {"length", "slice", "pointer"},
 		"List":         {"length", "slice", "mut_slice", "push", "clear", "pop", "free"},
-		"Dict":         {"length", "insert", "get", "find", "remove", "contains", "free"},
+		"Dict":         {"length", "clear", "insert", "get", "find", "remove", "contains", "free"},
 		"Task":         {"join", "detach"},
 		"Channel":      {"send", "receive", "close", "free", "length", "capacity", "is_closed"},
 		"Atomic":       {"load", "store", "exchange", "fetch_add", "fetch_sub", "compare_exchange"},

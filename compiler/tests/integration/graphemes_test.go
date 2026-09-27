@@ -28,7 +28,7 @@ func TestGraphemeCursor(t *testing.T) {
 	}
 	assertRejects(t, "fun demo() do\n    let text: String = \"abc\"\n    let mut c: GraphemeCursor = text.grapheme_cursor()\n    let g: Grapheme = c.next()\n    let x: Size = g.frob()\nend\n", "Grapheme has no method frob")
 	assertRejects(t, "fun demo() do\n    let text: String = \"abc\"\n    let c: GraphemeCursor = text.grapheme_cursor()\n    let g: Grapheme = c.next()\nend\n", "next mutates its cursor")
-	assertRejects(t, "fun demo(h: Heap) do\n    let d: Dict<Grapheme, Int32> = Dict<Grapheme, Int32>(h)\nend\n", "dictionary key type must be Int32 or String<N>")
+	assertRejects(t, "fun demo(h: Heap) do\n    let d: Dict<Grapheme, Int32> = Dict<Grapheme, Int32>(h)\nend\n", "dictionary key type must be Bool, an integer, Size, Rune, or String<N>")
 }
 
 // Every tier operation is available on both text forms: Tier 1 lengths, Tier 2

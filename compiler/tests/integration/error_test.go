@@ -306,7 +306,7 @@ func TestErrorFileRecordsLogicalSourceKey(t *testing.T) {
 		t.Fatalf("single-module literal pool must not intern main.hex:\n%s", pool)
 	}
 	if count := strings.Count(pool, "97, 112, 112, 46, 104, 101, 120"); count != 1 {
-		t.Fatalf("repeated Error.new must intern the file literal once; got %d app.hex literals", count)
+		t.Fatalf("repeated Error construction must intern the file literal once; got %d app.hex literals", count)
 	}
 
 	multi := compiler.Compile(map[string]string{

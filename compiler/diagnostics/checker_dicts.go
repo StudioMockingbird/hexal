@@ -12,7 +12,7 @@ func DictKeyStringNotAllowed() Message {
 }
 
 func DictKeyTypeInvalid() Message {
-	return message("type.dict-key-type-invalid", CategoryType, StageChecker, "dictionary key type must be Int32 or String<N>")
+	return message("type.dict-key-type-invalid", CategoryType, StageChecker, "dictionary key type must be Bool, an integer, Size, Rune, or String<N>")
 }
 
 func InvalidDictValueType(name string) Message {
@@ -24,7 +24,7 @@ func DictConstructorArgumentShape() Message {
 }
 
 func DictConstructorHeapType(actual string) Message {
-	return message("type.dict-constructor-heap-type", CategoryType, StageChecker, "Dict<K, V>.new requires a Heap; got "+actual)
+	return message("type.dict-constructor-heap-type", CategoryType, StageChecker, "Dict<K, V> requires a Heap; got "+actual)
 }
 
 func DictMethodArity(name string, expected, got int) Message {

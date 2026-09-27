@@ -548,16 +548,16 @@ func (environment *Environment) AtomicType(element Type) Type {
 	return typ
 }
 
-// IsDictKey reports whether typ may be a dictionary key: exactly Int32 or an
-// inline String<N> of any capacity. The heap String is not a key: a Dict stores
-// its keys, and a handle would leave the table pointing at bytes it does not
-// own.
+// IsDictKey reports whether typ is a supported scalar, inline-text key, or an
+// open key parameter that specialization will validate. Heap String is not a
+// key because a Dict does not own the bytes behind its handle.
 func IsDictKey(typ Type) bool {
-	return Equal(typ, Int32) || IsInlineString(typ)
+	return typ.Generic != nil || typ.ScalarKind == ScalarSignedInteger || typ.ScalarKind == ScalarUnsignedInteger ||
+		typ.ScalarKind == ScalarBool || IsSize(typ) || IsInlineString(typ)
 }
 
 // DictType constructs or retrieves the canonical Dict<K, V> type of one key
-// and one collection-element value. Only Int32 and String<N> keys are valid.
+// and one collection-element value. Keys must be scalar or inline text.
 func (environment *Environment) DictType(key, value Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, key, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||

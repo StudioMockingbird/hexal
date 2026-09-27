@@ -65,6 +65,7 @@ const dictMethodsProgram = "fun demo(h: Heap) do\n" +
 	"    let found: Int32 | Nil = scores.find(1)\n" +
 	"    let removed: Int32 = scores.remove(1)\n" +
 	"    let count: Size = scores.length()\n" +
+	"    scores.clear()\n" +
 	"    if found == nil then\n" +
 	"        let spare: Int32 = first + removed\n" +
 	"    end\n" +
@@ -225,6 +226,7 @@ var methodSources = map[string]string{
 	"Dict.find":                    dictMethodsProgram,
 	"Dict.remove":                  dictMethodsProgram,
 	"Dict.contains":                dictMethodsProgram,
+	"Dict.clear":                   dictMethodsProgram,
 	"Dict.free":                    dictMethodsProgram,
 	"Task.join":                    channelTaskProgram,
 	"Task.detach":                  taskDetachProgram,

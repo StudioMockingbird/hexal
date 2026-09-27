@@ -23,7 +23,6 @@ func TestCheckerRejectsStandaloneNilEverywhere(t *testing.T) {
 		"let bad: List<Nil, 4> = [nil, nil, nil, nil]",
 		"let bad: Slice<Nil> = Slice<Nil>.empty()",
 		"let bad: List<Nil> = List<Nil>(Heap())",
-		"let bad: Dict<Nil, Int32> = Dict<Nil, Int32>(Heap())",
 		"let bad: Dict<Int32, Nil> = Dict<Int32, Nil>(Heap())",
 		"let bad: Ptr<Nil> = alloc(Nil)",
 		"let bad: Ptr<mut Nil> = alloc(Nil)",
@@ -36,6 +35,7 @@ func TestCheckerRejectsStandaloneNilEverywhere(t *testing.T) {
 	} {
 		requireDiagnostic(t, source, want)
 	}
+	requireDiagnostic(t, "let bad: Dict<Nil, Int32> = Dict<Nil, Int32>(Heap())", "dictionary key type must be Bool, an integer, Size, Rune, or String<N>")
 }
 
 // Nil remains valid as a union member alongside scalar, pointer, handle, and

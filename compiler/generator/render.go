@@ -162,7 +162,7 @@ func renderOperandWithState(source checker.Operand, state *expressionValidation)
 		}
 		return renderExpressionExpectedWithState(source.Node, &source.Type, state)
 	case checker.ConstantOperand:
-		// An object constant (Error.new result wrapped by union injection)
+		// An object constant (Error value wrapped by union injection)
 		// renders its object value.
 		if source.Object != nil {
 			return objectLiteralWithState(source.Object, state)
@@ -178,7 +178,7 @@ func renderOperandWithState(source checker.Operand, state *expressionValidation)
 			return "((hex_eos){ 0 })", nil
 		}
 		// Heap is a value token: one default allocator, no runtime state to
-		// select, and no allocation performed by Heap.new() itself.
+		// select, and no allocation performed by Heap() itself.
 		if compilerTypes.IsHeap(source.Type) {
 			return "((hex_heap)0)", nil
 		}

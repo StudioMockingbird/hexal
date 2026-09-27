@@ -9,16 +9,13 @@ gets deleted.
 
 ## Open TODOs
 
-### Implementation-ready
-
-| Work | Spec | Effort | ROI |
-| --- | --- | --- | --- |
-
 ### Under review
 
 | Work | Spec | Effort | ROI |
 | --- | --- | --- | --- |
 | Select a layered compile-time and runtime memory-diagnostic strategy without adding ownership semantics | [0247](specs/0247-compile-time-and-runtime-memory-diagnostics.md) | High | High |
+| Audit Float edge semantics and decide whether classification, total ordering, or collection eligibility needs more surface | [0248](specs/0248-float-semantics-and-collection-eligibility.md) | Medium | Medium |
+| Add allocation-free lazy collection pipelines with `map`, `filter`, `collect`, and Dict key/value projections | [0249](specs/0249-lazy-traversal-pipelines.md) | High | High |
 
 ## Deferred ideas
 
@@ -35,6 +32,7 @@ A bug is real whether or not its owning spec is scheduled.
 | Bug | Owning spec | Effort | ROI |
 | --- | --- | --- | --- |
 | `try String<N>.interpolate(...)` fails at generation with `[Unknown Error] String<N>.interpolate expression reached generation without hoisting`; the same call as a plain `let x: String<N> \| Error = ...` assignment hoists and compiles. Fail-closed, no miscompile. | unassigned (needs a hoisting-order spec) | Medium | High |
+| The tagged fixture `fenced-pointer-arithmetic-runs` compiles but prints `5` instead of its asserted `131` result; the focused C23 rerun reproduces this independently of RFC 0223 changes. | [0156](specs/archived/0156-fenced-pointer-arithmetic.md) | Medium | High |
 
 ## Known coverage gaps
 

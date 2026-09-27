@@ -1074,6 +1074,11 @@ Heap.free<T>(pointer: Ptr<mut T>) -> no value
   analysis, or a pointer whose allocator or identity is unknown, is never rejected — a pointer
   arriving as a parameter, read from a member or collection, or copied from a foreign source is
   not classified, and leaks are not diagnosed. An undecided case is always accepted.
+- A direct local List or Dict binding is tracked by the same branch-local freed-state facts. A
+  second `free`, or any method, index, or iteration use through that binding after it is freed on
+  every path, is rejected. Deferred free does not mark the binding at registration; rebinding a
+  mutable local to a fresh List or Dict restores a live identity. Copied or escaped aliases remain
+  outside this local guarantee and can dangle.
 
 ### `Stash<T>` and `Pool<T>`
 
@@ -1246,25 +1251,33 @@ Dict<K,V>.find(key: K) -> V | Nil
 Dict<K,V>.contains(key: K) -> Bool
 Dict<K,V>.remove(key: K) -> V
 Dict<K,V>.length() -> Size
+Dict<K,V>.clear() -> no value
 Dict<K,V>.free(heap: Heap) -> no value
 ```
 
-- Open-addressing allocated dictionary. K is exactly Int32 or `String<N>` for any capacity; V
-  follows List eligibility. The heap `String` is not a key, because a Dict stores its keys and
-  `String` does not own its bytes (`dictionary key type String is not allowed: a Dict stores its
-  keys, and String does not own its bytes; use String<N>`); any other key type reports
-  `dictionary key type must be Int32 or String<N>`. Dicts keyed at different capacities are
-  different types, and a key of another capacity is converted by hand
-  (`dictionary key requires String<128>; got String<16>; use widen<128>()`). A literal key is
-  measured against the key capacity at compile time. Missing get/remove trap; find returns Nil for
-  a missing key; insert replaces.
+- Open-addressing allocated dictionary. K is exactly `Bool`, `Int8`, `Int16`, `Int32`, `Int64`,
+  `UInt8`, `UInt16`, `UInt32`, `UInt64`, `Size`, `Rune`, or `String<N>` for any capacity. `Byte`
+  is the same key type and identity as `UInt8`. Float types, EoS, standalone Nil, heap `String`,
+  pointers, aggregates, collections, allocators, function values, foreign records, and incomplete
+  types are not keys. V follows List eligibility. `String<N>` keys compare and hash exactly their
+  logical bytes; bytes after `byte_length` do not participate. Different capacities are different
+  key types; non-literal keys must have the exact Dict key type, while literals are contextual and
+  are measured against that type's capacity. Numeric widening does not make differently typed
+  keys interchangeable. An open generic key parameter is permitted in a generic body and must
+  resolve to an accepted key type at every concrete specialization. Missing get/remove trap; find
+  returns Nil for a missing key; insert replaces.
 - Keys and values copy shallowly. Reads/removal return aliases; replacement/free drop entries without
   freeing referents. Free releases only buckets/header. Overwriting the final reachable handle leaks
   its referent.
-- Hashing is internal and infallible for supported keys. Equal values hash equally; a text key
-  hashes and compares only its logical bytes (embedded NUL included, storage past `byte_length`
-  excluded), so equal bytes are one key at any capacity. Algorithm, seed, and iteration order are unstable
-  and unspecified; no source hash operation exists.
+- `clear()` deactivates every bucket, sets length to zero, retains the bucket pointer/capacity, and
+  increments the structural version even when already empty. It allocates nothing and never frees
+  keys, values, or referents. It invalidates an active traversal.
+- Hashing is internal, deterministic, infallible, and non-cryptographic. Bool maps to zero or one;
+  unsigned integers, Size, and Rune convert value-preservingly to `uint64_t`; signed integers
+  convert through the corresponding same-width unsigned type before widening. Scalar values pass
+  through one compiler-owned SplitMix64 finalizer. Inline text hashes only its logical bytes.
+  Equal keys hash equally; hash collisions are resolved by key equality. No source hash operation
+  exists, and iteration order remains unspecified.
 
 ## Text
 

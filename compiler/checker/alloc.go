@@ -279,6 +279,28 @@ func checkHandleNotDestroyed(receiver Operand, token lexer.Token, state *flowSta
 	return &diagnostic
 }
 
+func checkFreedCollectionUse(receiver Operand, token lexer.Token, state *flowState) *compilerTypes.Diagnostic {
+	if state == nil || receiver.Node.Kind != VariableExpression || receiver.Node.Binding == 0 || !state.freed(receiver.Node.Binding) {
+		return nil
+	}
+	diagnostic := useAfterFreeDiagnostic(token)
+	return &diagnostic
+}
+
+func checkFreedCollectionFree(receiver Operand, token lexer.Token, state *flowState) *compilerTypes.Diagnostic {
+	if state == nil || receiver.Node.Kind != VariableExpression || receiver.Node.Binding == 0 || !state.freed(receiver.Node.Binding) {
+		return nil
+	}
+	diagnostic := doubleFreeDiagnostic(token)
+	return &diagnostic
+}
+
+func markFreedCollection(receiver Operand, state *flowState) {
+	if state != nil && receiver.Node.Kind == VariableExpression && receiver.Node.Binding != 0 {
+		state.markFreed(receiver.Node.Binding)
+	}
+}
+
 // checkTrackedHeapFreeAlloc validates a deferred release against the
 // allocation captured at registration. The binding may since have been
 // rebound or dropped; only the identity matters. A second validation of the

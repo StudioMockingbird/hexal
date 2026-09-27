@@ -86,10 +86,8 @@ func TestListShallowCopySemantics(t *testing.T) {
 	for _, source := range []string{
 		"fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    let other: List<Int32> = values\nend",
 		"fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\nend",
-		"fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    values.free(h)\n    values.free(h)\nend",
 		"fun demo(h: Heap) do\n    List<Int32>(h)\nend",
 		"fun demo(h: Heap) do\n    let mut values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values = List<Int32>(h)\nend",
-		"fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    values.free(h)\n    values.push(1)\nend",
 		"fun demo(h: Heap, values: List<Int32>) do\n    values.free(h)\nend",
 		"fun make_values(h: Heap, values: List<Int32>): List<Int32> do\n    return values\nend",
 		"fun demo(h: Heap, release: Bool) do\n    let values: List<Int32> = List<Int32>(h)\n    if release then\n        values.free(h)\n    end\n    values.push(1)\nend",
@@ -97,6 +95,19 @@ func TestListShallowCopySemantics(t *testing.T) {
 		if result := compileSource(source); result.ExitCode != compiler.ExitSuccess {
 			t.Fatalf("Compile(%q) exit code = %d (%v), want 0", source, result.ExitCode, result.Stderr)
 		}
+	}
+}
+
+func TestFreedListBindingsRejectEveryMethodAndIteration(t *testing.T) {
+	for _, operation := range []string{"length()", "slice(0, 0)", "mut_slice(0, 0)", "push(1)", "clear()", "pop()", "free(h)"} {
+		source := "fun demo(h: Heap) do\n    let xs: List<Int32> = List<Int32>(h)\n    xs.free(h)\n    xs." + operation + "\nend"
+		if result := compileSource(source); result.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(result.Stderr, "\n"), "released on every path") {
+			t.Fatalf("Compile(%q) stderr = %#v, want use-after-free diagnostic", source, result.Stderr)
+		}
+	}
+	source := "fun demo(h: Heap) do\n    let xs: List<Int32> = List<Int32>(h)\n    xs.free(h)\n    for value: Int32 in xs do\n    end\nend"
+	if result := compileSource(source); result.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(result.Stderr, "\n"), "released on every path") {
+		t.Fatalf("Compile iteration stderr = %#v, want use-after-free diagnostic", result.Stderr)
 	}
 }
 

@@ -14,7 +14,7 @@ import (
 )
 
 func validateConstantOperand(source checker.Operand) error {
-	// Object constants (Error.new results wrapped by union injection)
+	// Object constants (Error values wrapped by union injection)
 	// validate their object value.
 	if source.Object != nil {
 		return validateObjectValue(source.Object, newExpressionValidation())
@@ -29,7 +29,7 @@ func validateConstantOperand(source checker.Operand) error {
 	if compilerTypes.IsEoS(source.Type) {
 		return nil
 	}
-	// Heap is a singleton handle: Heap.new() carries no go/constant.
+	// Heap is a singleton handle: Heap() carries no go/constant.
 	if compilerTypes.IsHeap(source.Type) {
 		return nil
 	}

@@ -113,6 +113,26 @@ func TestStorablePositionSets(t *testing.T) {
 	}
 }
 
+func TestDictKeyEligibility(t *testing.T) {
+	environment := NewEnvironment()
+	inline := environment.InlineStringType(8)
+	generic := environment.DeclareGeneric("Lookup", 1, []string{"K"})
+	keyParameter := environment.TypeParameter(generic, 0)
+	list := environment.ListType(Int32)
+	dict := environment.DictType(Int32, Int32)
+	pointer := environment.PtrType(Int32)
+	for _, typ := range []Type{Bool, Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64, SizeType, Rune, inline, keyParameter} {
+		if !IsDictKey(typ) {
+			t.Errorf("IsDictKey(%s) = false, want true", typ.Name)
+		}
+	}
+	for _, typ := range []Type{Float32, Float64, EoS, Nil, StringType, Unknown, list, dict, pointer} {
+		if IsDictKey(typ) {
+			t.Errorf("IsDictKey(%s) = true, want false", typ.Name)
+		}
+	}
+}
+
 // TestPointerPointeeExclusion pins the types whose own aliasing and
 // invalidation rules exclude them as pointer pointees, and proves the exclusion
 // is not a general handle rule: the shared handle types stay valid pointees.

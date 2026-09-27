@@ -106,7 +106,7 @@ var (
 	// MutexType is the scheduler-aware mutual-exclusion handle. It is a
 	// heap-backed, pointer-sized reference-like value with one canonical
 	// identity, like String; its control block lives on the Heap passed to
-	// Mutex.new.
+	// Mutex(...).
 	MutexType = Type{
 		Name:         "Mutex",
 		CName:        "hex_mutex",

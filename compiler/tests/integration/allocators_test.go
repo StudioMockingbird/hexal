@@ -159,13 +159,13 @@ func TestStashPoolRejections(t *testing.T) {
 			"released on every path",
 		},
 		{
-			"List.new rejects a Stash allocator",
+			"List constructor rejects a Stash allocator",
 			"type Node is struct value: Int32 end\n" +
 				"fun demo() do\n" +
 				"    let stash = Stash<Node>()\n" +
 				"    let list = List<Node>(stash)\n" +
 				"end",
-			"List<T>.new requires a Heap",
+			"List<T> requires a Heap",
 		},
 		{
 			"Stash free of a Heap allocation still rejected first",
@@ -179,6 +179,22 @@ func TestStashPoolRejections(t *testing.T) {
 		},
 	}
 	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertRejects(t, testCase.source, testCase.want)
+		})
+	}
+}
+
+func TestBuiltinConstructorDiagnosticsUseCurrentTypeCalls(t *testing.T) {
+	for _, testCase := range []struct {
+		name, source, want string
+	}{
+		{"Dict", "fun demo() do\n    let bad: Dict<Int32, Int32> = Dict<Int32, Int32>(1)\nend", "type.dict-constructor-heap-type] Dict<K, V> requires a Heap"},
+		{"List", "fun demo() do\n    let bad: List<Int32> = List<Int32>(1)\nend", "type.list-constructor-heap-type] List<T> requires a Heap"},
+		{"Channel", "fun demo() do\n    let bad: Channel<Int32> = Channel<Int32>(1, 1)\nend", "type.channel-requires-heap] Channel requires a Heap"},
+		{"Mutex", "fun demo() do\n    let bad: Mutex = Mutex(1)\nend", "type.mutex-requires-heap] Mutex requires a Heap"},
+		{"Atomic", "fun demo() do\n    let bad: Atomic<Int32> = Atomic<Int32>(true)\nend", "type.atomic-initializer-type] Atomic requires Int32; got Bool"},
+	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			assertRejects(t, testCase.source, testCase.want)
 		})

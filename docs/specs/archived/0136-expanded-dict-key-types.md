@@ -1,7 +1,7 @@
 # RFC 0136: Expanded Dict Key Types
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion; not scheduled. Design state: Draft; design decisions required
+- Status: Superseded by RFC 0223; never implemented
 - Created: 2026-08-27
 - Origin: RFC 0103 finding F4
 - Coordinates with: RFC 0117 (compile-time evaluation), `docs/reference.md`

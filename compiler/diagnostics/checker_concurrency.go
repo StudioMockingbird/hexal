@@ -57,7 +57,7 @@ func ChannelConstructorUsage() Message {
 	return message("type.channel-constructor-usage", CategoryType, StageChecker, "Channel requires 2 arguments (heap, capacity); use Channel<T>(heap, capacity)")
 }
 func ChannelRequiresHeap(actual string) Message {
-	return message("type.channel-requires-heap", CategoryType, StageChecker, "Channel.new requires a Heap allocator; got "+actual)
+	return message("type.channel-requires-heap", CategoryType, StageChecker, "Channel requires a Heap allocator; got "+actual)
 }
 func ChannelCapacityMustBeSize() Message {
 	return message("type.channel-capacity-not-size", CategoryType, StageChecker, "Channel capacity must be a Size")
@@ -81,7 +81,7 @@ func MutexConstructorUsage() Message {
 	return message("type.mutex-constructor-usage", CategoryType, StageChecker, "Mutex requires 1 argument (heap); use Mutex(heap)")
 }
 func MutexRequiresHeap(actual string) Message {
-	return message("type.mutex-requires-heap", CategoryType, StageChecker, "Mutex.new requires a Heap allocator; got "+actual)
+	return message("type.mutex-requires-heap", CategoryType, StageChecker, "Mutex requires a Heap allocator; got "+actual)
 }
 func UnknownMutexMethod(name string) Message {
 	return message("type.unknown-mutex-method", CategoryType, StageChecker, "Mutex has no method "+name+"; use lock, unlock, or free")
@@ -90,7 +90,7 @@ func AtomicConstructorUsage() Message {
 	return message("type.atomic-constructor-usage", CategoryType, StageChecker, "Atomic requires 1 argument (initial); use Atomic<T>(initial)")
 }
 func AtomicInitializerType(expected, actual string) Message {
-	return message("type.atomic-initializer-type", CategoryType, StageChecker, fmt.Sprintf("Atomic.new requires %s; got %s", expected, actual))
+	return message("type.atomic-initializer-type", CategoryType, StageChecker, fmt.Sprintf("Atomic requires %s; got %s", expected, actual))
 }
 func AtomicMethodMissing(owner, name string) Message {
 	return message("type.atomic-method-missing", CategoryType, StageChecker, fmt.Sprintf("%s has no method named %s", owner, name))

@@ -129,6 +129,30 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
+		name:       "dict-scalar-keys-and-clear-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
+			"    let flags: Dict<Bool, Int32> = Dict<Bool, Int32>(h)\n    defer flags.free(h)\n" +
+			"    let wide: Dict<UInt64, Int32> = Dict<UInt64, Int32>(h)\n    defer wide.free(h)\n" +
+			"    let runes: Dict<Rune, Int32> = Dict<Rune, Int32>(h)\n    defer runes.free(h)\n" +
+			"    let sizes: Dict<Size, Int32> = Dict<Size, Int32>(h)\n    defer sizes.free(h)\n" +
+			"    let labels: Dict<String<16>, Int32> = Dict<String<16>, Int32>(h)\n    defer labels.free(h)\n" +
+			"    flags.insert(true, 1)\n    wide.insert(184467, 2)\n    runes.insert('A', 3)\n    sizes.insert(4, 4)\n    labels.insert(\"key\", 5)\n" +
+			"    let found: Bool = (flags.get(true) == 1) and (wide.get(184467) == 2) and (runes.get('A') == 3) and (sizes.get(4) == 4) and (labels.get(\"key\") == 5)\n" +
+			"    labels.clear()\n    let empty: Bool = labels.length() == 0\n    labels.clear()\n    labels.insert(\"again\", 6)\n" +
+			"    return found and empty and (labels.get(\"again\") == 6)\nend\nprint(demo(Heap()))\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "dict-clear-during-iteration-traps",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type Holder is struct scores: Dict<Int32, Int32> end\n" +
+			"fun clear_scores(h: Ptr<mut Holder>) do\n    h.scores.clear()\nend\n" +
+			"fun demo(heap: Heap) do\n    let mut holder: Holder = Holder(scores = Dict<Int32, Int32>(heap))\n    defer holder.scores.free(heap)\n" +
+			"    holder.scores.insert(1, 10)\n    holder.scores.insert(2, 20)\n    for key, value in holder.scores do\n        clear_scores(@holder)\n    end\nend\ndemo(Heap())\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] collection modified during iteration"},
+	},
+	{
 		// Cross-module generics: an exported generic function specialized
 		// through an import alias, a generic method on that specialization,
 		// and an importer-owned nominal argument type (Point, declared only

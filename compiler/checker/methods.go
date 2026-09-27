@@ -530,10 +530,9 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		(callee.Property.Lexeme == "from_le_bytes" || callee.Property.Lexeme == "from_be_bytes") {
 		return checkEndianFromBytesCall(call, variable.Name, ctx)
 	}
-	// Heap.new, List.new, and every other removed compiler-owned `.new()`
-	// spelling reach here once ordinary property/method resolution fails
-	// below; checkCall's bare-call dispatch handles the current Type(...)
-	// construction spelling before a call ever reaches checkMethodCall.
+	// Protected type members named `new` are rejected here after ordinary
+	// method resolution fails; canonical constructors are handled by bare-call
+	// dispatch before a call reaches checkMethodCall.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && callee.Property.Lexeme == "new" && compilerTypes.IsProtectedTypeName(variable.Name.Lexeme) {
 		diagnostic := messageAt(callee.Property, diagnosticsPkg.CanonicalConstructorCall(variable.Name.Lexeme))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}

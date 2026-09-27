@@ -413,7 +413,7 @@ func hoistSequencingInExpression(node *checker.Expression, body *strings.Builder
 		// Every time operand, receiver included, lands in one C expression.
 		return hoistOperandSequence(node.Arguments, body, state, indent)
 	case checker.ChannelConstructorExpression:
-		// Channel<T>.new(heap, capacity) has no receiver; renderChannelConstructor
+		// Channel<T>(heap, capacity) has no receiver; renderChannelConstructor
 		// was verified and updated to consult hoistedSequencing for both arguments.
 		return hoistOperandSequence(node.Arguments, body, state, indent)
 	case checker.InlineListLiteralExpression:

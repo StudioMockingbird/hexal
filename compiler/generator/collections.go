@@ -175,7 +175,7 @@ func validateCollectionExpression(node checker.Expression, expected *compilerTyp
 				return err
 			}
 		case "clear":
-			if node.OperandType.List == nil && node.OperandType.InlineList == nil || len(node.Arguments) != 0 || node.ResultType != (compilerTypes.Type{}) {
+			if node.OperandType.List == nil && node.OperandType.InlineList == nil && node.OperandType.Dict == nil || len(node.Arguments) != 0 || node.ResultType != (compilerTypes.Type{}) {
 				return unknownExpressionDiagnostic()
 			}
 		case "pop":
@@ -371,6 +371,20 @@ func renderCollectionExpression(node checker.Expression, state *expressionValida
 			}
 			return "(" + receiver + ").length", nil
 		case "push", "clear", "pop":
+			if node.Name == "clear" && node.OperandType.Dict != nil {
+				if node.Operand == nil || len(node.Arguments) != 0 {
+					return "", unknownExpressionDiagnostic()
+				}
+				receiver, receiverErr := renderReceiver(node.Operand, node.OperandType, state)
+				if receiverErr != nil {
+					return "", receiverErr
+				}
+				symbol, symbolErr := builtinMethodCallSymbol(specdata.ConstructorOwner(specdata.TypeDict), "clear", dictSuffix(node.OperandType))
+				if symbolErr != nil {
+					return "", symbolErr
+				}
+				return symbol + "(" + receiver + ")", nil
+			}
 			if node.Operand == nil || node.OperandType.List == nil && node.OperandType.InlineList == nil {
 				return "", unknownExpressionDiagnostic()
 			}
