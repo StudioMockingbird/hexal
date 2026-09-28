@@ -47,6 +47,26 @@ func IterationMutation(kind IterationMutationKind) Message {
 	return message("type.iteration-mutation", CategoryType, StageChecker, text)
 }
 
+func LazyPipelineMustBeConsumed() Message {
+	return message("type.lazy-pipeline-must-be-consumed", CategoryType, StageChecker,
+		"lazy pipeline must end in to_list(heap), reduce(initial, combine), or direct for iteration")
+}
+
+func LazyPipelineCallbackSignature() Message {
+	return message("type.lazy-pipeline-callback-signature", CategoryType, StageChecker,
+		"pipeline callback must be a concrete non-rest Fun value")
+}
+
+func LazyPipelineForBinderCount() Message {
+	return message("type.lazy-pipeline-for-binder-count", CategoryType, StageChecker,
+		"pipeline iteration requires exactly one binder")
+}
+
+func LazyPipelineTerminalPosition() Message {
+	return message("type.lazy-pipeline-terminal-position", CategoryType, StageChecker,
+		"pipeline terminal must be a complete binding initializer, assignment source, or return expression")
+}
+
 func ReturnOutsideFunctionContext() Message {
 	return message("type.return-outside-function-context", CategoryType, StageChecker, "return is valid only in the entry module or a function body")
 }

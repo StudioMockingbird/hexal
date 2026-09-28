@@ -180,8 +180,17 @@ func walkStatementExpressions(statement checker.Statement, visit func(checker.Ex
 	}
 	switch statement := statement.(type) {
 	case checker.Declaration:
+		if statement.Pipeline != nil {
+			return walkStatementPipelineTerminal(statement.Pipeline, visit)
+		}
 		return walkStatementOperand(statement.Source, visit)
 	case checker.Assignment:
+		if statement.Pipeline != nil {
+			if err := walkStatementPipelineTerminal(statement.Pipeline, visit); err != nil {
+				return err
+			}
+			return walkStatementOperand(statement.Target, visit)
+		}
 		if err := walkStatementOperand(statement.Source, visit); err != nil {
 			return err
 		}
@@ -191,10 +200,16 @@ func walkStatementExpressions(statement checker.Statement, visit func(checker.Ex
 	case checker.TryStatement:
 		return walkStatementOperand(statement.Expression, visit)
 	case checker.ReturnStatement:
+		if statement.Pipeline != nil {
+			return walkStatementPipelineTerminal(statement.Pipeline, visit)
+		}
 		if statement.Value != nil {
 			return walkStatementOperand(*statement.Value, visit)
 		}
 	case checker.RootReturnStatement:
+		if statement.Pipeline != nil {
+			return walkStatementPipelineTerminal(statement.Pipeline, visit)
+		}
 		if statement.Value != nil {
 			return walkStatementOperand(*statement.Value, visit)
 		}
@@ -212,6 +227,17 @@ func walkStatementExpressions(statement checker.Statement, visit func(checker.Ex
 			}
 		}
 	case checker.ForStatement:
+		if statement.Pipeline != nil {
+			if err := walkStatementOperand(statement.Pipeline.Source, visit); err != nil {
+				return err
+			}
+			for _, adaptor := range statement.Pipeline.Adaptors {
+				if err := walkStatementOperand(adaptor.Callback, visit); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
 		return walkStatementOperand(statement.Source, visit)
 	case checker.WhileStatement:
 		return walkStatementOperand(statement.Condition, visit)
@@ -226,6 +252,28 @@ func walkStatementExpressions(statement checker.Statement, visit func(checker.Ex
 		// contract break; the typed diagnostic keeps its [Unknown Error]
 		// category intact through Stderr rendering.
 		return generatorDiagnostic()
+	}
+	return nil
+}
+
+func walkStatementPipelineTerminal(terminal *checker.PipelineTerminal, visit func(checker.Expression) error) error {
+	if terminal == nil || terminal.Pipeline == nil {
+		return generatorDiagnostic()
+	}
+	if err := walkStatementOperand(terminal.Pipeline.Source, visit); err != nil {
+		return err
+	}
+	for _, adaptor := range terminal.Pipeline.Adaptors {
+		if err := walkStatementOperand(adaptor.Callback, visit); err != nil {
+			return err
+		}
+	}
+	for _, operand := range []*checker.Operand{terminal.Heap, terminal.Initial, terminal.Combiner} {
+		if operand != nil {
+			if err := walkStatementOperand(*operand, visit); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -499,6 +547,37 @@ func (state *walkState) walkExpression(node checker.Expression) error {
 	return nil
 }
 
+func (state *walkState) walkPipelineTerminal(terminal *checker.PipelineTerminal) error {
+	if terminal == nil || terminal.Pipeline == nil {
+		return generatorDiagnostic()
+	}
+	if err := state.walkOperand(terminal.Pipeline.Source); err != nil {
+		return err
+	}
+	if err := state.walkType(terminal.Result); err != nil {
+		return err
+	}
+	for _, adaptor := range terminal.Pipeline.Adaptors {
+		if err := state.walkType(adaptor.Input); err != nil {
+			return err
+		}
+		if err := state.walkType(adaptor.Output); err != nil {
+			return err
+		}
+		if err := state.walkOperand(adaptor.Callback); err != nil {
+			return err
+		}
+	}
+	for _, operand := range []*checker.Operand{terminal.Heap, terminal.Initial, terminal.Combiner} {
+		if operand != nil {
+			if err := state.walkOperand(*operand); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (state *walkState) walkOperand(source checker.Operand) error {
 	if err := state.walkType(source.Type); err != nil {
 		return err
@@ -563,11 +642,19 @@ func (state *walkState) walkStatements(statements []checker.Statement) error {
 			if err := state.walkType(statement.Type); err != nil {
 				return err
 			}
-			if err := state.walkOperand(statement.Source); err != nil {
+			if statement.Pipeline != nil {
+				if err := state.walkPipelineTerminal(statement.Pipeline); err != nil {
+					return err
+				}
+			} else if err := state.walkOperand(statement.Source); err != nil {
 				return err
 			}
 		case checker.Assignment:
-			if err := state.walkOperand(statement.Source); err != nil {
+			if statement.Pipeline != nil {
+				if err := state.walkPipelineTerminal(statement.Pipeline); err != nil {
+					return err
+				}
+			} else if err := state.walkOperand(statement.Source); err != nil {
 				return err
 			}
 			if err := state.walkOperand(statement.Target); err != nil {
@@ -578,13 +665,21 @@ func (state *walkState) walkStatements(statements []checker.Statement) error {
 				return err
 			}
 		case checker.ReturnStatement:
-			if statement.Value != nil {
+			if statement.Pipeline != nil {
+				if err := state.walkPipelineTerminal(statement.Pipeline); err != nil {
+					return err
+				}
+			} else if statement.Value != nil {
 				if err := state.walkOperand(*statement.Value); err != nil {
 					return err
 				}
 			}
 		case checker.RootReturnStatement:
-			if statement.Value != nil {
+			if statement.Pipeline != nil {
+				if err := state.walkPipelineTerminal(statement.Pipeline); err != nil {
+					return err
+				}
+			} else if statement.Value != nil {
 				if err := state.walkOperand(*statement.Value); err != nil {
 					return err
 				}
@@ -624,8 +719,31 @@ func (state *walkState) walkStatements(statements []checker.Statement) error {
 				}
 			}
 		case checker.ForStatement:
-			if err := state.walkOperand(statement.Source); err != nil {
+			source := statement.Source
+			if statement.Pipeline != nil {
+				source = statement.Pipeline.Source
+			}
+			if err := state.walkOperand(source); err != nil {
 				return err
+			}
+			if statement.Pipeline != nil {
+				if err := state.walkType(statement.Pipeline.SourceElement); err != nil {
+					return err
+				}
+				if err := state.walkType(statement.Pipeline.Element); err != nil {
+					return err
+				}
+				for _, adaptor := range statement.Pipeline.Adaptors {
+					if err := state.walkType(adaptor.Input); err != nil {
+						return err
+					}
+					if err := state.walkType(adaptor.Output); err != nil {
+						return err
+					}
+					if err := state.walkOperand(adaptor.Callback); err != nil {
+						return err
+					}
+				}
 			}
 			if err := state.walkStatements(statement.Body); err != nil {
 				return err

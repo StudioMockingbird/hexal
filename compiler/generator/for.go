@@ -18,6 +18,9 @@ import (
 // pre-increment their produced-entry ordinal before the body, so a body
 // `continue` never skips the increment.
 func renderForStatement(body *strings.Builder, statement checker.ForStatement, state *expressionValidation, result *compilerTypes.Type, inFunction bool, indent string) error {
+	if statement.Pipeline != nil {
+		return renderPipelineForStatement(body, statement, state, result, inFunction, indent)
+	}
 	sourceType := statement.Source.Type
 	if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 		return err

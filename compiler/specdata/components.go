@@ -40,6 +40,7 @@ const (
 	ComponentNumeric     ComponentID = "numeric"
 	ComponentPrint       ComponentID = "print"
 	ComponentEquality    ComponentID = "equality"
+	ComponentTypes       ComponentID = "types"
 	ComponentIO          ComponentID = "io"
 	ComponentConcurrency ComponentID = "concurrency"
 	ComponentEvent       ComponentID = "event"
@@ -218,6 +219,10 @@ var componentRegistry = []ComponentSpec{
 		ConditionalHeaders: []ConditionalHeaders{
 			{Condition: HeaderConditionEqualityAborting, Headers: []string{"stdlib.h"}},
 		},
+	},
+	{
+		ID:    ComponentTypes,
+		Files: []string{"hexal/types.h"},
 	},
 	{
 		ID:               ComponentIO,

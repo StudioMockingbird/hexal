@@ -915,7 +915,7 @@ Every other source/arity combination is invalid.
 - Mutation through any alias observes and updates the same version because copied handles refer to the same collection state.
 - A List traversal checks its version immediately before each iteration body and after each body through the loop update, including a final body or `continue`. A structural change traps with `[Runtime Error] collection modified during iteration`; element replacement is allowed. The checker does not elide either check.
 - The version is a monotonic `Size` (`size_t`) counter incremented on every structural change; it wraps modulo `2^N` and a wrapped version that coincides with a live traversal's captured token is an accepted false negative.
-- Freeing the traversed List or Dict, or an alias that refers to it, is always rejected while the traversal is active. Passing the traversed collection or an alias to an unproven call is rejected; the checker must not rely on a post-call version check after a possible free.
+- Freeing the traversed List or Dict, or an alias that refers to it, is always rejected while the traversal is active. Passing the traversed collection or an alias to an unproven call is rejected; the checker must not rely on a post-call version check after a possible free. A direct function or method call is also rejected when its transitive entry-environment capture set contains the active collection root; this conservative rule applies even when the helper only reads the collection.
 - A mutation after `break` or after the traversal's scope exits is valid when no separate lifetime rule rejects it. Nested traversals capture independent versions. Inline and allocated List element replacement remains valid.
 
 ## Errors
@@ -1278,6 +1278,60 @@ Dict<K,V>.free(heap: Heap) -> no value
   through one compiler-owned SplitMix64 finalizer. Inline text hashes only its logical bytes.
   Equal keys hash equally; hash collisions are resolved by key equality. No source hash operation
   exists, and iteration order remains unspecified.
+
+### Lazy collection pipelines
+
+```text
+List<T>.map(transform: Fun<(T): R>) -> lazy pipeline<R>
+List<T>.filter(predicate: Fun<(T): Bool>) -> lazy pipeline<T>
+List<T, N>.map/filter(...) -> corresponding lazy pipeline
+Slice<T>.map/filter(...) -> corresponding lazy pipeline
+Slice<mut T>.map/filter(...) -> corresponding lazy pipeline<T>
+Dict<K,V>.keys() -> lazy pipeline<K>
+Dict<K,V>.values() -> lazy pipeline<V>
+Dict<K,V>.entries() -> lazy pipeline<DictEntry<K,V>>
+pipeline<T>.map(transform: Fun<(T): R>) -> lazy pipeline<R>
+pipeline<T>.filter(predicate: Fun<(T): Bool>) -> lazy pipeline<T>
+pipeline<T>.to_list(heap: Heap) -> List<T>
+pipeline<T>.reduce(initial: R, combine: Fun<(R,T): R>) -> R
+Slice<T>.to_list(heap: Heap) -> List<T>
+Slice<mut T>.to_list(heap: Heap) -> List<T>
+Dict<K,V>.to_list(heap: Heap) -> List<K | V>
+```
+
+- A lazy pipeline is checker-only metadata, not a source-spellable type or runtime value. It is
+  consumed only by another `map`/`filter`, `to_list(heap)`, `reduce(initial, combine)`, or direct
+  `for value in pipeline` iteration. Pipeline `for` has exactly one immutable binder and exposes no
+  index. An unconsumed pipeline is invalid in every ordinary value position.
+- A callback is a concrete, non-rest `Fun` value with exactly the listed parameter types. `filter`
+  requires exact `Bool`; `map` requires a result. Methods, closures, entry-environment functions,
+  unresolved generic functions, nullable functions, and union-held functions are not callbacks.
+  Narrow or specialize to one exact `Fun` value first. `filter` preserves the current element type
+  and performs no type refinement. Adaptors execute in written order; a rejected element skips all
+  later adaptors and terminal actions for that element.
+- The source is evaluated once, followed by callback expressions once from left to right, then
+  terminal arguments once from left to right. Traversal follows List logical order, Slice index
+  order, or active Dict buckets in unspecified order. Each active Dict entry is copied as one
+  independent `DictEntry<K,V>` with fixed `key` and `value` fields; bucket state is not exposed.
+  `DictEntry<K,V>` requires exactly two type arguments, is compiler-owned and non-constructible,
+  follows ordinary aggregate equality/printing eligibility, and is not a Dict key type.
+- A pipeline and its adaptors allocate and retain no iterator state. Direct pipeline `for` is one
+  fused traversal. `to_list(heap)` is the sole allocation boundary and uses ordinary List creation,
+  growth, and shallow element copies. `Slice<mut T>` callbacks receive immutable shallow copies.
+  `reduce` initializes from its explicit initial value, returns that value for an empty source, and
+  applies its combiner once per surviving element; Error values remain ordinary data.
+- Slice materialization copies each element into a new allocated List. Dict materialization pushes
+  each active key then its value into `List<K | V>`; if K and V are identical, it returns `List<K>`
+  and pushes both directly. `entries().to_list(heap)` instead returns `List<DictEntry<K,V>>` and
+  preserves each pair.
+- `to_list` and `reduce` are valid only as a complete binding initializer, assignment source, or
+  return expression. They are rejected when nested inside another expression. Direct pipeline
+  iteration inherits ordinary loop control flow, structural-version checks, and source-root
+  mutation checks. Direct calls to entry-environment functions or methods whose transitive capture
+  set contains the active source root are rejected conservatively, including read-only captures.
+- The compiler emits one fused C loop and no runtime iterator or intermediate collection. Callback
+  calls use ordinary `Fun` lowering; callback-owned effects or allocations remain callback
+  behavior, not pipeline machinery.
 
 ## Text
 

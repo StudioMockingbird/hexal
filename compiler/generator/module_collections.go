@@ -22,6 +22,14 @@ import (
 // Task, Channel, and Atomic handles are opaque component-wide typedefs, so
 // their payloads never appear in a collection body and do not count.
 func typeIsModuleEmitted(typ compilerTypes.Type) bool {
+	if compilerTypes.IsDictEntry(typ) {
+		for _, member := range typ.Object.Members {
+			if typeIsModuleEmitted(member.Type) {
+				return true
+			}
+		}
+		return false
+	}
 	if typ.Object != nil {
 		return typ.Object.ModuleID != ""
 	}

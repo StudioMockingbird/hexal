@@ -1,19 +1,17 @@
 # RFC 0233: JSON Support via yyjson
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation ready. The release is pinned at **yyjson 0.13.0**, the
-  dependency boundary matches the shipped runtime-pack contract, the value
-  model and language surface are settled, and the Validation section is
-  exhaustive. Implementation has not started. Everything upstream-facing —
-  source layout, API signatures, flag defaults, digests — is produced by
-  Phase 0 and listed under Open implementation inputs
+- Status: Open Discussion; implementation not started. The yyjson release and
+  private dependency boundary, number handling, cleanup, printing, and depth
+  policy are settled. Object representation remains the one explicit design
+  decision below; Validation is not exhaustive until it is closed
 - Created: 2026-09-22
-- Updated: 2026-09-22
+- Updated: 2026-09-28
 - Origin: requested language-level JSON support by integrating yyjson 0.13.0
 - Depends on: RFC 0052 (C backend), RFC 0055 (build and runtime-pack inputs),
   the current target-profile matrix, and the current String, List, Dict, Heap,
   and Error contracts in `docs/reference.md`
-- Coordinates with: RFC 0223 (Dict correctness), RFC 0225 (cross-allocator
+- Coordinates with: the implemented Dict contract, RFC 0225 (cross-allocator
   release rejection), RFC 0227 (utf8proc, the sibling vendored dependency this
   RFC mirrors in layout and boundary), and RFC 0231 (unified C emission; the
   new component templates join its mechanism)
@@ -43,19 +41,23 @@ private adapter that is the only code including `yyjson.h` or naming a
 yyjson type, flag, enum, or error code appears in Hexal or in any public
 generated header.
 
-Parsing is strict RFC 8259 with no extensions. yyjson runs entirely on the
+Parsing accepts RFC 8259 JSON plus JSONC's two deliberate extensions: C-style
+line/block comments and one trailing comma in an object or array. It accepts no
+other JSON5 or yyjson extension. yyjson runs entirely on the
 caller's Heap through one custom allocator, so no C `malloc` participates and
 the cross-allocator hazard RFC 0225 exists to reject cannot arise. Every
-failure reports as a Hexal-owned `Error` with a fixed, allocation-free
-message; yyjson's codes, English strings, line, and position never cross the
-boundary.
+failure reports as a Hexal-owned `Error` built from yyjson's complete read
+error record: code, English detail, and byte position. Hexal computes the
+one-based line and byte column from that position and owns the resulting
+message; no pointer into yyjson storage crosses the boundary.
 
 ## Why this dependency
 
 Correct JSON is not a weekend parser. It requires, together:
 
-- the complete RFC 8259 grammar with its rejection set (comments, trailing
-  commas, single quotes, unquoted keys, `NaN`/`Infinity`, trailing content);
+- the complete RFC 8259 grammar plus the deliberately accepted JSONC comment
+  and trailing-comma forms, while still rejecting single quotes, unquoted keys,
+  `NaN`/`Infinity`, and trailing content;
 - string escape decoding including UTF-16 surrogate pairs to UTF-8;
 - number parsing to exact 64-bit integers and shortest-round-trip `double`
   formatting on output;
@@ -87,29 +89,44 @@ The archive and header are checked against the release before check-in, and
 the MIT license text ships beside them. A later yyjson upgrade is a
 runtime-pack identity change even when the Hexal surface is unchanged.
 
-The archive is built with the pack's existing build identity (Clang 23.1.1,
-`-O2 -DNDEBUG -fPIC -pthread`, target-portable x86-64, no `-march=native`,
-C dialect C11), plus exactly one compile definition:
+Review claims that release 0.13.0 or
+`YYJSON_DISABLE_UTF8_VALIDATION` did not exist were rechecked and excluded:
+the official release is dated 2026-09-08, and the 0.13.0 `yyjson.h` defines
+that option together with the other compile-time switches named below. RFC
+0223 is already implemented and archived, so it is not a prerequisite for
+this work.
+
+The archive is built separately for each pack with that pack's recorded build
+identity from `lib/BUILD.md`; there is no one host-shaped command copied across
+targets. The Linux archive uses the Linux target, PIC, and its recorded Clang
+and archiver. The Windows archive uses the MinGW target and its recorded Clang
+and LLVM archiver. Both builds add these definitions:
 
 ```text
 -DYYJSON_DISABLE_FILE=1
+-DYYJSON_DISABLE_INCR_READER=1
+-DYYJSON_DISABLE_UTILS=1
 ```
 
-`YYJSON_DISABLE_FILE` is a 0.13.0 compile-time option that removes yyjson's
-`FILE*`/path read and write APIs. Hexal owns file IO through `std/fs`; that
-surface is unreachable from `Value` and only widens the archive and the
-`stdio.h` dependency, so it is compiled out. No other option is set:
+These are yyjson 0.13.0 compile-time options. Hexal owns file IO, exposes no
+incremental reader in this RFC, and exposes no yyjson utility API. Non-standard
+reader support remains compiled in because JSONC needs comments and trailing
+commas. No other compile-time option is set:
 
 ```text
 YYJSON_FREESTANDING   unset; the adapter uses libc-backed formatting
 YYJSON_DISABLE_UTF8_VALIDATION
-                      unset; input validation stays on as defense in depth,
-                      including over yyjson's own escape-decoding output
-read/write flags      defaults only; the strict sets, no JSON5/extension flag
+                      unset (therefore 0); input validation stays on as
+                      defense in depth, including over escape-decoding output
+read flags            YYJSON_READ_ALLOW_COMMENTS |
+                      YYJSON_READ_ALLOW_TRAILING_COMMAS
+write flags           defaults only; compact RFC 8259 output
 ```
 
-Whether the default flag set rejects every rejected input this RFC names is a
-Phase 0 verification item, not an assumption.
+Both reader and writer depth macros are set from the compiler-owned JSON depth
+configuration, default 256. Whether this exact flag set accepts the JSONC cases
+and rejects every other extension named by this RFC is a Phase 0 verification
+item, not an assumption.
 
 ## Runtime-pack layout
 
@@ -148,15 +165,13 @@ the directory name (`yyjson_v0.13.0`), exactly as `mimalloc_v3.5.1` and
 `utf8proc_v2.11.3` do, and the source commit, compile command, size, and
 SHA-256 are recorded in `lib/BUILD.md` beside its other build facts.
 
-**The closed dependency list grows atomically with the packs.**
-`validateRuntimeManifest` (`internal/driver/runpack.go`) enforces the ordered
-list `libuv, mimalloc, utf8proc` against every manifest the driver loads, and
-the driver loads a manifest whenever a program demands any dependency. Adding
-`yyjson` to that list therefore fails manifest validation for *every*
-dependency-demanding program on any pack that lacks the entry. Both checked-in
-packs (`x86_64-linux-gnu` and `x86_64-windows-gnu-ucrt`) gain their yyjson
-entry, with real archives and hashes, in the same change that extends the
-list to `libuv, mimalloc, utf8proc, yyjson`.
+**The dependency registry grows atomically with the packs.** The authoritative
+registry is `compiler/specdata/dependencyRegistry`; the driver derives manifest
+validation and link order from it. Append `yyjson` to that stable registry and
+add the matching entry, real archive, and hashes to both checked-in packs
+(`x86_64-linux-gnu` and `x86_64-windows-gnu-ucrt`) in the same change. Do not
+recreate an ordered dependency list in the driver or sort existing entries as
+a side effect.
 
 No host path, environment value, system-installed yyjson, pkg-config result,
 or network lookup participates in compilation.
@@ -222,6 +237,34 @@ yyjson include) and the adapter (the only `#include <yyjson.h>`).
 Selection is program-wide and deterministic, and a selected dependency
 contributes to the build identity. The static archive is linked as a private
 runtime input; no dynamic yyjson library is searched for or loaded.
+
+## Open design decision
+
+One semantic choice remains. The provisional object text below records the
+earlier proposal and is superseded by the selected representation.
+
+**Object representation.** `Dict<String<256>, Value>` rejects valid JSON
+   names longer than 256 bytes and stores roughly 264 inline key bytes in every
+   bucket. Alternatives are an ordered `List<Member>` with owning `String`
+   names, a broader general-Dict change to support owning String keys, or an
+   opaque JSON-only object handle.
+
+TypeScript's JSONC parser is the relevant precedent: it represents a parsed
+object literal as an ordered list of property-assignment syntax nodes so it can
+retain source order and report precise syntax errors. Only the later decoded
+JavaScript-value layer behaves as a key-indexed object. Hexal's `Json.Value` is
+not a syntax tree, but `List<Member>` follows the smaller parser representation
+without forcing owning String keys into general Dict. A JSON object with two
+properties becomes one `Value.Object` containing two `Member` values; it does
+not become a JSON array.
+
+Every JSON traversal uses `config.JSONMaxDepth`, defined once in
+`compiler/config` with value 256. No yyjson build script, adapter, generator,
+or traversal repeats the literal. It feeds the yyjson reader and writer build
+limits and Hexal translation/free/stringify guards, and contributes to
+runtime-pack/build identity. It is not a language argument or per-call option.
+A later compiler release may change it deliberately without changing the JSON
+API.
 
 ## Language surface
 
@@ -295,9 +338,10 @@ end
 ```
 
 - `parse` accepts one complete RFC 8259 value with optional surrounding RFC
-  whitespace, and nothing else. The heap argument evaluates first and exactly
-  once, as everywhere else. The whole document is read into memory; there is
-  no streaming or incremental form. The parameter is heap `String` — the same
+  whitespace, C-style line/block comments, and one trailing comma in an object
+  or array. It accepts no other JSON5 extension. The heap argument evaluates
+  first and exactly once, as everywhere else. The whole document is read into
+  memory; there is no streaming or incremental form. The parameter is heap `String` — the same
   shape `std/net.parse_address` takes — so a `String<N>` caller copies first
   through the explicit `copy(heap)` route the no-implicit-conversion rule
   already names.
@@ -337,14 +381,16 @@ JSON has one number type; `Value` splits it to keep integers exact:
 | --- | --- |
 | integer in `[-2^63, 2^63)` | `Int` |
 | integer in `[2^63, 2^64)` | `UInt` |
-| integer below `-2^63` or at/above `2^64` | `Float` |
+| integer below `-2^63` or at/above `2^64` | `Error` |
 | fraction or exponent part present (`1.0`, `1e2`, `-0.5`) | `Float` |
 | outside `Float64` finite range (`1e400`) | `Error`, see Errors |
 
 "integer" means no fraction and no exponent part. On output, `Int` and `UInt`
 emit exact decimal digits and `Float` emits yyjson's shortest round-trip form.
 Parsing never truncates, never clamps, never produces NaN or infinity, and
-never narrows a 64-bit integer into a narrower variant.
+never converts an out-of-range integer to Float64. `-0` has integer spelling
+and normalizes to `Int(0)`; the API preserves JSON data values, not number
+lexemes or a negative-zero integer spelling.
 
 ### Objects: member names and duplicates
 
@@ -362,19 +408,31 @@ never narrows a 64-bit integer into a narrower variant.
 
 ### Errors
 
-yyjson reports failures with a code, an English message, a line, and a
-position. None of them crosses the boundary. The adapter returns a failure
-code to the generated corelib call site, which builds the `Error` exactly as
-every other capability operation does. Every message below is a fixed,
-allocation-free, Hexal-owned literal within the `String<256>` bound, and none
-embeds a native number:
+yyjson's read error contains a code, a constant English message, and a zero-based
+byte position. It does not contain line/column fields. The adapter consumes all
+three: the code selects the Hexal `ErrorKind`, the byte position is preserved,
+and Hexal scans the input prefix to compute one-based line and byte-column
+values. The yyjson message is copied into the Error's owned String; no native
+pointer escapes. A typical message is:
+
+```text
+unexpected character, expected ':' after key at line 3, column 12 (byte 47)
+```
+
+This deliberately makes detailed parse wording part of the pinned yyjson
+integration rather than writing and maintaining a second JSON parser only for
+diagnostics. Upgrading yyjson must review diagnostic-baseline changes.
 
 | Condition | `ErrorKind` | Message |
 | --- | --- | --- |
-| syntax error, empty input, truncated document, trailing non-whitespace content, more than one top-level value, comment, trailing comma, single-quoted or unquoted member name, `NaN`/`Infinity` literal, leading BOM, unpaired surrogate escape, nesting beyond the reader depth limit | `InvalidInput` | `invalid JSON text` |
+| empty input; unexpected content/end/character; invalid structure, comment, number, string, or literal; depth exceeded | `InvalidInput` | yyjson detail plus line, byte column, and absolute byte position |
+| yyjson allocation failure | `ResourceExhausted` | `JSON parsing ran out of memory` |
+| impossible adapter-facing code (`INVALID_PARAMETER`, file codes, incremental `MORE`) | `Unknown Error` | `JSON parser reported an impossible state` |
 | object member name exceeds 256 bytes | `ResourceExhausted` | `JSON object key exceeds capacity` |
+| integer outside `Int64 | UInt64` | `InvalidInput` | `JSON integer is out of range` |
 | number outside `Float64` finite range | `InvalidInput` | `JSON number is out of range` |
 | `stringify` of NaN or +/- infinity | `InvalidInput` | `JSON cannot represent a non-finite number` |
+| `stringify` encounters a container cycle | `InvalidInput` | `JSON value contains a cycle` |
 | `stringify` nesting beyond the writer depth limit | `InvalidInput` | `JSON value nests too deeply` |
 
 The exact reader and writer depth limits are yyjson build facts; they are
@@ -388,27 +446,47 @@ an aggregate is comparable only when all recursively compared components are.
 A program compares JSON structurally by matching. If Dict equality ever lands,
 `Value` gains it with no change to this RFC.
 
-Printing follows the existing contract unchanged: every component of `Value`
-is printable, so a `Value` prints in the structural forms (record-variant,
-list, dict spellings already defined for `print`). This is distinct from
-`stringify`, which is the JSON serialization.
+`Value` is not printable. JSON output is written explicitly through
+`Json.stringify`; structural debug printing would add a second recursive output
+contract and would still need runtime cycle handling. The checker's recursive
+printability and equality predicates gain visited-type guards so merely asking
+about a recursive aggregate always terminates; `print(value)` and `left ==
+right` then produce their ordinary unsupported-operation diagnostics rather
+than overflowing the compiler stack.
 
 ### Cleanup
 
-`Value` is not inline-only: a parsed tree owns one String per text, one List
-per array, one Dict per object, plus nested trees. `Json.free(heap, value)` is
-the one obvious way to release it and the only cleanup operation this RFC
-adds; per-node hand-rolled recursion would re-derive exactly the shallow-free
-rules the language already states for containers. After `free` the handle
-dangles, aliases of the tree become invalid, and nothing diagnoses a double
-free — the same contract every owning type has.
+`Value` is not inline-only: a parsed tree owns one String per text and one
+container per array/object, plus nested trees. `Json.free(heap, value)` is the
+one obvious way to release it. Its private traversal keeps an
+allocation-identity visited set and releases every distinct owned allocation
+at most once, so shared subtrees do not double-free and cycles terminate. The
+visited set is internal runtime state allocated from the supplied Heap and is
+released before return. After `free`, every external alias into the tree
+dangles as with other explicit container cleanup. `stringify` uses equivalent
+cycle detection but returns `InvalidInput` / `JSON value contains a cycle`
+instead of emitting a partial document.
 
 ## Allocation and ownership boundary
 
-The adapter supplies yyjson one custom allocator whose `malloc`, `realloc`,
-and `free` slots are the default Heap's existing entry points (the
-mimalloc-backed primitives the heap component already owns). This one choice
-settles the whole boundary:
+The adapter supplies yyjson one custom allocator. Hexal's Heap exposes allocate
+and free, not realloc, so the slots cannot simply be assigned to existing
+entry points. The adapter implements them as follows:
+
+```text
+malloc(size)                 Heap allocation-or-null
+realloc(nil, old, new)       malloc(new)
+realloc(ptr, old, 0)         free(ptr), return nil
+realloc(ptr, old, new)       allocate-or-null(new); on success copy
+                              min(old, new), free(ptr), return replacement;
+                              on failure leave ptr valid and return nil
+free(ptr)                    Heap free
+```
+
+This composition uses existing Heap primitives and does not add realloc to the
+language or heap runtime. The adapter returns allocation failure to yyjson;
+the owning operation then maps it to its settled Hexal failure behavior. This
+one choice settles the allocator boundary:
 
 - **No C allocator participates.** Every byte yyjson uses for a read document,
   a mutable document, or a write buffer is a Hexal Heap allocation, released
@@ -417,10 +495,9 @@ settles the whole boundary:
   overflow). No yyjson buffer is ever reachable as a Hexal value, so there is
   no pointer from another allocator for `Heap.free` to misuse: RFC 0225 holds
   by construction here, and its provenance rule needs no extension.
-- **Allocation failure behaves like every Heap allocation.** The adapter's
-  allocation slots trap with the standard `[Runtime Error] heap allocation
-  failed` rather than inventing an allocator-specific error path, matching
-  the contract `Heap.allocate` and heap text construction already have.
+- **Reallocation preserves the original on failure.** The adapter copies only
+  after replacement allocation succeeds, and releases the original only after
+  the copy. It never loses the only live allocation on an out-of-memory path.
 - **Hexal-visible values are built only by ordinary Hexal allocation
   operations** — heap String construction, `List`, `Dict`. The yyjson write
   buffer is copied into one Hexal `String` and then released through the
@@ -439,10 +516,11 @@ settles the whole boundary:
   Hexal source or in any public generated header.
 - Do not expose yyjson's document/DOM as a Hexal value or replace `Value`
   with borrowed yyjson views; a `Value` owns everything it holds.
-- Do not add a parse/write options surface: no JSON5, comments, trailing
-  commas, relaxed escapes or numbers, unquoted keys, inf/nan writing,
-  pretty-printing, indentation, byte-order marks, key-order preservation, or
-  caller-tunable depth — every option is a future spec, not a flag parameter.
+- Do not add a parse/write options surface: JSONC comments and trailing commas
+  are always accepted; relaxed escapes or numbers, single-quoted strings,
+  unquoted keys, inf/nan, the rest of JSON5, pretty-printing, indentation,
+  byte-order marks, key-order preservation, and caller-tunable depth remain
+  unavailable.
 - Do not parse from `Slice<Byte>` or raw pointers; text enters through the
   validated `String` boundary.
 - Do not accept `String<N>` implicitly; the explicit `copy(heap)` route
@@ -452,8 +530,9 @@ settles the whole boundary:
   structs would need machinery Hexal does not have and is a separate future
   specification if it is ever wanted.
 - Do not adopt yyjson buffers as Hexal Strings or Slices.
-- Do not put yyjson's error codes, English messages, line, or position into
-  any `Error`, diagnostic, or message.
+- Do not write a second Hexal JSON parser to reproduce yyjson diagnostics. Use
+  the complete yyjson read error, copy its message, and derive location from its
+  byte position as specified above.
 - Do not truncate an over-capacity member name or clamp an out-of-range
   number; both fail the operation.
 - Do not change the grammar, Text representation, Dict key rules, shallow-free
@@ -477,18 +556,18 @@ existing dependencies.
    unit (`src/yyjson.c` plus `src/yyjson.h`) and is written from upstream
    documentation, not from a vendored tree — **no part of this RFC has been
    compiled**.
-3. Build one archive per shipped pack with the build identity `lib/BUILD.md`
-   states:
-
-   ```text
-   clang -std=c11 -O2 -DNDEBUG -fPIC -pthread -DYYJSON_DISABLE_FILE=1 \
-     -I modules/yyjson/src -c modules/yyjson/src/yyjson.c -o yyjson.o
-   ar rcs yyjson_v0.13.0/yyjson.a yyjson.o
-   ```
+3. Build one archive per shipped pack with that target's exact compiler,
+   target, PIC, threading, and archiver identity from `lib/BUILD.md`. Record
+   separate Linux and Windows commands; do not present one host command as the
+   recipe for both. Both compile commands define
+   `YYJSON_DISABLE_FILE=1`, `YYJSON_DISABLE_INCR_READER=1`,
+   `YYJSON_DISABLE_UTILS=1`, and the selected finite reader/writer depth
+   limits. They must not define `YYJSON_DISABLE_NON_STANDARD`, because JSONC
+   needs the comment and trailing-comma readers.
 
 4. Lay out `yyjson_v0.13.0/{include/yyjson.h, yyjson.a, LICENSE}` in **both**
-   checked-in packs and extend `validateRuntimeManifest`'s ordered list to
-   `libuv, mimalloc, utf8proc, yyjson` in the same change, as Runtime-pack
+   checked-in packs and append `yyjson` to
+   `compiler/specdata/dependencyRegistry` in the same change, as Runtime-pack
    layout requires.
 5. Record in `lib/BUILD.md`, in the section shape its existing entries use:
    source commit, compile command, archive size, archive SHA-256, the reader
@@ -503,7 +582,7 @@ existing dependencies.
    the whole-document read entry and options, document release, the custom
    allocator struct and its use by read/write, mutable-document construction
    and container/string/number insertions, compact write with a size/bound
-   query, the error struct's code/message/line/position fields, the value
+   query, the error struct's code/message/position fields, the value
    type and number subtype enums and their accessors, the object/array
    iterators, the version function, and the `YYJSON_DISABLE_FILE`, default
    flag, and depth-limit macros. A signature that differs from this RFC is a
@@ -515,9 +594,9 @@ no compiler code has changed yet.
 
 ### Phase 1 — dependency plumbing, with no caller
 
-1. Add `RuntimeYyjson RuntimeDependency = "yyjson"` to
-   `compiler/runtime_dependency.go` and to the `switch` in
-   `runtimeDependencies`, which panics on unknown names.
+1. Add the `yyjson` dependency fact through the current dependency-registry
+   path in `compiler/specdata/components.go`; do not restore the deleted
+   driver-local dependency switch or a second registry.
 2. Add the demand flags for the three `std/json` operations to the corelib
    emission state, and a `yyjsonSelected(merged)` predicate beside
    `utf8procSelected` and `libuvSelected` in
@@ -538,9 +617,10 @@ moves, so the snippet manifest is unchanged.
 
 1. Declare the `Value` canonical type in `compiler/types` under its `std/json`
    identity, with the eight variants and their payload fields; match
-   exhaustiveness, position eligibility, storability, and the no-equality
-   consequence fall out of the existing ADT, Dict, and aggregate rules and
-   need no special case beyond registering the type.
+   exhaustiveness, position eligibility, and storability follow the existing
+   ADT and aggregate rules. Add visited-type guards to the checker predicates
+   that decide recursive equality and printability; register `Value` as neither
+   equality-comparable nor printable.
 2. Add the `std/json` entry to the core-library module table
    (`compiler/corelib/corelib.go`): type `Value`, functions `parse` and
    `free` with their fixed builtin call names, in the shape `std/net` uses.
@@ -549,8 +629,10 @@ moves, so the snippet manifest is unchanged.
    `#include <yyjson.h>`). The adapter parses with the custom Heap-backed
    allocator, translates the document into `Value` per the mapping, key, and
    duplicate rules, releases the document on every path, and returns failure
-   codes the call site turns into the fixed Hexal Errors.
-4. Wire `json_free` to the helper unit's recursion, which selects no yyjson.
+   record whose code, message, and position the call site turns into the owned
+   detailed Hexal Error above.
+4. Wire `json_free` to the helper unit's visited-allocation traversal, which
+   releases aliases/cycles exactly once and selects no yyjson.
 
 *Verify:* `compiler/tests/integration/json_test.go` covering the
 compile-time surface cases in Validation, plus generated-C text assertions —
@@ -597,12 +679,13 @@ and restart the running workbench through `hexal play` before handoff.
 
 ## Validation
 
-This section is exhaustive.
+This section is provisional and becomes exhaustive only after every Open
+design decision is resolved and the affected rows are reconciled.
 
 Pack and driver:
 
-- Both shipped pack manifests declare four dependencies in the order `libuv,
-  mimalloc, utf8proc, yyjson`, `format_version` 1, with every
+- Both shipped pack manifests contain the registry-derived dependency sequence
+  with `yyjson` appended, `format_version` 1, with every
   `yyjson_v0.13.0` file hash present; a manifest missing or misordering the
   entry fails the closed-list validation with its existing message.
 - The driver rejects a missing, mismatched, corrupt, unlisted, or
@@ -626,6 +709,10 @@ Demand and boundary:
   <yyjson.h>` or any `yyjson_` spelling; exactly one private adapter artifact
   includes the header.
 - Generated C never calls a `yyjson_*` function outside the adapter unit.
+- The custom realloc adapter preserves `min(old, new)` bytes on growth and
+  shrink, treats nil and zero-size inputs as specified above, leaves the old
+  allocation valid when replacement allocation fails, and leaks neither
+  allocation on every success/failure branch.
 
 Parsing (runtime behavior, exercised by external C23 fixtures against each
 qualified pack):
@@ -636,42 +723,50 @@ qualified pack):
   including `9223372036854775807` → `Int`,
   `9223372036854775808` → `UInt`,
   `18446744073709551615` → `UInt`,
-  `18446744073709551616` → `Float`,
+  `18446744073709551616` → `Error`,
   `-9223372036854775808` → `Int`, and
-  `-9223372036854775809` → `Float`.
+  `-9223372036854775809` → `Error`; `-0` normalizes to `Int(0)`.
 - `1e400` fails with `InvalidInput` / `JSON number is out of range`; no parse
   path produces NaN, infinity, a truncated integer, or a clamped number.
 - String escapes decode to the exact expected UTF-8 bytes:
   `\" \\ \/ \b \f \n \r \t`, `\uXXXX`, and a surrogate pair (`😀`)
-  yields one scalar, while an unpaired surrogate escape fails as
-  `invalid JSON text`.
-- Nested arrays and objects parse to the tested depth, and one level beyond
-  the Phase-0-recorded reader limit fails as `invalid JSON text`.
-- Every rejected input fails with `InvalidInput` / `invalid JSON text`: empty
+  yields one scalar. An escaped NUL (`\u0000`) is accepted and survives
+  parse/stringify/free; an unescaped control byte and an unpaired surrogate
+  escape fail with yyjson's detailed string error and computed location.
+- Nested arrays and objects parse at compiler-configured depth 256, and depth
+  257 fails with yyjson's depth detail and computed location; the same
+  configured value governs reader, writer, translation, cleanup, and stringify
+  traversal.
+- JSONC line comments, block comments, and one trailing comma in an object or
+  array are accepted, including comments between tokens. An unclosed block
+  comment is rejected with yyjson's detailed parse error.
+- Every rejected input fails with `InvalidInput` and detailed location: empty
   string, truncated document, trailing non-whitespace content, two
-  top-level values, leading BOM, `-- comment`, trailing comma, single-quoted
-  string, unquoted member name, `NaN`, `Infinity`.
-- `{"a":1,"a":2}` yields one entry whose value is `Int(2)`, and a leak check
-  proves the displaced value was released exactly once.
-- A 256-byte member name parses; a 257-byte name fails with
+  top-level values, leading BOM, single-quoted string, unquoted member name,
+  `NaN`, `Infinity`, extended number/escape/whitespace forms, and every other
+  JSON5 feature not shared with JSONC.
+- `{"a":1,"a":2}` and `{"a":1,"\u0061":2}` each yield one entry whose
+  value is `Int(2)`, proving duplicate identity is tested after escape decoding;
+  a leak check proves the displaced value was released exactly once.
+- The empty member name parses. A 256-byte member name parses; a 257-byte name fails with
   `ResourceExhausted` / `JSON object key exceeds capacity`, leaves no partial
   value, and truncates nothing (bytes, not runes, decide acceptance).
-- Every `Error` produced carries exactly the fixed message and kind from the
-  error table; no yyjson code, English text, line, position, or number
-  appears in any field.
+- Every yyjson read-error code is covered by the error table. Syntax fixtures
+  assert its complete copied detail plus computed one-based line and byte
+  column and absolute byte position; CRLF, multibyte UTF-8 before the error,
+  first-byte failure, and end-of-input failure pin location calculation.
 
 Stringify (same fixture gate):
 
-- Output is compact: exact bytes asserted for documents with deterministic
-  single-member objects (for example `{"a":[1,2],"b":null}` built in member
-  order), no insignificant whitespace, no trailing newline; multi-member
+- Output is compact: exact bytes asserted for scalar, array, and single-member
+  object documents; no insignificant whitespace, no trailing newline. Multi-member
   objects are asserted by content because member order is unspecified.
 - Output is valid UTF-8 and non-ASCII characters are emitted unescaped: a
   string containing `é` and an emoji round-trips byte-exactly through
   parse → stringify → parse.
 - `Json.Float` of NaN or +/- infinity fails with `InvalidInput` /
-  `JSON cannot represent a non-finite number`; a tree nested beyond the
-  Phase-0-recorded writer limit fails with `InvalidInput` /
+  `JSON cannot represent a non-finite number`; a tree nested beyond configured
+  depth 256 fails with `InvalidInput` /
   `JSON value nests too deeply`; neither failure leaks any yyjson buffer.
 - Numeric round-trip by value holds: `Int` and `UInt` across their full
   64-bit ranges and `Float(2.5)` survive parse → stringify → parse unchanged
@@ -690,7 +785,9 @@ Compile-time surface (pure Go, `compiler/tests/integration/json_test.go`):
 - `Value` is accepted as a Dict value, List element, function result, and
   Task argument, and rejected as a Dict key with the existing key-type
   diagnostic.
-- A program that `print`s a `Value` compiles.
+- `print(value)` and `left == right` are rejected without recursive checker
+  overflow, including when the object representation and arrays both lead back
+  to `Value`.
 - Generated-C text assertions: the adapter include placement, the public-header
   absence of `yyjson`, and the per-operation dependency-list contents stated
   under Demand and boundary.
@@ -700,8 +797,10 @@ Cleanup:
 - A leak check over a deeply nested parsed tree — strings at several depths,
   nested arrays, nested objects, duplicate members — proves `Json.free`
   releases every allocation `parse` created, on the success path and on each
-  in-translation failure path (key overflow mid-document releases what was
-  already built).
+  in-translation failure path.
+- User-built shared subtrees and direct/indirect container cycles terminate;
+  `Json.free` releases every distinct allocation once, while `stringify`
+  returns `InvalidInput` / `JSON value contains a cycle` without leaking.
 - `Json.free` on each scalar variant performs no release and traps nowhere.
 - No yyjson-allocated pointer is ever reachable as a Hexal value or passed to
   `Heap.free`; the custom allocator is the only allocator yyjson uses.
@@ -718,7 +817,8 @@ Conformance:
 
 ## Open implementation inputs
 
-Everything design-level is settled. What remains is produced by Phase 0:
+These implementation facts are produced by Phase 0 after the design decisions
+above are closed:
 
 - the exact source file list, confirmed against the 0.13.0 release archive
   rather than assumed from documentation;
@@ -726,11 +826,12 @@ Everything design-level is settled. What remains is produced by Phase 0:
   pack;
 - the archive and probe evidence: symbol and ABI results from the
   four-archive probe, plus generated-C size, link time, and pack-size deltas;
-- the recorded reader/writer depth limits and the default read/write flag
-  sets, each confirmed to reject exactly the rejected-input list this RFC
-  names (comments, trailing commas, single quotes, unquoted keys, extension
-  numbers, trailing content, BOM) — a default that accepts one of them is a
-  spec correction before Phase 2;
+- confirmation that the compiler-owned depth configuration is applied to the
+  reader/writer build and every Hexal traversal, plus the default read/write
+  flag sets, confirmed to accept comments and trailing commas while rejecting
+  single quotes, unquoted keys, extension numbers/escapes/whitespace, trailing
+  content, BOM, and the remaining JSON5 surface — any mismatch is a spec
+  correction before Phase 2;
 - confirmation of yyjson's handling of the two remaining number edges —
   integers between `2^63` and `2^64`, and out-of-`Float64`-range literals —
   against the value-based mapping table; and
@@ -743,21 +844,20 @@ current text, dictionary, cleanup, or error contracts.
 
 ## Implementation readiness
 
-**Ready.** The release is pinned, the dependency boundary reuses the shipped
-runtime-pack contract rather than inventing one, the value model is settled
-across all eight variants and three functions, the Validation section is
-exhaustive, and the plan is phased so the archive and the plumbing prove
-themselves before any surface depends on them.
+**Not ready.** The release, private dependency boundary, numeric policy,
+cleanup, printing, and configured depth are settled. The remaining object
+representation changes the public `Value` declaration, lookup/order behavior,
+errors, cleanup, and tests. Close it, reconcile the provisional object rows,
+and only then declare Validation exhaustive.
 
 Baseline confirmed against the tree on 2026-09-22: the `Value` declaration
 shape, construction, container use, and exhaustive match compile through
 `compiler.Compile`, so this RFC specifies against the language as it actually
 is.
 
-Start at Phase 0. It is the only phase that cannot be done from the
-specification alone, because it produces the archive every later phase links
-against and the header every unverified signature in this document gets
-checked against. Two things an implementer should hold onto:
+After those decisions close, start at Phase 0. It produces the archive every
+later phase links against and checks every unverified header signature. Two
+things an implementer should hold onto:
 
 - **Phase 1 is the cheap proof.** Dependency plumbing moves no artifact; if
   the snippet manifest or any existing hash moves there, the predicate is

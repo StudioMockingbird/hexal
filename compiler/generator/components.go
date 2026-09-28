@@ -154,6 +154,7 @@ func componentDemands(config Config) []componentDemand {
 		{ids: []specdata.ComponentID{specdata.ComponentNumeric}, build: numericComponents},
 		{ids: []specdata.ComponentID{specdata.ComponentPrint}, build: printComponents},
 		{ids: []specdata.ComponentID{specdata.ComponentEquality}, build: equalityComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentTypes}, build: typesComponents},
 		{ids: []specdata.ComponentID{specdata.ComponentIO}, build: func(merged *programEmission) ([]componentArtifact, error) {
 			return ioComponents(merged, config)
 		}},

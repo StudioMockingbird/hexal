@@ -71,6 +71,9 @@ func resolveTypeUse(expression parser.TypeExpression, fallback lexer.Token, type
 		if expression.Name.Lexeme == "Dict" {
 			return resolveDictTypeUse(expression, fallback, typeEnvironment, generics)
 		}
+		if expression.Name.Lexeme == "DictEntry" {
+			return resolveDictEntryTypeUse(expression, fallback, typeEnvironment, generics)
+		}
 		if expression.Name.Lexeme == "Task" {
 			return resolveTaskTypeUse(expression, fallback, typeEnvironment, generics)
 		}

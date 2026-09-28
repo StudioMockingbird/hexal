@@ -366,7 +366,7 @@ func checkDeclaration(declaration parser.Declaration, ctx checkContext, itemInde
 		diagnostics = append(diagnostics, messageAt(declaration.Keyword, diag.ContextualInitializerNeedsAnnotation()))
 	}
 
-	initializer := checkInitializerRest(declaration.Initializer, declaredUse, declaration.Name, ctx, true)
+	initializer := checkInitializerRest(declaration.Initializer, declaredUse, declaration.Name, ctx, true, true)
 	for _, diagnostic := range initializerDiagnostics(initializer) {
 		diagnostics = append(diagnostics, diagnostic)
 	}
@@ -405,7 +405,11 @@ func checkDeclaration(declaration parser.Declaration, ctx checkContext, itemInde
 		}
 	}
 	if isTrackedCollection(declaredType) {
-		declaredBinding.collectionRoot = collectionRootForOperand(initializer.source, ctx.names, declaredBinding.id)
+		if initializer.terminal != nil {
+			declaredBinding.collectionRoot = declaredBinding.id
+		} else {
+			declaredBinding.collectionRoot = collectionRootForOperand(initializer.source, ctx.names, declaredBinding.id)
+		}
 	}
 	if initializer.source.Node.Kind == AddressOfExpression || nodeTracesToRef(&initializer.source.Node, ctx.names) {
 		declaredBinding.fromRef = true
@@ -432,13 +436,14 @@ func checkDeclaration(declaration parser.Declaration, ctx checkContext, itemInde
 		seedStreamBindingFacts(ctx.names.flow, declaredBinding.id, declaredType, initializer.source)
 	}
 	return Declaration{
-		Name:    declaration.Name.Lexeme,
-		Binding: declaredBinding.id,
-		Type:    declaredType,
-		TypeUse: declaredUse,
-		Source:  initializer.source,
-		Mutable: declaration.Mutable,
-		Span:    declaration.Name.Span,
+		Name:     declaration.Name.Lexeme,
+		Binding:  declaredBinding.id,
+		Type:     declaredType,
+		TypeUse:  declaredUse,
+		Source:   initializer.source,
+		Pipeline: initializer.terminal,
+		Mutable:  declaration.Mutable,
+		Span:     declaration.Name.Span,
 	}, declaredBinding, diagnostics
 }
 
@@ -487,7 +492,7 @@ func checkAssignment(assignment parser.Assignment, ctx checkContext) (Assignment
 	if targetUse.Type == (compilerTypes.Type{}) {
 		targetUse = compilerTypes.NewTypeUse(targetType)
 	}
-	initializer := checkInitializer(assignment.Initializer, targetUse, nameToken, ctx)
+	initializer := checkInitializerRest(assignment.Initializer, targetUse, nameToken, ctx, false, true)
 	for _, diagnostic := range initializerDiagnostics(initializer) {
 		diagnostics = append(diagnostics, diagnostic)
 	}
@@ -527,11 +532,12 @@ func checkAssignment(assignment parser.Assignment, ctx checkContext) (Assignment
 	}
 
 	return Assignment{
-		Name:   nameToken.Lexeme,
-		Target: target.source,
-		Type:   targetType,
-		Source: initializer.source,
-		Span:   nameToken.Span,
+		Name:     nameToken.Lexeme,
+		Target:   target.source,
+		Type:     targetType,
+		Source:   initializer.source,
+		Pipeline: initializer.terminal,
+		Span:     nameToken.Span,
 	}, diagnostics
 }
 

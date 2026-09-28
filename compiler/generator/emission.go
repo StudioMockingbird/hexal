@@ -77,12 +77,13 @@ type moduleEmission struct {
 	corelibState      *generatedCorelibState
 	// rootReturn is true when this module's root scope contains a checked
 	// root return, selecting the entry status slot and cleanup label.
-	rootReturn       bool
-	concurrencyState *generatedConcurrencyState
-	wrapState        *generatedWrapState
-	stashState       *stashHelpers
-	poolState        *generatedPoolState
-	objects          []*compilerTypes.ObjectType
+	rootReturn        bool
+	concurrencyState  *generatedConcurrencyState
+	wrapState         *generatedWrapState
+	stashState        *stashHelpers
+	poolState         *generatedPoolState
+	objects           []*compilerTypes.ObjectType
+	sharedDictEntries map[*compilerTypes.ObjectType]bool
 }
 
 // emitModulePair writes one module's C/header pair from its own discovery
@@ -384,11 +385,21 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 	if foreignErr != nil {
 		return "", "", foreignErr
 	}
+	components := moduleComponentHeaders(emission)
+	if len(merged.sharedDictEntries) > 0 {
+		components = append(components, "hexal/types.h")
+	}
+	moduleObjects := make([]*compilerTypes.ObjectType, 0, len(emission.objects))
+	for _, object := range emission.objects {
+		if !emission.sharedDictEntries[object] {
+			moduleObjects = append(moduleObjects, object)
+		}
+	}
 	moduleHeader, headerErr := moduleHeader(moduleHeaderInput{
 		unions:         emission.unionState,
 		adts:           emission.adtState,
 		equality:       emission.equalityState,
-		objects:        emission.objects,
+		objects:        moduleObjects,
 		heaps:          emission.heapState,
 		printState:     emission.printState,
 		streams:        emission.ioState,
@@ -413,7 +424,7 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		prototypes:     headerPrototypes.String(),
 		extraFrames:    extraFrames.String(),
 		filename:       logicalKey,
-		components:     moduleComponentHeaders(emission),
+		components:     components,
 		foreignHeaders: foreignIncludes,
 	})
 	if headerErr != nil {

@@ -9,6 +9,118 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
+func TestDictEntryTypeIsCompilerOwnedAndSourceSpellable(t *testing.T) {
+	result := compileSource("fun inspect(entry: DictEntry<Int32, Int32>): Int32 do\n    return entry.key + entry.value\nend\n")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	types := moduleFile(t, result, "hexal/types.h")
+	if !strings.Contains(types, "struct hex_t_DictEntry_Int32_Int32 {") || strings.Contains(result.Files["modules/app.h"], "struct hex_t_DictEntry_Int32_Int32 {") {
+		t.Fatalf("generated shared types header must define the source-spellable entry aggregate exactly once:\n%s\n%s", types, result.Files["modules/app.h"])
+	}
+}
+
+func TestDictProjectionsAndEntryMaterialization(t *testing.T) {
+	source := "fun entry_value(entry: DictEntry<Int32, Int32>): Int32 do\n    return entry.value\nend\n" +
+		"fun run(heap: Heap) do\n" +
+		"    let values: Dict<Int32, Int32> = Dict<Int32, Int32>(heap)\n" +
+		"    values.insert(1, 10)\n" +
+		"    for key in values.keys() do\n        print(key)\n    end\n" +
+		"    for value in values.values() do\n        print(value)\n    end\n" +
+		"    for entry in values.entries() do\n        print(entry.value)\n    end\n" +
+		"    let entries = values.entries().map(entry_value).to_list(heap)\n" +
+		"    let flat: List<Int32> = values.to_list(heap)\n" +
+		"    entries.free(heap)\n    flat.free(heap)\n    values.free(heap)\nend\n"
+	result := assertCompiles(t, source)
+	c := rootC(t, result)
+	if strings.Count(c, "for (size_t hex_pipeline_") != 5 || !strings.Contains(c, ".hex_m_key =") || strings.Count(c, "hex_list_push_Int32(hex_pipeline_") != 3 {
+		t.Fatalf("loops=%d entry-init=%t flat-pushes=%d; generated C = %q", strings.Count(c, "for (size_t hex_pipeline_"), strings.Contains(c, ".hex_m_key ="), strings.Count(c, "hex_list_push_Int32(hex_pipeline_"), c)
+	}
+}
+
+func TestDictEntryUsesOrdinaryAggregateOperations(t *testing.T) {
+	result := assertCompiles(t, "fun demo(heap: Heap) do\n"+
+		"    let dict: Dict<Int32, Int32> = Dict<Int32, Int32>(heap)\n"+
+		"    dict.insert(1, 7)\n"+
+		"    let entries: List<DictEntry<Int32, Int32>> = dict.entries().to_list(heap)\n"+
+		"    let same: Bool = entries[0] == entries[0]\n"+
+		"    print(entries[0])\n"+
+		"end\n")
+	if !strings.Contains(rootC(t, result), "hex_equal_hex_t_DictEntry_Int32_Int32") || !strings.Contains(rootH(t, result), "hex_print_nested_hex_t_DictEntry_Int32_Int32") {
+		t.Fatalf("DictEntry did not use ordinary equality and printing support:\n%s\n%s", rootC(t, result), rootH(t, result))
+	}
+}
+
+func TestDictEntryCannotBeConstructedOrUsedAsDictKey(t *testing.T) {
+	for _, testCase := range []struct{ source, want string }{
+		{"let value: DictEntry<Int32, Int32> = DictEntry<Int32, Int32>(key = 1, value = 2)", "DictEntry is not a constructible type"},
+		{"let values: Dict<DictEntry<Int32, Int32>, Int32> = Dict<DictEntry<Int32, Int32>, Int32>(Heap())", "dictionary key type must be Bool, an integer, Size, Rune, or String<N>"},
+		{"type DictEntry<T, U> is struct key: T, value: U end", "built-in type DictEntry cannot be redeclared"},
+	} {
+		t.Run(testCase.want, func(t *testing.T) {
+			assertRejects(t, testCase.source, testCase.want)
+		})
+	}
+}
+
+func TestSharedDictEntryDefinitionIsProgramWide(t *testing.T) {
+	result := compiler.Compile(map[string]string{
+		"app.hex": "import\n    M from \"./m\"\nend\n" +
+			"let heap: Heap = Heap()\n" +
+			"let dict: Dict<Int32, Int32> = Dict<Int32, Int32>(heap)\n" +
+			"dict.insert(1, 7)\n" +
+			"let entries: List<DictEntry<Int32, Int32>> = dict.entries().to_list(heap)\n" +
+			"let answer: Int32 = entries[0].value\n",
+		"m.hex": "fun read(entry: DictEntry<Int32, Int32>): Int32 do\n    return entry.value\nend\n",
+	}, "app.hex", compiler.Project{})
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile stderr = %#v", result.Stderr)
+	}
+	types := moduleFile(t, result, "hexal/types.h")
+	if strings.Count(types, "struct hex_t_DictEntry_Int32_Int32 {") != 1 {
+		t.Fatalf("shared types header must define the specialization once:\n%s", types)
+	}
+	for _, header := range []string{"modules/app.h", "modules/m.h"} {
+		content := moduleFile(t, result, header)
+		if !strings.Contains(content, "#include \"hexal/types.h\"") || strings.Contains(content, "struct hex_t_DictEntry_Int32_Int32 {") {
+			t.Fatalf("%s must use the shared definition without redefining it:\n%s", header, content)
+		}
+	}
+}
+
+func TestModuleOwnedDictEntryDefinitionStaysWithConsumer(t *testing.T) {
+	for _, body := range []string{
+		"fun inspect(entry: DictEntry<Int32, M.Point>): Int32 do\n    return entry.value.x\nend\n",
+		"let heap: Heap = Heap()\nlet dict: Dict<Int32, M.Point> = Dict<Int32, M.Point>(heap)\n",
+		"let heap: Heap = Heap()\nlet dict: Dict<Int32, M.Point> = Dict<Int32, M.Point>(heap)\nfor entry in dict.entries() do\n    let x: Int32 = entry.value.x\nend\n",
+	} {
+		result := compiler.Compile(map[string]string{
+			"app.hex": "import\n    M from \"./m\"\nend\n" + body,
+			"m.hex":   "type Point is struct x: Int32 end\nexport\n    Point\nend\n",
+		}, "app.hex", compiler.Project{})
+		if result.ExitCode != compiler.ExitSuccess {
+			t.Fatalf("Compile(%q) stderr = %#v", body, result.Stderr)
+		}
+	}
+	result := compiler.Compile(map[string]string{
+		"app.hex": "import\n    M from \"./m\"\nend\n" +
+			"let heap: Heap = Heap()\n" +
+			"let dict: Dict<Int32, M.Point> = Dict<Int32, M.Point>(heap)\n" +
+			"for entry in dict.entries() do\n    let x: Int32 = entry.value.x\nend\n",
+		"m.hex": "type Point is struct x: Int32 end\nexport\n    Point\nend\n",
+	}, "app.hex", compiler.Project{})
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile stderr = %#v", result.Stderr)
+	}
+	if _, exists := result.Files["hexal/types.h"]; exists {
+		t.Fatalf("module-owned entry specialization must not enter the shared type header: %v", result.Files)
+	}
+	header := moduleFile(t, result, "modules/app.h")
+	if !strings.Contains(header, "struct hex_t_DictEntry_Int32_m1_m_Point {") {
+		t.Fatalf("consumer module header lacks its module-owned DictEntry specialization:\n%s", header)
+	}
+}
+
 func TestDictFindReturnsOptionalAndProbesOnce(t *testing.T) {
 	result := compileSource("fun demo(h: Heap) do\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    let hit: Int32 | Nil = scores.find(1)\n    if hit != nil then\n        let value: Int32 = hit\n    end\n    let miss: Int32 | Nil = scores.find(2)\n    if miss == nil then\n        let absent: Int32 = 0\n    end\nend")
 	if result.ExitCode != compiler.ExitSuccess {

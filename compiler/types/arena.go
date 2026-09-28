@@ -19,6 +19,7 @@ type Arena struct {
 	sliceTypes      map[string]Type
 	listTypes       map[string]Type
 	dictTypes       map[string]Type
+	dictEntryTypes  map[string]Type
 	taskTypes       map[string]Type
 	channelTypes    map[string]Type
 	atomicTypes     map[string]Type
@@ -56,6 +57,7 @@ func NewArena() *Arena {
 		sliceTypes:       make(map[string]Type),
 		listTypes:        make(map[string]Type),
 		dictTypes:        make(map[string]Type),
+		dictEntryTypes:   make(map[string]Type),
 		taskTypes:        make(map[string]Type),
 		channelTypes:     make(map[string]Type),
 		atomicTypes:      make(map[string]Type),

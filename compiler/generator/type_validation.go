@@ -106,6 +106,10 @@ func validateGeneratedType(typ compilerTypes.Type, state *generatedTypeValidatio
 		if state.declaredObjects != nil && !state.declaredObjects[object] {
 			return false
 		}
+	} else if compilerTypes.IsDictEntry(typ) {
+		if state.declaredObjects != nil && !state.declaredObjects[object] || !validSourceName(compilerTypes.SanitizeIdentifier(object.Name)) {
+			return false
+		}
 	} else {
 		expectedCName := privateCName(typeName, compilerTypes.SanitizeIdentifier(object.Name), object.Owner)
 		if state.declaredObjects != nil && !state.declaredObjects[object] || !validSourceName(compilerTypes.SanitizeIdentifier(object.Name)) || object.CName != expectedCName {

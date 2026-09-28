@@ -118,7 +118,11 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 					return unknownExpressionDiagnostic()
 				}
 			}
-			if err := validateCheckedOperandWithState(statement.Source, state); err != nil {
+			if statement.Pipeline != nil {
+				if err := validatePipelineTerminal(statement.Pipeline, state); err != nil {
+					return err
+				}
+			} else if err := validateCheckedOperandWithState(statement.Source, state); err != nil {
 				return err
 			}
 			if !generatedAssignable(statement.Type, statement.Source.Type) {
@@ -146,7 +150,11 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 			if !targetPlace.addressable || !targetPlace.writable {
 				return unknownExpressionDiagnostic()
 			}
-			if err := validateCheckedOperandWithState(statement.Source, state); err != nil {
+			if statement.Pipeline != nil {
+				if err := validatePipelineTerminal(statement.Pipeline, state); err != nil {
+					return err
+				}
+			} else if err := validateCheckedOperandWithState(statement.Source, state); err != nil {
 				return err
 			}
 			// The target names the declared storage slot, so its checked type
@@ -202,7 +210,11 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 		case checker.ReturnStatement:
 			// Function return signatures are checked while rendering their
 			// definitions; the preflight pass only validates the value shape.
-			if statement.Value != nil {
+			if statement.Pipeline != nil {
+				if err := validatePipelineTerminal(statement.Pipeline, state); err != nil {
+					return err
+				}
+			} else if statement.Value != nil {
 				if err := validateCheckedOperandWithState(*statement.Value, state); err != nil {
 					return err
 				}
@@ -210,7 +222,11 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 		case checker.RootReturnStatement:
 			// The entry status type is checked while rendering the root
 			// return; the preflight pass only validates the value shape.
-			if statement.Value != nil {
+			if statement.Pipeline != nil {
+				if err := validatePipelineTerminal(statement.Pipeline, state); err != nil {
+					return err
+				}
+			} else if statement.Value != nil {
 				if err := validateCheckedOperandWithState(*statement.Value, state); err != nil {
 					return err
 				}
@@ -264,8 +280,17 @@ func validateStatements(statements []checker.Statement, state *expressionValidat
 				return err
 			}
 		case checker.ForStatement:
-			if err := validateCheckedOperandWithState(statement.Source, state); err != nil {
+			source := statement.Source
+			if statement.Pipeline != nil {
+				source = statement.Pipeline.Source
+			}
+			if err := validateCheckedOperandWithState(source, state); err != nil {
 				return err
+			}
+			if statement.Pipeline != nil {
+				if err := validatePipeline(statement.Pipeline, state); err != nil {
+					return err
+				}
 			}
 			state.pushScope()
 			for _, binder := range statement.Binders {

@@ -570,6 +570,10 @@ func parameterArityDiagnostic(name string, parameters []FunctionParameter, got i
 // ordinary free-function lookup. Compiler-owned canonical constructors take
 // only positional arguments, exactly like an ordinary call.
 func checkBareConstructorCall(call parser.CallExpression, callee parser.VariableExpression, expectedType compilerTypes.Type, ctx checkContext) (checkedExpression, bool) {
+	if callee.Name.Lexeme == "DictEntry" {
+		diagnostic := messageAt(callee.Name, diag.TypeIsNotConstructible("DictEntry"))
+		return checkedExpression{token: callee.Name, diagnostic: &diagnostic}, true
+	}
 	if builtinConstructible(callee.Name.Lexeme) {
 		if diagnostic := rejectNamedArguments(call); diagnostic != nil {
 			return checkedExpression{token: callee.Name, diagnostic: diagnostic}, true
@@ -635,6 +639,9 @@ func rejectNamedArguments(call parser.CallExpression) *compilerTypes.Diagnostic 
 func checkCallValue(call parser.CallExpression, expectedType compilerTypes.Type, ctx checkContext) checkedExpression {
 	checked := checkCall(call, expectedType, ctx)
 	if len(initializerDiagnostics(checked)) > 0 {
+		return checked
+	}
+	if checked.pipeline != nil {
 		return checked
 	}
 	if checked.typ.Name == "" {

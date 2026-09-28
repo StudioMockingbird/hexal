@@ -1,21 +1,19 @@
 # RFC 0234: Regex Support via PCRE2
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion; skeleton only, implementation not started.
-  **Deliberately under-specified**: the dependency boundary is settled because
-  it copies an existing contract, while the language surface, capture model,
-  and matching semantics are named but not decided — they are fleshed out in a
-  later revision of this RFC, which also upgrades Validation to exhaustive and
-  Status to Implementation ready
+- Status: Implementation-ready; implementation not started. The PCRE2 engine,
+  dependency boundary, v1 API, capture model, UTF behavior, ownership, JIT
+  exclusion, error shape, resource policy, exhaustive Validation, and phased
+  implementation plan are settled
 - Created: 2026-09-22
-- Updated: 2026-09-22
+- Updated: 2026-09-28
 - Origin: requested regex support by integrating PCRE2 v10.48
 - Depends on: RFC 0052 (C backend), RFC 0055 (build and runtime-pack inputs),
   and the current String contract in `docs/reference.md`
 - Coordinates with: RFC 0227 (utf8proc) and RFC 0233 (yyjson), the sibling
   vendored dependencies this RFC mirrors in layout and boundary
-- Updates `docs/reference.md`: yes, eventually — one `std/regex`-shaped module
-  row and a regex section, written when the surface is settled. Grammar
+- Updates `docs/reference.md`: yes — one `std/regex` module row and a regex
+  section carrying the settled surface and limits. Grammar
   unchanged: no new syntax
 - Swept code: none. Nothing in the tree exists because regex support or a
   pcre2-facing defense was absent
@@ -34,12 +32,19 @@ matching), matching-correctness fixes, and Unicode 17.0.
 Only the **8-bit** library (`libpcre2-8`) is built; Hexal text is UTF-8 bytes,
 and 16-/32-bit widths are not vendored.
 
-The Hexal surface is a std module tentatively named `std/regex`. A private
+Hexal accepts PCRE2's backtracking semantics behind compiler-owned source-
+pattern, compiled-pattern, match-work, depth, and heap limits. It adds no
+arbitrary subject-length ceiling: the subject is already an allocated String,
+while the match-work and heap limits bound the additional work caused by it.
+Exceeding a limit returns `ResourceExhausted`; it never silently changes
+matching semantics. JIT is
+compiled out in v1: the interpreter is the one execution path on every target,
+which keeps memory, thread-safety, qualification, and diagnostics uniform.
+
+The Hexal surface is the `std/regex` module defined below. A private
 generated adapter is the only code including `pcre2.h` or naming a
 `pcre2_*` symbol; no PCRE2 type, option flag, or error code appears in Hexal
-or in any public generated header. The exact surface — module name, function
-set, capture/match result model — is the principal open area under Open
-questions.
+or in any public generated header.
 
 ## Why this dependency
 
@@ -48,7 +53,7 @@ otherwise never reasonably hand-write: pattern compilation, backtracking with
 capture state, Unicode property classes under UCP, and — since 10.48 —
 security fixes for malformed patterns and invalid-UTF input that a
 self-written engine would absorb one advisory at a time. One pinned backend
-supplies compile, match, and (provisionally) substitution; Hexal keeps the
+supplies compile and match/capture execution; Hexal keeps the
 value model, diagnostics, and allocation rules.
 
 ## Upstream qualification
@@ -63,12 +68,15 @@ Unicode:        17.0
 ```
 
 Build facts are recorded in `lib/BUILD.md` as for every other pack
-dependency: source commit, compile command, archive size, SHA-256. Two
+dependency: source commit, target-specific compile command, archive size,
+SHA-256. Linux and Windows use their own existing pack compiler, target, PIC,
+threading, and archiver identity; one host command is not copied across both.
+Every adapter translation unit defines `PCRE2_CODE_UNIT_WIDTH 8` before
+including `pcre2.h`. Two
 upstream build facts are Phase 0 checks, not assumptions: the sljit
 submodule/checkouts the source tree requires, and the exact mechanism that
 selects the 8-bit width when compiling the library sources. The archive is
-built with the pack's existing build identity (Clang, `-O2 -DNDEBUG -fPIC
--pthread`, target-portable). JIT is **not** decided — see Open questions.
+built with the pack's existing target-specific identity and with JIT disabled.
 
 ## Runtime-pack layout
 
@@ -82,13 +90,13 @@ lib/<hexal-target>/
 ```
 
 One entry in the existing closed `dependencies` array, same shape as its
-siblings, `system_libraries` empty unless the four-archive probe proves
+siblings, `system_libraries` empty unless the combined-archive probe proves
 otherwise, `format_version` stays 1, release version in the directory name.
-The `validateRuntimeManifest` ordered list in `internal/driver/runpack.go`
-grows to `libuv, mimalloc, utf8proc, pcre2, yyjson` (alphabetical) **in the
-same change that adds the entry to both checked-in packs** — the list is
-enforced on every manifest load, so a pack missing the name fails
-structurally for every dependency-demanding program on that target.
+Append `pcre2` to the authoritative
+`compiler/specdata/dependencyRegistry`; the driver derives validation and link
+order from that registry. Add the entry and real payload hashes to both packs
+in the same change. Do not recreate a driver-local list, alphabetically reorder
+existing entries, or make this RFC's implementation order depend on RFC 0233.
 
 No host path, environment value, system-installed PCRE2, pkg-config result,
 or network lookup participates in compilation.
@@ -109,109 +117,169 @@ interoperability is untouched: a user may still write their own
 
 ## Dependency demand
 
-Any reachable `std/regex` operation that crosses the adapter selects `pcre2`;
-programs with no regex operation select nothing and keep byte-identical
-artifacts. The precise per-operation table (e.g. whether a hypothetical
-pattern-inspection-only function could avoid the dependency) belongs to the
-flesh-out. Selection is program-wide, deterministic, static-link only, and
-contributes to the build identity.
+Every reachable `compile`, `test`, `find`, `capture`, or `free` operation
+selects `pcre2`; naming only `Span`, `Match`, or `Pattern`, and `free_match`
+alone, selects no dependency because it only releases the Hexal capture List.
+Programs with no adapter operation keep byte-identical artifacts.
+Selection is program-wide, deterministic, static-link only, and contributes
+to the build identity.
 
-## Language surface (provisional)
+## Language surface
 
-Sketch only; every signature below may change:
+`std/regex` exports three types and six module functions:
 
-```text
-std/regex (name provisional) exports:
+```hexal
+type Span is struct
+    start: Size,
+    end: Size,
+end
 
-    Regex                               the compiled pattern, owning its
-                                        pcre2 program
-    compile(heap, pattern) -> Regex | Error
-    ...match/search/capture/replace — undecided, see Open questions
+type Match is struct
+    whole: Span,
+    captures: List<Span | Nil>,
+end
+
+Regex.compile(heap: Heap, source: String) -> Pattern | Error
+Regex.test(heap: Heap, pattern: Pattern, subject: String) -> Bool | Error
+Regex.find(heap: Heap, pattern: Pattern, subject: String) -> Span | Nil | Error
+Regex.capture(heap: Heap, pattern: Pattern, subject: String) -> Match | Nil | Error
+Regex.free(heap: Heap, pattern: Pattern)
+Regex.free_match(heap: Heap, match: Match)
 ```
 
-Constraints the settled parts of the language already impose, regardless of
-final shape:
+`Pattern` is the owning compiled PCRE2 program. `Span` is a half-open UTF-8
+byte range into the subject. `find` returns only the whole-match span and
+allocates no Hexal capture List. `capture` returns the whole span plus one
+entry for each numbered capture group, excluding the whole match; an optional
+group that did not participate is `Nil`. It allocates only the capture List,
+never copies subject substrings, and `free_match` releases that List. Named
+capture lookup, repeated-match iteration, replacement, split, and escaping are
+deferred rather than widening v1.
+
+The following contracts apply:
 
 - `pattern` and subjects enter as validated UTF-8 `String` (or the explicit
   `copy(heap)` route from `String<N>`); no raw-pointer or `Slice<Byte>` entry.
-- `Regex` owns a heap allocation, follows the owning-type rules (handle
+- `Pattern` owns a heap allocation, follows the owning-type rules (handle
   semantics, one release, aliasing after free), and has an explicit cleanup
   operation like every other owning type.
-- Failures are Hexal-owned `Error`s with fixed, allocation-free messages;
-  PCRE2 error codes, English strings, and offset numbers never cross the
-  boundary.
+- Failures are Hexal-owned `Error`s. Pattern-compilation failure includes the
+  normalized byte offset reported by PCRE2 and a stable Hexal-owned reason
+  category. Native error codes and dependency-owned English strings never
+  cross the boundary. The fallback is `invalid regular expression at byte N`.
+- `PCRE2_UTF | PCRE2_UCP` are always enabled. There is no byte-mode regex.
+  Compile options use PCRE2's pattern-embedded forms such as `(?im)`; v1 adds
+  no flags type or parallel options API.
+- Match calls allocate private PCRE2 call state from the supplied Heap and
+  release it before return. They never retain the subject. Separate per-call
+  state makes concurrent read-only use of one `Pattern` safe.
+- `Pattern` and `Match` have no equality, ordering, printing, or Dict-key
+  eligibility. `Span` is an ordinary comparable value struct.
 - No implicit compilation, caching, or matching anywhere: every compile and
   every match is written at its call site.
 
 ## Allocation and ownership boundary
 
-Provisional direction, consistent with RFC 0233: PCRE2 runs on the caller's
-Heap through a PCRE2 general context (`pcre2_general_context`) whose
-allocation slots are the default Heap's entry points, so no C `malloc`
-participates, allocation failure traps with the standard heap message, every
-PCRE2 buffer is released through that context on every success and failure
-path, and no PCRE2-allocated pointer ever becomes a Hexal value — RFC 0225
-holds by construction. The final choice (general context vs. bounded
-copy-out) is confirmed in the flesh-out.
+PCRE2 runs on the caller's Heap through a `pcre2_general_context` whose
+allocation slots adapt the existing Heap allocate-or-null and free primitives;
+no C `malloc` participates. Compile releases its temporary general/compile
+contexts after PCRE2 has created the owning code object; Phase 0 verifies the
+code object's documented allocator metadata and `pcre2_code_free` path. Each
+test/find/capture call creates and releases its own match data and match context
+through the supplied Heap. Capture spans are
+copied into an ordinary Hexal List and no PCRE2 pointer becomes a Hexal value.
+Every PCRE2 allocation is released through its creating context on success and
+failure, so the cross-allocator rule holds by construction.
 
-## Open questions
+## Resource limits and configuration ownership
 
-The flesh-out decides, at minimum:
+Every PCRE2 policy value lives exactly once in `compiler/config`; neither the
+checker, generator, generated adapter, driver, nor runtime-pack scripts may
+repeat a numeric literal. The generator renders the required C constants from
+these Go values, and the adapter passes them to PCRE2's context setters. The
+runtime-pack identity records the resulting library configuration.
 
-1. **Module and function set.** `std/regex` vs another name; the exact
-   functions (compile, test, find, iterate, capture extraction,
-   replace/substitute) and their signatures.
-2. **Match and capture result model.** How a match reports: `Bool`, an ADT
-   over match/no-match with payload, byte offsets as `Size` pairs, captured
-   substrings as heap `String`s, named captures keyed how (Dict keys are
-   `String<N>`; heap `String` is not a Dict key), and who frees what.
-3. **Subject and offset semantics.** Whole string only vs start/end offsets,
-   byte vs rune positions (text is byte-indexed today), iteration over
-   successive matches including empty-match advancement rules.
-4. **Unicode mode.** Whether `PCRE2_UTF` + `PCRE2_UCP` are always on for
-   validated UTF-8 subjects (expected default) and what non-UTF byte-wise
-   matching, if any, is exposed.
-5. **Options surface.** Which compile/match options (caseless, multiline,
-   dotall, ...) are exposed and how — fixed function parameters, flags value,
-   pattern-embedded only — keeping the surface small.
-6. **JIT.** On, off, or compile-time-excluded from the vendored build; if on,
-   its thread-safety, memory context, and interaction with the 10.48
-   match-mode security fix.
-7. **Limits and hardening.** Match, depth, heap, and pattern-length limits
-   against adversarial patterns and subjects; the fixed error messages and
-   `ErrorKind` mapping for compile failure vs match failure vs limit
-   exceeded.
-8. **Substitution.** Whether `pcre2_substitute` is exposed at all in v1, and
-   if so its replacement-string syntax (PCRE2's `$`/`\g` dialect) or a
-   Hexal-owned replacement model.
-9. **Value consequences.** Equality, ordering, printing, Dict-key
-   eligibility (expected: owning handle, none of these) and thread-safety of
-   concurrent matches through one `Regex` handle.
-10. **Reference and validation.** The `docs/reference.md` section shape, and
-    upgrading this RFC's Validation to the exhaustive definition of done.
+```go
+const (
+	RegexMaxPatternBytes         = 64 << 10
+	RegexMaxCompiledPatternBytes = 64 << 10
+	RegexMaxParenthesisDepth     = 250
+	RegexMatchLimit              = 10_000_000
+	RegexMatchDepthLimit         = 10_000
+	RegexMatchHeapLimitKiB       = 8 << 10
+)
+```
 
-## Implementation plan (coarse)
+They are compiler configuration, not language arguments or per-call options:
 
-Fleshed out with the surface; the shape follows RFC 0227/0233:
+| Limit | Value | Enforcement | Rationale |
+| --- | ---: | --- | --- |
+| source pattern | 64 KiB of UTF-8 code units | `pcre2_set_max_pattern_length` | A regular expression approaching 64 KiB is already outside ordinary program use. The bound prevents attacker-controlled input from requesting unbounded compiler work. |
+| compiled pattern | 64 KiB | `pcre2_set_max_pattern_compiled_length` | The 8-bit library's default two-byte internal link size already limits compiled patterns to approximately this size. Hexal retains that smaller and faster representation instead of widening links for extreme patterns. |
+| parenthesis nesting | 250 | `pcre2_set_parens_nest_limit` | This pins PCRE2's documented default, which exists to protect the system stack during compilation. |
 
-1. **Phase 0 — vendor and qualify**: submodule at `pcre2-10.48`, build the
-   8-bit archive, pack entries in both packs plus the ordered-list extension
-   atomically, `lib/BUILD.md` record, license files, five-archive probe,
-   verify every PCRE2 API name against the vendored `pcre2.h`.
-2. **Phase 1 — dependency plumbing, no caller**: `RuntimePcre2` dependency
-   fact, `pcre2Selected` predicate, `hexal doctor` probe extension; no
-   artifact moves.
-3. **Phase 2 — language surface**: the settled `std/regex` module, type, and
-   functions plus the adapter; integration tests and snippets.
-4. **Phase 3 — reference sync** and **Phase 4 — full gate** (`go test ./...`,
-   `go vet`, tagged C23 suite, snippet-manifest rebuild with reviewed diff,
-   pack probes, rebuild `hexal` and restart `hexal play`).
+Pattern directives such as `(*LIMIT_MATCH=...)`, `(*LIMIT_DEPTH=...)`, and
+`(*LIMIT_HEAP=...)` may reduce Hexal's limits but can never increase them.
+There is no independent subject-length limit. `String` and `PCRE2_SIZE` already
+carry the subject length, and a second arbitrary ceiling would reject valid
+searches without bounding any resource not already bounded by the match-work
+and heap limits.
+
+Every `test`, `find`, and `capture` call receives a 10,000,000-loop match
+limit, 10,000 nested-backtracking depth limit, and 8 MiB PCRE2 heap limit.
+The match count retains PCRE2's established default work allowance while the
+finite depth and heap values replace defaults that are effectively unlimited
+for Hexal's purposes. These are conservative safety ceilings, not measured
+optima; adjacent implementation comments must not invent benchmark evidence
+for them. A later measured workload may justify revising `compiler/config`
+without changing the language API.
+
+## Implementation plan
+
+1. **Phase 0 — vendor and qualify.** Add the submodule at `pcre2-10.48`; build the
+   8-bit archive separately with each target pack's recorded command shape;
+   append the registry entry and add both pack payloads atomically; update
+   `lib/BUILD.md`, license files, and the combined-archive probe; verify every
+   PCRE2 API name against the vendored `pcre2.h`; retain the default two-byte
+   internal link size and verify the source-length, compiled-length, and
+   parenthesis-nesting setters.
+2. **Phase 1 — central configuration and dependency plumbing.** Add the six
+   `Regex*` constants to `compiler/config/config.go`. Append `pcre2` to
+   `compiler/specdata/dependencyRegistry`, add its logical compiler dependency
+   fact and demand predicate, extend manifest validation and `hexal doctor`,
+   and prove that this plumbing alone moves no generated artifact.
+3. **Phase 2 — checked language surface.** Add the compiler-owned `Pattern`,
+   `Span`, and `Match` identities and the six `std/regex` declarations through
+   the existing specdata/core-library registration path. Apply the stated
+   storable, equality, printing, ordering, and Dict-key rules in the checker;
+   add focused checker and full-pipeline tests for signatures and rejected
+   operations.
+4. **Phase 3 — private adapter.** Add `pcre2.c`/`pcre2.h` templates under the
+   generated component package directory. Implement Heap-backed general,
+   compile, and per-call match contexts; configure UTF/UCP and all six central
+   limits; implement compile/test/find/capture/free; normalize compile errors;
+   map no-match separately from engine/resource failures; and make every
+   success and failure path release the context that allocated its objects.
+5. **Phase 4 — demand and emission.** Select the component and logical
+   dependency only for the operations in Dependency demand, emit one private
+   adapter pair program-wide, keep PCRE2 declarations out of public headers,
+   and verify deterministic ordering and byte-identical output for programs
+   with no regex operation.
+6. **Phase 5 — exhaustive tests.** Add ordinary textual/component tests for
+   ownership, demand, includes, constants, and error mapping. Add integration
+   programs for Unicode/UCP, embedded options, optional captures, byte spans,
+   shared-pattern concurrency, and every rejection below. Add tagged C23
+   fixtures for actual matching and each resource-limit result against every
+   qualified pack. Rebuild the snippet manifest only for genuinely affected
+   artifacts and review its family-level diff.
+7. **Phase 6 — synchronize and hand off.** Update `docs/reference.md` once,
+   remove the owning `docs/status.md` entry, run ordinary tests and vet, run
+   the tagged C23 lane and pack probes, rebuild `bin/hexal`, and restart the
+   workbench through `hexal play`.
 
 ## Validation
 
-**Not yet exhaustive** — this section becomes the complete definition of done
-when the spec is fleshed out and its Status changes. The durable invariants
-that survive whatever the surface becomes:
+**Exhaustive.** This section is the complete definition of done:
 
 - Both shipped pack manifests declare `pcre2` in the closed ordered list with
   complete file hashes; the driver rejects missing, mismatched, corrupt, or
@@ -225,8 +293,24 @@ that survive whatever the surface becomes:
   `pcre2_*` elsewhere; no PCRE2 option flag or error code appears in Hexal.
 - No PCRE2-allocated pointer is ever reachable as a Hexal value or passed to
   `Heap.free`.
-- Every PCRE2 error surface is a Hexal-owned `Error` with a fixed,
-  allocation-free message carrying no native code or offset number.
+- Every PCRE2 error surface is a Hexal-owned `Error` carrying no native code or
+  dependency-owned English text. Compile failure includes the normalized byte
+  offset; match/resource failures use stable Hexal-owned messages.
+- A source pattern through 64 KiB is admitted to compilation subject to the
+  independent compiled-size and syntax rules; the first byte beyond that
+  limit returns `ResourceExhausted`. A pattern whose compiled representation
+  exceeds 64 KiB and a pattern nested beyond 250 parentheses also return
+  `ResourceExhausted` with stable Hexal-owned messages.
+- Subjects have no separate Hexal length ceiling. A fixture with a subject
+  larger than 64 KiB reaches matching rather than being rejected for size.
+- Pattern-embedded `LIMIT_*` directives can lower but cannot raise the three
+  selected per-match limits. Every operation passes 10,000,000 match steps,
+  10,000 depth, and 8,192 KiB heap from `compiler/config` to PCRE2. Focused
+  catastrophic-backtracking, nesting, and heap-heavy fixtures cross each
+  boundary and return `ResourceExhausted` rather than hanging, trapping, or
+  silently reporting no match.
+- The six PCRE2 policy constants have one owner in `compiler/config`; generated
+  C contains their rendered values but no independently maintained duplicate.
 - The ordinary Go suite passes with no C toolchain installed; runtime
   behavior is verified by external C23 fixtures against each qualified pack.
 
@@ -241,9 +325,8 @@ before the dependent phase starts.
 
 ## Implementation readiness
 
-**Not ready — skeleton by request.** The dependency boundary, pack layout,
-and compiler/driver contract are settled because they copy the shipped
-pattern verbatim; the language surface and matching semantics are open under
-Open questions. Start the flesh-out there, then upgrade Status, pin the
-surface, and make Validation exhaustive — Phase 0 may proceed independently
-of the flesh-out, since qualifying the archive depends on nothing open.
+**Ready.** The dependency and allocation boundaries, language surface,
+diagnostics, Unicode behavior, ownership, absence of an arbitrary subject cap,
+six centrally owned limits, exhaustive Validation, and ordered implementation
+work are settled. Start at Phase 0; no remaining design decision must be made
+by the implementer.

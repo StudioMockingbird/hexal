@@ -46,6 +46,11 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		return nil, objectErr
 	}
 	emission.objects = objects
+	sharedEntries, sharedEntriesErr := discoverSharedDictEntries(program)
+	if sharedEntriesErr != nil {
+		return nil, sharedEntriesErr
+	}
+	emission.sharedDictEntries = sharedEntries
 	unionState, unionErr := discoverGeneratedUnions(program)
 	if unionErr != nil {
 		return nil, unionErr

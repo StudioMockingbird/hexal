@@ -582,3 +582,45 @@ func (environment *Environment) DictType(key, value Type) Type {
 	environment.arena.dictTypes[canonicalKey] = typ
 	return typ
 }
+
+func (environment *Environment) DictEntryType(key, value Type) Type {
+	if environment == nil || !isCanonicalForEnvironment(environment, key, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
+		!isCanonicalForEnvironment(environment, value, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
+		!IsCompleteValue(key) || !IsCompleteValue(value) || key.Signature != nil || value.Signature != nil {
+		return Type{}
+	}
+	canonicalKey := "dict-entry:" + key.CanonicalKey + "," + value.CanonicalKey
+	if cached, ok := environment.arena.dictEntryTypes[canonicalKey]; ok {
+		return cached
+	}
+	name := "DictEntry<" + key.Name + ", " + value.Name + ">"
+	identity := newTypeIdentity()
+	identity.signature = canonicalKey
+ cName := DictEntryCName(key, value)
+	object := &ObjectType{
+		Name:  name,
+		CName: cName,
+		Members: []ObjectMember{
+			{Name: "key", Type: key, Use: NewTypeUse(key)},
+			{Name: "value", Type: value, Use: NewTypeUse(value)},
+		},
+	}
+	object.identity = identity
+	identity.object = object
+	typ := Type{Name: name, CName: object.CName, CanonicalKey: canonicalKey, Object: object, identity: identity}
+	environment.arena.ReserveDefinitionName(typ.CName, typ)
+	environment.arena.dictEntryTypes[canonicalKey] = typ
+	return typ
+}
+
+func DictEntryCName(key, value Type) string {
+	return "hex_t_DictEntry_" + SanitizeIdentifier(key.CanonicalKey) + "_" + SanitizeIdentifier(value.CanonicalKey)
+}
+
+func IsDictEntry(typ Type) bool {
+	if typ.Object == nil || len(typ.Object.Members) != 2 || typ.Object.Members[0].Name != "key" || typ.Object.Members[1].Name != "value" {
+		return false
+	}
+	key, value := typ.Object.Members[0].Type, typ.Object.Members[1].Type
+	return typ.CanonicalKey == "dict-entry:"+key.CanonicalKey+","+value.CanonicalKey && typ.CName == DictEntryCName(key, value) && typ.Object.CName == typ.CName
+}

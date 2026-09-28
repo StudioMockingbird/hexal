@@ -77,13 +77,14 @@ type TypeDeclaration struct {
 // Declaration binds a name to a resolved type, binding mode, and checked
 // initializer.
 type Declaration struct {
-	Name    string
-	Binding BindingID
-	Type    compilerTypes.Type
-	TypeUse compilerTypes.TypeUse
-	Source  Operand
-	Mutable bool
-	Span    span.Span
+	Name     string
+	Binding  BindingID
+	Type     compilerTypes.Type
+	TypeUse  compilerTypes.TypeUse
+	Source   Operand
+	Pipeline *PipelineTerminal
+	Mutable  bool
+	Span     span.Span
 	// Captured is true when an entry-module named function or method captures
 	// this root binding, so the generator lowers it as an entry-environment
 	// field rather than an automatic local.
@@ -103,11 +104,12 @@ func (Declaration) statementNode() {}
 
 // Assignment writes the checked source expression to a checked place.
 type Assignment struct {
-	Name   string
-	Target Operand
-	Type   compilerTypes.Type
-	Source Operand
-	Span   span.Span
+	Name     string
+	Target   Operand
+	Type     compilerTypes.Type
+	Source   Operand
+	Pipeline *PipelineTerminal
+	Span     span.Span
 }
 
 func (Assignment) statementNode() {}
@@ -162,6 +164,7 @@ func (WhileStatement) statementNode() {}
 type ForStatement struct {
 	Binders    []ForBinder
 	Source     Operand
+	Pipeline   *Pipeline
 	Body       []Statement
 	BodyDefers []DeferredAction
 	Span       span.Span
@@ -228,8 +231,9 @@ func (DeferStatement) statementNode() {}
 // ReturnStatement leaves the enclosing function. Value is nil for a bare
 // return, which only a no-return function accepts.
 type ReturnStatement struct {
-	Value *Operand
-	Span  span.Span
+	Value    *Operand
+	Pipeline *PipelineTerminal
+	Span     span.Span
 }
 
 func (ReturnStatement) statementNode() {}
@@ -241,8 +245,9 @@ func (ReturnStatement) statementNode() {}
 // Value is nil for a bare return or entry-module fallthrough, both of which
 // record status zero.
 type RootReturnStatement struct {
-	Value *Operand
-	Span  span.Span
+	Value    *Operand
+	Pipeline *PipelineTerminal
+	Span     span.Span
 }
 
 func (RootReturnStatement) statementNode() {}

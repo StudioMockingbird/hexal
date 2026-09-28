@@ -38,6 +38,8 @@ type expressionTypeHint struct {
 
 type checkedExpression struct {
 	source      Operand
+	pipeline    *Pipeline
+	terminal    *PipelineTerminal
 	typ         compilerTypes.Type
 	use         compilerTypes.TypeUse
 	storageType compilerTypes.Type
@@ -52,21 +54,61 @@ type checkedExpression struct {
 	loopBinder  bool // a for-in binder: fresh and immutable
 }
 
+type Pipeline struct {
+	Source         Operand
+	SourceType     compilerTypes.Type
+	SourceElement  compilerTypes.Type
+	Element        compilerTypes.Type
+	Projection     string
+	CollectionRoot BindingID
+	Adaptors       []PipelineAdaptor
+}
+
+type PipelineAdaptor struct {
+	Name     string
+	Callback Operand
+	Input    compilerTypes.Type
+	Output   compilerTypes.Type
+}
+
+type PipelineTerminal struct {
+	Pipeline *Pipeline
+	Kind     string
+	Heap     *Operand
+	Initial  *Operand
+	Combiner *Operand
+	Result   compilerTypes.Type
+}
+
 // checkInitializer resolves a syntax expression into one checked operand.
 // Numeric literals use the expected primitive type as context; operation trees
 // carry that context only into untyped literals.
 func checkInitializer(initializer parser.Expression, expectedUse compilerTypes.TypeUse, fallback lexer.Token, ctx checkContext) initializerValue {
-	return checkInitializerRest(initializer, expectedUse, fallback, ctx, false)
+	return checkInitializerRest(initializer, expectedUse, fallback, ctx, false, false)
 }
 
 // checkInitializerRest is checkInitializer with an explicit allowance for a
 // rest-backed Slice value. Only a fixed local alias, a non-retaining
 // compiler-owned formatting operation, and iteration may consume one; every
 // other destination rejects it here.
-func checkInitializerRest(initializer parser.Expression, expectedUse compilerTypes.TypeUse, fallback lexer.Token, ctx checkContext, allowRestBacked bool) initializerValue {
+func checkInitializerRest(initializer parser.Expression, expectedUse compilerTypes.TypeUse, fallback lexer.Token, ctx checkContext, allowRestBacked, allowPipelineTerminal bool) initializerValue {
 	// Initializers are the boundary where exact constants can be retained. A
 	// later mutable read still becomes an expression through valueFromPlace.
 	checked := checkExpression(initializer, expressionContext{expected: expectedUse, foldConstants: true}, ctx)
+	if checked.pipeline != nil {
+		diagnostic := messageAt(checked.token, diag.LazyPipelineMustBeConsumed())
+		return checkedExpression{token: checked.token, diagnostic: &diagnostic}
+	}
+	if checked.terminal != nil && !allowPipelineTerminal {
+		diagnostic := messageAt(checked.token, diag.LazyPipelineTerminalPosition())
+		return checkedExpression{token: checked.token, diagnostic: &diagnostic}
+	}
+	if checked.terminal != nil {
+		checked.typ = checked.terminal.Result
+		checked.use = compilerTypes.NewTypeUse(checked.typ)
+		checked.source.Type = checked.typ
+		return checked
+	}
 	// A value whose type is an open type parameter may become a member of the
 	// expected union under some substitution, so union injection and physical
 	// reconciliation are deferred rather than rejected. The concrete
@@ -294,7 +336,16 @@ func checkQualifiedTypeConstructorCall(call parser.CallExpression, property lexe
 // checkValue resolves an expression in value context. Assignment and
 // address-taking call checkPlace instead to retain place mode.
 func checkValue(expression parser.Expression, ctx checkContext) checkedExpression {
-	return checkExpression(expression, expressionContext{}, ctx)
+	checked := checkExpression(expression, expressionContext{}, ctx)
+	if checked.pipeline != nil {
+		diagnostic := messageAt(checked.token, diag.LazyPipelineMustBeConsumed())
+		return checkedExpression{token: checked.token, diagnostic: &diagnostic}
+	}
+	if checked.terminal != nil {
+		diagnostic := messageAt(checked.token, diag.LazyPipelineTerminalPosition())
+		return checkedExpression{token: checked.token, diagnostic: &diagnostic}
+	}
+	return checked
 }
 
 // checkContext bundles the scope and type environment threaded together

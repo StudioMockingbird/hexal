@@ -426,7 +426,14 @@ func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDept
 	if diagnosticsFromSource := initializerDiagnostics(source); len(diagnosticsFromSource) > 0 {
 		return checked, append(diagnostics, diagnosticsFromSource...)
 	}
-	if source.typ.List != nil || source.typ.Dict != nil {
+	pipeline := source.pipeline
+	if pipeline != nil {
+		if len(statement.Binders) != 1 {
+			return checked, append(diagnostics, messageAt(statement.Keyword, diag.LazyPipelineForBinderCount()))
+		}
+		source.source = pipeline.Source
+		source.typ = pipeline.SourceType
+	} else if source.typ.List != nil || source.typ.Dict != nil {
 		if diagnostic := checkFreedCollectionUse(source.source, statement.Keyword, ctx.names.flow); diagnostic != nil {
 			return checked, append(diagnostics, *diagnostic)
 		}
@@ -436,12 +443,18 @@ func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDept
 	for index, binder := range statement.Binders {
 		binderNames[index] = binder.Name
 	}
-	binderTypes, arityDiagnostic := forBinderTypes(source.typ, binderNames)
-	if arityDiagnostic != nil {
-		return checked, append(diagnostics, *arityDiagnostic)
-	}
-	if len(binderTypes) != len(statement.Binders) {
-		return checked, append(diagnostics, messageAt(statement.Keyword, diag.ForBinderCountMismatch()))
+	var binderTypes []compilerTypes.Type
+	if pipeline != nil {
+		binderTypes = []compilerTypes.Type{pipeline.Element}
+	} else {
+		var arityDiagnostic *compilerTypes.Diagnostic
+		binderTypes, arityDiagnostic = forBinderTypes(source.typ, binderNames)
+		if arityDiagnostic != nil {
+			return checked, append(diagnostics, *arityDiagnostic)
+		}
+		if len(binderTypes) != len(statement.Binders) {
+			return checked, append(diagnostics, messageAt(statement.Keyword, diag.ForBinderCountMismatch()))
+		}
 	}
 	if compilerTypes.IsText(source.typ) {
 		// Text iteration's element type belongs to the binder annotation:
@@ -481,6 +494,7 @@ func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDept
 		ctx.names.recordChildReturnFlows(bodyScope.returnFlows)
 	}
 	checked.Source = source.source
+	checked.Pipeline = pipeline
 	// Iterator invalidation: direct structural mutations and frees through any
 	// copied handle are rejected when the active traversal can identify them;
 	// other copied-handle mutations remain defined by the generated version
@@ -489,7 +503,10 @@ func checkForStatement(statement parser.ForStatement, ctx checkContext, loopDept
 	if len(bodyDiagnostics) == 0 && (source.typ.List != nil || source.typ.InlineList != nil || source.typ.Dict != nil) {
 		if binding := baseBindingID(&source.source.Node); binding != 0 {
 			root := collectionRootForOperand(source.source, ctx.names, binding)
-			if mutationDiagnostics := checkForIterationMutations(binding, root, source.typ, body, ctx.names.table); len(mutationDiagnostics) > 0 {
+			if pipeline != nil {
+				root = pipeline.CollectionRoot
+			}
+			if mutationDiagnostics := checkForIterationMutations(binding, root, source.typ, body, ctx.names); len(mutationDiagnostics) > 0 {
 				diagnostics = append(diagnostics, mutationDiagnostics...)
 				return checked, diagnostics
 			}
@@ -555,12 +572,13 @@ func forBinderTypes(source compilerTypes.Type, binders []lexer.Token) ([]compile
 // later version check would itself dereference freed storage. Other direct
 // structural mutations are rejected when they use the loop source binding;
 // copied-handle mutations remain defined by the generated version check.
-func checkForIterationMutations(sourceBinding, sourceRoot BindingID, collectionType compilerTypes.Type, body []Statement, table *span.Table) compilerTypes.Diagnostics {
+func checkForIterationMutations(sourceBinding, sourceRoot BindingID, collectionType compilerTypes.Type, body []Statement, names *scope) compilerTypes.Diagnostics {
 	scanner := iterationMutationScanner{
 		sourceBinding:  sourceBinding,
 		sourceRoot:     sourceRoot,
 		collectionType: collectionType,
-		table:          table,
+		table:          names.table,
+		names:          names,
 	}
 	scanner.walkStatements(body)
 	return scanner.diagnostics
@@ -572,6 +590,7 @@ type iterationMutationScanner struct {
 	collectionType compilerTypes.Type
 	diagnostics    compilerTypes.Diagnostics
 	table          *span.Table
+	names          *scope
 }
 
 func (scanner *iterationMutationScanner) report(s span.Span, kind diag.IterationMutationKind) {
@@ -652,6 +671,13 @@ func (scanner *iterationMutationScanner) walkExpression(node *Expression, s span
 		if scanner.callReceivesSource(node) {
 			scanner.report(s, diag.PassCollectionDuringIteration)
 		}
+		for capturedName := range scanner.names.envCaptures[calledFunctionName(node)] {
+			captured, status := scanner.names.lookup(capturedName)
+			if status == nameFound && bindingCollectionRoot(captured) == scanner.sourceRoot {
+				scanner.report(s, diag.PassCollectionDuringIteration)
+				break
+			}
+		}
 	}
 
 	scanner.walkExpression(node.Operand, s)
@@ -663,6 +689,16 @@ func (scanner *iterationMutationScanner) walkExpression(node *Expression, s span
 	if node.Constant != nil {
 		scanner.walkOperand(*node.Constant, s)
 	}
+}
+
+func calledFunctionName(node *Expression) string {
+	if node.Kind == MethodCallExpression {
+		return node.Name
+	}
+	if node.Operand != nil && node.Operand.Kind == FunctionReferenceExpression {
+		return node.Operand.Name
+	}
+	return ""
 }
 
 func (scanner *iterationMutationScanner) callReceivesSource(node *Expression) bool {
@@ -751,7 +787,7 @@ func checkReturnStatement(statement parser.ReturnStatement, ctx checkContext) (S
 	if ctx.names.resultUse != nil {
 		resultUse = *ctx.names.resultUse
 	}
-	value := checkInitializer(statement.Value, resultUse, statement.Keyword, ctx)
+	value := checkInitializerRest(statement.Value, resultUse, statement.Keyword, ctx, false, true)
 	if valueDiagnostics := initializerDiagnostics(value); len(valueDiagnostics) > 0 {
 		return checked, valueDiagnostics
 	}
@@ -777,6 +813,7 @@ func checkReturnStatement(statement parser.ReturnStatement, ctx checkContext) (S
 	}
 	source := value.source
 	checked.Value = &source
+	checked.Pipeline = value.terminal
 	// A collection return value is an ordinary shallow copy; the caller
 	// accepts the cleanup responsibility the function documents.
 	return checked, nil
@@ -791,7 +828,7 @@ func checkRootReturnStatement(statement parser.ReturnStatement, ctx checkContext
 	if statement.Value == nil {
 		return checked, nil
 	}
-	value := checkInitializer(statement.Value, compilerTypes.NewTypeUse(compilerTypes.UInt8), statement.Keyword, ctx)
+	value := checkInitializerRest(statement.Value, compilerTypes.NewTypeUse(compilerTypes.UInt8), statement.Keyword, ctx, false, true)
 	if valueDiagnostics := initializerDiagnostics(value); len(valueDiagnostics) > 0 {
 		return checked, valueDiagnostics
 	}
@@ -800,6 +837,7 @@ func checkRootReturnStatement(statement parser.ReturnStatement, ctx checkContext
 	}
 	source := value.source
 	checked.Value = &source
+	checked.Pipeline = value.terminal
 	return checked, nil
 }
 

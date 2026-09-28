@@ -215,6 +215,53 @@ func TestForInRejectsAliasedFreeAndUnprovenCalls(t *testing.T) {
 	assertRejects(t, freeSource, "cannot free collection during iteration")
 }
 
+func TestForInRejectsCallsThatCaptureTheTraversedCollection(t *testing.T) {
+	mutation := "let heap: Heap = Heap()\n" +
+		"let values: List<Int32> = List<Int32>(heap)\n" +
+		"values.push(1)\n" +
+		"fun mutate() do\n    values.push(2)\nend\n" +
+		"for value in values do\n    mutate()\nend\n"
+	assertRejects(t, mutation, "cannot pass traversed collection to call during iteration")
+
+	free := "let heap: Heap = Heap()\n" +
+		"let values: List<Int32> = List<Int32>(heap)\n" +
+		"values.push(1)\n" +
+		"fun release() do\n    values.free(heap)\nend\n" +
+		"for value in values do\n    release()\nend\n"
+	assertRejects(t, free, "cannot pass traversed collection to call during iteration")
+}
+
+func TestPipelineForFusesListTraversal(t *testing.T) {
+	source := "fun even(value: Int32): Bool do\n    return (value % 2) == 0\nend\n" +
+		"fun double(value: Int32): Int32 do\n    return value * 2\nend\n" +
+		"fun run(heap: Heap) do\n" +
+		"    let values: List<Int32> = List<Int32>(heap)\n" +
+		"    values.push(1)\n    values.push(2)\n" +
+		"    for value in values.filter(even).map(double) do\n        print(value)\n    end\nend\n"
+	result := assertCompiles(t, source)
+	c := rootC(t, result)
+	if strings.Count(c, "for (size_t hex_pipeline_") != 1 || strings.Count(c, "hex_list_new_Int32(") != 1 {
+		t.Fatalf("generated C = %q, want one fused loop and no intermediate List", c)
+	}
+}
+
+func TestPipelineToListAndReduceLowerWithoutIntermediates(t *testing.T) {
+	source := "fun even(value: Int32): Bool do\n    return (value % 2) == 0\nend\n" +
+		"fun double(value: Int32): Int32 do\n    return value * 2\nend\n" +
+		"fun add(total: Int32, value: Int32): Int32 do\n    return total + value\nend\n" +
+		"fun run(heap: Heap): Int32 do\n" +
+		"    let values: List<Int32> = List<Int32>(heap)\n" +
+		"    values.push(1)\n    values.push(2)\n" +
+		"    let mapped = values.filter(even).map(double).to_list(heap)\n" +
+		"    let total = values.map(double).reduce(0, add)\n" +
+		"    mapped.free(heap)\n    values.free(heap)\n    return total\nend\n"
+	result := assertCompiles(t, source)
+	c := rootC(t, result)
+	if strings.Count(c, "for (size_t hex_pipeline_") != 2 || !strings.Contains(c, "hex_list_push_Int32(hex_pipeline_1_result") || !strings.Contains(c, "hex_pipeline_2_combiner(hex_pipeline_2_result") {
+		t.Fatalf("generated C = %q, want fused materialization and reduction loops", c)
+	}
+}
+
 func TestForInCopiedMutationUsesVersionCheck(t *testing.T) {
 	result := assertCompiles(t, "fun demo(h: Heap) do\n"+"    let values: List<Int32> = List<Int32>(h)\n"+"    let alias: List<Int32> = values\n"+"    values.push(1)\n"+"    for value in values do\n"+"        alias.push(value)\n"+"    end\n"+"end")
 	c := rootC(t, result)

@@ -130,7 +130,9 @@ type programEmission struct {
 	stashUsed bool
 	// poolState merges every module's reachable Pool<T> specializations,
 	// each fully monomorphized like List<T> (see pool_component.go).
-	poolState *generatedPoolState
+	poolState            *generatedPoolState
+	sharedDictEntries    []*compilerTypes.ObjectType
+	sharedTypeComponents []string
 	// requirements is the demand-driven standard-header and hex_eos set built
 	// from every reachable module's checked types and selected helper
 	// families.
@@ -191,6 +193,10 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 	sizeSeen := make(map[string]bool)
 	spawnedSites := make(map[string]bool)
 	for _, module := range modules {
+		for object := range module.sharedDictEntries {
+			merged.sharedDictEntries = append(merged.sharedDictEntries, object)
+		}
+		merged.sharedTypeComponents = append(merged.sharedTypeComponents, moduleComponentHeaders(module)...)
 		merged.errorUsed = merged.errorUsed || module.errorUsed
 		if module.equalityState != nil {
 			merged.equalityNeed = merged.equalityNeed || module.equalityState.needString
@@ -278,6 +284,8 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		mergeNumericSpecs(merged, module)
 		mergeEqualityTypes(merged, module)
 	}
+	merged.sharedDictEntries = uniqueObjectsByCName(merged.sharedDictEntries)
+	merged.sharedTypeComponents = orderedSharedTypeComponents(merged.sharedTypeComponents)
 	if merged.networkState != nil && (merged.networkState.dns || merged.networkState.tcp) {
 		// DNS and TCP have no synchronous fallback path: every reachable
 		// operation parks, so the scheduler bootstrap is required even
@@ -305,6 +313,11 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		// every other Hexal-owned dynamic allocation.
 		merged.heapState.required = true
 	}
+	merged.sharedDictEntries = uniqueObjectsByCName(merged.sharedDictEntries)
+	if merged.sharedDictEntries == nil {
+		return nil, generatorDiagnostic()
+	}
+	merged.sharedTypeComponents = orderedSharedTypeComponents(merged.sharedTypeComponents)
 	sortMergedNumericSpecs(merged)
 	sortMergedEqualityTypes(merged)
 	merged.sliceState.slices = mergeTypeOrders(viewOrders)

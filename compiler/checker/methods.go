@@ -546,6 +546,9 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 			}
 		}
 	}
+	if pipelineCall, handled := checkPipelineMethodCall(call, callee, ctx); handled {
+		return pipelineCall
+	}
 	receiver := checkedExpression{}
 	switch callee.Receiver.(type) {
 	case parser.VariableExpression, parser.PropertyExpression, parser.IndexExpression:

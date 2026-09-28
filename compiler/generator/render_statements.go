@@ -519,6 +519,18 @@ func writeDeclarationStatement(statement checker.Declaration, body *strings.Buil
 		}
 		name = allocated
 	}
+	if statement.Pipeline != nil {
+		result, err := renderPipelineTerminalValue(body, statement.Pipeline, state, indent)
+		if err != nil {
+			return err
+		}
+		if statement.Captured {
+			err = renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: name, Value: result})
+		} else {
+			err = renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: declaration(statement.Type, name, statement.Mutable), Value: result})
+		}
+		return err
+	}
 	declared := declaration(statement.Type, name, statement.Mutable)
 	if statement.Captured {
 		declared = name
@@ -556,6 +568,13 @@ func writeAssignmentStatement(statement checker.Assignment, body *strings.Builde
 	}
 	if target == "" {
 		return unknownExpressionDiagnostic()
+	}
+	if statement.Pipeline != nil {
+		result, err := renderPipelineTerminalValue(body, statement.Pipeline, state, indent)
+		if err != nil {
+			return err
+		}
+		return renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: target, Value: result})
 	}
 	if statement.Source.Node.Kind == checker.MatchExpression {
 		resultName, matchErr := renderMatchStatement(body, statement.Source.Node, state, indent)
@@ -606,6 +625,34 @@ func writeReturnStatement(statement checker.ReturnStatement, body *strings.Build
 	if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
 		return err
 	}
+	if statement.Pipeline != nil {
+		result, err := renderPipelineTerminalValue(body, statement.Pipeline, state, indent)
+		if err != nil {
+			return err
+		}
+		if hasPendingActions(state) {
+			state.returnCounter++
+			name := fmt.Sprintf("hex_return_%d", state.returnCounter)
+			if err := renderInto(body, "module.c", "match_assign", matchAssignModel{Indent: indent, Target: declaration(statement.Pipeline.Result, name, false), Value: result}); err != nil {
+				return err
+			}
+			if hasPendingErrDefers(state) {
+				state.returnCounter++
+				errorName := fmt.Sprintf("hex_err_%d", state.returnCounter)
+				if err := renderInto(body, "module.c", "error_exit_decl", forStmtLineModel{Indent: indent, Name: errorName, Value: returnErrorExit(statement.Pipeline.Result, name, state.tags)}); err != nil {
+					return err
+				}
+				if err := unwindAllDefers(body, state, indent, errorName); err != nil {
+					return err
+				}
+			} else if err := unwindAllDefers(body, state, indent, "false"); err != nil {
+				return err
+			}
+			result = name
+		}
+		err = renderInto(body, "module.c", "return_stmt", forStmtLineModel{Indent: indent, Value: result})
+		return err
+	}
 	text, returnErr := renderReturnStatement(statement, frame.result, state, indent)
 	if returnErr != nil {
 		return returnErr
@@ -624,6 +671,20 @@ func writeRootReturnStatement(statement checker.RootReturnStatement, body *strin
 		return unknownExpressionDiagnostic()
 	}
 	if err := writeLineDirective(body, state.line(statement.Span), state.filename); err != nil {
+		return err
+	}
+	if statement.Pipeline != nil {
+		result, err := renderPipelineTerminalValue(body, statement.Pipeline, state, indent)
+		if err != nil {
+			return err
+		}
+		if err := renderInto(body, "module.c", "exit_status_value", forStmtLineModel{Indent: indent, Value: result}); err != nil {
+			return err
+		}
+		if err := unwindAllDefers(body, state, indent, "false"); err != nil {
+			return err
+		}
+		err = renderInto(body, "module.c", "goto_exit", indentModel{Indent: indent})
 		return err
 	}
 	text, returnErr := renderRootReturnStatement(statement, state, indent)
