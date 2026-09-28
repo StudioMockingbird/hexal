@@ -1,13 +1,13 @@
 # RFC 0202: Web Server — Middleware Architecture
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Deferred; not scheduled. Depends on the web server syntax (RFC 0210)
-  and lowering (RFC 0194) landing first
+- Status: Deferred; middleware is not part of the minimum HTTP server
+  milestone. RFC 0210 owns the basic router and route-registration syntax.
 - Created: 2026-09-15
-- Updated: 2026-09-15
-- Depends on: RFC 0210 (web server syntax), RFC 0194 (web server lowering),
-  and the implemented RFCs 0145 (libuv runtime), 0146 (mimalloc), and 0168
-  (libuv capability arc)
+- Updated: 2026-09-28
+- Depends on: RFC 0210 (built-in HTTP types and router), RFC 0208 (backend
+  contract), RFC 0194 (default backend), and the implemented RFCs 0145 (libuv
+  runtime), 0146 (mimalloc), and 0168 (libuv capability arc)
 - Coordinates with: RFC 0210 (web server syntax) for the Request and Response
   types, and RFC 0186 (stdlib boundary) for module placement
 - Does not add: specific middleware implementations (logging, compression,
@@ -37,7 +37,11 @@ separates cross-cutting concerns from business logic.
 | Middleware error handling | Pick up | Required for resilience |
 | Conditional middleware | Skip in v1 | Complexity disproportionate to initial surface |
 
-## Source surface
+## Earlier source-surface sketch (superseded)
+
+The Router API below is historical. The basic Router and its canonical
+`route(method, path, handler)` operation are owned by RFC 0210. This RFC is
+limited to a future middleware layer built on that contract.
 
 ### Middleware function
 

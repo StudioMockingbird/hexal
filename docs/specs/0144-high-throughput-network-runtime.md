@@ -1,8 +1,10 @@
 # RFC 0144: High-Throughput Network Runtime
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Open Discussion; not scheduled. Design state: Draft; architecture goals recorded, implementation not started
+- Status: Open Discussion; active prerequisite for the HTTP server; architecture
+  draft, implementation not started
 - Created: 2026-09-07
+- Updated: 2026-09-28
 - Scope: runtime foundations required for high-throughput TCP and HTTP servers
 - Depends on: RFC 0132 (root scheduler bootstrap)
 - Coordinates with: RFC 0039 (C interoperability), RFC 0052 (C compiler

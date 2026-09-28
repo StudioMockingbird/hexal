@@ -48,57 +48,80 @@
     hex_print_quoted_text(out, value->hex_m_message.data, value->hex_m_message.byte_length);
     hex_print_text(out, (const uint8_t *)" }", 2);
 }
-{{end}}{{define "print_nested_forward"}}{{range .Names}}static void hex_print_nested_{{.}}(hex_print_buffer *out, const void *value);
-{{end}}{{end}}{{define "print_nested_string"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, const void *value) {
+{{end}}{{define "print_nested_forward"}}{{range .Names}}static void hex_print_nested_{{.}}(hex_print_buffer *out, int depth, const void *value);
+{{end}}{{end}}{{define "print_nested_string"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, int depth, const void *value) {
+    (void)depth;
     const hex_string *text = value;
     hex_print_quoted_text(out, text->data, text->byte_length);
 }
-{{end}}{{define "print_nested_inline_string"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, const void *value) {
+{{end}}{{define "print_nested_inline_string"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, int depth, const void *value) {
+    (void)depth;
     hex_text text = hex_text_inline(value);
     hex_print_quoted_text(out, text.data, text.length);
 }
-{{end}}{{define "print_nested_error"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, const void *value) {
+{{end}}{{define "print_nested_error"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, int depth, const void *value) {
+    (void)depth;
     hex_print_error_nested(out, value);
 }
-{{end}}{{define "print_nested_error_kind"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, const void *value) {
+{{end}}{{define "print_nested_error_kind"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, int depth, const void *value) {
+    (void)depth;
     {{.HeaderType}} text = hex_error_kind_header(*(const hex_t_ErrorKind *)value);
     hex_print_text(out, text.data, text.byte_length);
 }
-{{end}}{{define "print_nested_bool"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, const void *value) {
+{{end}}{{define "print_nested_bool"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, int depth, const void *value) {
+    (void)depth;
     hex_print_bool(out, *(const bool *)value);
 }
-{{end}}{{define "print_nested_nil"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, const void *value) {
+{{end}}{{define "print_nested_nil"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, int depth, const void *value) {
     (void)value;
+    (void)depth;
     hex_print_nil(out);
 }
-{{end}}{{define "print_nested_int"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, const void *value) {
+{{end}}{{define "print_nested_int"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, int depth, const void *value) {
+    (void)depth;
     hex_print_int{{.Bits}}(out, *(const int{{.Bits}}_t *)value);
 }
-{{end}}{{define "print_nested_size"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, const void *value) {
+{{end}}{{define "print_nested_size"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, int depth, const void *value) {
+    (void)depth;
     hex_print_size(out, *(const size_t *)value);
 }
-{{end}}{{define "print_nested_uint"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, const void *value) {
+{{end}}{{define "print_nested_uint"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, int depth, const void *value) {
+    (void)depth;
     hex_print_uint{{.Bits}}(out, *(const uint{{.Bits}}_t *)value);
 }
-{{end}}{{define "print_nested_float32"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, const void *value) {
+{{end}}{{define "print_nested_float32"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, int depth, const void *value) {
+    (void)depth;
     hex_print_float32(out, *(const float *)value);
 }
-{{end}}{{define "print_nested_float64"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, const void *value) {
+{{end}}{{define "print_nested_float64"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, int depth, const void *value) {
+    (void)depth;
     hex_print_float64(out, *(const double *)value);
 }
-{{end}}{{define "print_nested_object_empty"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, const void *value) {
+{{end}}{{define "print_nested_object_empty"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, int depth, const void *value) {
+    if (depth >= {{.DepthLimit}}) {
+        hex_print_text(out, (const uint8_t *)"...", 3);
+        return;
+    }
     (void)value;
     hex_print_text(out, (const uint8_t *)"{{.Name}} {}", {{.TextLen}});
 }
-{{end}}{{define "print_nested_object"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, const void *value) {
+{{end}}{{define "print_nested_object"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, int depth, const void *value) {
+    if (depth >= {{.DepthLimit}}) {
+        hex_print_text(out, (const uint8_t *)"...", 3);
+        return;
+    }
     const {{.CName}} *v = value;
     hex_print_text(out, (const uint8_t *)"{{.Name}} { ", {{.NameLen}});
 {{range .Members}}{{if .Separator}}    hex_print_text(out, (const uint8_t *)", ", 2);
 {{end}}    hex_print_text(out, (const uint8_t *)"{{.Label}}", {{.LabelLen}});
-    hex_print_nested_{{.NestedCName}}(out, {{.Arg}});
+    hex_print_nested_{{.NestedCName}}(out, depth + 1, {{.Arg}});
 {{end}}    hex_print_text(out, (const uint8_t *)" }", 2);
 }
-{{end}}{{define "print_nested_adt"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, const void *value) {
+{{end}}{{define "print_nested_adt"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, int depth, const void *value) {
+    if (depth >= {{.DepthLimit}}) {
+        hex_print_text(out, (const uint8_t *)"...", 3);
+        return;
+    }
     const {{.CName}} *v = value;
     switch (v->tag) {
 {{range .Variants}}    case {{.Tag}}:
@@ -106,23 +129,31 @@
 {{if .Payload}}        hex_print_text(out, (const uint8_t *)" { ", 3);
 {{range .Payload}}{{if .Separator}}        hex_print_text(out, (const uint8_t *)", ", 2);
 {{end}}        hex_print_text(out, (const uint8_t *)"{{.Label}}", {{.LabelLen}});
-        hex_print_nested_{{.NestedCName}}(out, {{.Arg}});
+        hex_print_nested_{{.NestedCName}}(out, depth + 1, {{.Arg}});
 {{end}}        hex_print_text(out, (const uint8_t *)" }", 2);
 {{end}}        break;
 {{end}}    default:
         abort();
     }
 }
-{{end}}{{define "print_nested_sequence"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, const void *value) {
+{{end}}{{define "print_nested_sequence"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, int depth, const void *value) {
+    if (depth >= {{.DepthLimit}}) {
+        hex_print_text(out, (const uint8_t *)"...", 3);
+        return;
+    }
     const {{.CName}} *v = value;
     hex_print_text(out, (const uint8_t *)"[", 1);
     for (size_t index = 0; index < v->length; index++) {
         if (index > 0) { hex_print_text(out, (const uint8_t *)", ", 2); }
-        hex_print_nested_{{.ElementCName}}(out, {{.ElementArg}});
+        hex_print_nested_{{.ElementCName}}(out, depth + 1, {{.ElementArg}});
     }
     hex_print_text(out, (const uint8_t *)"]", 1);
 }
-{{end}}{{define "print_nested_dict"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, const void *value) {
+{{end}}{{define "print_nested_dict"}}static void hex_print_nested_{{.CName}}(hex_print_buffer *out, int depth, const void *value) {
+    if (depth >= {{.DepthLimit}}) {
+        hex_print_text(out, (const uint8_t *)"...", 3);
+        return;
+    }
     const {{.CName}} *v = value;
     hex_print_text(out, (const uint8_t *)"{", 1);
     bool first = true;
@@ -130,9 +161,9 @@
         if (!v->buckets[index].active) { continue; }
         if (!first) { hex_print_text(out, (const uint8_t *)", ", 2); }
         first = false;
-        hex_print_nested_{{.KeyCName}}(out, {{.KeyArg}});
+        hex_print_nested_{{.KeyCName}}(out, depth + 1, {{.KeyArg}});
         hex_print_text(out, (const uint8_t *)": ", 2);
-        hex_print_nested_{{.ValueCName}}(out, {{.ValueArg}});
+        hex_print_nested_{{.ValueCName}}(out, depth + 1, {{.ValueArg}});
     }
     hex_print_text(out, (const uint8_t *)"}", 1);
 }

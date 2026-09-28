@@ -73,16 +73,23 @@ func validateGeneratedType(typ compilerTypes.Type, state *generatedTypeValidatio
 		return validateGeneratedType(*typ.Element, state, true)
 	}
 	if typ.Slice != nil {
-		return validateGeneratedType(typ.Slice.Element, state, false)
+		// The descriptor stores its element behind the data pointer, so a
+		// revisit through a Slice member counts as pointer indirection, the
+		// same rule the pointer branch applies.
+		return validateGeneratedType(typ.Slice.Element, state, true)
 	}
 	if typ.List != nil {
-		return validateGeneratedType(typ.List.Element, state, false)
+		// An owning List stores its element behind the data pointer, so a
+		// revisit through List counts as pointer indirection.
+		return validateGeneratedType(typ.List.Element, state, true)
 	}
 	if typ.InlineList != nil {
 		return typ.InlineList.Capacity > 0 && validateGeneratedType(typ.InlineList.Element, state, false)
 	}
 	if typ.Dict != nil {
-		return validateGeneratedType(typ.Dict.Key, state, false) && validateGeneratedType(typ.Dict.Value, state, false)
+		// The dict value lives behind an indirect-entry bucket, so a revisit
+		// through Dict counts as pointer indirection too.
+		return validateGeneratedType(typ.Dict.Key, state, false) && validateGeneratedType(typ.Dict.Value, state, true)
 	}
 	if compilerTypes.IsEoS(typ) {
 		return true

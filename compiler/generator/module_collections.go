@@ -205,17 +205,9 @@ func spelledCollectionNames(typ compilerTypes.Type, sliceState *generatedSliceSt
 	return names
 }
 
-// writeModuleCollectionSpecializations emits the module-owned collection
-// specializations of one module header, dependency-ordered after the object
-// definitions and before the helper families that spell them. Each fragment
-// renders the collection body template without the component guard and
-// include shell. Duplication across module headers is the existing re-emission
-// strategy for module types and cannot collide: no module includes another
-// module's header.
-func writeModuleCollectionSpecializations(result *strings.Builder, input *moduleHeaderInput) error {
-	if input == nil {
-		return nil
-	}
+// moduleOwnedCollectionOrder returns the module's collection specializations
+// in body-dependency order, with each family's nil-mode state guarded.
+func moduleOwnedCollectionOrder(input *moduleHeaderInput) []compilerTypes.Type {
 	slices := []compilerTypes.Type(nil)
 	if input.slices != nil {
 		slices = input.slices.slices
@@ -232,7 +224,94 @@ func writeModuleCollectionSpecializations(result *strings.Builder, input *module
 	if input.pools != nil {
 		pools = input.pools.order
 	}
-	ordered := moduleCollectionDependencyOrder(slices, lists, dicts, pools, input.slices)
+	return moduleCollectionDependencyOrder(slices, lists, dicts, pools, input.slices)
+}
+
+// writeCollectionForwardDeclarations emits one incomplete typedef per
+// module-owned collection specialization ahead of the nominal type bodies.
+// A nominal body that holds a collection handle needs the specialization's
+// name in scope, while the bodies define the specializations only after the
+// nominal bodies because a Dict entry stores its value by value. The nominal
+// side stores only a pointer, so an incomplete type suffices, and C11 and
+// later permit repeating a typedef of the same type.
+func writeCollectionForwardDeclarations(result *strings.Builder, input *moduleHeaderInput) error {
+	if input == nil {
+		return nil
+	}
+	ordered := moduleOwnedCollectionOrder(input)
+	if len(ordered) == 0 {
+		return nil
+	}
+	handles := make([]compilerTypes.Type, 0, len(ordered))
+	for _, typ := range ordered {
+		// A Slice descriptor is stored by value, so an incomplete typedef is
+		// not sufficient for it; its complete fragment renders pre-nominal
+		// instead and needs no forward name of its own.
+		if typ.Slice != nil {
+			continue
+		}
+		handles = append(handles, typ)
+	}
+	if len(handles) == 0 {
+		return nil
+	}
+	var text strings.Builder
+	for _, typ := range handles {
+		text.WriteString("typedef struct ")
+		text.WriteString(typ.CName)
+		text.WriteString(" ")
+		text.WriteString(typ.CName)
+		text.WriteString(";\n")
+	}
+	return renderInto(result, "module.h", "raw_text", rawTextModel{Text: text.String()})
+}
+
+// writePreNominalSlices emits each module-owned Slice descriptor ahead of the
+// nominal bodies. A Slice descriptor is stored by value inside a nominal
+// body, so an incomplete typedef cannot serve it; its data field spells only
+// a pointer to the element, and just the nominal forward names above. The
+// descriptor's inline helpers stay with the post-nominal collection bodies:
+// they subscript the element pointer and need its complete type.
+func writePreNominalSlices(result *strings.Builder, input *moduleHeaderInput) error {
+	if input == nil {
+		return nil
+	}
+	var slices []compilerTypes.Type
+	for _, typ := range moduleOwnedCollectionOrder(input) {
+		if typ.Slice != nil {
+			slices = append(slices, typ)
+		}
+	}
+	if len(slices) == 0 {
+		return nil
+	}
+	for _, typ := range slices {
+		fragment, renderErr := renderComponent(componentArtifact{key: "hexal/slice.h", template: "slice.h", block: "slicedesc", model: sliceComponentModel{Slices: []sliceComponentRecord{sliceComponentRecordFor(typ)}}})
+		if renderErr != nil {
+			return renderErr
+		}
+		if err := renderInto(result, "module.h", "raw_text", rawTextModel{Text: fragment}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// writeModuleCollectionSpecializations emits the module-owned collection
+// specializations of one module header, dependency-ordered after the object
+// definitions and before the helper families that spell them. Module-owned
+// Slices re-appear here only for their inline helpers: the descriptors
+// rendered as pre-nominal fragments, and helpers need the complete element
+// type the nominal bodies provide. Each fragment
+// renders the collection body template without the component guard and
+// include shell. Duplication across module headers is the existing re-emission
+// strategy for module types and cannot collide: no module includes another
+// module's header.
+func writeModuleCollectionSpecializations(result *strings.Builder, input *moduleHeaderInput) error {
+	if input == nil {
+		return nil
+	}
+	ordered := moduleOwnedCollectionOrder(input)
 	if len(ordered) == 0 {
 		return nil
 	}
@@ -241,10 +320,20 @@ func writeModuleCollectionSpecializations(result *strings.Builder, input *module
 	}
 	hashEmitted := make(map[string]bool)
 	for _, typ := range ordered {
+		if typ.Slice != nil {
+			// The descriptor rendered pre-nominal; only its helpers need
+			// the complete element type that follows the nominal bodies.
+			fragment, renderErr := renderComponent(componentArtifact{key: "hexal/slice.h", template: "slice.h", block: "slicemethod", model: sliceComponentModel{Slices: []sliceComponentRecord{sliceComponentRecordFor(typ)}}})
+			if renderErr != nil {
+				return renderErr
+			}
+			if err := renderInto(result, "module.h", "raw_text", rawTextModel{Text: fragment}); err != nil {
+				return err
+			}
+			continue
+		}
 		var artifact componentArtifact
 		switch {
-		case typ.Slice != nil:
-			artifact = componentArtifact{key: "hexal/slice.h", template: "slice.h", block: "slicebody", model: sliceComponentModel{Slices: []sliceComponentRecord{sliceComponentRecordFor(typ)}}}
 		case typ.List != nil || typ.InlineList != nil:
 			artifact = componentArtifact{key: "hexal/list.h", template: "list.h", block: "listbody", model: listComponentModel{Lists: []listComponentRecord{listComponentRecordFor(typ, input.slices)}}}
 		case typ.Dict != nil:

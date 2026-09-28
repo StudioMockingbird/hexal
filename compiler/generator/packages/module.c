@@ -60,7 +60,7 @@ int main(int argc, char **argv) {
 {{end}}{{define "print_arg_string"}}{{.Indent}}hex_print_text({{.Buffer}}, {{.Name}}->data, {{.Name}}->byte_length);
 {{end}}{{define "print_arg_inline_string"}}{{.Indent}}hex_print_text({{.Buffer}}, {{.Name}}.data, {{.Name}}.byte_length);
 {{end}}{{define "print_arg_error"}}{{.Indent}}hex_print_error_direct({{.Buffer}}, &{{.Name}});
-{{end}}{{define "print_arg_nested"}}{{.Indent}}hex_print_nested_{{.CName}}({{.Buffer}}, {{.Arg}});
+{{end}}{{define "print_arg_nested"}}{{.Indent}}hex_print_nested_{{.CName}}({{.Buffer}}, {{.Depth}}, {{.Arg}});
 {{end}}{{define "match_assign"}}{{.Indent}}{{.Target}}{{if .Value}} = {{.Value}}{{end}};
 {{end}}{{define "match_open"}}{{.Indent}}{{.Prefix}}({{.Condition}}) {
 {{end}}{{define "match_else"}}{{.Indent}}else {

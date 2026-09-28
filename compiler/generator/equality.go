@@ -300,7 +300,18 @@ func equalityOperand(expr string, typ compilerTypes.Type) string {
 
 // writeEqualityComparisons emits statements comparing the value spelled left
 // against right of the given type, returning false at the first inequality.
+// writeEqualityComparisons renders the inline comparison lines for one
+// operand. Structured kinds compare recursively through members, payload
+// fields, and elements, so the walk threads a visited set of nominal
+// identities: a revisit is a checker contract break, because only a
+// recursive type could revisit here and the checker rejects those. The fail
+// -closed diagnostic keeps a checker regression from hanging generation on a
+// cycle that never unrolls.
 func writeEqualityComparisons(body *strings.Builder, left, right string, typ compilerTypes.Type, indent string, tags *tagRegistry) error {
+	return writeEqualityComparisonsWalk(body, left, right, typ, indent, tags, make(map[any]bool))
+}
+
+func writeEqualityComparisonsWalk(body *strings.Builder, left, right string, typ compilerTypes.Type, indent string, tags *tagRegistry, seen map[any]bool) error {
 	emit := func(block string, model any) error {
 		return renderInto(body, "module.c", block, model)
 	}
@@ -325,7 +336,7 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 			}
 			memberLeft := equalityOperand(left+".payload."+field, member)
 			memberRight := equalityOperand(right+".payload."+field, member)
-			if err := writeEqualityComparisons(body, memberLeft, memberRight, member, indent+"    ", tags); err != nil {
+			if err := writeEqualityComparisonsWalk(body, memberLeft, memberRight, member, indent+"    ", tags, seen); err != nil {
 				return err
 			}
 			if err := emit("eq_return_true", indentModel{Indent: indent}); err != nil {
@@ -343,14 +354,18 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 			return err
 		}
 	case typ.Object != nil:
+		if err := equalityWalkEnter(typ.Object, seen); err != nil {
+			return err
+		}
 		for _, member := range typ.Object.Members {
 			field := privateCName(memberName, member.Name, "")
 			memberLeft := equalityOperand(left+"."+field, member.Type)
 			memberRight := equalityOperand(right+"."+field, member.Type)
-			if err := writeEqualityComparisons(body, memberLeft, memberRight, member.Type, indent, tags); err != nil {
+			if err := writeEqualityComparisonsWalk(body, memberLeft, memberRight, member.Type, indent, tags, seen); err != nil {
 				return err
 			}
 		}
+		delete(seen, typ.Object)
 	case compilerTypes.IsErrorKind(typ):
 		// ErrorKind's Other is the only payload-carrying variant among 26 and
 		// lives in one flat other_header field, not a per-variant payload
@@ -368,6 +383,9 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 			return err
 		}
 	case typ.Adt != nil:
+		if err := equalityWalkEnter(typ.Adt, seen); err != nil {
+			return err
+		}
 		if err := emit("eq_tag_mismatch", compareLineModel{Indent: indent, Left: left, Right: right}); err != nil {
 			return err
 		}
@@ -388,7 +406,7 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 				field := ".payload." + compilerTypes.SanitizeIdentifier(variant.Name) + "." + privateCName(memberName, member.Name, "")
 				memberLeft := equalityOperand(left+field, member.Type)
 				memberRight := equalityOperand(right+field, member.Type)
-				if err := writeEqualityComparisons(body, memberLeft, memberRight, member.Type, indent+"    ", tags); err != nil {
+				if err := writeEqualityComparisonsWalk(body, memberLeft, memberRight, member.Type, indent+"    ", tags, seen); err != nil {
 					return err
 				}
 			}
@@ -406,6 +424,7 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 		if err := emit("block_close", indentModel{Indent: indent}); err != nil {
 			return err
 		}
+		delete(seen, typ.Adt)
 	case typ.InlineList != nil:
 		if err := emit("eq_length_mismatch", compareLineModel{Indent: indent, Left: left, Right: right}); err != nil {
 			return err
@@ -415,7 +434,7 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 		}
 		elementLeft := equalityOperand(left+".data[index]", typ.InlineList.Element)
 		elementRight := equalityOperand(right+".data[index]", typ.InlineList.Element)
-		if err := writeEqualityComparisons(body, elementLeft, elementRight, typ.InlineList.Element, indent+"    ", tags); err != nil {
+		if err := writeEqualityComparisonsWalk(body, elementLeft, elementRight, typ.InlineList.Element, indent+"    ", tags, seen); err != nil {
 			return err
 		}
 		if err := emit("block_close", indentModel{Indent: indent}); err != nil {
@@ -430,7 +449,7 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 		}
 		elementLeft := equalityOperand(left+".data[index]", typ.Slice.Element)
 		elementRight := equalityOperand(right+".data[index]", typ.Slice.Element)
-		if err := writeEqualityComparisons(body, elementLeft, elementRight, typ.Slice.Element, indent+"    ", tags); err != nil {
+		if err := writeEqualityComparisonsWalk(body, elementLeft, elementRight, typ.Slice.Element, indent+"    ", tags, seen); err != nil {
 			return err
 		}
 		if err := emit("block_close", indentModel{Indent: indent}); err != nil {
@@ -445,7 +464,7 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 		}
 		elementLeft := equalityOperand(left+".data[index]", typ.List.Element)
 		elementRight := equalityOperand(right+".data[index]", typ.List.Element)
-		if err := writeEqualityComparisons(body, elementLeft, elementRight, typ.List.Element, indent+"    ", tags); err != nil {
+		if err := writeEqualityComparisonsWalk(body, elementLeft, elementRight, typ.List.Element, indent+"    ", tags, seen); err != nil {
 			return err
 		}
 		if err := emit("block_close", indentModel{Indent: indent}); err != nil {
@@ -470,5 +489,17 @@ func writeEqualityComparisons(body *strings.Builder, left, right string, typ com
 			return err
 		}
 	}
+	return nil
+}
+
+// equalityWalkEnter records one nominal identity on the inline-comparison
+// walk and fails closed on a revisit: keeping the identity only while its
+// subtree renders mirrors the checker's operand-level rule, and any revisit
+// here means a recursive type reached generation, which the checker rejects.
+func equalityWalkEnter(identity any, seen map[any]bool) error {
+	if seen[identity] {
+		return generatorDiagnostic()
+	}
+	seen[identity] = true
 	return nil
 }

@@ -388,3 +388,33 @@ func TestModuleGenerationConcurrencyLiteralHandles(t *testing.T) {
 		}
 	}
 }
+
+// A module-owned collection specialization is defined after the nominal
+// bodies, but a nominal body can hold a pointer-sized handle to one, so each
+// specialization's incomplete typedef ships with the forward declarations
+// and precedes any nominal body. No ordinary test compiles C, so the
+// ordering is asserted on the header text.
+func TestModuleCollectionSpecializationsDeclaredBeforeUse(t *testing.T) {
+	result := compileSource("type T is union | Leaf | Node as kids: List<T> end end\n" +
+		"fun demo(h: Heap) do\n" +
+		"    let kids: List<T> = List<T>(h)\n" +
+		"    kids.push(T.Leaf())\n" +
+		"    let value: T = T.Node(kids = kids)\n" +
+		"    print(value)\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	header := rootH(t, result)
+	forward := strings.Index(header, "typedef struct hex_list_T hex_list_T;")
+	body := strings.Index(header, "typedef struct hex_list_T {")
+	nominal := strings.Index(header, "struct hex_t_m3_app_T {")
+	if forward < 0 || body < 0 || nominal < 0 {
+		t.Fatalf("modules/app.h lacks the required regions:\n%s", header)
+	}
+	if forward > nominal {
+		t.Fatalf("modules/app.h declares the hex_list_T forward typedef at %d after the nominal body at %d", forward, nominal)
+	}
+	if body < nominal {
+		t.Fatalf("modules/app.h defines the hex_list_T body at %d before the nominal body at %d", body, nominal)
+	}
+}

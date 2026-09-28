@@ -1,14 +1,15 @@
 # RFC 0210: Web Server — Syntax and Semantics
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Deferred; not scheduled. Depends on the network runtime and TLS
-  integration landing first
+- Status: Open Discussion; active design for the minimum HTTP server surface;
+  implementation not started
 - Created: 2026-09-15
-- Updated: 2026-09-15
-- Depends on: RFC 0144 (high-throughput network runtime), RFC 0194 (web server
-  lowering), and RFC 0195 (TLS 1.3 integration)
+- Updated: 2026-09-28
+- Depends on: RFC 0144 (high-throughput network runtime) and RFC 0198 (HTTP
+  parsing and serialization)
 - Coordinates with: RFC 0168 (libuv capability arc) for Event and Task
-  integration, RFC 0186 (stdlib boundary) for module placement, and the
+  integration, RFC 0186 (stdlib boundary) for module placement, RFC 0194
+  (default backend), RFC 0195 (TLS), RFC 0208 (backend contract), and the
   current Task, Channel, Mutex, String, Slice, Error, and IO contracts in
   `docs/reference.md`
 - Does not add: HTTP/2, HTTP/3, WebSocket, Server-Sent Events, gRPC, or a
@@ -39,7 +40,8 @@ user can start, handle requests on, and shut down.
 | Chunked transfer encoding | Pick up | Required for streaming responses |
 | TLS 1.3 termination | Separate RFC | RFC 0195 owns TLS integration |
 | HTTP/2 and HTTP/3 | Skip in v1 | Complexity disproportionate to initial surface |
-| Routing framework | Skip in v1 | Library concern, not language surface |
+| Basic method/path router | Pick up | Common dispatch surface shared by handlers and backends |
+| Routing framework | Skip in v1 | Advanced routing remains a library concern |
 | Middleware pipeline | Skip in v1 | Library concern |
 | WebSocket upgrade | Skip in v1 | Separate protocol, own spec |
 | Server-Sent Events | Skip in v1 | Library concern |
@@ -49,7 +51,50 @@ user can start, handle requests on, and shut down.
 | Graceful shutdown | Pick up | Required for production servers |
 | Timeout/deadline | Pick up | Required for production servers |
 
-## Source surface
+## Current design direction
+
+- `Request` and `Response` are built-in standard runtime types whose public
+  behavior follows the server-relevant Web Fetch contract: URL, method,
+  headers, status, and one-shot streaming bodies. Browser-only behavior is not
+  added merely for API resemblance.
+- `ServerConfig` carries transport-neutral listener settings, beginning with
+  host and port. Backend-specific controls do not belong in this type.
+- `Router` is a basic standard-library router. Its canonical registration
+  operation is `route(method, path, handler)`; per-verb aliases are not part
+  of the initial surface.
+- The handler consumes a `Request` and produces a `Response`, with the
+  asynchronous body and cancellation behavior specified before implementation.
+- `Http.serve(config, router)` selects Hexal's default HTTP backend.
+  `Http.serve_with(backend, config, router)` selects a statically linked
+  library backend that satisfies RFC 0208's backend contract.
+- The entrypoint module executes at module scope. Hexal source does not require
+  or define a `main` function.
+
+Illustrative surface:
+
+```hexal
+import Http from std.http
+
+fun home(request: Request): Response do
+    return Response("Hello, world!", status = 200)
+end
+
+let router = Http.Router()
+router.route("GET", "/", home)
+
+let config = Http.ServerConfig(host = "127.0.0.1", port = 8080)
+Http.serve(config, router)
+```
+
+The example uses the entrypoint module's root statements; it intentionally has
+no source-level `main` function. Exact error propagation from root statements
+and handler suspension semantics remain open design questions.
+
+These decisions supersede conflicting examples and API sketches later in this
+draft. Those sketches are historical discussion material, not current syntax
+or normative behavior.
+
+## Earlier source-surface sketch (superseded)
 
 ### Listener
 
@@ -184,54 +229,12 @@ type StatusCode is
 end
 ```
 
-### Server lifecycle
+### Superseded server-lifecycle sketch
 
-The server runs inside a Task:
-
-```hexal
-import
-    Net from "std/net",
-    Prog from "std/program"
-end
-
-fun handler(connection: Net.TcpConnection) do
-    match try connection.read_request()
-        Net.Request as request then
-            response := Net.Response(
-                status = Net.StatusCode.Ok,
-                headers = Net.Headers(),
-                body = Net.ResponseBody.from_string("Hello, World!")
-            )
-            response.send(connection)
-        Nil then
-            -- connection closed
-        Error as err then
-            print(err)
-    end
-end
-
-fun main() do
-    listener := try Net.listen(
-        Net.Address.parse("0.0.0.0", 8080),
-        128
-    )
-    server := Net.Server.new(listener, handler)
-    server.serve()
-end
-```
-
-`Net.Server` is:
-
-```text
-type Server is struct
-    -- internal representation
-end
-
-fun Server.new(listener: TcpListener, handler: Fun<(TcpConnection) : Nil>) -> Server
-method Server.serve() -> Nil | Error
-method Server.shutdown() -> Nil
-method Server.set_timeout(timeout: Duration)
-```
+The earlier sample used a source-level `main` function and a connection-level
+handler. Both are withdrawn: the entrypoint module runs its root statements,
+and application handlers consume built-in `Request` values and return built-in
+`Response` values through the Router and selected backend described above.
 
 ### Graceful shutdown
 
@@ -314,7 +317,9 @@ socket operations.
 - HTTP/2 or HTTP/3 multiplexing and framing.
 - WebSocket protocol upgrade.
 - TLS termination (owned by RFC 0195).
-- Routing, middleware, or plugin systems.
+- Middleware and advanced routing (RFC 0202 owns middleware; this RFC owns the
+  basic router).
+- Backend implementation details (RFCs 0194 and 0208).
 - Connection pooling or client-side HTTP.
 - Server-Sent Events or long polling.
 - Static file serving or sendfile optimization.
@@ -325,11 +330,12 @@ socket operations.
 
 ## Required sweep
 
-- parser and checker recognition of `HttpMethod`, `HttpVersion`, `StatusCode`,
-  `Headers`, `Request`, `RequestBody`, `Response`, `ResponseBody`, and
-  `Server` types;
-- HTTP parsing library functions and incremental state machine;
-- response writing and chunked encoding;
+- built-in `Request` and `Response` runtime types and their Web Fetch-aligned
+  body, header, URL, and status contracts;
+- standard-library `Headers`, `Router`, `ServerConfig`, handler, and serving
+  APIs;
+- generic route registration and method/path dispatch;
+- default backend selection and explicit backend selection through RFC 0208;
 - server lifecycle, graceful shutdown, and deadline management;
 - integration with RFC 0144's non-blocking socket operations;
 - workbench snippet and manifest entries;
@@ -339,9 +345,12 @@ socket operations.
 
 This section is exhaustive:
 
-- `HttpMethod` enum covers all standard HTTP/1.1 methods plus `Other(String)`;
-- `HttpVersion` covers HTTP/1.0 and HTTP/1.1;
-- `StatusCode` covers standard codes plus `Other(UInt16)`;
+- built-in `Request` and `Response` follow the selected Web Fetch semantics;
+- `ServerConfig` host and port reach the selected backend without changing
+  request/response behavior;
+- generic route registration supports standard and extension method tokens;
+- `Http.serve` uses the default backend and `Http.serve_with` uses an explicit
+  compatible backend;
 - header case-insensitive lookup, multi-value headers, add/remove/contains;
 - request body incremental reading, `Content-Length` and chunked transfer
   encoding;
@@ -362,15 +371,19 @@ This section is exhaustive:
 
 ## Open questions
 
-1. Whether `Server` should be generic over the handler type (allowing both
-   `Fun<(TcpConnection) : Nil>` and Task-aware handlers).
-2. Whether the response builder pattern is necessary or direct struct
-   construction is sufficient.
-3. Whether `RequestBody` should implement a read interface or expose a
-   `View<Byte>` over buffered data.
-4. Whether `Headers` should be an opaque type or a `Dict`-like type with
-   case-insensitive keys.
-5. Whether chunked encoding should be default for streaming or opt-in.
+1. Which Fetch `Request`/`Response` semantics are meaningful for server-side
+   use, including URL construction and response metadata.
+2. Whether handlers suspend directly on body I/O or return a Task-like result;
+   how cancellation reaches handler and body streams.
+3. Whether method matching is byte-for-byte case-sensitive and how invalid
+   extension method tokens are rejected.
+4. Whether the initial router supports exact paths only or path parameters;
+   how duplicate routes, 404, and 405 are resolved.
+5. Which transport-neutral fields beyond host and port belong in
+   `ServerConfig`; TLS configuration remains RFC 0195's responsibility.
+6. How errors from `Http.serve` are handled by entrypoint-module root code.
+7. The backend adapter ABI, including callback lifetime and memory ownership
+   across Hexal/C boundaries (RFC 0208).
 
 ## Reference synchronization
 

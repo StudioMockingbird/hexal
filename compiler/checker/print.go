@@ -15,6 +15,23 @@ import (
 // Aggregates are printable only when every recursively visited
 // member, payload field, or element is printable.
 func printable(typ compilerTypes.Type) bool {
+	return printableWalk(typ, make(map[any]bool))
+}
+
+// printableWalk threads the set of nominal identities currently on the walk.
+// A revisit is treated as printable (the coinductive reading), so a type
+// that reaches itself through a collection handle is printable exactly when
+// every non-recursive component is; print generation emits one named helper
+// per concrete type, so the recursion resolves at run time in C.
+func printableWalk(typ compilerTypes.Type, seen map[any]bool) bool {
+	key := nominalIdentity(typ)
+	if key != nil {
+		if seen[key] {
+			return true
+		}
+		seen[key] = true
+		defer delete(seen, key)
+	}
 	switch {
 	case compilerTypes.IsInteger(typ), compilerTypes.IsFloat(typ),
 		compilerTypes.Equal(typ, compilerTypes.Bool),
@@ -26,7 +43,7 @@ func printable(typ compilerTypes.Type) bool {
 			return false
 		}
 		for _, member := range typ.Object.Members {
-			if !printable(member.Type) {
+			if !printableWalk(member.Type, seen) {
 				return false
 			}
 		}
@@ -34,20 +51,20 @@ func printable(typ compilerTypes.Type) bool {
 	case typ.Adt != nil:
 		for _, variant := range typ.Adt.Variants {
 			for _, member := range variant.Payload {
-				if !printable(member.Type) {
+				if !printableWalk(member.Type, seen) {
 					return false
 				}
 			}
 		}
 		return true
 	case typ.InlineList != nil:
-		return printable(typ.InlineList.Element)
+		return printableWalk(typ.InlineList.Element, seen)
 	case typ.Slice != nil:
-		return printable(typ.Slice.Element)
+		return printableWalk(typ.Slice.Element, seen)
 	case typ.List != nil:
-		return printable(typ.List.Element)
+		return printableWalk(typ.List.Element, seen)
 	case typ.Dict != nil:
-		return printable(typ.Dict.Key) && printable(typ.Dict.Value)
+		return printableWalk(typ.Dict.Key, seen) && printableWalk(typ.Dict.Value, seen)
 	}
 	return false
 }

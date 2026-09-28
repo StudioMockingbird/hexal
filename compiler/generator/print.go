@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"hexal/compiler/checker"
+	"hexal/compiler/config"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -163,10 +164,14 @@ type printNestedBitsModel struct {
 	Bits  int
 }
 
+// printNestedObjectEmptyModel carries one empty-struct helper's data. The
+// depth limit reaches the template so the generated guard stays in lockstep
+// with the compiler-owned config value.
 type printNestedObjectEmptyModel struct {
-	CName   string
-	Name    string
-	TextLen int
+	CName      string
+	Name       string
+	TextLen    int
+	DepthLimit int
 }
 
 // printMemberFragment is one already-lowered member line: the separator
@@ -181,10 +186,11 @@ type printMemberFragment struct {
 }
 
 type printNestedObjectModel struct {
-	CName   string
-	Name    string
-	NameLen int
-	Members []printMemberFragment
+	CName      string
+	Name       string
+	NameLen    int
+	Members    []printMemberFragment
+	DepthLimit int
 }
 
 type printVariantFragment struct {
@@ -195,14 +201,16 @@ type printVariantFragment struct {
 }
 
 type printNestedAdtModel struct {
-	CName    string
-	Variants []printVariantFragment
+	CName      string
+	Variants   []printVariantFragment
+	DepthLimit int
 }
 
 type printNestedSequenceModel struct {
 	CName        string
 	ElementCName string
 	ElementArg   string
+	DepthLimit   int
 }
 
 type printNestedDictModel struct {
@@ -211,6 +219,7 @@ type printNestedDictModel struct {
 	KeyArg     string
 	ValueCName string
 	ValueArg   string
+	DepthLimit int
 }
 
 type printTempModel struct {
@@ -242,6 +251,9 @@ type printArgumentNestedModel struct {
 	Buffer string
 	CName  string
 	Arg    string
+	// Depth is 0 for every top-level argument: each argument carries its own
+	// budget, so one argument's descent cannot consume another's.
+	Depth int
 }
 
 type printArgumentNilModel struct {
@@ -353,9 +365,10 @@ func printNestedFragment(typ compilerTypes.Type, tags *tagRegistry) (string, any
 			// surface, so its print output is the bare "Name {}" form with
 			// no member list and no interior padding.
 			return "print_nested_object_empty", printNestedObjectEmptyModel{
-				CName:   typ.CName,
-				Name:    typ.Name,
-				TextLen: len(typ.Name) + 3,
+				CName:      typ.CName,
+				Name:       typ.Name,
+				TextLen:    len(typ.Name) + 3,
+				DepthLimit: config.MaxStructuralPrintDepth,
 			}, true
 		}
 		members := make([]printMemberFragment, 0, len(typ.Object.Members))
@@ -369,10 +382,11 @@ func printNestedFragment(typ compilerTypes.Type, tags *tagRegistry) (string, any
 			})
 		}
 		return "print_nested_object", printNestedObjectModel{
-			CName:   typ.CName,
-			Name:    typ.Name,
-			NameLen: len(typ.Name) + 3,
-			Members: members,
+			CName:      typ.CName,
+			Name:       typ.Name,
+			NameLen:    len(typ.Name) + 3,
+			Members:    members,
+			DepthLimit: config.MaxStructuralPrintDepth,
 		}, true
 	case typ.Adt != nil:
 		adt := typ.Adt
@@ -394,13 +408,14 @@ func printNestedFragment(typ compilerTypes.Type, tags *tagRegistry) (string, any
 			}
 			variants = append(variants, fragment)
 		}
-		return "print_nested_adt", printNestedAdtModel{CName: typ.CName, Variants: variants}, true
+		return "print_nested_adt", printNestedAdtModel{CName: typ.CName, Variants: variants, DepthLimit: config.MaxStructuralPrintDepth}, true
 	case typ.InlineList != nil:
 		element := typ.InlineList.Element
 		return "print_nested_sequence", printNestedSequenceModel{
 			CName:        typ.CName,
 			ElementCName: element.CName,
 			ElementArg:   printNestedAddress(element, "v->data[index]"),
+			DepthLimit:   config.MaxStructuralPrintDepth,
 		}, true
 	case typ.Slice != nil:
 		element := typ.Slice.Element
@@ -408,6 +423,7 @@ func printNestedFragment(typ compilerTypes.Type, tags *tagRegistry) (string, any
 			CName:        typ.CName,
 			ElementCName: element.CName,
 			ElementArg:   printNestedAddress(element, "v->data[index]"),
+			DepthLimit:   config.MaxStructuralPrintDepth,
 		}, true
 	case typ.List != nil:
 		element := typ.List.Element
@@ -415,6 +431,7 @@ func printNestedFragment(typ compilerTypes.Type, tags *tagRegistry) (string, any
 			CName:        typ.CName,
 			ElementCName: element.CName,
 			ElementArg:   printNestedAddress(element, "v->data[index]"),
+			DepthLimit:   config.MaxStructuralPrintDepth,
 		}, true
 	case typ.Dict != nil:
 		key := typ.Dict.Key
@@ -425,6 +442,7 @@ func printNestedFragment(typ compilerTypes.Type, tags *tagRegistry) (string, any
 			KeyArg:     printNestedAddress(key, "v->buckets[index].key"),
 			ValueCName: valueType.CName,
 			ValueArg:   printNestedAddress(valueType, "v->buckets[index].value"),
+			DepthLimit: config.MaxStructuralPrintDepth,
 		}, true
 	}
 	return "", nil, false

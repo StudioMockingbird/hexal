@@ -67,13 +67,22 @@ func resolveADTPayload(adtName string, expression parser.ObjectTypeExpression, t
 			continue
 		}
 		seen[member.Name.Lexeme] = true
-		if containsTypeName(member.Type, adtName) && !containsPointerType(member.Type) {
+		// The written pass keeps the finite-representation diagnostic ahead
+		// of member-resolution failures on the declaring memberchain; the
+		// resolved walker below re-checks after generic substitution, where
+		// the self reference is spelled as the open parameter.
+		if writtenLayoutSelfRecursion(member.Type, adtName) {
 			diagnostics = append(diagnostics, messageAt(member.Name, diag.ADTRecursionHasNoFiniteRepresentation()))
 			continue
 		}
 		resolvedUse, diagnostic := resolveTypeUse(member.Type, member.Name, typeEnvironment, generics)
 		if diagnostic != nil {
 			diagnostics = append(diagnostics, *diagnostic)
+			continue
+		}
+		if provisional, ok := typeEnvironment.Lookup(adtName); ok && provisional.Adt != nil &&
+			layoutRecursionInvalid(resolvedUse.Type, provisional.Adt, map[any]bool{}) {
+			diagnostics = append(diagnostics, messageAt(member.Name, diag.ADTRecursionHasNoFiniteRepresentation()))
 			continue
 		}
 		if diagnostic := valueTypeDiagnostic(member.Type, member.Name, resolvedUse.Type); diagnostic != nil {

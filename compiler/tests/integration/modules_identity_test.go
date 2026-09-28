@@ -98,8 +98,8 @@ func TestSameNamedTypesProduceDistinctContainerSpecializations(t *testing.T) {
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertMultiModuleSuccess(t, result, "app", "m", "s")
 	header := result.Files["modules/app.h"]
-	if strings.Count(header, "typedef struct hex_list_Point") != 2 {
-		t.Fatalf("modules/app.h has %d List<Point> typedefs, want 2", strings.Count(header, "typedef struct hex_list_Point"))
+	if strings.Count(header, "typedef struct hex_list_Point") != 4 {
+		t.Fatalf("modules/app.h has %d List<Point> typedefs, want two bodies plus their forward typedefs", strings.Count(header, "typedef struct hex_list_Point"))
 	}
 	if !strings.Contains(header, "hex_list_Point_m1_") {
 		t.Fatalf("modules/app.h %v, want a module-qualified List typedef alongside the base name", header)
@@ -107,20 +107,20 @@ func TestSameNamedTypesProduceDistinctContainerSpecializations(t *testing.T) {
 	if !strings.Contains(header, "sizeof(hex_t_m1_m_Point)") || !strings.Contains(header, "sizeof(hex_t_m1_s_Point)") {
 		t.Fatalf("modules/app.h sizes %v, want one sizeof per element layout", header)
 	}
-	if strings.Count(header, "typedef struct hex_dict_Int32_Point") != 2 {
-		t.Fatalf("modules/app.h has %d Dict<Int32, Point> typedefs, want 2", strings.Count(header, "typedef struct hex_dict_Int32_Point"))
+	if strings.Count(header, "typedef struct hex_dict_Int32_Point") != 4 {
+		t.Fatalf("modules/app.h has %d Dict<Int32, Point> typedefs, want two bodies plus their forward typedefs", strings.Count(header, "typedef struct hex_dict_Int32_Point"))
 	}
 	if !strings.Contains(header, "hex_dict_Int32_Point_m1_") {
 		t.Fatalf("modules/app.h %v, want a module-qualified Dict typedef alongside the base name", header)
 	}
-	if strings.Count(header, "typedef struct hex_list_inline_Point_2") != 2 {
-		t.Fatalf("modules/app.h has %d List<Point, 2> typedefs, want 2", strings.Count(header, "typedef struct hex_list_inline_Point_2"))
+	if strings.Count(header, "typedef struct hex_list_inline_Point_2") != 4 {
+		t.Fatalf("modules/app.h has %d List<Point, 2> typedefs, want two bodies plus their forward typedefs", strings.Count(header, "typedef struct hex_list_inline_Point_2"))
 	}
 	if !strings.Contains(header, "hex_list_inline_Point_2_m1_") {
 		t.Fatalf("modules/app.h %v, want a module-qualified inline List typedef alongside the base name", header)
 	}
 	if strings.Count(header, "typedef struct hex_slice_Point") != 2 {
-		t.Fatalf("modules/app.h has %d Slice<Point> typedefs, want 2", strings.Count(header, "typedef struct hex_slice_Point"))
+		t.Fatalf("modules/app.h has %d Slice<Point> typedefs, want one complete pre-nominal descriptor per specialization", strings.Count(header, "typedef struct hex_slice_Point"))
 	}
 	if !strings.Contains(header, "hex_slice_Point_m1_") {
 		t.Fatalf("modules/app.h %v, want a module-qualified View typedef alongside the base name", header)
@@ -139,8 +139,8 @@ func TestIdenticalLayoutStillNominalDistinctAcrossModules(t *testing.T) {
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertMultiModuleSuccess(t, result, "app", "m", "s")
 	list := result.Files["modules/app.h"]
-	if strings.Count(list, "typedef struct hex_list_Point") != 2 {
-		t.Fatalf("modules/app.h has %d List<Point> typedefs, want 2 (identical layouts still nominal)", strings.Count(list, "typedef struct hex_list_Point"))
+	if strings.Count(list, "typedef struct hex_list_Point") != 4 {
+		t.Fatalf("modules/app.h has %d List<Point> typedefs, want two bodies plus their forward typedefs (identical layouts still nominal)", strings.Count(list, "typedef struct hex_list_Point"))
 	}
 }
 
@@ -172,8 +172,8 @@ func TestSingleModuleProducesSingleSpecialization(t *testing.T) {
 	result := compiler.Compile(sources, "app.hex", compiler.Project{})
 	assertMultiModuleSuccess(t, result, "app")
 	list := result.Files["modules/app.h"]
-	if strings.Count(list, "typedef struct hex_list_Point") != 1 {
-		t.Fatalf("modules/app.h has %d List<Point> typedefs, want exactly 1", strings.Count(list, "typedef struct hex_list_Point"))
+	if strings.Count(list, "typedef struct hex_list_Point") != 2 {
+		t.Fatalf("modules/app.h has %d List<Point> typedefs, want one body plus its forward typedef", strings.Count(list, "typedef struct hex_list_Point"))
 	}
 	if strings.Contains(list, "_m1_") {
 		t.Fatalf("modules/app.h %v, single-module control must carry no qualifier", list)
@@ -230,8 +230,10 @@ func TestBuiltinGenericIdentitySharedAcrossModules(t *testing.T) {
 	// Module-owned elements move to the consuming module's header, where
 	// their element typedefs are available.
 	header := result.Files["modules/app.h"]
-	if strings.Count(header, "typedef struct hex_list_Point") != 2 {
-		t.Fatalf("modules/app.h %v, want two List<Point> typedefs in the same run", header)
+	// One defining body per List<Point> specialization plus its forward
+	// typedef from the decl block ahead of the nominal bodies.
+	if strings.Count(header, "typedef struct hex_list_Point") != 4 {
+		t.Fatalf("modules/app.h %v, want two List<Point> bodies and their forward typedefs", header)
 	}
 }
 
@@ -276,7 +278,10 @@ func TestModuleOwnedCollectionElementsDeclareBeforeUse(t *testing.T) {
 			}, "app.hex", compiler.Project{})
 			assertMultiModuleSuccess(t, result, "app", "m", "s")
 			header := result.Files["modules/app.h"]
-			specialization := strings.Index(header, item.specialization)
+			// The forward-block typedef names the specialization before the
+			// nominal bodies; only its defining body proves placement, so the
+			// match anchors on the brace that opens the struct.
+			specialization := strings.Index(header, item.specialization+" {")
 			if specialization < 0 {
 				t.Fatalf("modules/app.h %v, want the %s specialization", header, item.name)
 			}

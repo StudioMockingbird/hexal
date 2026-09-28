@@ -132,3 +132,25 @@ func TestModuleEqualityWriterSkipsProgramOwnedHelpers(t *testing.T) {
 		t.Fatalf("module equality output = %q, program-owned helper must be component-owned", output.String())
 	}
 }
+
+// writeEqualityComparisons walks a type's components inline, so a recursive
+// type would never unroll; the walk carries a visited set of nominal
+// identities and fails closed on a revisit with an [Unknown Error]
+// diagnostic instead of hanging generation. The checker rejects such types
+// first, so this is a contract-break seam.
+func TestEqualityComparisonsFailClosedOnRecursiveType(t *testing.T) {
+	object := &compilerTypes.ObjectType{Name: "A", CName: "hex_t_m3_app_A"}
+	selfContainer := compilerTypes.Type{Name: "A", CName: "hex_t_m3_app_A", Object: object}
+	object.Members = []compilerTypes.ObjectMember{
+		{Name: "child", Type: selfContainer},
+	}
+	var output strings.Builder
+	err := writeEqualityComparisons(&output, "(*left)", "(*right)", selfContainer, "    ", &tagRegistry{})
+	if err == nil {
+		t.Fatalf("writeEqualityComparisons recursed forever, want an Unknown Error")
+	}
+	diagnostic, ok := err.(compilerTypes.Diagnostic)
+	if !ok || diagnostic.Message.Category() != compilerTypes.UnknownError {
+		t.Fatalf("error = %v, want an Unknown Error diagnostic", err)
+	}
+}

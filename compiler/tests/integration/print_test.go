@@ -34,9 +34,9 @@ func TestPrintStringsDirectAndNested(t *testing.T) {
 	}
 	for _, want := range []string{
 		"hex_print_text(&hex_print_out_2, hex_print_arg_1->data, hex_print_arg_1->byte_length);",
-		"static void hex_print_nested_hex_list_Int32(hex_print_buffer *out, const void *value) {",
+		"static void hex_print_nested_hex_list_Int32(hex_print_buffer *out, int depth, const void *value) {",
 		"hex_print_text(out, (const uint8_t *)\"[\", 1);",
-		"static void hex_print_nested_hex_t_m3_app_Point(hex_print_buffer *out, const void *value) {",
+		"static void hex_print_nested_hex_t_m3_app_Point(hex_print_buffer *out, int depth, const void *value) {",
 		"hex_print_text(out, (const uint8_t *)\"Point { \", 8);",
 	} {
 		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
@@ -51,8 +51,8 @@ func TestPrintNestedStringQuoting(t *testing.T) {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
 	for _, want := range []string{
-		"static void hex_print_nested_hex_list_String(hex_print_buffer *out, const void *value) {",
-		"static void hex_print_nested_hex_string(hex_print_buffer *out, const void *value) {",
+		"static void hex_print_nested_hex_list_String(hex_print_buffer *out, int depth, const void *value) {",
+		"static void hex_print_nested_hex_string(hex_print_buffer *out, int depth, const void *value) {",
 		"hex_print_quoted_text(out, text->data, text->byte_length);",
 	} {
 		if !strings.Contains(rootC(t, result), want) && !strings.Contains(rootH(t, result), want) {
@@ -212,5 +212,136 @@ func TestPrintDeferred(t *testing.T) {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)
 		}
+	}
+}
+
+func TestRecursiveTypePrintAccepted(t *testing.T) {
+	result := compileSource("type T is union | Leaf | Node as kids: List<T> end end\n" +
+		"fun demo(h: Heap) do\n" +
+		"    let inner: List<T> = List<T>(h)\n" +
+		"    inner.push(T.Leaf())\n" +
+		"    let kids: List<T> = List<T>(h)\n" +
+		"    kids.push(T.Leaf())\n" +
+		"    kids.push(T.Node(kids = inner))\n" +
+		"    let a: T = T.Node(kids = kids)\n" +
+		"    print(a)\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	if !strings.Contains(rootH(t, result), "static void hex_print_nested_hex_t_m3_app_T(") {
+		t.Fatalf("modules/app.h lacks the recursive print helper:\n%s", rootH(t, result))
+	}
+}
+
+func TestRecursiveTypeThroughDictPrintAccepted(t *testing.T) {
+	result := compileSource("type U is union | Leaf | Node as kids: Dict<Int32, U> end end\n" +
+		"fun demo(h: Heap) do\n" +
+		"    let d: Dict<Int32, U> = Dict<Int32, U>(h)\n" +
+		"    defer d.free(h)\n" +
+		"    d.insert(1, U.Leaf())\n" +
+		"    let a: U = U.Node(kids = d)\n" +
+		"    print(a)\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	if !strings.Contains(rootH(t, result), "static void hex_print_nested_hex_t_m3_app_U(") {
+		t.Fatalf("modules/app.h lacks the recursive print helper:\n%s", rootH(t, result))
+	}
+}
+
+func TestRecursiveTypePrintRejectsNonPrintableMember(t *testing.T) {
+	// The recursion terminates, but a non-printable payload member outside the
+	// recursion still makes the whole aggregate unprintable and names it.
+	assertRejects(
+		t,
+		"type T is union | Leaf | Node as kids: List<T>, label: Fun<(Int32)> end end\n"+
+			"fun tag(x: Int32) do\nend\n"+
+			"fun demo(h: Heap) do\n"+
+			"    let kids: List<T> = List<T>(h)\n"+
+			"    kids.push(T.Leaf())\n"+
+			"    let a: T = T.Node(kids = kids, label = tag)\n"+
+			"    print(a)\nend",
+		"print does not support",
+	)
+}
+
+// The depth guard is the compiler-owned bound from config, emitted as a
+// literal into every aggregate's nested helper; leaves receive depth but
+// ignore it, so every nested call site passes depth + 1 uniformly.
+func TestBoundedPrintDepthGuardEmitted(t *testing.T) {
+	result := compileSource("type Point is struct x: Int32, y: Int32 end\nfun demo(h: Heap) do\n    let values: List<Point> = List<Point>(h)\n    defer values.free(h)\n    values.push(Point(x = 1, y = 2))\n    print(values)\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	header := rootH(t, result)
+	guards := strings.Count(header, "if (depth >= 16) {")
+	if guards != 2 { // one per aggregate kind: the Point object and the List
+		t.Fatalf("modules/app.h carries %d depth guards, want one per aggregate helper:\n%s", guards, header)
+	}
+	if strings.Count(header, "depth + 1") != 3 { // Point's two members plus the List element
+		t.Fatalf("modules/app.h carries %d descending calls, want depth + 1 at every nested call:\n%s", strings.Count(header, "depth + 1"), header)
+	}
+	if strings.Count(header, "\"...\"") != 2 {
+		t.Fatalf("modules/app.h carries %d marker prints, want one per aggregate helper:\n%s", strings.Count(header, "\"...\""), header)
+	}
+}
+
+// Fence-post rule: an aggregate at depth 0 through 15 renders normally, and
+// the aggregate that would enter at depth 16 prints only the unquoted marker.
+// Nested leaf fields of the last rendered aggregate still render.
+func TestBoundedPrintDepthFencePost(t *testing.T) {
+	deepCells := "fun build(h: Heap, remaining: Int32): Cell do\n" +
+		"    let kids: List<Cell> = List<Cell>(h)\n" +
+		"    if remaining > 1 then\n" +
+		"        kids.push(build(h, remaining - 1))\n" +
+		"    end\n" +
+		"    return Cell(value = kids)\n" +
+		"end\n" +
+		"fun demo(h: Heap) do\n" +
+		"    print(build(h, 20))\n" +
+		"end\n"
+	result := compileSource("type Cell is struct value: List<Cell> end\n" + deepCells)
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	c := rootC(t, result)
+	if strings.Contains(c, "hex_print_nested_") && !strings.Contains(rootH(t, result), "int depth") {
+		t.Fatalf("nested helpers did not take depth:\n%s", rootH(t, result))
+	}
+	// The wrapper's own structural signature is what a boundary test needs
+	// exact output from; that belongs to the boxed C23 run, so the ordinary
+	// lane only proves the plumbing survived generation.
+}
+
+// Two top-level arguments each carry their own depth budget: neither descends
+// through the other's.
+func TestBoundedPrintDepthPerArgumentBudget(t *testing.T) {
+	result := compileSource("type Cell is struct value: List<Cell> end\n" +
+		"fun build(h: Heap, remaining: Int32): Cell do\n" +
+		"    let kids: List<Cell> = List<Cell>(h)\n" +
+		"    if remaining > 1 then\n" +
+		"        kids.push(build(h, remaining - 1))\n" +
+		"    end\n" +
+		"    return Cell(value = kids)\n" +
+		"end\n" +
+		"fun demo(h: Heap) do\n" +
+		"    print(build(h,20), \"|\", build(h, 20))\n" +
+		"end\n")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	// Both arguments render through the same helper at depth 0; the exact
+	// equal rendering is the boxed run's assertion.
+}
+
+// A String whose value is literally "..." stays quoted and quoted only: the
+// truncation marker is print-owned syntax, not a String value.
+func TestPrintQuotedEllipsisLiteral(t *testing.T) {
+	result := compileSource("fun demo(h: Heap) do\n    let scores: List<String> = List<String>(h)\n    defer scores.free(h)\n    scores.push(\"...\")\n    print(scores)\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+	if !strings.Contains(rootC(t, result)+"\n"+rootH(t, result), "hex_print_quoted_text") {
+		t.Fatalf("nested String must print through hex_print_quoted_text to keep the literal quoted")
 	}
 }

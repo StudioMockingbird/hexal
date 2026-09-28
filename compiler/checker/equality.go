@@ -5,6 +5,7 @@ import (
 	"hexal/compiler/lexer"
 	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
+	"strings"
 )
 
 // Equality and ordering eligibility, the lossless numeric comparison
@@ -19,6 +20,24 @@ var typeFacts = compilerTypes.TypeFactsOf
 // first member name that makes it unavailable. Pointers compare identity,
 // so any pointer type is available; functions and allocator handles are not.
 func EqualityAvailable(typ compilerTypes.Type) (bool, string) {
+	return equalityAvailable(typ, make(map[any]bool))
+}
+
+// equalityAvailable threads the set of nominal identities currently on the
+// walk, so a type that reaches itself through its components terminates: a
+// revisit makes the type not comparable, because generated equality compares
+// every component inline and would otherwise never unroll. Only nominal
+// identities are keyed; structural unions are interned and can reach
+// themselves only through one.
+func equalityAvailable(typ compilerTypes.Type, seen map[any]bool) (bool, string) {
+	key := nominalIdentity(typ)
+	if key != nil {
+		if seen[key] {
+			return false, recursionUnavailableReason(typ.Name)
+		}
+		seen[key] = true
+		defer delete(seen, key)
+	}
 	switch {
 	case typ.Object != nil:
 		if compilerTypes.IsForeignRecord(typ) {
@@ -27,29 +46,29 @@ func EqualityAvailable(typ compilerTypes.Type) (bool, string) {
 			return false, "foreign record " + typ.Name
 		}
 		for _, member := range typ.Object.Members {
-			if ok, _ := EqualityAvailable(member.Type); !ok {
-				return false, "member " + member.Name
+			if ok, reason := equalityAvailable(member.Type, seen); !ok {
+				return false, memberUnavailableReason(reason, "member "+member.Name)
 			}
 		}
 		return true, ""
 	case typ.Adt != nil:
 		for _, variant := range typ.Adt.Variants {
 			for _, member := range variant.Payload {
-				if ok, _ := EqualityAvailable(member.Type); !ok {
-					return false, "member " + member.Name
+				if ok, reason := equalityAvailable(member.Type, seen); !ok {
+					return false, memberUnavailableReason(reason, "member "+member.Name)
 				}
 			}
 		}
 		return true, ""
 	case typ.Union != nil:
 		for _, member := range typ.Union.Members {
-			if ok, reason := EqualityAvailable(member); !ok {
+			if ok, reason := equalityAvailable(member, seen); !ok {
 				return false, reason
 			}
 		}
 		return true, ""
 	case typ.NullableBase != nil:
-		return EqualityAvailable(*typ.NullableBase)
+		return equalityAvailable(*typ.NullableBase, seen)
 	case typ.Element != nil:
 		// Pointer identity equality never dereferences the pointee, so it
 		// stays finite and always available.
@@ -71,7 +90,7 @@ func EqualityAvailable(typ compilerTypes.Type) (bool, string) {
 	case specdata.ComparisonNever:
 		return false, ""
 	case specdata.ComparisonStructural:
-		return structuralEqualityAvailable(typ)
+		return structuralEqualityAvailable(typ, seen)
 	}
 	return false, ""
 }
@@ -79,7 +98,7 @@ func EqualityAvailable(typ compilerTypes.Type) (bool, string) {
 // structuralEqualityAvailable recurses over the components of one value whose
 // record declares the structural comparison form. Only inline List, Slice, and allocated List
 // declare it today, and each stores one element component.
-func structuralEqualityAvailable(typ compilerTypes.Type) (bool, string) {
+func structuralEqualityAvailable(typ compilerTypes.Type, seen map[any]bool) (bool, string) {
 	var element compilerTypes.Type
 	switch {
 	case typ.InlineList != nil:
@@ -91,10 +110,39 @@ func structuralEqualityAvailable(typ compilerTypes.Type) (bool, string) {
 	default:
 		return false, ""
 	}
-	if ok, _ := EqualityAvailable(element); !ok {
-		return false, "element type " + element.Name
+	if ok, reason := equalityAvailable(element, seen); !ok {
+		return false, memberUnavailableReason(reason, "element type "+element.Name)
 	}
 	return true, ""
+}
+
+// nominalIdentity keys a walk entry by the pointer that identities one nominal
+// type, or nil for every kind that carries no self-reference risk.
+func nominalIdentity(typ compilerTypes.Type) any {
+	switch {
+	case typ.Object != nil:
+		return typ.Object
+	case typ.Adt != nil:
+		return typ.Adt
+	}
+	return nil
+}
+
+// recursionUnavailableReason is the reason the walker reports when it meets a
+// nominal identity it is already visiting: a self-referential type has no
+// inline comparison, and the diagnostic names the recursion itself.
+func recursionUnavailableReason(name string) string {
+	return "recursive type " + name
+}
+
+// memberUnavailableReason reports why a member fails unless the member itself
+// was the recursion, whose reason already names the recursive type and must
+// not be re-attributed to the member that reached it.
+func memberUnavailableReason(reason, description string) string {
+	if strings.HasPrefix(reason, recursionUnavailableReason("")) {
+		return reason
+	}
+	return description
 }
 
 // equalityUnavailableDiagnostic reports why equality is unavailable for one

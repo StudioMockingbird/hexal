@@ -1,11 +1,9 @@
 # RFC 0195: Web Server — TLS 1.3 Integration
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Deferred; not scheduled. Depends on RFC 0144 (network runtime),
-  RFC 0210 (web server syntax), and RFC 0194 (web server lowering) landing
-  first
+- Status: Deferred; not required for the initial HTTP server surface
 - Created: 2026-09-15
-- Updated: 2026-09-15
+- Updated: 2026-09-28
 - Depends on: RFC 0210 (web server syntax and semantics), RFC 0194 (web server
   lowering), and the implemented RFCs 0145 (libuv runtime), 0146 (mimalloc),
   0168 (libuv capability arc), and 0184 (atomic print)

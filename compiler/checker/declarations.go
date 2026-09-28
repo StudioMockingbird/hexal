@@ -117,17 +117,29 @@ func resolveObjectMembers(objectName string, expression parser.ObjectTypeExpress
 		}
 		seen[declaration.Name.Lexeme] = true
 
-		if containsTypeName(declaration.Type, objectName) && !containsPointerType(declaration.Type) {
+		if writtenLayoutSelfRecursion(declaration.Type, objectName) {
+			// The member's written type reaches this object again through
+			// by-value spellings only, so the layout has no finite
+			// representation. An unrelated pointer branch does not legalize a
+			// direct one, and an indirect spelling - pointer, Slice, or an
+			// indirect handle - breaks the cycle where the resolution sees it.
 			diagnostics = append(diagnostics, messageAt(declaration.Name, diag.ObjectCannotContainItselfByValue(objectName)))
 			continue
 		}
-
 		resolvedUse, diagnostic := resolveTypeUse(declaration.Type, declaration.Name, typeEnvironment, generics)
 		if diagnostic != nil {
 			diagnostics = append(diagnostics, *diagnostic)
 			continue
 		}
 		resolved := resolvedUse.Type
+		if provisional, ok := typeEnvironment.Lookup(objectName); ok && provisional.Object != nil &&
+			layoutRecursionInvalid(resolved, provisional.Object, map[any]bool{}) {
+			// The resolved member type reaches this object again over
+			// by-value edges only, which the written pass cannot see when
+			// the self reference arrived through generic substitution.
+			diagnostics = append(diagnostics, messageAt(declaration.Name, diag.ObjectCannotContainItselfByValue(objectName)))
+			continue
+		}
 		if diagnostic := valueTypeDiagnostic(declaration.Type, declaration.Name, resolved); diagnostic != nil {
 			diagnostics = append(diagnostics, *diagnostic)
 			continue
@@ -150,38 +162,6 @@ func resolveObjectMembers(objectName string, expression parser.ObjectTypeExpress
 		})
 	}
 	return members, diagnostics
-}
-
-func containsPointerType(expression parser.TypeExpression) bool {
-	switch expression := expression.(type) {
-	case parser.PtrTypeExpression:
-		return true
-	case parser.UnionTypeExpression:
-		for _, member := range expression.Members {
-			if containsPointerType(member) {
-				return true
-			}
-		}
-		return false
-	case parser.GroupedTypeExpression:
-		return containsPointerType(expression.Inner)
-	case parser.FunctionTypeExpression:
-		for _, parameter := range expression.Parameters {
-			if containsPointerType(parameter) {
-				return true
-			}
-		}
-		return expression.Return != nil && containsPointerType(expression.Return)
-	case parser.ObjectTypeExpression:
-		for _, member := range expression.Members {
-			if containsPointerType(member.Type) {
-				return true
-			}
-		}
-		return false
-	default:
-		return false
-	}
 }
 
 func containsTypeName(expression parser.TypeExpression, name string) bool {
@@ -300,12 +280,20 @@ func registerGenericTypeDeclaration(declaration parser.TypeDeclaration, ctx chec
 	if generic == nil {
 		return compilerTypes.Diagnostics{messageAt(declaration.Name, diag.TypeAlreadyDeclared(name))}
 	}
-	if _, objectTarget := declaration.Target.(parser.ObjectTypeExpression); objectTarget {
-		if containsTypeName(declaration.Target, name) && !containsPointerType(declaration.Target) {
-			return compilerTypes.Diagnostics{messageAt(declaration.Name, diag.ObjectCannotContainItselfByValue(name))}
+	// The open template cannot be resolved yet. A generic alias still rejects
+	// self-reference by spelling; a generic object or ADT template defers its
+	// resolved-storage layout decision to specialization, where
+	// resolveObjectMembers / resolveADTPayload run over the concrete types and
+	// an inline recursive instantiation is rejected while one through an
+	// indirect edge is accepted.
+	if _, objectTarget := declaration.Target.(parser.ObjectTypeExpression); !objectTarget && containsTypeName(declaration.Target, name) {
+		nonObject := true
+		if _, adtTarget := declaration.Target.(parser.AdtDefinitionExpression); adtTarget {
+			nonObject = false
 		}
-	} else if containsTypeName(declaration.Target, name) {
-		return compilerTypes.Diagnostics{messageAt(declaration.Name, diag.TypeAliasCannotReferenceItself(name))}
+		if nonObject {
+			return compilerTypes.Diagnostics{messageAt(declaration.Name, diag.TypeAliasCannotReferenceItself(name))}
+		}
 	}
 	ctx.names.generics.types[name] = &openGenericType{
 		Name:        name,

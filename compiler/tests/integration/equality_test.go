@@ -350,6 +350,89 @@ end
 	}
 }
 
+func TestRecursiveTypeEqualityRejected(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{
+			"self through List",
+			"type T is union | Leaf | Node as kids: List<T> end end\n" +
+				"fun demo() do\n    let a: T = T.Leaf()\n    let bad: Bool = a == a\nend",
+			"equality is unavailable because recursive type T does not support ==",
+		},
+		{
+			"self through List, not-equal",
+			"type T is union | Leaf | Node as kids: List<T> end end\n" +
+				"fun demo() do\n    let a: T = T.Leaf()\n    let bad: Bool = a != a\nend",
+			"equality is unavailable because recursive type T does not support ==",
+		},
+		{
+			"List of self",
+			"type T is union | Leaf | Node as kids: List<T> end end\n" +
+				"fun demo(h: Heap) do\n    let l: List<T> = List<T>(h)\n    let bad: Bool = l == l\nend",
+			"equality is unavailable because recursive type T does not support ==",
+		},
+		{
+			"self through a union member",
+			"type T is union | Leaf | Node as kids: List<T> end end\n" +
+				"fun demo() do\n    let a: T = T.Leaf()\n    let mixed: T | Int32 = a\n    let other: T | Int32 = mixed\n    let bad: Bool = mixed == other\nend",
+			"equality is unavailable because recursive type T does not support ==",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertRejects(t, testCase.source, testCase.want)
+		})
+	}
+}
+
+func TestRecursiveTypeThroughDictEqualityRejected(t *testing.T) {
+	// Dict without equality and the recursion itself are both valid causes,
+	// so only the unavailable-equality key is asserted.
+	result := compileSource("type U is union | Leaf | Node as kids: Dict<Int32, U> end end\n" +
+		"fun demo() do\n    let a: U = U.Leaf()\n    let bad: Bool = a == a\nend")
+	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 ||
+		!strings.Contains(result.Stderr[0], "type.equality-unavailable-because") {
+		t.Fatalf("Compile stderr = %#v, want an unavailable-equality diagnostic", result.Stderr)
+	}
+}
+
+func TestPointerRecursionEqualityAccepted(t *testing.T) {
+	// Pointer identity comparison never dereferences the pointee, so a struct
+	// that names itself through Ptr still compares by identity.
+	result := compileSource("type Pair is struct x: Int32 end\nfun demo() do\n    let box: Pair = Pair(x = 1)\n    let a: Ptr<Pair> = @box\n    let b: Ptr<Pair> = a\n    let same: Bool = a == b\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+}
+
+func TestRecursiveTypeNoDiagnosticCascades(t *testing.T) {
+	// The rejection binds a Bool; exactly one diagnostic on the `==` itself.
+	source := "type T is union | Leaf | Node as kids: List<T> end end\n" +
+		"fun demo() do\n    let a: T = T.Leaf()\n    let bad: Bool = a == a\nend"
+	result := compileSource(source)
+	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) != 1 {
+		t.Fatalf("Compile exit code = %d, stderr = %#v, want exactly one diagnostic", result.ExitCode, result.Stderr)
+	}
+}
+
+func TestTypeReachedTwiceAlongIndependentPathsStillChecked(t *testing.T) {
+	// The same inner type is reached through two members. The walked set holds
+	// only identities on the current walk, so the second visit is re-checked
+	// and accepted; a set that persisted across visits would treat the second
+	// as a recursion and reject.
+	result := compileSource("type Inner is struct v: Int32 end\n" +
+		"type Outer is struct one: Inner, two: Inner end\n" +
+		"fun demo() do\n" +
+		"    let left: Outer = Outer(one = Inner(v = 1), two = Inner(v = 2))\n" +
+		"    let right: Outer = Outer(one = Inner(v = 1), two = Inner(v = 2))\n" +
+		"    let bad: Bool = left == right\nend")
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
+	}
+}
+
 func TestSequenceEqualityRequiresSameShape(t *testing.T) {
 	result := compileSource("fun demo() do\n    let fixed: List<Int32, 2> = [1, 2]\n    let other: List<Int32, 3> = [1, 2, 3]\n    let bad: Bool = fixed == other\nend")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "identical canonical non-numeric operand types") {

@@ -39,6 +39,16 @@ const MaxInterpolationDepth = 128
 // resource ceiling is not a measured buffer-size optimum.
 const ForeignInspectionByteLimit = 64 << 20
 
+// MaxStructuralPrintDepth caps how many structural aggregates one printed
+// value may enter before the generated helper prints the unquoted marker
+// "..." and returns. Cyclic values and adversarially deep values would
+// otherwise exhaust the native C stack inside print helpers; ordinary
+// diagnostic output stays well below this. It is a conservative safety
+// ceiling chosen against that exhaustion mode, not a measured optimum, and
+// JSON serialization deliberately stays outside it: Json.stringify either
+// emits complete output or fails.
+const MaxStructuralPrintDepth = 16
+
 // ForeignInspectionTimeout caps one foreign inspection process end to end.
 // It is a conservative external-process resource ceiling, not a performance
 // target.

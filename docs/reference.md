@@ -499,7 +499,19 @@ HeapAllocation
    union) intern once per compilation and are shared by every module. `List<Int32>` written in two
   modules is one type, while `List<m.Point>` and `List<s.Point>` over same-named `Point` types are
   two.
-- Direct and mutual by-value recursive layouts are invalid; pointer-indirect recursion is valid.
+- A layout is valid exactly when every cycle from the declared type back to
+  itself crosses an indirect-storage edge. By-value edges (object members, ADT
+  payload fields, structural-union members, and inline `List<T, N>` elements)
+  continue the walk; the indirect edges stop it: allocated `List<T>`,
+  `Dict<K, V>`, `Pool<T>`, `Stash<T>`, `Task<T>`, `Channel<T>`, `Slice<T>` and
+  `Slice<mut T>` (a by-value descriptor with indirect element storage), `Ptr`
+  in both forms, and `Fun<...>` signatures. A type with one direct recursive
+  member and an unrelated pointer member is rejected; the pointer does not
+  legalize the direct branch. An unresolvable self reference is reported with
+  the existing finite-representation diagnostic at the declaration that closes
+  the cycle. Generic specializations are re-checked after substitution:
+  same-argument recursion through an indirect edge stays valid, and an inline
+  recursive instantiation is rejected.
 - Pointer member access auto-dereferences one object-pointer layer. `^pointer` explicitly
   accesses the whole pointee and is required for non-object pointees; a member actually named
   `value` resolves like any other member after that same auto-dereference.
@@ -836,7 +848,10 @@ destinations only. `none` means no fixed-width destination.
 - `== nil` and `!= nil` test whether a union's active member is Nil. They require a union containing
   Nil, are the only Nil comparison, and read no payload. Nil has no standalone value to compare.
 - Functions, allocators, and Dicts have no equality. An aggregate is comparable only when all
-  recursively compared components are.
+  recursively compared components are, except that a nominal type considered while it is already
+  being considered — a type that reaches itself through its components, however deeply — is not
+  comparable, and the diagnostic names the recursive type. Pointer-indirect recursion is unaffected:
+  pointer equality never dereferences the pointee.
 - Ordering exists only for numeric scalars and text, and any two text forms order against each
   other. Duration, Instant, and WallTime
   additionally compare and order by value against the same type, as defined under Time; they have
@@ -1517,9 +1532,22 @@ print(first: Printable, rest: Printable...) -> no value
   returns no value. Arguments evaluate once left-to-right; output starts only after all evaluation.
 - Directly printable: Bool, fixed-width integers, Size, Byte, Float32, Float64, text of any form
   (`String` and `String<N>`), Nil, and Error. Objects, ADTs, inline Lists, Slice, allocated List, and Dict are printable exactly when every
-  recursively visited component is printable. Every other canonical type is non-printable; unions
+  recursively visited component is printable, with the recursive visit itself treated as printable:
+  a type that reaches itself through its components is printable exactly when every component
+  other than the recursion itself is. Every other canonical type is non-printable; unions
   must narrow to a printable member first. Failure identifies the first non-printable member path in
   declaration order.
+- Generated structural printing is bounded by `MaxStructuralPrintDepth = 16`,
+  a compiler-owned safety ceiling. Each top-level argument starts at aggregate
+  depth 0; object, ADT, structural union, inline List, Slice, allocated List,
+  and Dict each count as one aggregate level. An aggregate entered at depth 0
+  through 15 renders normally; before entering an aggregate at depth 16, its
+  helper prints the unquoted marker `...` and returns without reading its
+  members or elements. Scalars, pointers, Strings, and other leaves do not
+  consume depth, separate top-level arguments have separate budgets, and
+  `print` never fails merely because the display truncated. A String whose
+  value is literally `...` stays quoted. `Json.stringify` remains complete-or
+  -Error and never emits the truncation marker.
 - A print argument is the one position that admits standalone Nil, so a union narrowed to Nil and the
   bare `nil` literal are both printable. Nil prints `nil` directly and nested.
 - Direct text is raw; nested text is quoted/escaped; Byte is numeric. Structural forms are

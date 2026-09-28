@@ -1,10 +1,10 @@
 # RFC 0198: Web Server — HTTP Request and Response Parsing
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Deferred; not scheduled. Depends on the network runtime (RFC 0144)
-  and TCP socket operations landing first
+- Status: Open Discussion; active HTTP parser prerequisite; implementation not
+  started
 - Created: 2026-09-15
-- Updated: 2026-09-15
+- Updated: 2026-09-28
 - Depends on: RFC 0144 (high-throughput network runtime), the implemented
   RFCs 0145 (libuv runtime), 0146 (mimalloc), and 0168 (libuv capability
   arc), and the current Task, String, Slice, Dict, and Error contracts in
@@ -24,6 +24,20 @@ Hexal-specific dependencies.
 
 The parser is usable from both Hexal and C code, and can be embedded in
 non-Hexal programs (tests, benchmarks, tools).
+
+## Existing parser candidate
+
+The intended integration candidate may be [PicoHTTPParser](https://github.com/h2o/picohttpparser),
+but the current repository does not record that as a selected dependency. Its
+upstream C API parses HTTP requests, responses, and headers without allocating;
+the returned fields point into the caller-provided input buffer. It also
+provides chunked-transfer decoding. Request-body framing and streaming remain
+the caller's responsibility, so the adapter must preserve the input-buffer
+lifetime while Hexal consumes parsed fields and body bytes.
+
+PicoHTTPParser is dual-licensed under the Perl License or MIT License. The
+implementation plan must choose the applicable license, pin an exact upstream
+revision, and qualify the adapter before treating this candidate as selected.
 
 ## Scope decision
 
@@ -384,8 +398,9 @@ This section is exhaustive:
 
 ## Open questions
 
-1. Whether to use an existing HTTP parser (like `llhttp` or `http-parser`)
-   or write a hand-optimized parser from scratch.
+1. Whether to integrate PicoHTTPParser or select another parser. The current
+   RFC and its dependent backend draft had inconsistent llhttp/hand-written
+   proposals; no upstream parser is selected yet.
 2. Whether `Headers` should be a separate type or a `Dict`-like type
    with case-insensitive keys.
 3. Whether the parser should support HTTP/1.0 `Connection: close`

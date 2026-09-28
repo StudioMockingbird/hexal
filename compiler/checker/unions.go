@@ -5,6 +5,7 @@ import (
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
+	"strings"
 )
 
 // isContextualExpression reports whether a form takes its type from the
@@ -282,7 +283,14 @@ func checkUnionEquality(operator Operator, left, right checkedExpression, token 
 	leftMembers := compilerTypes.UnionMembers(left.typ)
 	for index := 0; index < leftMembers.Len(); index++ {
 		if member, _ := leftMembers.At(index); !compilerTypes.IsNil(member) {
-			if ok, _ := EqualityAvailable(member); !ok {
+			if ok, reason := EqualityAvailable(member); !ok {
+				if strings.HasPrefix(reason, recursionUnavailableReason("")) {
+					// The member is rejected only because the union reaches a
+					// recursive type; the diagnostic names the recursion, as
+					// the operand-level path does.
+					diagnostic := messageAt(token, diagnosticsPkg.EqualityUnavailableBecause(reason))
+					return &checkedExpression{token: token, diagnostic: &diagnostic}
+				}
 				diagnostic := messageAt(token, diagnosticsPkg.UnionMemberDoesNotSupportEquality(member.Name))
 				return &checkedExpression{token: token, diagnostic: &diagnostic}
 			}

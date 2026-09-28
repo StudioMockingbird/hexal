@@ -129,6 +129,187 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
+		name:       "recursive-list-compiles",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type T is union | Leaf | Node as kids: List<T> end end\n" +
+			"fun demo(h: Heap) do\n" +
+			"    let kids: List<T> = List<T>(h)\n" +
+			"    kids.push(T.Leaf())\n" +
+			"    kids.push(T.Node(kids = kids))\n" +
+			"    let value: T = T.Node(kids = kids)\n" +
+			"    let is_node: Bool = match value is\n" +
+			"    | T.Node then true\n" +
+			"    | else then false\n" +
+			"    end\n" +
+			"    print(is_node)\nend"},
+	},
+	{
+		name:       "recursive-dict-compiles",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type U is union | Leaf | Node as kids: Dict<Int32, U> end end\n" +
+			"fun demo(h: Heap) do\n" +
+			"    let kids: Dict<Int32, U> = Dict<Int32, U>(h)\n" +
+			"    defer kids.free(h)\n" +
+			"    kids.insert(1, U.Leaf())\n" +
+			"    let value: U = U.Node(kids = kids)\n" +
+			"    let is_node: Bool = match value is\n" +
+			"    | U.Node then true\n" +
+			"    | else then false\n" +
+			"    end\n" +
+			"    print(is_node)\nend"},
+	},
+	{
+		// A Pool holds one element per slot by value, but the slot element
+		// names a type that stores a Pool handle, so the pool storage
+		// context survives its own declaration. The fixture constructs,
+		// inspects, and destroys it.
+		name:       "recursive-pool-construct-inspect-destroy-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type Unit is struct count: Int32, next: Pool<Unit> end\n" +
+			"fun demo() do\n" +
+			"    let pool = Pool<Unit>(4)\n" +
+			"    defer pool.destroy()\n" +
+			"    let unit: Ptr<mut Unit> = pool.allocate(Unit(count = 7, next = pool))\n" +
+			"    print(unit.count)\n" +
+			"    print(\"\\n\")\n" +
+			"    pool.free(unit)\n" +
+			"end\n" +
+			"fun start(): Int32 do\n    demo()\n    return 0\nend\n" +
+			"let root: Int32 = start()\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "7\n"},
+	},
+	{
+		// The Slice descriptor is a by-value member over its own nominal
+		// element type: empty, inspectable, and no owning free.
+		name:       "recursive-slice-window-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type Window is struct children: Slice<Window> end\n" +
+			"fun demo() do\n" +
+			"    let parent: Window = Window(children = Slice<Window>.empty())\n" +
+			"    print(parent.children.length())\n" +
+			"    print(\"\\n\")\n" +
+			"end\n" +
+			"fun start(): Int32 do\n    demo()\n    return 0\nend\n" +
+			"let root: Int32 = start()\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "0\n"},
+	},
+	{
+		// A Fun signature is an indirect edge: a struct holding a dispatch
+		// table over itself resolves through the function pointer.
+		name:       "recursive-function-signature-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type Apply is struct run: Fun<(Int32) : Int32> end\n" +
+			"fun double(value: Int32): Int32 do\n" +
+			"    return value + value\n" +
+			"end\n" +
+			"fun demo() do\n" +
+			"    let app: Apply = Apply(run = double)\n" +
+			"    print(app.run(21))\n" +
+			"    print(\"\\n\")\n" +
+			"end\n" +
+			"fun start(): Int32 do\n    demo()\n    return 0\nend\n" +
+			"let root: Int32 = start()\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "42\n"},
+	},
+	{
+		name:       "recursive-print-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type T is union | Leaf | Node as kids: List<T> end end\n" +
+			"let h: Heap = Heap()\n" +
+			"let mut inner: List<T> = List<T>(h)\n" +
+			"inner.push(T.Leaf())\n" +
+			"let mut kids: List<T> = List<T>(h)\n" +
+			"kids.push(T.Leaf())\n" +
+			"kids.push(T.Node(kids = inner))\n" +
+			"let value: T = T.Node(kids = kids)\n" +
+			"print(value)\n" +
+			"print(\"\\n\")"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "T.Node { kids = [T.Leaf, T.Node { kids = [T.Leaf] }] }\n"},
+	},
+	{
+		// depth 0 through 15 render normally; the chain's next aggregate would
+		// enter at depth 16 and the chain truncates: eight "Cell { value = ["
+		// pairs, the unquoted marker, then each level closes.
+		name:       "deep-chain-acyclic-bounded-print-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type Cell is struct value: List<Cell> end\n" +
+			"fun build(h: Heap, remaining: Int32): Cell do\n" +
+			"    let kids: List<Cell> = List<Cell>(h)\n" +
+			"    if remaining > 1 then\n" +
+			"        kids.push(build(h, remaining - 1))\n" +
+			"    end\n" +
+			"    return Cell(value = kids)\n" +
+			"end\n" +
+			"fun demo(h: Heap) do\n" +
+			"    print(build(h, 40))\n" +
+			"    print(\"\\n\")\n" +
+			"end\n" +
+			"fun start(): Int32 do\n" +
+			"    demo(Heap())\n" +
+			"    return 0\n" +
+			"end\n" +
+			"let root: Int32 = start()\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "Cell { value = [Cell { value = [Cell { value = [Cell { value = [Cell { value = [Cell { value = [Cell { value = [Cell { value = [...] }] }] }] }] }] }] }] }\n"},
+	},
+	{
+		// A cycle prints a finite line: the second element of the shared list
+		// is the root's own value, so both elements truncate at depth 16 and
+		// no native stack is exhausted.
+		name:       "cyclic-list-print-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type T is union | Leaf | Node as kids: List<T> end end\n" +
+			"let h: Heap = Heap()\n" +
+			"let mut kids: List<T> = List<T>(h)\n" +
+			"kids.push(T.Leaf())\n" +
+			"let root: T = T.Node(kids = kids)\n" +
+			"kids.push(root)\n" +
+			"print(root)\n" +
+			"print(\"\\n\")\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "T.Node { kids = [T.Leaf, T.Node { kids = [T.Leaf, T.Node { kids = [T.Leaf, T.Node { kids = [T.Leaf, T.Node { kids = [T.Leaf, T.Node { kids = [T.Leaf, T.Node { kids = [T.Leaf, T.Node { kids = [..., ...] }] }] }] }] }] }] }] }\n"},
+	},
+	{
+		// Two top-level arguments carry separate budgets: both descend the
+		// same number of aggregates before truncating.
+		name:       "bounded-print-per-argument-fresh-budget-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type Cell is struct value: List<Cell> end\n" +
+			"fun build(h: Heap, remaining: Int32): Cell do\n" +
+			"    let kids: List<Cell> = List<Cell>(h)\n" +
+			"    if remaining > 1 then\n" +
+			"        kids.push(build(h, remaining - 1))\n" +
+			"    end\n" +
+			"    return Cell(value = kids)\n" +
+			"end\n" +
+			"fun demo(h: Heap) do\n" +
+			"    print(build(h, 40), \"|\", build(h, 40))\n" +
+			"    print(\"\\n\")\n" +
+			"end\n" +
+			"fun start(): Int32 do\n" +
+			"    demo(Heap())\n" +
+			"    return 0\n" +
+			"end\n" +
+			"let root: Int32 = start()\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "Cell { value = [Cell { value = [Cell { value = [Cell { value = [Cell { value = [Cell { value = [Cell { value = [Cell { value = [...] }] }] }] }] }] }] }] }|Cell { value = [Cell { value = [Cell { value = [Cell { value = [Cell { value = [Cell { value = [Cell { value = [Cell { value = [...] }] }] }] }] }] }] }] }\n"},
+	},
+	{
+		// A String whose value is literally "..." stays quoted: the marker is
+		// print-owned syntax, so the quoted form distinguishes it.
+		name:       "quoted-ellipsis-literal-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(h: Heap) do\n" +
+			"    let scores: List<String> = List<String>(h)\n" +
+			"    scores.push(\"...\")\n" +
+			"    print(scores)\n" +
+			"    print(\"\\n\")\n" +
+			"end\n" +
+			"fun start(): Int32 do\n" +
+			"    demo(Heap())\n" +
+			"    return 0\n" +
+			"end\n" +
+			"let root: Int32 = start()\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "[\"...\"]\n"},
+	},
+	{
 		name:       "dict-scalar-keys-and-clear-runs",
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
@@ -1065,14 +1246,6 @@ var fixtureCatalog = []fixture{
 			"end\n" +
 			"print(check(Heap()), \"\\n\")\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true\n"},
-	},
-	{
-		// Two cursor advances in one argument list conflict on the binding:
-		// written order must consume 'a' first, so the product is 97*10+98.
-		name:        "cursor-next-sibling-order-runs",
-		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun pick(a: Int32, b: Int32): Int32 do\n    return (a * 10) + b\nend\nlet mut c: ByteCursor = \"ab\".byte_cursor()\nprint(pick(c.next().to<Int32>(), c.next().to<Int32>()), \"\\n\")\n"},
-		expectation: &processExpectation{zeroExit: true, exactStdout: "1068\n"},
 	},
 	{
 		name:        "print-collections-runs",

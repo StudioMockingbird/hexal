@@ -246,7 +246,12 @@ func IsText(typ Type) bool { return IsString(typ) || IsInlineString(typ) }
 func (environment *Environment) SliceType(element Type, writable bool) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		!Eligible(element, PositionSliceElement) {
+		// A provisional or incomplete element defers its own validity to
+		// the declaring nominal's layout check, exactly as a pointer pointee
+		// does; a complete element still has to pass the slice-element
+		// position rule and must not embed a non-copyable Atomic, and a
+		// parameter defers until specialization.
+		(!ContainsTypeParameter(element) && IsCompleteValue(element) && (!Storable(element, PositionSliceElement) || ContainsAtomic(element))) {
 		return Type{}
 	}
 	canonicalKey := "slice:" + element.CanonicalKey
@@ -278,7 +283,13 @@ func (environment *Environment) SliceType(element Type, writable bool) Type {
 func (environment *Environment) ListType(element Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		!Eligible(element, PositionListElement) {
+		// An owning List stores its element behind the data pointer, so a
+		// provisional or incomplete element defers its validity to the
+		// declaring nominal's layout check, the way a pointer pointee does;
+		// a complete element keeps the list-element position rule and must
+		// not embed a non-copyable Atomic, and an open parameter defers
+		// until specialization.
+		(!ContainsTypeParameter(element) && IsCompleteValue(element) && (!Storable(element, PositionListElement) || ContainsAtomic(element))) {
 		return Type{}
 	}
 	canonicalKey := "list:" + element.CanonicalKey
@@ -365,34 +376,55 @@ func Eligible(element Type, position Position) bool {
 // be copied, so any shallow-copy position that reaches one is invalid. It
 // stops at every indirection: copying a Ptr<T>, Ptr<mut T>, or a handle copies
 // the pointer, never the pointee.
+//
+// The walk threads the set of nominal identities currently on the path, so a
+// type that reaches itself through an inline List, a provisional payload, or
+// any aggregate chain terminates: a revisit proves nothing new for the copy
+// rule. Whether the self-reaching layout is valid is the layout validator's
+// question, and refusing to answer it here keeps an invalid recursion from
+// becoming a process-killing walk before that later check runs.
 func ContainsAtomic(typ Type) bool {
+	return containsAtomic(typ, make(map[any]bool))
+}
+
+func containsAtomic(typ Type, path map[any]bool) bool {
 	if typ.Atomic != nil {
 		return true
 	}
 	if typ.Object != nil {
+		if path[typ.Object] {
+			return false
+		}
+		path[typ.Object] = true
+		defer delete(path, typ.Object)
 		for _, member := range typ.Object.Members {
-			if ContainsAtomic(member.Type) {
+			if containsAtomic(member.Type, path) {
 				return true
 			}
 		}
 	}
 	if typ.Adt != nil {
+		if path[typ.Adt] {
+			return false
+		}
+		path[typ.Adt] = true
+		defer delete(path, typ.Adt)
 		for _, variant := range typ.Adt.Variants {
 			for _, member := range variant.Payload {
-				if ContainsAtomic(member.Type) {
+				if containsAtomic(member.Type, path) {
 					return true
 				}
 			}
 		}
 	}
 	if typ.InlineList != nil {
-		return ContainsAtomic(typ.InlineList.Element)
+		return containsAtomic(typ.InlineList.Element, path)
 	}
 	if typ.Union != nil || typ.NullableBase != nil {
 		members := UnionMembers(typ)
 		for index := 0; index < members.Len(); index++ {
 			member, _ := members.At(index)
-			if ContainsAtomic(member) {
+			if containsAtomic(member, path) {
 				return true
 			}
 		}
@@ -469,7 +501,11 @@ func (environment *Environment) ChannelType(element Type) Type {
 func (environment *Environment) StashType(element Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		!Eligible(element, PositionHeapAllocation) {
+		// The Stash is a type-erased indirect handle: its element defers its
+		// validity to the declaring nominal's layout check exactly as an
+		// owning List does; a complete element keeps the heap-allocation
+		// position rule and must not embed a non-copyable Atomic.
+		(!ContainsTypeParameter(element) && IsCompleteValue(element) && (!Storable(element, PositionHeapAllocation) || ContainsAtomic(element))) {
 		return Type{}
 	}
 	canonicalKey := "stash:" + element.CanonicalKey
@@ -496,7 +532,12 @@ func (environment *Environment) StashType(element Type) Type {
 func (environment *Environment) PoolType(element Type) Type {
 	if environment == nil ||
 		!isCanonicalForEnvironment(environment, element, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		!Eligible(element, PositionHeapAllocation) {
+		// Pool's slot array holds one element per slot by value, so a
+		// provisional slot element defers to the declaring nominal's layout
+		// check exactly as a pointer pointee does; a complete element keeps
+		// the heap-allocation position rule and must not embed a
+		// non-copyable Atomic.
+		(!ContainsTypeParameter(element) && IsCompleteValue(element) && (!Storable(element, PositionHeapAllocation) || ContainsAtomic(element))) {
 		return Type{}
 	}
 	canonicalKey := "pool:" + element.CanonicalKey
@@ -563,7 +604,11 @@ func (environment *Environment) DictType(key, value Type) Type {
 		!isCanonicalForEnvironment(environment, key, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
 		!IsDictKey(key) ||
 		!isCanonicalForEnvironment(environment, value, &canonicalTypeState{allowProvisionalObjects: true, allowTypeParameters: true}, false) ||
-		!Eligible(value, PositionDictValue) {
+		// The dict value lives behind an indirect-entry bucket, so a
+		// provisional value defers, exactly as an owning List does; a
+		// complete value still passes the dict-value position rule and must
+		// not embed a non-copyable Atomic.
+		(!ContainsTypeParameter(value) && IsCompleteValue(value) && (!Storable(value, PositionDictValue) || ContainsAtomic(value))) {
 		return Type{}
 	}
 	canonicalKey := "dict:" + key.CanonicalKey + "," + value.CanonicalKey
@@ -596,7 +641,7 @@ func (environment *Environment) DictEntryType(key, value Type) Type {
 	name := "DictEntry<" + key.Name + ", " + value.Name + ">"
 	identity := newTypeIdentity()
 	identity.signature = canonicalKey
- cName := DictEntryCName(key, value)
+	cName := DictEntryCName(key, value)
 	object := &ObjectType{
 		Name:  name,
 		CName: cName,

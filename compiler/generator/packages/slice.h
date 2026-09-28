@@ -18,6 +18,46 @@ static inline {{.CName}} {{.HelperPrefix}}slice_{{.Suffix}}({{.CName}} slice, ui
 }
 {{end}}
 {{- end -}}
+{{- define "slicedesc" -}}
+{{range .Slices}}
+typedef struct {{.CName}} {
+    {{if .Writable}}{{.ElementSpelling}}{{else}}{{.ReadOnlyElementSpelling}}{{end}} *data;
+    size_t length;
+} {{.CName}};
+{{end}}
+{{- end -}}
+{{- define "slicemethod" -}}
+{{range .Slices}}
+static inline {{if .Writable}}{{.ElementSpelling}}{{else}}{{.ReadOnlyElementSpelling}}{{end}} *{{.HelperPrefix}}at_{{.Suffix}}({{.CName}} slice, size_t index) {
+    if (index >= slice.length) {
+        hex_runtime_trap("[Runtime Error] slice index out of bounds\n");
+    }
+    return &slice.data[index];
+}
+static inline {{.CName}} {{.HelperPrefix}}slice_{{.Suffix}}({{.CName}} slice, uint64_t start, uint64_t end) {
+    if (!(start <= end && end <= slice.length)) {
+        hex_runtime_trap("[Runtime Error] slice slice bounds out of range\n");
+    }
+    return ({{.CName}}){slice.data == nullptr ? nullptr : &slice.data[start], end - start};
+}
+{{end}}
+{{- end -}}
+{{- define "sliceat" -}}
+static inline {{if .Writable}}{{.ElementSpelling}}{{else}}{{.ReadOnlyElementSpelling}}{{end}} *{{.HelperPrefix}}at_{{.Suffix}}({{.CName}} slice, size_t index) {
+    if (index >= slice.length) {
+        hex_runtime_trap("[Runtime Error] slice index out of bounds\n");
+    }
+    return &slice.data[index];
+}
+{{- end -}}
+{{- define "slicereslice" -}}
+static inline {{.CName}} {{.HelperPrefix}}slice_{{.Suffix}}({{.CName}} slice, uint64_t start, uint64_t end) {
+    if (!(start <= end && end <= slice.length)) {
+        hex_runtime_trap("[Runtime Error] slice slice bounds out of range\n");
+    }
+    return ({{.CName}}){slice.data == nullptr ? nullptr : &slice.data[start], end - start};
+}
+{{- end -}}
 {{- define "slicetext" -}}
 #ifndef HEXAL_TEXT_{{.Capacity}}_DEFINED
 #define HEXAL_TEXT_{{.Capacity}}_DEFINED

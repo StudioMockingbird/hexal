@@ -185,16 +185,28 @@ func moduleHeader(input moduleHeaderInput) (string, error) {
 	if err := writeUnionForwardDeclarations(&result, input.unions); err != nil {
 		return "", err
 	}
+	// Collection specializations are defined after the nominal bodies, but a
+	// nominal body can hold one of their pointer-sized handles, so the
+	// incomplete handle typedefs ship with the other forward declarations.
+	// Slice descriptors are stored by value, so their complete fragments
+	// render pre-nominal instead and only need the forward names above.
+	if err := writePreNominalSlices(&result, &input); err != nil {
+		return "", err
+	}
+	if err := writeCollectionForwardDeclarations(&result, &input); err != nil {
+		return "", err
+	}
 	if err := writeNominalBodies(&result, input.objects, input.adts, input.unions, input.filename, input.tags); err != nil {
 		return "", err
 	}
 	if err := writeUnionDefinitions(&result, input.unions, input.tags); err != nil {
 		return "", err
 	}
-	// Module-owned collection specializations follow their element
-	// definitions: component artifacts are program-wide and cannot declare
-	// per-module types, so each consuming module re-emits the specializations
-	// it needs into its own header.
+	// Module-owned collection specializations define their bodies after the
+	// nominal bodies, because each body embeds or requires a complete nominal
+	// type. A nominal body that holds one of their pointer-sized handles was
+	// already served by the forward typedefs emitted with the declaration
+	// block above.
 	if err := writeModuleCollectionSpecializations(&result, &input); err != nil {
 		return "", err
 	}

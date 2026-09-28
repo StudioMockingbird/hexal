@@ -1,13 +1,14 @@
 # RFC 0194: Web Server — Lowering and libuv Usage
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Deferred; not scheduled. Depends on RFC 0144 (network runtime)
-  implementation landing first
+- Status: Open Discussion; active design for the default HTTP backend;
+  implementation not started
 - Created: 2026-09-15
-- Updated: 2026-09-15
-- Depends on: RFC 0144 (high-throughput network runtime), RFC 0210 (web server
-  syntax and semantics), and the implemented RFCs 0145 (libuv runtime), 0146
-  (mimalloc), 0168 (libuv capability arc), and 0184 (atomic print)
+- Updated: 2026-09-28
+- Depends on: RFC 0144 (high-throughput network runtime), RFC 0198 (HTTP
+  parsing and serialization), RFC 0208 (backend contract), RFC 0210 (web server
+  surface), and the implemented RFCs 0145 (libuv runtime), 0146 (mimalloc),
+  0168 (libuv capability arc), and 0184 (atomic print)
 - Coordinates with: RFC 0195 (TLS 1.3 integration) for the shared socket
   layer and libuv handle lifecycle
 - Does not add: language syntax, source semantics, or public APIs
@@ -94,10 +95,9 @@ uv_shutdown(&shutdown_req, &connection_handle, shutdown_cb);
 
 ## HTTP parser
 
-The HTTP parser is a pure C state machine operating on byte buffers. It does
-not call libuv, malloc, or any runtime facility. It is a modified version of
-the `llhttp` parser (MIT licensed, used by Node.js) or an equivalent
-hand-written parser.
+RFC 0198 owns the HTTP parser implementation choice and its parsing contract.
+The default backend adapts that parser to the per-connection read buffer; it
+does not implement a second HTTP parser. The parser has no libuv dependency.
 
 ### Parser interface
 
@@ -357,14 +357,12 @@ This section is exhaustive:
 
 ## Open questions
 
-1. Whether to use `llhttp` (proven, MIT-licensed) or a hand-written parser
-   (simpler dependency story).
-2. Whether chunked response writing should be a builder or a direct API.
-3. Whether `Server` should support multiple listener handles (for binding
+1. Whether chunked response writing should be a builder or a direct API.
+2. Whether `Server` should support multiple listener handles (for binding
    to multiple ports).
-4. Whether the accept loop should use `uv_tcp_keepalive` for connection
+3. Whether the accept loop should use `uv_tcp_keepalive` for connection
    health.
-5. Whether to expose `Server.set_on_connection(handler)` as an alternative
+4. Whether to expose `Server.set_on_connection(handler)` as an alternative
    to the constructor parameter.
 
 ## Reference synchronization

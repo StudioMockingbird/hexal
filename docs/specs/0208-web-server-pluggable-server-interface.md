@@ -1,16 +1,13 @@
 # RFC 0208: Web Server — Pluggable Server Interface
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Deferred; not scheduled. Depends on the web server syntax (RFC 0210)
-  and middleware architecture (RFC 0202) landing first
+- Status: Open Discussion; active design for the HTTP backend contract;
+  implementation not started
 - Created: 2026-09-15
-- Updated: 2026-09-15
-- Depends on: RFC 0210 (web server syntax), RFC 0202 (middleware architecture),
-  RFC 0194 (web server lowering), and the implemented RFCs 0145 (libuv
-  runtime), 0146 (mimalloc), and 0168 (libuv capability arc)
-- Coordinates with: RFC 0210 (web server syntax) for the Request and Response
-  types, RFC 0195 (TLS) for encrypted backends, and RFC 0186 (stdlib
-  boundary) for module placement
+- Updated: 2026-09-28
+- Depends on: RFC 0210 (web server surface) and RFC 0039 (C interoperability)
+- Coordinates with: RFC 0194 (default backend), RFC 0195 (TLS), and RFC 0186
+  (stdlib boundary)
 - Does not add: specific backend implementations (those are separate specs)
 
 ## Motivation
@@ -26,26 +23,45 @@ standard library locks into one implementation.
 
 | Capability | Disposition | Rationale |
 | --- | --- | --- |
-| Server trait/interface | Pick up | Foundation |
-| Request/Response contract | Pick up | Required for interoperability |
-| Middleware compatibility | Pick up | Required for reuse |
+| Backend contract | Pick up | Foundation for replaceable implementations |
+| Shared Request/Response contract | Pick up | Defined by RFC 0210; backends must preserve it |
+| Middleware compatibility | Defer | Middleware is outside the minimum server milestone |
 | Handler dispatch contract | Pick up | Required for reuse |
 | Backend selection (compile-time) | Pick up | Zero runtime overhead |
 | Backend selection (runtime) | Skip in v1 | Complexity disproportionate to initial surface |
-| Custom request types | Pick up | Required for protocol-specific data |
-| Custom response types | Pick up | Required for protocol-specific data |
+| Backend-specific Request/Response types | Skip | HTTP handlers use RFC 0210's shared built-in types |
 | Backend negotiation | Skip in v1 | Complexity disproportionate to initial surface |
 | Backend discovery (plugin system) | Skip in v1 | Complexity disproportionate to initial surface |
 
 ## Design principle
 
-A server backend is any type that satisfies the `Server` interface. The
-standard library provides the libuv backend. Library writers provide their
-own by implementing the same interface. The middleware chain, router, and
-handler types are backend-agnostic; they work with any `Server`
-implementation.
+A server backend is a statically selected adapter that satisfies the common
+backend contract. The standard library provides Hexal's default backend;
+library owners can provide adapters for statically linked C libraries. The
+router and handler types remain backend-agnostic. Middleware compatibility is
+deferred to RFC 0202.
 
-## Source surface
+## Current design direction
+
+- The default backend is Hexal's own HTTP implementation. It satisfies the
+  same backend contract as third-party adapters and is selected by
+  `Http.serve(config, router)`.
+- A library owner can statically link a C HTTP library and provide a Hexal/C
+  adapter satisfying the backend contract. Runtime plugin discovery and
+  runtime backend negotiation are out of scope.
+- Every backend receives the same built-in `Request`, `Response`, `Router`,
+  and `ServerConfig` contract from RFC 0210. Backends do not define competing
+  request or response types for ordinary HTTP handlers.
+- `Http.serve_with(backend, config, router)` selects a custom backend. Backend
+  selection and the C adapter ABI remain to be specified.
+- The backend contract must define request/response body streaming,
+  cancellation, error translation, callback lifetime, and ownership across
+  the C boundary before implementation.
+
+These decisions supersede the interface and syntax sketches below. They are
+historical discussion material, not current Hexal syntax or normative behavior.
+
+## Earlier source-surface sketch (superseded)
 
 ### Server interface
 
