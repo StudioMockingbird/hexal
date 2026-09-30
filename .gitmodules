@@ -7,3 +7,9 @@
 [submodule "modules/utf8proc"]
 	path = modules/utf8proc
 	url = https://github.com/JuliaStrings/utf8proc.git
+[submodule "modules/yyjson"]
+	path = modules/yyjson
+	url = https://github.com/ibireme/yyjson
+[submodule "modules/pcre2"]
+	path = modules/pcre2
+	url = https://github.com/PCRE2Project/pcre2
