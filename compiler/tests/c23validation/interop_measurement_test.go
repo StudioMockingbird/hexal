@@ -101,6 +101,7 @@ func TestProgramAndEntropyMeasurements(t *testing.T) {
 			started = time.Now()
 			for run := 0; run < runs; run++ {
 				command := exec.Command(result.Executable)
+				command.Dir = t.TempDir()
 				command.Env = append(os.Environ(), "MIMALLOC_SHOW_STATS=1")
 				var stdout, stderr bytes.Buffer
 				command.Stdout = &stdout

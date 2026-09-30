@@ -11,7 +11,6 @@ import (
 	"bytes"
 	"context"
 	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -24,11 +23,11 @@ var leakCheckedFixtures = map[string]bool{
 	"casefold-runs":  true,
 	"json-nested-ownership-and-partial-failure-leak-runs": true,
 	"json-user-built-graph-ownership-runs":                true,
-	"regex-unicode-byte-spans-and-captures-runs":           true,
-	"regex-subject-over-pattern-limit-runs":                true,
-	"regex-invalid-pattern-and-no-match-runs":              true,
-	"regex-shared-pattern-concurrent-matches-run":          true,
-	"regex-resource-limits-run":                            true,
+	"regex-unicode-byte-spans-and-captures-runs":          true,
+	"regex-subject-over-pattern-limit-runs":               true,
+	"regex-invalid-pattern-and-no-match-runs":             true,
+	"regex-shared-pattern-concurrent-matches-run":         true,
+	"regex-resource-limits-run":                           true,
 }
 
 // leakFlags instruments the binary with LeakSanitizer alone. LSan reports a
@@ -40,7 +39,12 @@ var leakFlags = []string{"-fsanitize=leak"}
 // requires it to run clean: exact stdout, no report, zero exit. LSan exists
 // only on the Linux lane; the Windows lane has no leak instrumentation, so
 // this track does not run there rather than failing on an unsupported flag.
+// Fixture subtests run in parallel, bounded by -parallel; each program runs
+// in its own temporary working directory.
 func TestC23SuiteLeak(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: smoke fixtures only; run without -short for the exhaustive gate")
+	}
 	if runtime.GOOS == "windows" {
 		t.Skip("LeakSanitizer does not exist for the Windows target")
 	}
@@ -53,12 +57,13 @@ func TestC23SuiteLeak(t *testing.T) {
 		}
 		ran++
 		t.Run(f.name, func(t *testing.T) {
+			t.Parallel()
 			result := f.resolve(t)
 			exe := buildGeneratedCFlags(t, clang, result, buildRoot, leakFlags)
 			ctx, cancel := context.WithTimeout(context.Background(), runProcessTimeout)
 			defer cancel()
 			cmd := exec.CommandContext(ctx, exe)
-			cmd.Dir = filepath.Dir(exe)
+			cmd.Dir = t.TempDir()
 			var outBuf, errBuf bytes.Buffer
 			cmd.Stdout = &outBuf
 			cmd.Stderr = &errBuf

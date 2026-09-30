@@ -12,9 +12,10 @@ package c23validation
 // a hard release-gate failure, not a skip.
 //
 // clang's compiler-rt UBSan runtime honors UBSAN_OPTIONS=log_path=... (a
-// relative path, run with the executable's own directory as the process's
-// working directory), which diverts a report into its own file so it never
-// mixes with the exact stderr text a trap fixture already asserts.
+// relative path, run in a fresh temporary working directory per process so
+// parallel fixtures never see each other's reports), which diverts a report
+// into its own file so it never mixes with the exact stderr text a trap
+// fixture already asserts.
 
 import (
 	"bytes"
@@ -95,15 +96,15 @@ func requireUBSanCapable(t *testing.T, root string) toolchain {
 	return tc
 }
 
-// runUBSanProcess runs path with its own directory as the working directory
-// (see the package comment on why log_path must be relative) and
+// runUBSanProcess runs path in a fresh temporary working directory (see the
+// package comment on why log_path must be relative) with
 // UBSAN_OPTIONS pointed at a log file there, returning stdout, stderr, exit
 // status, and the sanitizer report text if one fired -- from the log file
 // clang's compiler-rt honors, or from stderr when the runtime wrote there
 // instead.
 func runUBSanProcess(t *testing.T, path string) (stdout, stderr string, exitedZero bool, report string) {
 	t.Helper()
-	dir := filepath.Dir(path)
+	dir := t.TempDir()
 	ctx, cancel := context.WithTimeout(context.Background(), runProcessTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path)
@@ -136,8 +137,11 @@ func runUBSanProcess(t *testing.T, path string) (stdout, stderr string, exitedZe
 // check, so it is skipped here exactly as it is never run by TestC23Suite.
 // Clang ships no UBSan runtime for the MinGW ABI; Windows debug uses trap
 // mode (mode_c23 in the driver package), so this diagnostic track is
-// Linux-only.
+// Linux-only. Fixture subtests run in parallel, bounded by -parallel.
 func TestC23SuiteUBSan(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: smoke fixtures only; run without -short for the exhaustive gate")
+	}
 	if runtime.GOOS == "windows" {
 		t.Skip("UBSan runtime does not exist for the Windows target")
 	}
@@ -148,6 +152,7 @@ func TestC23SuiteUBSan(t *testing.T) {
 			continue
 		}
 		t.Run(f.name, func(t *testing.T) {
+			t.Parallel()
 			result := f.resolve(t)
 			exe := buildGeneratedCFlags(t, clang, result, buildRoot, ubsanFlags)
 			stdout, stderr, exitedZero, report := runUBSanProcess(t, exe)

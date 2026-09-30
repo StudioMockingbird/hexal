@@ -56,12 +56,15 @@ const buildProcessTimeout = 2 * time.Minute
 
 // runProcess runs path with a hard timeout, returning stdout and stderr
 // captured separately (never combined: Tier 2 and Tier 3 both depend on
-// telling the two apart) and whether it exited zero.
+// telling the two apart) and whether it exited zero. The program runs in a
+// fresh temporary directory of the calling test, so parallel programs never
+// share a working directory or write into the source tree.
 func runProcess(t *testing.T, path string) (stdout, stderr string, exitedZero bool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), runProcessTimeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, path)
+	command.Dir = t.TempDir()
 	var outBuf, errBuf bytes.Buffer
 	command.Stdout = &outBuf
 	command.Stderr = &errBuf

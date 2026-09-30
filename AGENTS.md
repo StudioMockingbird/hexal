@@ -303,6 +303,37 @@ without checking it against `reference.md` first.
   starts external processes and takes real time, never as a type-check.
   Lower-camel functions there are shared helpers (`buildGeneratedC`,
   `runGeneratedC`, `trapGeneratedC`, `assertCompiles`), not disabled tests.
+- **Validation scopes.** Four, cheapest first; run the smallest that can
+  observe the change.
+  1. **Ordinary**: `go test ./...`, `go vet ./...`, `go build ./...`. No C
+     toolchain. The default after every edit.
+  2. **Focused**: while working on one feature, run only the lanes and
+     fixtures that can observe it. Anchor every `-run` level with `^` and `$`:
+     each slash-separated level is an unanchored pattern, so without `$`,
+     `TestC23Suite` also matches `TestC23SuiteUBSan`.
+
+     ```text
+     go test -tags c23 ./compiler/tests/c23validation -run '^(TestC23Suite|TestReleaseLaneFixtures|TestC23SuiteQualifiedProfile)$/^(json-.*|regex-.*)$'
+     ```
+  3. **Short**: `go test -short -tags c23 ./compiler/tests/c23validation`. Runs
+     the eight-fixture `smokeFixtures` set in `catalog_test.go`, with the
+     snippet, UBSan, and LeakSanitizer lanes skipped. The gate for a change
+     that touches generated C, runtime behavior, target lowering, native
+     dependencies, or driver modes: run it once, after the focused run passes
+     and before handoff, to confirm the toolchain path still builds and runs.
+     It does not qualify a release.
+  4. **Exhaustive**: `go test -count=1 -timeout=60m -tags c23
+     ./compiler/tests/c23validation`. Very slow. Never run it without the
+     user's explicit consent, and never by default, to close a spec, or after
+     a routine generator change. When a change cannot be bounded by any
+     focused set (for example a toolchain or runtime-pack flag shared by every
+     fixture), ask for consent and state that reason; do not run it first.
+
+  Fixture subtests run in parallel, bounded by Go's own `-parallel`. On
+  Windows append `-parallel=8` to the focused, short, and exhaustive commands;
+  on WSL and Linux omit it (Go's default, GOMAXPROCS, measured fastest). The
+  measurements and the conditions that require remeasuring are recorded in
+  ADR 0256.
 - Ordinary tests never invoke an external tool — gcc, clang, or anything else.
   All ordinary tests are pure Go.
 - **A green ordinary suite does not mean the generated C is correct.** No

@@ -57,10 +57,11 @@ func (f fixture) resolveQualified(t *testing.T) compiler.CompilationResult {
 func TestC23SuiteQualifiedProfile(t *testing.T) {
 	buildRoot := t.TempDir()
 	for _, f := range fixtureCatalog {
-		if !f.appliesToHost() {
+		if !f.appliesToHost() || !f.inScope() {
 			continue
 		}
 		t.Run(f.name, func(t *testing.T) {
+			t.Parallel()
 			result := f.resolveQualified(t)
 			t.Run("compile", func(t *testing.T) {
 				compileGeneratedC(t, result, buildRoot)

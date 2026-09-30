@@ -1,7 +1,12 @@
 # ADR 0256: Validation Scopes and Parallel C23 Fixtures
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Implementation-ready; implementation not started
+- Status: Closed. All four phases landed and verified on Windows and WSL: the
+  four validation scopes, `t.Parallel()` on the five fixture runners with
+  per-program temporary working directories and the loopback-port catalog
+  check, `-parallel` chosen by measurement (Windows `8`, WSL default), and
+  Phase 0/Phase 3 records meeting every Required item; see Implementation
+  state
 - Created: 2026-09-30
 - Updated: 2026-09-30
 - Scope: `compiler/tests/c23validation`, its documented commands, and the
@@ -320,4 +325,172 @@ Performance evidence:
 
 ## Implementation state
 
-Not started.
+Implemented 2026-09-30 against HEAD `0a88fdd`. Ordinary gate (`go build ./...`,
+`go vet ./...`, `go vet -tags c23`, `gofmt -l`, `go test ./...`) passes. No
+Hexal syntax, semantics, generated artifact, runtime behavior, or target
+support changed; `docs/reference.md` was reviewed and names no test command,
+validation scope, or `-parallel` value, so it needs no edit. No code existed
+only because fixtures ran serially, so nothing was swept.
+
+Counts at HEAD: `fixtureCatalog` 165, catalog snippets 161 in 17 categories,
+20 top-level tests. After the change the top-level count is unchanged; the
+only added cases are the two `TestCatalogIsWellFormed` subtests (`smoke set`,
+`unique ports`). Per-top-level-test pass/skip/fail event counts of the
+baseline and Phase 3 captures are identical except that test (1 to 3):
+Windows 1456 pass, 2 skip (UBSan, Leak) to 1458 pass, 2 skip; WSL 1594 pass
+to 1596 pass, 0 skip. No fail event occurs in any recorded capture.
+
+Two departures from the plan text, both forced by evidence:
+
+- **Working directories.** The plan named `runProcess` only. The UBSan,
+  LeakSanitizer, release-lane, and interop-measurement runners also ran their
+  programs in the executable's shared directory, so they too use a fresh
+  `t.TempDir()`, which the Validation bullet requires of every generated
+  program. `leak_test.go` was also reformatted by `gofmt`, which flagged its
+  pre-existing map alignment.
+- **Lane time.** The plan extracts each test's `Elapsed`. A parent test
+  reports its duration before Go releases its parallel subtests, so a
+  parallel lane's `Elapsed` excludes them: a short run showed `TestC23Suite`
+  at 0.08 s while its subtests took 5 s, and the baseline snippet lanes, which
+  were already parallel, read 0.58 s and 1.13 s on Windows against real
+  durations of 28.7 s and 56.1 s. Lane time here is the top-level test's
+  `pass` event timestamp minus its `run` event timestamp (span). On the
+  sequential baseline lanes span equals `Elapsed` to within 5 ms (Windows
+  `TestC23Suite` 251.318 s against 251.320 s). Package totals are the
+  package-level `pass` event's `Elapsed`, which equals `go test`'s `ok`
+  figure and is unaffected.
+
+### Method
+
+Baseline and post-change runs use frozen `go test -c -tags c23` binaries run
+from the package directory through `go tool test2json -t` (the converter
+`go test -json` uses) with `-test.count=1 -test.timeout=60m`, so Go compile
+time is excluded and later edits cannot alter a baseline. Baseline binaries
+come from clean HEAD; post-change binaries from the edited tree. Every series
+is one unrecorded warm-up then three recorded runs. Windows and WSL runs never
+overlapped.
+
+Hosts:
+
+| | Windows | WSL |
+| --- | --- | --- |
+| OS | Windows 11 Home Single Language 10.0.26300 | openSUSE Tumbleweed 20260922, WSL2, kernel 6.18.33.2 |
+| CPU | AMD Ryzen 5 7530U, 6 cores / 12 threads, 2.0 GHz base | same CPU exposed as 12 vCPU |
+| RAM | 15.4 GB | 7 GB |
+| `GOMAXPROCS` | 12 | 12 |
+| Go | 1.27.0 windows/amd64 | 1.27.1 linux/amd64 |
+| Clang | 23.1.2 (`x86_64-pc-windows-msvc`) | 23.1.1 (`x86_64-suse-linux`) |
+| Target profile | `x86_64-windows-gnu-ucrt` | `x86_64-linux-gnu` |
+| Power | AC 100%, Balanced plan, keep-awake held | host as Windows |
+| Repository | working tree on NTFS | ext4 clone at `~/hexal-adr0256` |
+
+Confounders, none controlled: the OS file cache; Windows Defender real-time
+protection was enabled and its exclusions are not visible without admin; the
+WSL VM shares the physical CPU and thermal budget with the idle Windows host.
+A first Windows baseline attempt, started on battery under Windows build
+26200, was killed by a Windows Update reboot during its warm-up and discarded;
+every recorded run is on build 26300 on AC power.
+
+### Phase 0 baseline (HEAD, exhaustive, default `-parallel`, serial fixtures)
+
+Package total per run, then the median:
+
+| Host | Run 1 | Run 2 | Run 3 | Median |
+| --- | --- | --- | --- | --- |
+| Windows | 1139.985 s | 1129.692 s | 1096.413 s | 1129.692 s |
+| WSL | 406.897 s | 410.494 s | 408.668 s | 408.668 s |
+
+Warm-ups took 1102.7 s (Windows) and 408.1 s (WSL). Lane medians (span, s):
+
+| Test | Windows | WSL |
+| --- | --- | --- |
+| `TestC23Suite` | 251.32 | 64.14 |
+| `TestC23SuiteQualifiedProfile` | 245.79 | 64.18 |
+| `TestReleaseLaneFixtures` | 503.31 | 163.56 |
+| `TestC23SuiteUBSan` | skip | 75.86 |
+| `TestC23SuiteLeak` | skip | 5.15 |
+| `TestC23SnippetCatalogCompiles` | 28.75 | 7.36 |
+| `TestReleaseLaneSnippetCatalog` | 56.09 | 18.06 |
+| `TestReleaseExecutablesAreSmallerAndUndebuggable` | 8.98 | 2.88 |
+| `TestProgramAndEntropyMeasurements` | 7.56 | 4.38 |
+| `TestFloatingOutputIsModeIndependent` | 2.97 | 0.95 |
+| three `TestPipeline*` and two `TestLazyTraversal*` | 1.45-1.49 each | 0.37-0.40 each |
+| trap-inventory and catalog tests | at most 0.06 | at most 0.03 |
+
+### Phase 2 checks
+
+- Exhaustive command once at default `-parallel` on the edited tree: Windows
+  423.240 s, WSL 127.368 s, both passing with no ordering, directory, or port
+  failure.
+- `go test -race -short -tags c23 ./compiler/tests/c23validation` on
+  Windows: ok, 47.268 s.
+- Focused example with `-v`: only `TestC23Suite`, `TestReleaseLaneFixtures`,
+  and `TestC23SuiteQualifiedProfile` run, each with the four `json-*` and
+  five `regex-*` fixtures and nothing else.
+- Short command: the four skipped tests report the short skip; the three
+  fixture runners run the eight smoke fixtures.
+
+### `-parallel` matrix
+
+`go test -count=1 -tags c23 -run '^TestC23Suite$' -parallel=N`, run as the
+frozen binary with `-test.parallel=N`. Recorded wall times, then the median:
+
+| N | Windows (s) | Windows median | WSL (s) | WSL median |
+| --- | --- | --- | --- | --- |
+| 1 | 242.520, 242.476, 243.752 | 242.520 | 69.089, 69.879, 68.959 | 69.089 |
+| 2 | 146.339, 174.945, 149.004 | 149.004 | 39.697, 39.066, 40.066 | 39.697 |
+| 4 | 103.664, 101.635, 101.500 | 101.635 | 25.585, 29.063, 26.479 | 26.479 |
+| 8 | 80.341, 88.538, 78.827 | 80.341 | 19.114, 19.087, 20.102 | 19.114 |
+| default (12) | 73.614, 75.967, 76.535 | 75.967 | 16.443, 16.522, 16.735 | 16.522 |
+
+Warm-ups: Windows 258.911, 176.569, 102.741, 82.115, 73.933 s; WSL 68.386,
+39.170, 25.466, 19.079, 16.544 s. Every run exited 0 with no fail event.
+
+Selection: on Windows the fastest median is the default at 75.967 s, so the
+cutoff is 83.56 s; `8` (80.341 s, 5.8 percent slower) is the smallest
+qualifying candidate. On WSL the fastest median is the default at 16.522 s,
+so the cutoff is 18.174 s; `8` (19.114 s, 15.7 percent slower) fails it and
+the default is selected. The hosts differ, so `AGENTS.md` gives one command
+per host: Windows appends `-parallel=8`, WSL and Linux omit it. The matrix
+measures the fixture lane the setting governs; a single whole-package run at
+the default measured 423.240 s on Windows against 456.920 s for the selected
+`8`, which the matrix rule does not consider and both meet the Required and
+Target figures below. Remeasure under the plan's stated conditions.
+
+### Phase 3 result (exhaustive, selected `-parallel`)
+
+Windows ran with `-parallel=8`, WSL with the default.
+
+| Host | Run 1 | Run 2 | Run 3 | Median | Phase 0 median | Ratio |
+| --- | --- | --- | --- | --- | --- | --- |
+| Windows | 476.717 s | 456.920 s | 441.260 s | 456.920 s | 1129.692 s | 40.4% |
+| WSL | 132.150 s | 129.972 s | 129.896 s | 129.972 s | 408.668 s | 31.8% |
+
+Warm-ups took 447.953 s (Windows) and 150.813 s (WSL). Lane medians (span, s):
+
+| Test | Windows | WSL |
+| --- | --- | --- |
+| `TestC23Suite` | 80.28 | 16.00 |
+| `TestC23SuiteQualifiedProfile` | 91.34 | 15.63 |
+| `TestReleaseLaneFixtures` | 165.93 | 40.52 |
+| `TestC23SuiteUBSan` | skip | 18.21 |
+| `TestC23SuiteLeak` | skip | 1.72 |
+| `TestC23SnippetCatalogCompiles` | 30.82 | 7.81 |
+| `TestReleaseLaneSnippetCatalog` | 61.06 | 19.21 |
+| `TestReleaseExecutablesAreSmallerAndUndebuggable` | 9.33 | 3.07 |
+| `TestProgramAndEntropyMeasurements` | 7.63 | 4.90 |
+| `TestFloatingOutputIsModeIndependent` | 3.07 | 0.99 |
+| three `TestPipeline*` and two `TestLazyTraversal*` | 1.47-1.53 each | 0.39-0.42 each |
+
+Short gate cold (fresh `go test -short -count=1 -tags c23` process): Windows
+48.405 s and 47.975 s with `-parallel=8` (51.873 s at the default on the
+first run); WSL 18.460 s and 18.185 s.
+
+Performance acceptance, each host:
+
+| Item | Windows | WSL |
+| --- | --- | --- |
+| Required: exhaustive median at most Phase 0 | 456.920 s <= 1129.692 s: met | 129.972 s <= 408.668 s: met |
+| Required: `TestC23Suite` lane below Phase 0 | 80.28 s < 251.32 s: met | 16.00 s < 64.14 s: met |
+| Required: short gate at most 180 s | 48.4 s: met | 18.5 s: met |
+| Target: exhaustive at most 70 percent of Phase 0 | 40.4%: met | 31.8%: met |

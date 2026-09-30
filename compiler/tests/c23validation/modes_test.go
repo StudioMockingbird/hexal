@@ -168,12 +168,14 @@ func buildModeArtifacts(tc toolchain, result compiler.CompilationResult, compile
 // binary in this suite gets, capturing the streams separately and the exit
 // status. Stdout is normalized the way the tiered runner normalizes it, to
 // collapse any platform CRLF translation, so a fixture asserts the bytes the
-// program wrote.
+// program wrote. The program runs in a fresh temporary directory so parallel
+// fixtures never share a working directory.
 func runInMode(t *testing.T, path string) modeRun {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), runProcessTimeout)
 	defer cancel()
 	command := exec.CommandContext(ctx, path)
+	command.Dir = t.TempDir()
 	var stdout, stderr bytes.Buffer
 	command.Stdout = &stdout
 	command.Stderr = &stderr
@@ -232,15 +234,17 @@ func compileOnlyCompareModes(t *testing.T, tc toolchain, result compiler.Compila
 // tiered runner for the same reason here: some of them (an OS-signal wait, a
 // blocking stdin read) never terminate under automated execution regardless
 // of mode, so this lane only compares whether both option sets accept the
-// generated C.
+// generated C. Fixture subtests run in parallel, bounded by -parallel; under
+// -short only the smoke set runs.
 func TestReleaseLaneFixtures(t *testing.T) {
 	buildRoot := t.TempDir()
 	clang := clangToolchain(t)
 	for _, f := range fixtureCatalog {
-		if !f.appliesToHost() {
+		if !f.appliesToHost() || !f.inScope() {
 			continue
 		}
 		t.Run(f.name, func(t *testing.T) {
+			t.Parallel()
 			result := f.resolve(t)
 			if f.expectation == nil {
 				compileOnlyCompareModes(t, clang, result, buildRoot)
@@ -260,6 +264,9 @@ func TestReleaseLaneFixtures(t *testing.T) {
 // Snippets run in parallel for the same reason the tiered snippet test does:
 // the count does not complete sequentially in a reasonable time.
 func TestReleaseLaneSnippetCatalog(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: smoke fixtures only; run without -short for the exhaustive gate")
+	}
 	buildRoot := t.TempDir()
 	clangToolchain(t)
 	for _, snippet := range allSnippets(t) {

@@ -33,17 +33,20 @@ func allSnippets(t *testing.T) []snippets.Snippet {
 }
 
 // TestC23Suite drives every applicable fixture in fixtureCatalog through
-// the tiers its own declared expectation selects. buildRoot is this test's
-// own t.TempDir(), shared by every fixture and toolchain build below it so
-// the compile cache can hand out an executable that outlives the specific
-// subtest that first built it.
+// the tiers its own declared expectation selects (only the smoke set under
+// -short). buildRoot is this test's own t.TempDir(), shared by every fixture
+// and toolchain build below it so the compile cache can hand out an
+// executable that outlives the specific subtest that first built it. Fixture
+// subtests run in parallel, bounded by -parallel; the parent's temporary
+// directory is removed only after they all finish.
 func TestC23Suite(t *testing.T) {
 	buildRoot := t.TempDir()
 	for _, f := range fixtureCatalog {
-		if !f.appliesToHost() {
+		if !f.appliesToHost() || !f.inScope() {
 			continue
 		}
 		t.Run(f.name, func(t *testing.T) {
+			t.Parallel()
 			result := f.resolve(t)
 			t.Run("compile", func(t *testing.T) {
 				compileGeneratedC(t, result, buildRoot)
@@ -73,10 +76,13 @@ func TestC23Suite(t *testing.T) {
 // snippet becomes a compile fixture with no edit here. Snippets run in
 // parallel (bounded by -parallel, default GOMAXPROCS, not by the snippet
 // count): clangToolchain and the compile cache are both safe for
-// this (see toolchain_test.go and c23_harness_test.go), and this is the
-// only one of the two top-level tests in this package that needs it -- 140
-// snippets do not complete sequentially in a reasonable time.
+// this (see toolchain_test.go and c23_harness_test.go), and the snippet
+// count is too large to complete sequentially in a reasonable time. The
+// whole catalog is exhaustive-scope work, so -short skips it.
 func TestC23SnippetCatalogCompiles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("short mode: smoke fixtures only; run without -short for the exhaustive gate")
+	}
 	buildRoot := t.TempDir()
 	for _, snippet := range allSnippets(t) {
 		snippet := snippet
