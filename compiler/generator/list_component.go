@@ -29,12 +29,17 @@ type listComponentModel struct {
 	NeedsNetwork bool
 	NeedsProcess bool
 	NeedsSignal  bool
+	// NeedsJson is true when some element is a JSON data-model type, whose
+	// union record hexal/json.h owns.
+	NeedsJson bool
+	// NeedsRegex is true when some element is a std/regex record, whose
+	// definition hexal/regex.h owns.
+	NeedsRegex bool
 }
 
 // listComponentRecord is one reachable List specialization's spelling facts:
 // the struct C name, the accessor suffix, the spelled element type, the at
-// read return spelling (the element spelling plus a leading const unless the
-// element is already pointer-like), and the matching Slice C name when a slice
+// read return spelling (a pointer to a const slot), and the matching Slice C name when a slice
 // over the element is reachable. The template lays out the struct and the
 // typed inline operations from these fields; canonical naming, ordering, and
 // C spelling stay Go decisions.
@@ -48,12 +53,16 @@ type listComponentRecord struct {
 	SliceCName    string
 	MutSliceCName string
 	// NeedsHeapString is true when this specialization's element is text.
+	// NeedsJson is true when this specialization's element is a JSON
+	// data-model type.
 	NeedsHeapString  bool
 	NeedsConcurrency bool
 	NeedsFile        bool
 	NeedsNetwork     bool
 	NeedsProcess     bool
 	NeedsSignal      bool
+	NeedsJson        bool
+	NeedsRegex       bool
 	Inline           bool
 	Capacity         uint64
 	AddressBytes     bool
@@ -76,7 +85,7 @@ func listComponentRecordFor(list compilerTypes.Type, sliceState *generatedSliceS
 	elementSpelling := typeSpelling(element)
 	atReadReturn := "const " + elementSpelling + " *"
 	if strings.Contains(elementSpelling, "*") {
-		atReadReturn = elementSpelling + " *"
+		atReadReturn = elementSpelling + " const *"
 	}
 	sliceCName := ""
 	if slice := matchingSlice(sliceState, element, false); slice != (compilerTypes.Type{}) {
@@ -103,6 +112,8 @@ func listComponentRecordFor(list compilerTypes.Type, sliceState *generatedSliceS
 		NeedsNetwork:     elementNeedsNetwork(element),
 		NeedsProcess:     elementNeedsProcess(element),
 		NeedsSignal:      elementNeedsSignal(element),
+		NeedsJson:        elementNeedsJson(element),
+		NeedsRegex:       elementNeedsRegex(element),
 		Inline:           inline,
 		Capacity:         capacity,
 		AddressBytes:     inline && compilerTypes.Equal(element, compilerTypes.UInt8) && (capacity == 4 || capacity == 16),
@@ -118,7 +129,7 @@ func listComponents(merged *programEmission) ([]componentArtifact, error) {
 	}
 	records := make([]listComponentRecord, 0, len(merged.listState.order))
 	for _, list := range merged.listState.order {
-		if collectionElementModuleTyped(list) {
+		if collectionElementModuleTyped(list) && !merged.listState.componentOwned[list.List] {
 			continue
 		}
 		records = append(records, listComponentRecordFor(list, merged.sliceState))
@@ -134,6 +145,7 @@ func listComponents(merged *programEmission) ([]componentArtifact, error) {
 			NeedsConcurrency: listRecordsNeedConcurrency(records), NeedsFile: listRecordsNeedFile(records),
 			NeedsNetwork: listRecordsNeedNetwork(records) || merged.networkState != nil && merged.networkState.used,
 			NeedsProcess: listRecordsNeedProcess(records), NeedsSignal: listRecordsNeedSignal(records),
+			NeedsJson: listRecordsNeedJson(records), NeedsRegex: listRecordsNeedRegex(records),
 		},
 	}}, nil
 }
@@ -146,7 +158,7 @@ func moduleListComponent(emission *moduleEmission) []string {
 		return nil
 	}
 	for _, list := range emission.listState.order {
-		if !collectionElementModuleTyped(list) {
+		if !collectionElementModuleTyped(list) || emission.listState.componentOwned[list.List] {
 			return []string{"hexal/list.h"}
 		}
 	}
@@ -202,6 +214,28 @@ func listRecordsNeedFile(records []listComponentRecord) bool {
 func listRecordsNeedNetwork(records []listComponentRecord) bool {
 	for _, record := range records {
 		if record.NeedsNetwork {
+			return true
+		}
+	}
+	return false
+}
+
+// listRecordsNeedJson reports whether any list element spells a JSON
+// data-model type whose union record hexal/json.h owns.
+func listRecordsNeedJson(records []listComponentRecord) bool {
+	for _, record := range records {
+		if record.NeedsJson {
+			return true
+		}
+	}
+	return false
+}
+
+// listRecordsNeedRegex reports whether any list element spells a std/regex
+// record whose definition hexal/regex.h owns.
+func listRecordsNeedRegex(records []listComponentRecord) bool {
+	for _, record := range records {
+		if record.NeedsRegex {
 			return true
 		}
 	}

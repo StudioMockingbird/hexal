@@ -16,6 +16,18 @@ gets deleted.
 | Select a layered compile-time and runtime memory-diagnostic strategy without adding ownership semantics | [0247](specs/0247-compile-time-and-runtime-memory-diagnostics.md) | High | High |
 | Audit Float edge semantics and decide whether classification, total ordering, or collection eligibility needs more surface | [0248](specs/0248-float-semantics-and-collection-eligibility.md) | Medium | Medium |
 
+### Implementation-ready
+
+| Work | Spec | Effort | ROI |
+| --- | --- | --- | --- |
+| Replace copied method receivers with reference `self` and explicit `method mut` | [0254](specs/0254-reference-self-and-explicit-mutating-methods.md) | High | High |
+
+### In progress
+
+| Work | Spec | Effort | ROI |
+| --- | --- | --- | --- |
+| Add validation scopes (focused, short smoke gate) and `-parallel`-bounded parallel C23 fixtures while preserving the exhaustive gate | [0256](specs/0256-tiered-and-parallel-c23-validation.md) | Medium | High |
+
 ## Deferred ideas
 
 Open ideas under discussion live in `docs/specs/deferred/`, with a README
@@ -30,13 +42,19 @@ A bug is real whether or not its owning spec is scheduled.
 
 | Bug | Owning spec | Effort | ROI |
 | --- | --- | --- | --- |
+| A pointer (`@xs[i]`) or Slice (`xs.slice(...)`, String `bytes()`) into an allocated List or String stays usable after `push`, `pop`, `clear`, or `free` on the root, an alias, or a call that captures it; the checker accepts the use and generated C reads released storage (undefined behavior). Probed 2026-09-29: seven forms compile with exit 0. | [0255](specs/0255-stale-collection-views.md) | Medium | High |
 | `try String<N>.interpolate(...)` fails at generation with `[Unknown Error] String<N>.interpolate expression reached generation without hoisting`; the same call as a plain `let x: String<N> \| Error = ...` assignment hoists and compiles. Fail-closed, no miscompile. | unassigned (needs a hoisting-order spec) | Medium | High |
-| The tagged fixture `fenced-pointer-arithmetic-runs` compiles but prints `5` instead of its asserted `131` result; the focused C23 rerun reproduces this independently of RFC 0223 changes. | [0156](specs/archived/0156-fenced-pointer-arithmetic.md) | Medium | High |
 
 ## Known coverage gaps
 
 Not bugs — deliberate limits worth remembering when reading a green test run.
 
+- **Excluded pointer-fixture finding:** `fenced-pointer-arithmetic-runs` had
+  reinterpreted an inline `List` header as an `Int32` sequence and indexed
+  across separate struct members, which is not valid C pointer traversal. The
+  observed `5` therefore did not establish a compiler defect; the fixture now
+  exercises cast, zero-offset, indexing, and dereference within one allocated
+  `Int32`, and passes the tagged C23 lane.
 - **The Tier 3 transforms' failure path is not executed by any fixture
   ([0227](specs/archived/0227-utf8proc-vendor-static-library.md)).** `String.normalize`
   and `String.casefold` release the `malloc` buffer `utf8proc_map` returns and

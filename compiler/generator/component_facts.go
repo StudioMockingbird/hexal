@@ -67,6 +67,8 @@ func nativeDependencyDemands() []nativeDependencyDemand {
 		}},
 		{dependency: specdata.DependencyLibuv, selected: libuvSelected},
 		{dependency: specdata.DependencyUtf8proc, selected: utf8procSelected},
+		{dependency: specdata.DependencyYyjson, selected: jsonSelected},
+		{dependency: specdata.DependencyPcre2, selected: pcre2Selected},
 	}
 }
 

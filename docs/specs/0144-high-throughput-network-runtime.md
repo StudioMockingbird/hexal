@@ -1,12 +1,13 @@
 # RFC 0144: High-Throughput Network Runtime
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Open Discussion; active prerequisite for the HTTP server; architecture
-  draft, implementation not started
+- Status: Open Discussion; owns the Task-aware socket and timer runtime contract;
+  implementation not started
 - Created: 2026-09-07
-- Updated: 2026-09-28
-- Scope: runtime foundations required for high-throughput TCP and HTTP servers
-- Depends on: RFC 0132 (root scheduler bootstrap)
+- Updated: 2026-09-29
+- Scope: Task-aware socket and timer operations built on the libuv foundation
+- Depends on: RFC 0132 (root scheduler bootstrap) and RFC 0145 (libuv async
+  runtime backend)
 - Coordinates with: RFC 0039 (C interoperability), RFC 0052 (C compiler
   backend), RFC 0055 (filesystem/build driver), RFC 0118 (concurrency safety),
   RFC 0145 (libuv async runtime backend), and the current Task, IO, Stash,
@@ -16,33 +17,39 @@
 
 ## Goal
 
-Hexal must be capable of hosting a production HTTP server with throughput,
-latency, CPU cost, and memory use competitive with mature Axum/Hyper/Tokio and
-May-based servers under the same workload, hardware, operating system,
-toolchain optimization, and worker count.
+Define and implement the runtime boundary that lets socket operations park
+Tasks without occupying scheduler workers and resolve completion, timeout,
+cancellation, and close races exactly once. RFC 0145 supplies libuv; this RFC
+integrates its event delivery with Hexal Tasks. HTTP policy, per-connection
+buffer limits, and server shutdown behavior belong to RFCs 0194 and 0210.
 
-Architecture alone does not establish that result. Every optimization in this
-RFC requires measurement against an unchanged functional baseline. Published
-benchmarks from another machine or protocol are directional evidence only.
+Throughput, latency, CPU cost, and memory use are measured outcomes, not a
+release gate against Axum/Hyper/Tokio or May. Such comparisons are useful only
+when workload, hardware, operating system, toolchain, optimization, and worker
+count are equivalent. Every optimization requires measurement against an
+unchanged functional baseline.
 
 ## Conclusion
 
-The current stackful-fiber design is a viable foundation. The Task
-park/commit/wake protocol, M:N workers, synchronous-looking calls, Channels,
-Mutexes, joins, guarded stacks, and separate blocking-operation path are useful
-building blocks.
+The current stackful-fiber design and libuv event-loop foundation are viable.
+The Task park/commit/wake protocol, M:N workers, synchronous-looking calls,
+Channels, Mutexes, joins, guarded stacks, and separate blocking-operation path
+are useful building blocks.
 
-The current runtime is not yet suitable for high-concurrency networking. The
-missing primary facility is a scheduler-integrated non-blocking network driver.
-Using the demand-grown blocking pool for steady-state socket waits would turn
-idle connections into native threads and defeat M:N scheduling.
+The remaining gap is the scheduler-facing socket adapter and its wait-record
+contract. Libuv provides non-blocking event delivery, but it does not define
+Hexal Task parking, exactly-once wakeup, or wait-record lifetime. Using the
+libuv worker pool for steady-state socket waits would turn idle connections
+into blocked work items and defeat the M:N scheduling goal.
 
-Three capabilities are mandatory before claiming competitive server support:
+The first server cut requires the first two capabilities below. The third is
+an optimization program, not a prerequisite:
 
 1. scheduler-integrated non-blocking sockets;
-2. timers, deadlines, cancellation, and graceful shutdown;
-3. measured removal of scheduler and allocation bottlenecks, especially the
-   single global ready queue and per-Task stack/context allocation.
+2. monotonic deadlines and cancellation for outstanding socket waits;
+3. measurement of scheduler and allocation costs, with changes only when a
+   bottleneck is demonstrated, especially around the global ready queue and
+   per-Task stack/context allocation.
 
 ## Existing foundation
 
@@ -52,9 +59,9 @@ Three capabilities are mandatory before claiming competitive server support:
 - Park, wake, and resume have an exactly-once publication protocol with
   release/acquire payload visibility.
 - Channel, Mutex, join, and scheduler-aware blocking calls share that protocol.
-- The current blocking pool preserves scheduler progress for synchronous
-  operations; RFC 0145 replaces its implementation with libuv's global worker
-  pool before the network runtime lands.
+- RFC 0145 provides the shared libuv loop, cross-thread submission, and worker
+  pool for genuinely blocking operations; steady-state socket waits use the
+  event loop instead of that pool.
 - Task stacks have explicit reserve/commit settings and overflow guards.
 - RFC 0132 keeps the initial-process root fiber on worker zero.
 - Views and byte collections permit parsers to work without immediately
@@ -65,6 +72,14 @@ These properties should be retained unless a benchmark and replacement design
 show a material benefit.
 
 ## Required network architecture
+
+RFC 0145 owns the libuv loop and platform backend. This RFC owns the private,
+target-neutral operations that connect that backend to Hexal Tasks: socket
+operation completion, wait-record ownership, parking, wake publication,
+timeouts, cancellation, and shutdown races. RFC 0194 consumes those operations
+for HTTP and does not own libuv handles or callbacks. No public socket syntax
+or exact internal function names are selected here until the contract is
+implementation-ready.
 
 ### Socket operations
 
@@ -106,22 +121,18 @@ Only a terminal native failure crosses the language boundary as Error.
 
 ### Reactor ownership
 
-RFC 0145 selects one program-wide libuv loop on one dedicated native thread for
-the first implementation. The public socket contract does not expose this
-choice. Preserve the neutral event-driver boundary so measurement may justify
-later sharding without changing Hexal syntax.
+RFC 0145 owns the one program-wide libuv loop on one dedicated native thread
+for the first implementation. The Task-aware socket contract does not expose
+loop ownership. Preserve the backend boundary so measurement may justify later
+sharding without changing the runtime contract.
 
-## Timers, cancellation, and shutdown
+## Timers and operation cancellation
 
-A production server requires:
-
-- connection and request-header deadlines;
-- keep-alive and write deadlines;
-- timer cancellation without a stale wake;
-- cancellation of an outstanding socket wait;
-- listener and connection shutdown;
-- graceful server shutdown with a bounded deadline;
-- one winner when readiness, timeout, cancellation, and close race.
+Task-aware socket operations require monotonic deadline support, cancellation
+of an outstanding wait, and one winner when completion, timeout, cancellation,
+and operation close race. Cancelling a timer or wait must not publish a stale
+wake. Protocol-specific deadlines and graceful server shutdown belong to the
+owning feature.
 
 The runtime may initially expose deadline-bearing socket operations instead of
 a general language-level `select`. One Task has one active wait registration;
@@ -204,10 +215,9 @@ Hexal currently requires an explicit `Task.yield()` on every repeating path
 through a task-reachable literal `while true`. A network operation may park,
 but immediate completion does not guarantee a scheduling point.
 
-The first HTTP implementation keeps explicit fairness at request or bounded
-batch boundaries. The library may process several immediately available
-requests before yielding, but an unbounded always-ready connection must not
-monopolize one worker.
+HTTP request batching and yield points are protocol policy owned by RFC 0194.
+The runtime does not make an immediately completing socket operation an
+implicit scheduling point.
 
 Potential later alternatives require a language/runtime decision:
 
@@ -243,24 +253,13 @@ Future Task-local storage, if required, is scheduler-owned and distinct from
 native TLS. C interoperability must specify whether a foreign call can yield or
 re-enter Hexal before permitting TLS-sensitive libraries on migrating Tasks.
 
-## HTTP data path
+## Byte and buffer boundary
 
-The runtime does not require every request component to become an owned String.
-The HTTP library should prefer:
-
-- reusable connection read/write buffers;
-- byte-oriented `View<UInt8>` slices for request lines, headers, and bodies;
-- validation or String allocation only when requested by application code;
-- request-lifetime Stash allocation where ownership is clear;
-- bounded buffers and explicit backpressure;
-- vectored writes and platform send-file facilities when representation and
-  ownership permit them;
-- incremental parsing across partial reads;
-- no allocation for would-block or ordinary readiness transitions.
-
-HTTP parsing, routing, middleware, response construction, compression, TLS,
-and protocol versions remain library concerns. They receive separate specs
-after the network runtime is operational.
+Socket operations transport bytes and retain buffers only for the lifetime
+specified by their wait record. They do not parse HTTP, choose request/response
+buffer sizes, or impose protocol backpressure policy. RFCs 0194 and 0198 own
+HTTP buffering, incremental parsing, and backpressure; application-visible
+strings and request-lifetime allocation remain with their language contracts.
 
 ## Additional performance risks
 
@@ -328,44 +327,51 @@ performing materially more work.
 ### Stage 0: scheduler correctness
 
 1. Implement RFC 0132.
-2. Execute Task, Channel, Mutex, and blocking-pool runtime fixtures.
+2. Execute Task, Channel, Mutex, and libuv-backed blocking-operation fixtures.
 3. Establish spawn, switch, yield, park/wake, worker-scaling, and memory
    baselines before changing scheduling architecture.
 
-### Stage 1: networking contract
+### Stage 1: Task-aware network contract
 
-1. Write a focused socket API and ownership specification.
-2. Define target-neutral listener, connection, address, shutdown, and Error
-   contracts.
-3. Define one active wait record and exact close/read/write race ownership.
-4. Consume RFC 0145's single-loop libuv backend and neutral event adapter.
-5. Keep all filesystem access and native linking in the driver/backend layers,
+1. Define target-neutral socket operations, ownership, and Error results.
+2. Define one active wait record per blocked operation and exact close/read/
+   write/timeout/cancel race ownership.
+3. Define which operations are Task-aware and which blocking operations use
+   RFC 0145's worker-pool path.
+4. Keep filesystem access and native linking in the driver/backend layers,
    not the in-memory compiler.
 
-### Stage 2: network driver
+### Stage 2: libuv-backed Task adapter
 
-1. Implement non-blocking accept/connect/read/write through libuv for one host
-   target.
+1. Implement the contract using RFC 0145's libuv loop for non-blocking
+   accept/connect/read/write.
 2. Integrate registration and wakeup with the common Task protocol.
 3. Prove socket waits consume no libuv worker-pool thread.
-4. Qualify the same libuv adapter and target-neutral runtime contract on
-   Windows, Linux, and macOS.
+4. Qualify the Task adapter on each supported target before the HTTP backend
+   claims that target.
 5. Run echo, idle-connection, wake-race, and close-race tests.
 
 ### Stage 3: timers and lifecycle
 
 1. Add monotonic timers and deadline cancellation.
 2. Resolve readiness/timeout/cancel/close races with one terminal owner.
-3. Add graceful listener and connection shutdown.
+3. Define operation-close behavior so native requests and buffers remain live
+   until the backend can no longer access them.
 4. Test stale-event rejection and wait-record lifetime under repeated races.
 
-### Stage 4: minimal HTTP/1.1 library
+### Stage 4: first HTTP/1 server
 
-1. Implement incremental byte parsing and bounded reusable buffers.
-2. Support keep-alive, bounded request bodies, response framing, and
-   backpressure.
-3. Keep root off accept and connection hot paths.
-4. Establish the first end-to-end comparison baseline.
+RFCs 0198, 0210, 0208, and 0194 own the parser, public surface, backend
+contract, and default HTTP behavior. Their design work may proceed in parallel,
+but settle the public and adapter contracts before implementing the default
+backend. After Stages 1-3 establish and qualify the Task-aware runtime, execute
+in dependency order: pin and integrate the parser; implement the public
+request/response and router surface; implement the backend adapter; then
+implement the default server in RFC 0194 over RFC 0144 operations. Qualify the
+combined path for bounded request bodies, keep-alive, response framing,
+backpressure, and shutdown. Keep root off accept and connection hot paths.
+Record a baseline; do not make a cross-language performance comparison a
+completion criterion.
 
 ### Stage 5: measured runtime optimization
 
@@ -379,41 +385,38 @@ performing materially more work.
 6. Repeat all correctness and end-to-end measurements after each independent
    change; retain only demonstrated wins.
 
-## Required follow-up specifications
+## Follow-up ownership
 
-This RFC is an umbrella and is not implemented as one change. Before code work,
-create focused specs for:
+RFC 0145 owns the libuv event-loop foundation; this RFC owns the Task-aware
+socket/timer contract and adapter; RFC 0194 owns HTTP server behavior and
+consumes that adapter; RFCs 0198, 0210, and 0208 own parsing, public semantics,
+and backend pluggability. No separate generic network-runtime specification is
+needed. Scheduler local queues/work stealing, Task/stack reuse, and POSIX
+context replacement remain conditional follow-ups: specify and implement them
+only if qualification fails or measurement shows a material bottleneck.
 
-1. socket language API, ownership, and C interoperability;
-2. libuv network-driver adapters building on RFC 0145;
-3. timers, deadlines, cancellation, and shutdown;
-4. minimal HTTP/1.1 parsing and server lifecycle;
-5. scheduler local queues/work stealing, only if measured;
-6. Task/control-block/stack reuse, only if measured;
-7. POSIX context replacement, only if qualification or measurement requires it.
-
-Each follow-up owns its exhaustive Validation section and reference
-synchronization. None may silently broaden this RFC into a general async syntax
-or futures system.
+This RFC does not authorize general async syntax or a futures system.
 
 ## Open decisions
 
 1. Socket handle ownership, aliasing, close, and half-close semantics.
 2. Deadline-bearing operations versus a general wait/select surface.
-3. Initial explicit-yield batching policy for server loops.
+3. Which timer/deadline primitives belong in the private runtime boundary;
+   protocol-specific deadlines and defaults remain with the owning feature.
 4. Whether POSIX Tasks may migrate with the existing context backend.
-5. Concrete benchmark workloads and thresholds that qualify “competitive.”
+5. A fixed workload for recording comparable runtime and server baselines; no
+   cross-language competitiveness threshold gates the first server release.
 
 ## Implementation readiness
 
 This umbrella RFC is not implementation-ready. It records the target
-architecture, constraints, risks, staging, and measurement discipline. Stage 1
-begins only after RFC 0132 is implemented and its runtime baselines exist. Each
-required subsystem receives a focused implementation-ready specification before
-code changes.
+architecture, constraints, risks, staging, and measurement discipline. The
+first HTTP server milestone is gated by this RFC's Task-aware runtime contract
+and adapter, plus the contracts in RFCs 0198, 0208, 0210, and 0194. RFC 0145 is
+the required libuv foundation. Scheduler optimizations are not prerequisites
+unless measurement or target qualification establishes a need.
 
 ## Reference synchronization
 
-Do not update `docs/reference.md` from this draft. Each implemented follow-up
-updates only its stabilized socket, scheduling, timer, or server contract after
-explicit approval.
+This architecture RFC defines no public source syntax. Implemented follow-ups
+update `docs/reference.md` for their stabilized public contracts before closure.

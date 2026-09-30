@@ -75,6 +75,8 @@ type moduleEmission struct {
 	signalState       *generatedSignalState
 	terminalState     *generatedTerminalState
 	corelibState      *generatedCorelibState
+	jsonState         *generatedJSONState
+	regexState        *generatedRegexState
 	// rootReturn is true when this module's root scope contains a checked
 	// root return, selecting the entry status slot and cleanup label.
 	rootReturn        bool
@@ -411,6 +413,8 @@ func emitModulePair(emission *moduleEmission, merged *programEmission, isRoot bo
 		signal:         emission.signalState,
 		terminal:       emission.terminalState,
 		corelib:        emission.corelibState,
+		jsonState:      emission.jsonState,
+		regexState:     emission.regexState,
 		concurrency:    emission.concurrencyState,
 		event:          eventSelected(merged),
 		stringState:    stringState,
@@ -507,6 +511,8 @@ func moduleComponentHeaders(emission *moduleEmission) []string {
 	components = append(components, moduleStringComponent(emission)...)
 	components = append(components, moduleErrorComponent(emission)...)
 	components = append(components, moduleCorelibComponent(emission)...)
+	components = append(components, moduleJSONComponent(emission)...)
+	components = append(components, moduleRegexComponent(emission)...)
 	components = append(components, moduleSeekComponent(emission)...)
 	components = append(components, moduleConcurrencyComponent(emission)...)
 	components = append(components, moduleStashComponent(emission)...)

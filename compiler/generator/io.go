@@ -237,6 +237,9 @@ func renderStreamMethod(node checker.Expression, state *expressionValidation) (s
 // streamMemberRef resolves one union member's tag constant and payload field.
 func streamMemberRef(tags *tagRegistry, union compilerTypes.Type, member compilerTypes.Type) (string, string) {
 	index := unionMemberIndex(union, member)
+	if index < 0 {
+		fmt.Printf("MEMBERMISS union=%s member=%s\n", union.CName, member.CanonicalKey)
+	}
 	resolved, _ := compilerTypes.UnionMembers(union).At(index)
 	return tags.unionMemberTag(resolved), tags.unionPayloadField(resolved)
 }

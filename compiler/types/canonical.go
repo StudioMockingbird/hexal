@@ -135,17 +135,18 @@ var canonicalOpaqueTypes map[*typeIdentity]bool
 
 func init() {
 	canonicalOpaqueTypes = map[*typeIdentity]bool{
-		IOType.identity:            true,
-		BytesType.identity:         true,
-		FileType.identity:          true,
-		TcpConnectionType.identity: true,
-		TcpListenerType.identity:   true,
-		ProcessType.identity:       true,
-		PipeType.identity:          true,
-		SignalsType.identity:       true,
-		DurationType.identity:      true,
-		InstantType.identity:       true,
-		WallTimeType.identity:      true,
+		IOType.identity:                 true,
+		BytesType.identity:              true,
+		FileType.identity:               true,
+		TcpConnectionType.identity:      true,
+		TcpListenerType.identity:        true,
+		ProcessType.identity:            true,
+		PipeType.identity:               true,
+		SignalsType.identity:            true,
+		DurationType.identity:           true,
+		InstantType.identity:            true,
+		WallTimeType.identity:           true,
+		regexModelData.pattern.identity: true,
 	}
 }
 

@@ -81,6 +81,16 @@ func NewArena() *Arena {
 		arena.collectionCNames[list.CName] = true
 		arena.ReserveDefinitionName(list.CName, list)
 	}
+	// The std/json and std/regex model containers exist before any arena does.
+	// Seeding them makes Environment.ListType resolve their canonical key to
+	// the one spelling their payload members already name; without it an
+	// ordinary List<Value> interns a second type under the same key with a C
+	// name derived from the Hexal short name, and the Array payload and its
+	// constructor disagree on the pointer type.
+	for _, list := range []Type{JsonValueListType(), JsonMemberListType(), RegexCaptureListType()} {
+		arena.listTypes[list.CanonicalKey] = list
+		arena.collectionCNames[list.CName] = true
+	}
 	for _, union := range builtinStructuralUnions {
 		arena.unionTypes[union.CanonicalKey] = union
 		arena.ReserveDefinitionName(union.CName, union)

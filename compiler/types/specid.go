@@ -116,6 +116,16 @@ func ResolveSpecID(id specdata.TypeID) (Type, bool) {
 		return SignalsType, true
 	case specdata.TypeTerminalSize:
 		return TerminalSizeType, true
+	case specdata.TypeJsonValue:
+		return jsonModelData.value, true
+	case specdata.TypeJsonMember:
+		return jsonModelData.member, true
+	case specdata.TypeRegexPattern:
+		return regexModelData.pattern, true
+	case specdata.TypeRegexSpan:
+		return regexModelData.span, true
+	case specdata.TypeRegexMatch:
+		return regexModelData.match, true
 	default:
 		return Type{}, false
 	}

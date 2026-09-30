@@ -1,103 +1,87 @@
-# RFC 0194: Web Server — Lowering and libuv Usage
+# RFC 0194: Web Server — Lowering over the Task-Aware Network Runtime
 
 - Kind: Feature Specification (Rust-Style RFC)
 - Status: Open Discussion; active design for the default HTTP backend;
   implementation not started
 - Created: 2026-09-15
-- Updated: 2026-09-28
-- Depends on: RFC 0144 (high-throughput network runtime), RFC 0198 (HTTP
-  parsing and serialization), RFC 0208 (backend contract), RFC 0210 (web server
-  surface), and the implemented RFCs 0145 (libuv runtime), 0146 (mimalloc),
-  0168 (libuv capability arc), and 0184 (atomic print)
-- Coordinates with: RFC 0195 (TLS 1.3 integration) for the shared socket
-  layer and libuv handle lifecycle
+- Updated: 2026-09-29
+- Depends on: RFC 0144 (Task-aware socket runtime contract and adapter), RFC
+  0198 (HTTP parsing and serialization), RFC 0208 (backend contract), RFC 0210
+  (web server surface), and the implemented RFCs 0145 (libuv runtime), 0146
+  (mimalloc), 0168 (libuv capability arc), and 0184 (atomic print)
+- Coordinates with: RFC 0195 (TLS 1.3 integration) for HTTP connection policy;
+  RFC 0144 owns the shared Task-aware socket layer
 - Does not add: language syntax, source semantics, or public APIs
 
 ## Motivation
 
-RFC 0210 defines the user-facing HTTP server API. This RFC specifies how that
-API maps to libuv facilities, C23 generated code, and the existing runtime
-substrate. The lowering must preserve the async runtime's guarantees: no
-scheduler worker blocks on a socket wait, every libuv callback resumes user
-code only through Task scheduling, and one program-wide event loop is the
-sole reactor.
+RFC 0210 defines the user-facing HTTP server API. RFC 0144 defines the
+Task-aware socket and timer boundary; RFC 0145 supplies its libuv foundation.
+This RFC specifies HTTP server behavior over that boundary, including
+connection sequencing, parsing integration, response writing, and backpressure.
+It does not own libuv handles, callbacks, or Task wait-record mechanics.
 
 ## Design principles
 
-1. **C23-first.** HTTP parsing and response writing are pure C functions
-   operating on byte buffers. No libuv dependency enters the HTTP parser
-   itself; only the socket I/O layer uses libuv.
-2. **One event loop.** All network I/O routes through the existing program-wide
-   `uv_loop_t` on one dedicated native thread (implemented by RFC 0145).
-3. **No libuv in Hexal source.** The generated C uses libuv handles and
-   callbacks internally; no `uv_*` type, handle, or callback appears in
-   Hexal source or generated public module headers.
+1. **C23-first.** HTTP parsing and response serialization operate on byte
+   buffers. The HTTP implementation uses RFC 0144's runtime operations rather
+   than depending directly on libuv.
+2. **Shared runtime.** Network operations use RFC 0144's Task-aware socket
+   runtime, backed by RFC 0145; the HTTP layer does not own a loop.
+3. **Runtime boundary.** The HTTP implementation uses no libuv handle or
+   callback; libuv remains private to the RFC 0144/0145 runtime layers.
 4. **Demand-driven.** Programs that do not use the HTTP server emit no HTTP
-   parser, no TCP listener, and no libuv TCP handle code.
+  parser, no TCP runtime component, and no libuv TCP handle code.
 5. **Backpressure.** Bounded buffers and explicit high-water marks prevent
    unbounded memory growth under slow clients.
 
-## Component model
+## First-cut backend contract
 
-The HTTP server adds three runtime components:
+- `Http.serve(config, router)` uses this backend by default. It implements the
+  RFC 0208 backend contract; it is not a privileged alternate API.
+- `ServerConfig`, route dispatch, built-in `Request`/`Response`, and body
+  streams are defined by RFC 0210. This RFC owns their HTTP-specific runtime
+  behavior over RFC 0144's socket operations.
+- A connection Task parses the request head, creates a one-shot byte body
+  stream, dispatches through the Router, writes the returned Response, and
+  then reuses the connection only when HTTP framing permits it.
+- A connection has at most one handler and one response write in flight.
+  Requests already buffered for that connection are processed in arrival
+  order; their bytes are preserved while the prior response completes.
+- Body reads and writes use RFC 0144's Task-aware socket operations. They never
+  block a scheduler worker or use the libuv worker pool for steady-state socket
+  I/O.
+- Runtime allocation uses Hexal's allocator boundary, not C `malloc`.
+- The first cut is HTTP/1.0 and HTTP/1.1 without TLS. TLS remains deferred.
+- Read chunk capacity is an implementation detail, not a request-size limit.
+  Header and body limits have one owner in `ServerConfig`; filling a read
+  chunk causes incremental parsing, not an automatic 413.
+- A bounded write queue applies backpressure by parking the producer until
+  the runtime drains data. It does not close a healthy connection merely
+  because a client is slow.
 
-| Component | Header | Source | Demand trigger |
-| --- | --- | --- | --- |
-| HTTP parser | `hexal/http.h` | `hexal/http.c` | Any reachable `Request` or `Headers` type |
-| Server lifecycle | `hexal/server.h` | `hexal/server.c` | `Server.new` or `Server.serve` |
-| TCP listener | `hexal/tcp_listener.h` | `hexal/tcp_listener.c` | `listen` or `Server.new` |
+## Runtime boundary
 
-Each component is emitted only when its demand trigger is reachable. A program
-that only reads requests (as a client) does not select the server component.
+The default backend obtains its listener and connected streams from RFC 0144's
+Task-aware TCP runtime. It uses that contract for accept, read, write, shutdown,
+and close. RFC 0144 defines native-handle and pending-operation lifetimes,
+Task parking and wakeup, and completion/timeout/cancellation races; RFC 0145
+implements the libuv handle and event machinery beneath that contract.
 
-## libuv handle lifecycle
-
-### TCP listener
-
-```c
-uv_tcp_t server_handle;
-uv_tcp_init(uv_default_loop(), &server_handle);
-```
-
-- The handle is owned by the `Server` value.
-- `uv_listen` registers the connection callback.
-- On each accept, `uv_accept` produces a new `uv_tcp_t` handle for the
-  connection.
-- The listener handle is closed only during graceful shutdown via
-  `uv_close`.
-
-### TCP connection
-
-```c
-uv_tcp_t connection_handle;
-uv_tcp_init(uv_default_loop(), &connection_handle);
-```
-
-- One `uv_tcp_t` per accepted connection.
-- The handle is closed after the response is sent and the connection is
-  released.
-- Read operations use `uv_read_start` with a `alloc_cb`/`read_cb` pair;
-  the `alloc_cb` provides a stack or stash-allocated buffer, and the
-  `read_cb` feeds the HTTP parser incrementally.
-- Write operations use `uv_write` with a single buffer or a vectored
-  `uv_write_t` + `uv_buf_t[]`.
-
-### Shutdown
-
-```c
-uv_shutdown_t shutdown_req;
-uv_shutdown(&shutdown_req, &connection_handle, shutdown_cb);
-```
-
-- Graceful shutdown sends a shutdown request, waits for in-flight writes
-  to complete, then closes the handle.
-- A hard timeout calls `uv_close` directly, aborting pending operations.
+This RFC owns the HTTP decisions made above that boundary: when to accept
+connections, dispatch connection Tasks, read or stop reading, reuse or close a
+connection, and how server shutdown interacts with active requests. No
+`uv_*` handle or callback appears in the HTTP adapter's Hexal-facing runtime
+contract.
 
 ## HTTP parser
 
-RFC 0198 owns the HTTP parser implementation choice and its parsing contract.
-The default backend adapts that parser to the per-connection read buffer; it
-does not implement a second HTTP parser. The parser has no libuv dependency.
+RFC 0198 selects llhttp and owns its parser contract. The default backend owns
+one llhttp state per connection and feeds it only from that connection's Task
+after each runtime read completes. Runtime callbacks do not execute parser or
+handler code. The parser has no libuv dependency. The C structs, custom state
+machine, and parser-owned body helpers in the earlier subsections below are
+superseded by RFC 0198 and must not be implemented.
 
 ### Parser interface
 
@@ -158,154 +142,93 @@ typedef struct hex_http_header {
 - Maximum header count and maximum header size are configurable per
   server; defaults are 100 headers and 8 KiB per header.
 
-### Body reading
+### Request body streams
 
-For `Content-Length` bodies:
+The request body is not accumulated into one `String`. The backend exposes a
+one-shot byte stream on `Request.body`:
 
-```c
-int hex_http_body_read_content_length(
-    hex_http_parser *parser,
-    uv_tcp_t *handle,
-    size_t content_length,
-    hex_string *result
-);
-```
+- `Content-Length` bounds the stream to exactly the declared number of octets.
+- `Transfer-Encoding: chunked` is decoded incrementally; trailer fields are
+  validated and discarded, not exposed as ordinary headers.
+- An absent body-framing field means an empty request body.
+- Invalid or ambiguous framing produces 400 and closes the connection.
+- Exceeding `ServerConfig.max_body_bytes` produces 413 and closes the
+  connection.
+- A handler that does not consume the body cannot return the connection to
+  keep-alive reuse until the remaining body is drained safely or the
+  connection is closed.
 
-- Reads exactly `content_length` bytes, using the existing `uv_read_start`
-  / `uv_read_stop` pattern.
-- Returns the complete body as a Hexal `String` (heap-allocated UTF-8
-  bytes).
-
-For chunked bodies:
-
-```c
-int hex_http_body_read_chunked(
-    hex_http_parser *parser,
-    uv_tcp_t *handle,
-    hex_string *result
-);
-```
-
-- Reads chunks until the zero-length terminator.
-- Each chunk is decoded and appended to the result.
+Body bytes are consumed through RFC 0210's one-shot byte stream. Reads use
+RFC 0144's Task-aware operations; this RFC does not define whole-body C helpers
+or expose socket handles.
 
 ## Response writing
 
-### Fixed-length response
+The backend serializes the built-in Response. It honors HTTP body-forbidden
+statuses and HEAD requests, and does not emit both `Content-Length` and
+`Transfer-Encoding`. A known-length body uses `Content-Length`; an unknown-size
+stream uses chunked transfer coding for HTTP/1.1. Each Task-aware write
+completion resumes the producer Task through RFC 0144. A slow client applies
+backpressure instead of causing an unbounded queued response or forced close.
 
-```c
-int hex_http_response_write(
-    uv_tcp_t *handle,
-    uint16_t status_code,
-    const hex_http_headers *headers,
-    const char *body,
-    size_t body_length
-);
-```
+## Accept and connection Tasks
 
-- Writes the status line, headers, and body in sequence.
-- Uses `uv_write` with a single buffer containing the complete serialized
-  response.
-- Flushes the write buffer before returning.
-
-### Chunked response
-
-```c
-int hex_http_response_write_chunked_start(
-    uv_tcp_t *handle,
-    uint16_t status_code,
-    const hex_http_headers *headers
-);
-
-int hex_http_response_write_chunk(
-    uv_tcp_t *handle,
-    const char *data,
-    size_t length
-);
-
-int hex_http_response_write_chunked_end(
-    uv_tcp_t *handle
-);
-```
-
-- `write_chunked_start` writes the status line, headers, and
-  `Transfer-Encoding: chunked`.
-- `write_chunk` writes one chunk with chunk-size prefix.
-- `write_chunked_end` writes the zero-length terminator.
-
-## Server accept loop
-
-The accept loop is one libuv callback:
-
-```c
-static void on_new_connection(uv_stream_t *server, int status) {
-    if (status < 0) return;
-
-    uv_tcp_t *client = malloc(sizeof(uv_tcp_t));
-    uv_tcp_init(uv_default_loop(), client);
-    if (uv_accept(server, (uv_stream_t *)client) == 0) {
-        /* spawn a Task to handle this connection */
-        hex_task_spawn(hex_handle_connection, client);
-    } else {
-        uv_close((uv_stream_t *)client, on_close);
-    }
-}
-```
-
-- `hex_handle_connection` is the Task entry point; it reads the request,
-  invokes the user handler, writes the response, and closes the connection.
-- The Task parks during `uv_read_start` / `uv_write` and is woken by
-  libuv callbacks.
-- No libuv worker pool threads are used for socket I/O.
+The default backend accepts through RFC 0144's Task-aware listener operation.
+Each accepted connection is handled by an ordinary Task, which reads request
+bytes, invokes the user handler, writes the response, and either reuses or
+closes the connection according to HTTP framing and server policy. The runtime
+operation parks and resumes that Task; the HTTP layer does not run in a libuv
+callback.
 
 ## Backpressure
 
-- Each connection has a bounded read buffer (default 8 KiB).
-- If the read buffer fills before the parser completes, the server sends
-  413 (Payload Too Large) and closes the connection.
-- Each connection has a bounded write buffer (default 64 KiB).
-- If the write buffer fills (slow client), the server closes the
-  connection.
-- Configurable per-server:
+- Each connection has a bounded read buffer; its capacity is not a protocol
+  limit and may be smaller than a complete request header.
+- If the configured total-header limit is exceeded, the server sends 431
+  (Request Header Fields Too Large) and closes the connection.
+- If the configured body limit is exceeded, the server sends 413 (Content Too
+  Large) and closes the connection.
+- Each connection has a bounded write queue.
+- A full write buffer parks the response producer until queued bytes drain;
+  cancellation or a write deadline terminates the response.
+- Exact defaults and overrides belong to RFC 0210's `ServerConfig`, not
+  duplicate `Server.set_*` methods.
 
-```text
-method Server.set_max_header_size(size: Size)
-method Server.set_max_body_size(size: Size)
-method Server.set_read_buffer_size(size: Size)
-method Server.set_write_buffer_size(size: Size)
-```
+No separate public setters are added by this backend specification.
 
 ## Memory model
 
 - HTTP parser state is stack-resident or Stash-allocated per connection.
-- Headers are heap-allocated `String` values; freed when the connection
-  closes.
-- Request body is heap-allocated; freed when the response is sent.
-- Response body is heap-allocated from the caller's `Heap`; freed after
-  write completion.
-- libuv handles are heap-allocated and freed on connection close.
-- No persistent global HTTP state beyond the listener handle and server
-  configuration.
+- Public Request/Response storage follows RFC 0210's opaque built-in
+  representation and explicit manual cleanup contract.
+- Parser spans borrow the read buffer; no span survives buffer reuse. A body
+  stream owns or pins its backing buffer until consumed, cancelled, or closed.
+- Response stream chunks remain live until the corresponding runtime write
+  completes.
+- Native socket handles and pending-operation storage follow RFC 0144's
+  lifetime contract; this RFC owns only HTTP connection and server state.
+- No persistent global HTTP state beyond server configuration and the runtime
+  listener value.
 
 ## Task integration
 
-- Each accepted connection spawns one Task via `hex_task_spawn`.
-- The Task parks during `uv_read_start` and `uv_write` without holding
-  a scheduler worker.
-- libuv callbacks resume the Task through the existing event bridge
-  (FIFO + `uv_async_t` wakeup).
+- Each accepted connection is handled by one ordinary Task.
+- Task-aware reads and writes park without holding a scheduler worker; RFC 0144
+  owns event delivery and wake publication.
 - The Task is completed (`hex_task_complete`) after the connection closes.
 - Concurrent connection Tasks share no mutable state; each has its own
   parser, headers, and buffers.
 
 ## Demand rules
 
-- `Server.new` or `Server.serve` selects the server component, TCP
-  listener component, HTTP parser component, and libuv event bridge.
-- `Request`, `Headers`, `HttpMethod`, `HttpVersion`, `StatusCode`,
-  `RequestBody`, `Response`, and `ResponseBody` select the HTTP parser
-  component.
-- The HTTP parser component selects libuv and native bootstrap.
+- `Http.serve` selects the default server and HTTP parser components and
+  depends on RFC 0144's Task-aware TCP runtime.
+- `Http.serve_with` selects only its specified custom backend and that
+  backend's declared dependencies; it does not imply llhttp or libuv.
+- Merely naming or constructing built-in `Request`/`Response` values does not
+  select the network backend.
+- The HTTP parser adapter selects the pinned llhttp component; it does not
+  select TCP operations, timers, or libuv independently.
 - A program using only raw TCP (without HTTP) does not select the HTTP
   parser.
 - A program using only the HTTP parser (without a server) does not select
@@ -313,60 +236,56 @@ method Server.set_write_buffer_size(size: Size)
 
 ## Required sweep
 
-- HTTP parser state machine and header storage in `hexal/http.c`;
+- llhttp generated source snapshot and private adapter in `hexal/http.c`;
 - response serialization and chunked encoding in `hexal/server.c`;
-- TCP listener accept loop and connection spawning in
-  `hexal/tcp_listener.c`;
+- connection dispatch and reuse over RFC 0144's listener/stream operations;
 - backpressure, buffer limits, and timeout integration;
-- demand discovery for HTTP parser, server, and TCP listener components;
-- libuv handle lifecycle (init, accept, read, write, shutdown, close);
-- integration with the existing event bridge and Task park/wake protocol;
-- memory allocation and cleanup for parser state, headers, and bodies;
+- demand discovery for HTTP parser and server components;
+- HTTP-level shutdown and deadline policy over RFC 0144's runtime operations;
+- allocator ownership and cleanup for parser spans, streams, and HTTP state;
 - workbench snippet and manifest entries;
-- `docs/reference.md` HTTP backend contract after explicit approval.
+- synchronize the public behavior owned by RFC 0210 in `docs/reference.md`
+  after it stabilizes and before closure.
 
 ## Validation
 
-This section is exhaustive:
+This section is exhaustive for the default backend; parser details are owned
+by RFC 0198 and public behavior by RFC 0210:
 
-- HTTP parser accepts valid HTTP/1.0 and HTTP/1.1 request lines;
-- HTTP parser rejects malformed request lines, oversized headers, and
-  missing required fields;
-- header case-insensitive lookup matches all standard HTTP header names;
-- `Content-Length` body reading reads exactly the specified bytes;
-- chunked body reading decodes all chunks including multi-chunk bodies;
-- chunked body reading handles the zero-length terminator correctly;
-- response writing produces valid HTTP/1.1 responses with status line,
-  headers, and body;
-- chunked response writing produces valid chunked transfer encoding;
-- server accept loop spawns one Task per connection;
-- concurrent connections do not share mutable state;
-- connection read buffer fills trigger 413 and close;
-- connection write buffer fills trigger connection close;
-- header timeout, body timeout, and connection timeout return exact
-  `Timeout` errors;
-- graceful shutdown stops accepting and completes in-flight requests;
-- hard timeout forces connection close after deadline;
-- libuv handle init, accept, read, write, shutdown, and close follow
-  the documented lifecycle;
-- no libuv worker pool threads are used for socket I/O;
-- demand rules select the correct components and no others;
-- HTTP parser does not call libuv, malloc, or any runtime facility;
-- existing Task, Channel, Mutex, IO, and print behavior unchanged;
+- `Http.serve` selects the HTTP server and parser adapter and depends on the
+  Task-aware TCP runtime; unrelated programs do not select those components;
+- each accepted connection is handled by an ordinary Task with isolated
+  parser and buffer state;
+- socket reads and writes park the Task without occupying a scheduler worker
+  or libuv worker-pool thread;
+- the connection Task incrementally feeds newly read bytes to its RFC 0198
+  parser state, and callback data remains valid for every Request consumer;
+- request-body framing follows RFC 9112; ambiguous framing is rejected and
+  the connection is not reused;
+- exceeding the configured header limit returns 431; exceeding the configured
+  body limit returns 413; filling an I/O chunk alone returns neither;
+- a full write queue parks its producer until progress, cancellation, or
+  deadline rather than growing without bound or closing solely due to
+  backpressure;
+- response framing honors the request method, body-forbidden statuses, and
+  known versus streaming body length, and never emits both `Content-Length`
+  and `Transfer-Encoding`;
+- listener and connection shutdown obey the RFC 0144 runtime ownership and
+  completion contract, without stale Task wakeups;
+- shutdown stops accepting, allows in-flight work until its deadline, then
+  closes remaining handles without stale Task wakeups;
+- demand rules select no unrelated HTTP or network components;
+- HTTP parsing has no libuv dependency and uses no parser-owned allocation;
+- existing Task, Channel, Mutex, IO, and print behavior is unchanged;
 - ordinary and tagged C23 suites pass.
 
 ## Open questions
 
-1. Whether chunked response writing should be a builder or a direct API.
-2. Whether `Server` should support multiple listener handles (for binding
-   to multiple ports).
-3. Whether the accept loop should use `uv_tcp_keepalive` for connection
-   health.
-4. Whether to expose `Server.set_on_connection(handler)` as an alternative
-   to the constructor parameter.
+1. Whether the server yields after each response or after a bounded batch of
+   immediately available requests; this is HTTP scheduling policy, not socket
+   runtime behavior.
 
 ## Reference synchronization
 
-Do not edit `docs/reference.md` from this draft. Approved implementation
-adds the HTTP backend contract, libuv handle lifecycle, and demand rules
-only after behavior stabilizes and with explicit user approval.
+Implementation updates `docs/reference.md` after backend behavior stabilizes
+and before this RFC is marked implemented or closed.

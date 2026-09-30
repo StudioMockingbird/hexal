@@ -153,12 +153,13 @@ AddressOperand = { "^" }  PlaceExpression .
 
 PlaceExpression = PlacePrimary  { PlaceSuffix } .
 PlacePrimary = identifier | "self" .
-PlaceSuffix = "."  identifier | IndexSuffix .
+PlaceSuffix = "."  MemberName | IndexSuffix .
 PostfixExpression = PostfixBase  { PostfixSuffix } .
 PostfixBase = PrimaryExpression .
 PostfixSuffix = GenericOwnerCall | MemberSuffix | GenericCall
                  | IndexSuffix | CallSuffix .
-MemberSuffix = "."  identifier .
+MemberSuffix = "."  MemberName .
+MemberName = identifier | "end" .
 GenericOwnerCall = TypeArgumentList  "."  identifier  CallArguments .
 GenericCall = TypeArgumentList  CallArguments .
 CallSuffix = CallArguments .

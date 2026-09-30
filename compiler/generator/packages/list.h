@@ -190,6 +190,8 @@ static inline void hex_list_free_{{.Suffix}}(hex_heap h, {{.CName}} *list) {
 {{end}}{{if .NeedsFile}}#include "hexal/file.h"
 {{end}}{{if .NeedsNetwork}}#include "hexal/network.h"
 {{end}}{{if .NeedsProcess}}#include "hexal/process.h"
+{{end}}{{if .NeedsJson}}#include "hexal/json.h"
+{{end}}{{if .NeedsRegex}}#include "hexal/regex.h"
 {{end}}{{if .NeedsSignal}}#include "hexal/signal.h"
 {{end}}{{template "listbody" .}}
 #endif

@@ -27,6 +27,20 @@
       "archive": "utf8proc_v2.11.3/utf8proc.a",
       "system_libraries": [],
       "license_file": "utf8proc_v2.11.3/LICENSE.md"
+    },
+    {
+      "name": "yyjson",
+      "include_root": "yyjson_v0.13.0/include",
+      "archive": "yyjson_v0.13.0/yyjson.a",
+      "system_libraries": [],
+      "license_file": "yyjson_v0.13.0/LICENSE"
+    },
+    {
+      "name": "pcre2",
+      "include_root": "pcre2_v10.48/include",
+      "archive": "pcre2_v10.48/pcre2.a",
+      "system_libraries": [],
+      "license_file": "pcre2_v10.48/LICENSE"
     }
   ],
   "files": {
@@ -61,8 +75,14 @@
     "mimalloc_v3.5.1/include/mimalloc/track.h": "e7d94cae6b36f92b934b76aa3d24854845710e798654bdd29cef90e13e0f161e",
     "mimalloc_v3.5.1/include/mimalloc/types.h": "9d6832d33cb9cf6971bd4c3218cb60af696abe775b64a7d8003d7ff56dd4d763",
     "mimalloc_v3.5.1/mimalloc.a": "18ae1e534ebfd4f83141526ca9bbb392aed919f0cc0d359448ee98441d336fb6",
+    "pcre2_v10.48/LICENSE": "4195c519dcfe4a4ffedc4b8ccc5d49e4dd02efd5ece6b69a4fba5d20080902a9",
+    "pcre2_v10.48/include/pcre2.h": "d59dad66a9e77e5ccffe35ad51c3ca6000ce9afe77a58fafa3d66b4845db9a61",
+    "pcre2_v10.48/pcre2.a": "5fb42b137c3d04e48bedbc0345c7de603f4ff85d9b069b4ef5d7293da1fa0991",
     "utf8proc_v2.11.3/LICENSE.md": "3b510150d34f248a221bb88e1d811238d6c6c18b51231822c42974c39bb07256",
     "utf8proc_v2.11.3/include/utf8proc.h": "a4e498b7392c383cf3b22e662da21e0b48f1264806235d87b5d8bd166232f658",
-    "utf8proc_v2.11.3/utf8proc.a": "a3ced9efe7b33d143abd353c85dbd1fc7a2fd94f1e0ab0273fe19742db70a4f6"
+    "utf8proc_v2.11.3/utf8proc.a": "a3ced9efe7b33d143abd353c85dbd1fc7a2fd94f1e0ab0273fe19742db70a4f6",
+    "yyjson_v0.13.0/LICENSE": "7b14b8632bf3d5cb64c7a5f1ddfa9062e9c6eba38ac495a0897541d6658d3ad2",
+    "yyjson_v0.13.0/include/yyjson.h": "c80cd7dc504f8c226c3e22adf4894e0161ee302bd85a2008f7ed7a620438e65b",
+    "yyjson_v0.13.0/yyjson.a": "b644a5ebb72230c72ecc2e1cca8345cb6042fcfe30d88d4011b6e4eebfeb4865"
   }
 }

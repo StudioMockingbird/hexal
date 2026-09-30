@@ -9,7 +9,7 @@ import (
 // A registry lookup for an identity that was never collected is a compiler
 // defect, never a reason to reconstruct a name or ordinal locally.
 func TestRegistryMissingLookupFailsClosed(t *testing.T) {
-	registry := buildTagRegistry(nil, nil)
+	registry := buildTagRegistry(nil, nil, nil)
 	// A missing identity renders a stable placeholder, records the first
 	// miss, and fails the phase when the registry settles; artifacts from
 	// the doomed run are discarded.

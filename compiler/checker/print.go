@@ -24,6 +24,9 @@ func printable(typ compilerTypes.Type) bool {
 // every non-recursive component is; print generation emits one named helper
 // per concrete type, so the recursion resolves at run time in C.
 func printableWalk(typ compilerTypes.Type, seen map[any]bool) bool {
+	if compilerTypes.IsJsonValue(typ) || compilerTypes.IsRegexPattern(typ) || compilerTypes.IsRegexMatch(typ) {
+		return false
+	}
 	key := nominalIdentity(typ)
 	if key != nil {
 		if seen[key] {

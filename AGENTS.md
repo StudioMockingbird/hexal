@@ -378,7 +378,10 @@ its kind in the header:
 - Feature Specifications: Rust-Style RFC
 - Language Semantics: ISO/IEC Language Standard Format
 - Architecture Decisions: ADR (Architecture Decision Record)
-- Execution Plans: named `...-plan.md`, header links the spec they implement
+
+A spec is self-contained: its implementation plan is an `Implementation plan`
+section inside it, never a separate file. Archived `...-plan.md` files predate
+this rule and stay as they are.
 
 A spec's `Status:` header is the only completion record while it is active. A
 terminal status (Closed, Discarded, Superseded, or Rejected) means every

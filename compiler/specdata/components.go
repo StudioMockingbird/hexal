@@ -53,6 +53,8 @@ const (
 	ComponentTerminal    ComponentID = "terminal"
 	ComponentProgram     ComponentID = "program"
 	ComponentEntropy     ComponentID = "entropy"
+	ComponentJSON        ComponentID = "json"
+	ComponentRegex       ComponentID = "regex"
 )
 
 // Dependency identities. These are the sole declarations of the native input
@@ -62,6 +64,8 @@ const (
 	DependencyMimalloc DependencyID = "mimalloc"
 	DependencyLibuv    DependencyID = "libuv"
 	DependencyUtf8proc DependencyID = "utf8proc"
+	DependencyYyjson   DependencyID = "yyjson"
+	DependencyPcre2    DependencyID = "pcre2"
 )
 
 // DependencySpec is one native runtime input identity.
@@ -130,6 +134,8 @@ var dependencyRegistry = []DependencySpec{
 	{ID: DependencyLibuv},
 	{ID: DependencyMimalloc},
 	{ID: DependencyUtf8proc},
+	{ID: DependencyYyjson},
+	{ID: DependencyPcre2},
 }
 
 // componentRegistry declares every runtime component exactly once, in the
@@ -306,6 +312,23 @@ var componentRegistry = []ComponentSpec{
 		ConditionalHeaders: []ConditionalHeaders{
 			{Condition: HeaderConditionCorelibEntropy, Headers: []string{"stdlib.h", "string.h"}},
 		},
+	},
+	{
+		// The json component emits three files: the shared raw declarations,
+		// the Hexal-tree helpers, and the yyjson adapter. The adapter is the
+		// only generated translation unit that includes <yyjson.h>; the value
+		// helper is a separate file so a free-only tree still materializes no
+		// yyjson payload (the generator selects the adapter file by demand).
+		ID:                  ComponentJSON,
+		Files:               []string{"hexal/json.h", "hexal/json_value.c", "hexal/json_adapter.c"},
+		RuntimeDependencies: []DependencyID{DependencyYyjson},
+		RequiredCHeaders:    []string{"stddef.h", "stdint.h"},
+	},
+	{
+		ID:                  ComponentRegex,
+		Files:               []string{"hexal/regex.h", "hexal/regex.c"},
+		RuntimeDependencies: []DependencyID{DependencyPcre2},
+		RequiredCHeaders:    []string{"stddef.h", "stdint.h"},
 	},
 }
 

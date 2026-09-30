@@ -1,12 +1,13 @@
 # RFC 0200: Web Server — Static File Serving
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Deferred; not scheduled. Depends on the web server syntax (RFC 0210)
-  and lowering (RFC 0194) landing first
+- Status: Open Discussion; included in the HTTP server v1 arc; design review
+  remains before implementation
 - Created: 2026-09-15
-- Updated: 2026-09-15
-- Depends on: RFC 0210 (web server syntax), RFC 0194 (web server lowering),
-  RFC 0198 (HTTP parsing), and the implemented RFCs 0145 (libuv runtime),
+- Updated: 2026-09-29
+- Depends on: RFC 0144 (Task-aware socket runtime), RFC 0194 (web server
+  lowering), RFC 0198 (HTTP parsing), RFC 0210 (web server syntax), and the
+  implemented RFCs 0145 (libuv runtime),
   0146 (mimalloc), and 0168 (libuv capability arc)
 - Coordinates with: RFC 0195 (TLS) for encrypted file serving, and RFC 0186
   (stdlib boundary) for module placement
@@ -50,36 +51,25 @@ headers).
 ### File server
 
 ```hexal
-import
-    Net from "std/net"
-end
+import Http from std.http
 
--- Serve files from a directory
-server := try Net.FileServer.new(
+let files = Http.FileServer(
     root = "public",
     index = "index.html",
-    listing = false,
     dotfiles = false,
 )
+
+let mut router = Http.Router()
+router.mount("/assets", files)
 ```
 
-```text
-type FileServer is struct
-    -- internal representation
-end
-
-fun FileServer.new(
-    root: String,
-    index: String,
-    listing: Bool,
-    dotfiles: Bool,
-) -> FileServer | Error
-```
+`FileServer` has an opaque representation. Its constructor validates the root
+directory and configures the index name and hidden-file policy.
 
 ### Single file
 
 ```text
-fun FileServer.serve_file(
+method FileServer.serve_file(
     path: String,
 ) -> Response | Error
 ```
@@ -91,19 +81,20 @@ fun FileServer.serve_file(
 ### Directory serving
 
 ```text
-fun FileServer.serve_directory(
+method FileServer.serve_directory(
     path: String,
 ) -> Response | Error
 ```
 
 - If `index` file exists in the directory, serve it.
-- If `listing` is true and no index exists, return a directory listing.
-- If `listing` is false and no index exists, return 404.
+- If no index exists, return 404; directory listing is not supported in v1.
+- `Router.mount(prefix, file_server)` serves matching requests from the
+  configured root, with the mounted prefix removed from the relative file path.
 
 ### MIME detection
 
 ```text
-fun FileServer.mime_type(path: String) -> String
+fun mime_type(path: String) -> String
 ```
 
 - Returns the MIME type based on file extension.
@@ -260,15 +251,14 @@ void hex_generate_etag(const char *path, char *etag, size_t len) {
 
 This section is exhaustive:
 
-- `FileServer.new` with valid root directory succeeds;
-- `FileServer.new` with non-existent root returns error;
+- `Http.FileServer` with a valid root directory succeeds;
+- `Http.FileServer` with a non-existent root returns error;
 - `serve_file` returns correct `Content-Type` for common extensions;
 - `serve_file` returns correct `Content-Length` for file size;
 - `serve_file` returns 404 for non-existent file;
 - `serve_file` returns 403 for hidden file when `dotfiles = false`;
 - `serve_directory` serves `index.html` when present;
-- `serve_directory` returns 404 when no index and `listing = false`;
-- `serve_directory` returns directory listing when `listing = true`;
+- `serve_directory` returns 404 when no index exists;
 - Range request returns 206 with correct `Content-Range` header;
 - Range request with invalid range returns 416;
 - Conditional GET with matching `If-Modified-Since` returns 304;
@@ -294,6 +284,9 @@ This section is exhaustive:
 4. Whether to support pre-compressed files (`.gz`, `.br`).
 5. Whether to add a `FileWatcher` that invalidates cached ETags on file
    changes.
+6. How `Router.mount` matches prefix boundaries, resolves mounted paths, and
+   interacts with exact routes and nested mounts.
+7. Whether a mounted file server responds to both `GET` and `HEAD` in v1.
 
 ## Reference synchronization
 

@@ -83,6 +83,11 @@ const (
 	TypeSignal              TypeID = TypeID(CoreTypeSignal)
 	TypeSignals             TypeID = TypeID(CoreTypeSignals)
 	TypeTerminalSize        TypeID = TypeID(CoreTypeTerminalSize)
+	TypeJsonValue           TypeID = TypeID(CoreTypeJsonValue)
+	TypeJsonMember          TypeID = TypeID(CoreTypeJsonMember)
+	TypeRegexPattern        TypeID = TypeID(CoreTypeRegexPattern)
+	TypeRegexSpan           TypeID = TypeID(CoreTypeRegexSpan)
+	TypeRegexMatch          TypeID = TypeID(CoreTypeRegexMatch)
 )
 
 // The parameterized compiler-owned type constructors. Each identifier names a
@@ -125,6 +130,8 @@ var concreteTypeIDs = []TypeID{
 	TypeProcess, TypePipe, TypeProcessOptions, TypeStartedProcess,
 	TypeEnvironment, TypeEnvironmentVariable, TypeProcessStream, TypeExitStatus,
 	TypeSignal, TypeSignals, TypeTerminalSize,
+	TypeJsonValue, TypeJsonMember,
+	TypeRegexPattern, TypeRegexSpan, TypeRegexMatch,
 }
 
 // Representation classifies how a specialization's value is stored, the rule

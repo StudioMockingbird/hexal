@@ -659,9 +659,55 @@ static inline {{.Target}} {{.Name}}({{.Source}} value) {
 {{end}}{{define "env_field"}}    {{.Field}};
 {{end}}{{define "env_struct_close"}}} {{.Name}};
 
+{{end}}{{define "corelib_value_adapter"}}
+static inline {{.CName}} {{.Runtime}}_{{.Suffix}}({{.Parameters}}size_t line, size_t column) {
+    {{.Query}} query = {{.Call}}({{.Arguments}});
+    if (query.ok) {
+        return ({{.CName}}){ .tag = {{.Tag}}, .payload.{{.Field}} = query.value };
+    }
+    return {{.Failure}};
+}
+{{end}}{{define "corelib_pattern_adapter"}}
+static inline {{.CName}} {{.Runtime}}_{{.Suffix}}({{.Parameters}}size_t line, size_t column) {
+    {{.Query}} query = {{.Call}}({{.Arguments}});
+    if (query.ok) {
+        return ({{.CName}}){ .tag = {{.Tag}}, .payload.{{.Field}} = query.pattern };
+    }
+    return {{.Failure}};
+}
+{{end}}{{define "corelib_bool_adapter"}}
+static inline {{.CName}} {{.Runtime}}_{{.Suffix}}({{.Parameters}}size_t line, size_t column) {
+    {{.Query}} query = {{.Call}}({{.Arguments}});
+    if (query.ok) {
+        return ({{.CName}}){ .tag = {{.Tag}}, .payload.{{.Field}} = query.matched };
+    }
+    return {{.Failure}};
+}
+{{end}}{{define "corelib_span_nil_adapter"}}
+static inline {{.CName}} {{.Runtime}}_{{.Suffix}}({{.Parameters}}size_t line, size_t column) {
+    {{.Query}} query = {{.Call}}({{.Arguments}});
+    if (query.ok) {
+        if (query.not_found) {
+            return ({{.CName}}){ .tag = {{.NilTag}} };
+        }
+        return ({{.CName}}){ .tag = {{.Tag}}, .payload.{{.Field}} = query.span };
+    }
+    return {{.Failure}};
+}
+{{end}}{{define "corelib_match_nil_adapter"}}
+static inline {{.CName}} {{.Runtime}}_{{.Suffix}}({{.Parameters}}size_t line, size_t column) {
+    {{.Query}} query = {{.Call}}({{.Arguments}});
+    if (query.ok) {
+        if (query.not_found) {
+            return ({{.CName}}){ .tag = {{.NilTag}} };
+        }
+        return ({{.CName}}){ .tag = {{.Tag}}, .payload.{{.Field}} = query.match };
+    }
+    return {{.Failure}};
+}
 {{end}}{{define "corelib_string_adapter"}}
 static inline {{.CName}} {{.Runtime}}_{{.Suffix}}({{.Parameters}}size_t line, size_t column) {
-    hex_program_string_result query = {{.Call}}({{.Arguments}});
+    {{.Query}} query = {{.Call}}({{.Arguments}});
     if (query.ok) {
         return ({{.CName}}){ .tag = {{.Tag}}, .payload.{{.Field}} = query.value };
     }

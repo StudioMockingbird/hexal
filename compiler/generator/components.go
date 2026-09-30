@@ -174,6 +174,8 @@ func componentDemands(config Config) []componentDemand {
 		{ids: []specdata.ComponentID{specdata.ComponentProgram, specdata.ComponentEntropy}, build: func(merged *programEmission) ([]componentArtifact, error) {
 			return corelibComponents(merged, config)
 		}},
+		{ids: []specdata.ComponentID{specdata.ComponentJSON}, build: jsonComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentRegex}, build: regexComponents},
 	}
 }
 

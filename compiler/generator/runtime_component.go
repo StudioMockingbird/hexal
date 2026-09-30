@@ -20,6 +20,28 @@ func runtimeComponents(merged *programEmission) ([]componentArtifact, error) {
 	}}, nil
 }
 
+// jsonSelected reports whether any reachable operation calls the yyjson
+// adapter. The reader and writer are the only std/json operations that do;
+// Json.free walks Hexal-owned containers through the ordinary release
+// primitives, so a free-only program materializes no yyjson payload.
+func jsonSelected(merged *programEmission) bool {
+	if merged.jsonState == nil {
+		return false
+	}
+	return merged.jsonState.parse || merged.jsonState.stringify
+}
+
+// pcre2Selected reports whether any reachable operation runs the PCRE2
+// adapter. free_match releases only Hexal's own capture List, and naming
+// Span, Match, or Pattern alone allocates nothing, so neither selects it.
+func pcre2Selected(merged *programEmission) bool {
+	state := merged.regexState
+	if state == nil {
+		return false
+	}
+	return state.compile || state.test || state.find || state.capture || state.free
+}
+
 // utf8procSelected reports whether a generated runtime component uses the
 // utf8proc adapter. The callers are the UTF-8 validator's two owners: a module
 // that constructs text from bytes or concatenates text, and the program

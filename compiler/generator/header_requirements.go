@@ -309,6 +309,24 @@ func collectModuleRequirements(module *moduleEmission, requirements *cHeaderRequ
 			}
 		}
 	}
+	if module.jsonState != nil && module.jsonState.used {
+		// The std/json tree helpers and the yyjson adapter allocate through
+		// the heap machinery, own Strings, and fail through structured
+		// Errors only, so the component's base header record plus the
+		// shared trap are the whole set.
+		if err := requirements.addComponentHeaders(specdata.ComponentJSON); err != nil {
+			return err
+		}
+		requirements.trap = true
+	}
+	if module.regexState != nil && module.regexState.used {
+		// The regex adapter allocates its capture List through the heap
+		// machinery and builds owned-message Errors from its Hexal kinds.
+		if err := requirements.addComponentHeaders(specdata.ComponentRegex); err != nil {
+			return err
+		}
+		requirements.trap = true
+	}
 	if module.timeState != nil && module.timeState.used {
 		// Time values spell uint64_t/int64_t/uint32_t, and checked Duration
 		// arithmetic and Instant subtraction trap.

@@ -27,6 +27,16 @@ func corelibParamType(param corelib.Param, ctx checkContext) compilerTypes.Type 
 		return compilerTypes.Heap
 	case corelib.ParamMutByteSlice:
 		return ctx.typeEnvironment.SliceType(compilerTypes.UInt8, true)
+	case corelib.ParamString:
+		return compilerTypes.StringType
+	case corelib.ParamValue:
+		return compilerTypes.JsonValueType()
+	case corelib.ParamPattern:
+		return compilerTypes.RegexPatternType()
+	case corelib.ParamSpan:
+		return compilerTypes.RegexSpanType()
+	case corelib.ParamMatch:
+		return compilerTypes.RegexMatchType()
 	default:
 		return compilerTypes.Type{}
 	}
@@ -48,6 +58,22 @@ func corelibResultType(result corelib.Result, ctx checkContext) compilerTypes.Ty
 		return ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.Nil, compilerTypes.ErrorType})
 	case corelib.ResultSize:
 		return compilerTypes.SizeType
+	case corelib.ResultValue:
+		return ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.JsonValueType(), compilerTypes.ErrorType})
+	case corelib.ResultPattern:
+		return ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.RegexPatternType(), compilerTypes.ErrorType})
+	case corelib.ResultBool:
+		return ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.Bool, compilerTypes.ErrorType})
+	case corelib.ResultSpanNil:
+		return ctx.typeEnvironment.UnionType([]compilerTypes.Type{
+			compilerTypes.RegexSpanType(), compilerTypes.Nil, compilerTypes.ErrorType,
+		})
+	case corelib.ResultMatchNil:
+		return ctx.typeEnvironment.UnionType([]compilerTypes.Type{
+			compilerTypes.RegexMatchType(), compilerTypes.Nil, compilerTypes.ErrorType,
+		})
+	case corelib.ResultNoValue:
+		return compilerTypes.Type{}
 	default:
 		return compilerTypes.Type{}
 	}
@@ -80,7 +106,9 @@ func checkCorelibCall(target string, function corelib.Function, call parser.Call
 		arguments = append(arguments, checked.source)
 	}
 	resultType := corelibResultType(function.Result, ctx)
-	if resultType == (compilerTypes.Type{}) {
+	if function.Result != corelib.ResultNoValue && resultType == (compilerTypes.Type{}) {
+		// Only the no-value cleanup contracts carry no result; every other
+		// declared shape must resolve.
 		diagnostic := unknownAt(property)
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}

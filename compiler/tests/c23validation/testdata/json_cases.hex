@@ -1,0 +1,257 @@
+import
+    Json from std.json
+end
+
+fun bool_desc(h: Heap, value: Bool): String do
+    return String.interpolate(h, "bool({{ value }})")
+end
+
+fun int_desc(h: Heap, value: Int64): String do
+    return String.interpolate(h, "int({{ value }})")
+end
+
+fun uint_desc(h: Heap, value: UInt64): String do
+    return String.interpolate(h, "uint({{ value }})")
+end
+
+fun float_desc(h: Heap, value: Float64): String do
+    return String.interpolate(h, "float({{ value }})")
+end
+
+fun show(h: Heap, tag: String, v: Json.Value) do
+    let body: String = match v is
+    | Json.Value.Null then "null".copy(h)
+    | Json.Value.Bool then bool_desc(h, v.value)
+    | Json.Value.Int then int_desc(h, v.value)
+    | Json.Value.UInt then uint_desc(h, v.value)
+    | Json.Value.Float then float_desc(h, v.value)
+    | Json.Value.Text then "text".copy(h)
+    | Json.Value.Array then "array".copy(h)
+    | Json.Value.Object then "object".copy(h)
+    end
+    print(tag, ": ", body, "\n")
+    body.free(h)
+end
+
+fun err_show(tag: String, e: Error) do
+    print(tag, ": error ", e.header(), ": ", e.message, "\n")
+end
+
+fun parse_show(h: Heap, tag: String, text: String) do
+    let r: Json.Value | Error = Json.parse(h, text)
+    if r is Json.Value then
+        show(h, tag, r)
+        Json.free(h, r)
+    else
+        err_show(tag, r)
+    end
+end
+
+fun stringify_show(h: Heap, tag: String, v: Json.Value) do
+    let out: String | Error = Json.stringify(h, v)
+    if out is String then
+        print(tag, ": ", out, "\n")
+        out.free(h)
+    else
+        err_show(tag, out)
+    end
+end
+
+fun roundtrip_show(h: Heap, tag: String, text: String) do
+    let r: Json.Value | Error = Json.parse(h, text)
+    if r is Json.Value then
+        stringify_show(h, tag, r)
+        Json.free(h, r)
+    else
+        err_show(tag, r)
+    end
+end
+
+fun nest_text(h: Heap, depth: Int32): String | Error do
+    let mut text: String = "0".copy(h)
+    let mut i: Int32 = 0
+    while i < depth do
+        let open: String = "[".copy(h)
+        let step1: String = try open.concat(h, text.bytes())
+        open.free(h)
+        text.free(h)
+        let step2: String = try step1.concat(h, "]".bytes())
+        step1.free(h)
+        text = step2
+        i = i + 1
+    end
+    return text
+end
+
+fun nest_value(h: Heap, depth: Int32): Json.Value do
+    let mut value: Json.Value = Json.Value.Int(value = 0)
+    let mut i: Int32 = 0
+    while i < depth do
+        let items: List<Json.Value> = List<Json.Value>(h)
+        items.push(value)
+        value = Json.Value.Array(items = items)
+        i = i + 1
+    end
+    return value
+end
+
+fun repeat_key(h: Heap, count: Int32): String | Error do
+    let mut text: String = "".copy(h)
+    let mut i: Int32 = 0
+    while i < count do
+        let next: String = try text.concat(h, "k".bytes())
+        text.free(h)
+        text = next
+        i = i + 1
+    end
+    return text
+end
+
+fun object_text(h: Heap, key: String): String | Error do
+    let open: String = "{\"".copy(h)
+    let head: String = try open.concat(h, key.bytes())
+    open.free(h)
+    let tail: String = "\":".copy(h)
+    let mid: String = try head.concat(h, tail.bytes())
+    head.free(h)
+    tail.free(h)
+    let body: String = try mid.concat(h, "1}".bytes())
+    mid.free(h)
+    return body
+end
+
+fun demo(h: Heap): Nil | Error do
+    parse_show(h, "null", "null")
+    parse_show(h, "true", "true")
+    parse_show(h, "false", "false")
+    parse_show(h, "text", "\"hi\"")
+    roundtrip_show(h, "text", "\"hi\"")
+    parse_show(h, "array", "[1, 2]")
+    parse_show(h, "object", r#"{"a": 1}"#)
+
+    parse_show(h, "intmax", "9223372036854775807")
+    parse_show(h, "intmaxover", "9223372036854775808")
+    parse_show(h, "uintmax", "18446744073709551615")
+    parse_show(h, "uintover", "18446744073709551616")
+    parse_show(h, "intmin", "-9223372036854775808")
+    parse_show(h, "intunder", "-9223372036854775809")
+    parse_show(h, "negzero", "-0")
+    parse_show(h, "intzero", "0")
+    parse_show(h, "intone", "1")
+    parse_show(h, "realfirst", "1.0")
+    parse_show(h, "real", "1.5")
+    parse_show(h, "realexp", "1e2")
+    parse_show(h, "realover", "1e400")
+
+    roundtrip_show(h, "esc_all", r#""\"\\\/\b\f\n\r\t""#)
+    roundtrip_show(h, "esc_u", "\"\\u0041\"")
+    roundtrip_show(h, "esc_pair", "\"\\uD83D\\uDE00\"")
+    roundtrip_show(h, "esc_nul", "\"\\u0000\"")
+    parse_show(h, "esc_ctrl", "\"\u{1}\"")
+    parse_show(h, "esc_surrogate", "\"\\uD83D\"")
+
+    parse_show(h, "depth256", try nest_text(h, 256))
+    parse_show(h, "depth257", try nest_text(h, 257))
+
+    roundtrip_show(h, "jsonc_line", "// head\n[1, 2]")
+    roundtrip_show(h, "jsonc_block", "[1, /* mid */ 2]")
+    roundtrip_show(h, "jsonc_trail_array", r#"[1, 2,]"#)
+    roundtrip_show(h, "jsonc_trail_object", r#"{"a": 1,}"#)
+    parse_show(h, "jsonc_unclosed", r#"[1 /* c"#)
+
+    parse_show(h, "empty", "")
+    parse_show(h, "truncated", r#"[1, 2"#)
+    parse_show(h, "trailing", "[1] x")
+    parse_show(h, "twotop", "1 2")
+    parse_show(h, "bom", "\u{feff}1")
+    parse_show(h, "singlequote", "'x'")
+    parse_show(h, "unquotedkey", r#"{a: 1}"#)
+    parse_show(h, "nanlit", "NaN")
+    parse_show(h, "inflit", "Infinity")
+    parse_show(h, "num_lead0", "01")
+    parse_show(h, "num_trailingdot", "1.")
+    parse_show(h, "esc_hex", "\"\\x41\"")
+    parse_show(h, "ws_ff", "[1,\u{c}2]")
+    parse_show(h, "ws_vt", "[1,\u{b}2]")
+    parse_show(h, "ws_only", "   ")
+    parse_show(h, "literal_bad", "[tru]")
+    parse_show(h, "json5_hex", "0x10")
+    parse_show(h, "json5_leadfrac", ".5")
+    parse_show(h, "json5_plus", "+1")
+    parse_show(h, "json5_case_lit", "TrUe")
+    parse_show(h, "json5_linecont", "\"a\\\nb\"")
+    parse_show(h, "json5_esc_v", "\"\\v\"")
+    parse_show(h, "json5_esc_zero", "\"\\0\"")
+
+    parse_show(h, "dup", r#"{"a": 1, "a": 2}"#)
+    roundtrip_show(h, "dup", r#"{"a": 1, "a": 2}"#)
+    roundtrip_show(h, "dupe", "{\"a\": 1, \"\\u0061\": 2}")
+    roundtrip_show(h, "dup3", r#"{"a": 1, "a": 2, "a": 3}"#)
+    roundtrip_show(h, "dup_position", r#"{"first": 1, "a": 2, "last": 3, "a": 4}"#)
+    roundtrip_show(h, "dupe_escape_position", "{\"first\": 1, \"a\": 2, \"last\": 3, \"\\u0061\": 4}")
+
+    roundtrip_show(h, "keyempty", r#"{"": 1}"#)
+    let key256: String = try repeat_key(h, 256)
+    let key256_doc: String = try object_text(h, key256)
+    key256.free(h)
+    parse_show(h, "key256", key256_doc)
+    key256_doc.free(h)
+    let key300: String = try repeat_key(h, 300)
+    let key300_doc: String = try object_text(h, key300)
+    key300.free(h)
+    roundtrip_show(h, "key300", key300_doc)
+    key300_doc.free(h)
+
+    parse_show(h, "loc_crlf", "[1,\r\n x]")
+    parse_show(h, "loc_mb", "\"\u{e9}\" x")
+    parse_show(h, "loc_first", "x")
+    parse_show(h, "loc_end", "[")
+
+    roundtrip_show(h, "str_scalar", "null")
+    roundtrip_show(h, "str_array", "[1,2]")
+    roundtrip_show(h, "str_object", r#"{"k": "v"}"#)
+    roundtrip_show(h, "str_utf8", "\"\\u00e9\\uD83D\\uDE00\"")
+
+    let infbits: UInt64 = 0x7FF0000000000000
+    let inf: Float64 = infbits.bit_cast<Float64>()
+    let infval: Json.Value = Json.Value.Float(value = inf)
+    stringify_show(h, "str_inf", infval)
+
+    let nanbits: UInt64 = 0x7FF8000000000001
+    let nan: Float64 = nanbits.bit_cast<Float64>()
+    let nanval: Json.Value = Json.Value.Float(value = nan)
+    stringify_show(h, "str_nan", nanval)
+
+    let deep: Json.Value = nest_value(h, 257)
+    stringify_show(h, "str_deep", deep)
+
+    let nums: Json.Value | Error = Json.parse(h, "[-9223372036854775808, 18446744073709551615, 2.5]")
+    if nums is Json.Value then
+        stringify_show(h, "nums", nums)
+        Json.free(h, nums)
+    else
+        err_show("nums", nums)
+    end
+
+    let roundtrip: Json.Value | Error = Json.parse(h, "[1, \"x\", {\"y\": null}]")
+    if roundtrip is Json.Value then
+        stringify_show(h, "roundtrip", roundtrip)
+        Json.free(h, roundtrip)
+    else
+        err_show("roundtrip", roundtrip)
+    end
+
+    let items: List<Json.Value> = List<Json.Value>(h)
+    let cyclic: Json.Value = Json.Value.Array(items = items)
+    items.push(cyclic)
+    stringify_show(h, "str_cycle", cyclic)
+    Json.free(h, cyclic)
+    Json.free(h, infval)
+    Json.free(h, nanval)
+    return nil
+end
+
+let outcome: Nil | Error = demo(Heap())
+if outcome != nil then
+    print("fatal: ", outcome.message, "\n")
+end

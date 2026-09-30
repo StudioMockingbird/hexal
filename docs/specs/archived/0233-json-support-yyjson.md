@@ -1,12 +1,10 @@
 # RFC 0233: JSON Support via yyjson
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion; implementation not started. The yyjson release and
-  private dependency boundary, number handling, cleanup, printing, and depth
-  policy are settled. Object representation remains the one explicit design
-  decision below; Validation is not exhaustive until it is closed
+- Status: Closed 2026-09-30; implemented and validated on Windows and
+  Linux/WSL
 - Created: 2026-09-22
-- Updated: 2026-09-28
+- Updated: 2026-09-30
 - Origin: requested language-level JSON support by integrating yyjson 0.13.0
 - Depends on: RFC 0052 (C backend), RFC 0055 (build and runtime-pack inputs),
   the current target-profile matrix, and the current String, List, Dict, Heap,
@@ -69,7 +67,7 @@ Correct JSON is not a weekend parser. It requires, together:
 Hand-rolling gives Hexal two implementations — reader and writer — to keep
 correct and in sync forever, in the most routinely adversarial input channel a
 program has. One pinned backend supplies both directions; Hexal keeps ownership
-of the value model (`Value` is a Hexal ADT over Hexal List, Dict, and String,
+of the value model (`Value` is a Hexal ADT over Hexal List and String,
 not yyjson's DOM exposed), the diagnostics, and the allocation rules.
 
 ## Upstream qualification
@@ -238,25 +236,15 @@ Selection is program-wide and deterministic, and a selected dependency
 contributes to the build identity. The static archive is linked as a private
 runtime input; no dynamic yyjson library is searched for or loaded.
 
-## Open design decision
+## Object representation decision
 
-One semantic choice remains. The provisional object text below records the
-earlier proposal and is superseded by the selected representation.
-
-**Object representation.** `Dict<String<256>, Value>` rejects valid JSON
-   names longer than 256 bytes and stores roughly 264 inline key bytes in every
-   bucket. Alternatives are an ordered `List<Member>` with owning `String`
-   names, a broader general-Dict change to support owning String keys, or an
-   opaque JSON-only object handle.
-
-TypeScript's JSONC parser is the relevant precedent: it represents a parsed
-object literal as an ordered list of property-assignment syntax nodes so it can
-retain source order and report precise syntax errors. Only the later decoded
-JavaScript-value layer behaves as a key-indexed object. Hexal's `Json.Value` is
-not a syntax tree, but `List<Member>` follows the smaller parser representation
-without forcing owning String keys into general Dict. A JSON object with two
-properties becomes one `Value.Object` containing two `Member` values; it does
-not become a JSON array.
+`Value.Object` stores an ordered `List<Member>`. Each `Member` owns a heap
+`String` name and a `Value`; JSON names therefore have no independent byte
+capacity. This avoids imposing a JSON-specific key limit or widening the
+general Dict key contract. Parsing preserves the first-occurrence order of
+distinct names. A later duplicate, compared after escape decoding, replaces
+the earlier value in place, so the last occurrence wins without changing that
+name's original position. Stringify emits members in list order.
 
 Every JSON traversal uses `config.JSONMaxDepth`, defined once in
 `compiler/config` with value 256. No yyjson build script, adapter, generator,
@@ -270,7 +258,7 @@ API.
 
 ### The `Value` type
 
-`std/json` exports one type, declared in the surface's own syntax:
+`std/json` exports `Value` and the constructible `Member` record:
 
 ```text
 type Value is union
@@ -281,7 +269,12 @@ type Value is union
     | Float as value: Float64 end
     | Text as value: String end
     | Array as items: List<Value> end
-    | Object as entries: Dict<String<256>, Value> end
+    | Object as entries: List<Member> end
+end
+
+type Member is struct
+    name: String,
+    value: Value,
 end
 ```
 
@@ -295,10 +288,14 @@ end
   type-mode match is exhaustive **without** a final `else` — unlike
   `ErrorKind`, whose set may grow. The compiler checks that exhaustiveness as
   for any closed ADT.
-- Recursion is through the `List` and `Dict` handles, which are pointer-sized,
+- Recursion is through the `List` handles, which are pointer-sized,
   so the representation is finite; direct by-value recursion stays rejected by
   the existing rule. `Text`'s payload is a heap `String`; `Array` and `Object`
   own their containers. `Null`, `Bool`, `Int`, `UInt`, and `Float` own nothing.
+- `Member` is a compiler-owned ordinary record with canonical identity
+  `std/json.Member`; callers may construct it with `Member(name = ..., value = ...)`.
+  Its `name` is an owning heap String and `value` follows the `Value` ownership
+  rules. `Value.Object(entries = ...)` accepts an ordinary `List<Member>`.
 - `Value` follows general storability: bindings, parameters and results, ADT
   payloads, Array/Slice/List elements, Dict values, Task arguments and
   results, Channel elements. It is not Dict-key eligible — keys are `Int32` or
@@ -309,7 +306,7 @@ end
 
 Baseline confirmed against the tree on 2026-09-22 by compiling through
 `compiler.Compile`: this declaration shape (unit and record variants, recursion
-through `List<Value>` and `Dict<String<256>, Value>`, a `String` payload),
+through `List<Value>` and `List<Member>`, a `String` payload),
 variant construction, container insertion, and exhaustive type-mode match
 without `else` all compile today; a match missing a variant is rejected with
 the existing exhaustiveness diagnostic. A record variant's member list takes
@@ -347,14 +344,13 @@ end
   already names.
 - `stringify` emits compact JSON: no insignificant whitespace, no trailing
   newline, UTF-8 bytes with non-ASCII characters unescaped (JSON escaping of
-  quotes, backslash, and control characters still applies). Member order of an
-  object is unspecified in both directions — Dict iteration order is
-  unspecified — and duplicate spellings never occur in output because parsed
-  objects have already collapsed them.
+  quotes, backslash, and control characters still applies). Object members
+  are emitted in their List order; parsing retains first-occurrence order and
+  replaces duplicate values in place.
 - `free` recursively releases the whole tree through the ordinary shallow
   rules: `Text` frees its String; `Array` frees each element's tree then the
-  List storage; `Object` frees each entry's value tree then the Dict storage
-  (keys are inline `String<256>` and own nothing); scalar variants free
+  List storage; `Object` frees each member name, each value tree, then the
+  member List storage; scalar variants free
   nothing. Exactly-once per distinct allocation applies as for every container:
   an aliased subtree must not be freed twice, and freeing dangles the handle.
   No yyjson call is involved.
@@ -367,8 +363,8 @@ parse(stringify(v)) is equal to v by JSON data value
 
 - Integers in either 64-bit range round-trip exactly, `Float` values round-trip
   through shortest-round-trip spelling, and text round-trips byte-exactly.
-- Byte-exact document round-trip is **not** promised: whitespace, member
-  order, duplicate members, and number spelling are not preserved
+- Byte-exact document round-trip is **not** promised: whitespace, duplicate
+  members, and number spelling are not preserved
   (`1e2` parses to `Float` and may re-emit as `100`; an integral `Float` or a
   `UInt` within `Int64` reparses as `Int`). Round-trip is by value, never by
   variant identity.
@@ -394,17 +390,13 @@ lexemes or a negative-zero integer spelling.
 
 ### Objects: member names and duplicates
 
-- Member names are `String<256>` Dict keys: a **256-byte** capacity, counted
-  in UTF-8 bytes, not runes. A name of 1..256 bytes is accepted whatever its
-  encoding; a longer name fails the whole `parse` with
-  `ResourceExhausted` / `JSON object key exceeds capacity` and is never
-  truncated. The capacity exists because a Dict stores its keys inline and a
-  heap `String` is not a Dict key; 256 bytes matches the existing Error
-  message capacity and holds practical keys. It is a documented contract of
-  `parse`, not a silent limit.
-- Duplicate member names collapse with **last occurrence wins** — `Dict.insert`
-  replaces. Translation releases each displaced earlier value exactly once, so
-  duplicates do not leak.
+- Member names are owning heap `String` values in `Member`; there is no
+  JSON-specific member-name byte limit. Allocation failure follows the
+  existing `ResourceExhausted` contract and never truncates a name.
+- Duplicate member names compare decoded UTF-8 bytes and collapse with **last
+  occurrence wins**. The value replaces the prior value in place, retaining the
+  first occurrence's position; translation releases the displaced value and
+  duplicate name exactly once.
 
 ### Errors
 
@@ -428,7 +420,6 @@ diagnostics. Upgrading yyjson must review diagnostic-baseline changes.
 | empty input; unexpected content/end/character; invalid structure, comment, number, string, or literal; depth exceeded | `InvalidInput` | yyjson detail plus line, byte column, and absolute byte position |
 | yyjson allocation failure | `ResourceExhausted` | `JSON parsing ran out of memory` |
 | impossible adapter-facing code (`INVALID_PARAMETER`, file codes, incremental `MORE`) | `Unknown Error` | `JSON parser reported an impossible state` |
-| object member name exceeds 256 bytes | `ResourceExhausted` | `JSON object key exceeds capacity` |
 | integer outside `Int64 | UInt64` | `InvalidInput` | `JSON integer is out of range` |
 | number outside `Float64` finite range | `InvalidInput` | `JSON number is out of range` |
 | `stringify` of NaN or +/- infinity | `InvalidInput` | `JSON cannot represent a non-finite number` |
@@ -533,8 +524,8 @@ one choice settles the allocator boundary:
 - Do not write a second Hexal JSON parser to reproduce yyjson diagnostics. Use
   the complete yyjson read error, copy its message, and derive location from its
   byte position as specified above.
-- Do not truncate an over-capacity member name or clamp an out-of-range
-  number; both fail the operation.
+- Do not truncate a member name or clamp an out-of-range number; allocation
+  failure or an invalid number fails the operation.
 - Do not change the grammar, Text representation, Dict key rules, shallow-free
   rules, or Error shape.
 
@@ -657,11 +648,11 @@ extend; no artifact outside the json/program family moves.
 
 Update `docs/reference.md`:
 
-- the standard-library module table gains the `std/json` row: exported type
-  `Value`, module functions `parse`, `stringify`, `free`;
+- the standard-library module table gains the `std/json` row: exported types
+  `Value`, `Member`, module functions `parse`, `stringify`, `free`;
 - a new JSON section carries the `Value` declaration, the three signatures and
-  their contracts, the number mapping table, the member-name capacity and
-  duplicate rule, the fixed error table, the round-trip statement, and the
+  their contracts, the number mapping table, member duplicate and ordering
+  rules, the fixed error table, the round-trip statement, and the
   equality/printing/cleanup consequences — exactly the surface specified
   above, expressed as rules and tables, no examples beyond what the grammar
   section needs.
@@ -679,8 +670,9 @@ and restart the running workbench through `hexal play` before handoff.
 
 ## Validation
 
-This section is provisional and becomes exhaustive only after every Open
-design decision is resolved and the affected rows are reconciled.
+This section is exhaustive. The object representation is resolved as ordered
+`List<Member>` with owning String names, first-occurrence order, in-place
+last-value-wins duplicate replacement, and no member-name capacity.
 
 Pack and driver:
 
@@ -747,10 +739,10 @@ qualified pack):
   JSON5 feature not shared with JSONC.
 - `{"a":1,"a":2}` and `{"a":1,"\u0061":2}` each yield one entry whose
   value is `Int(2)`, proving duplicate identity is tested after escape decoding;
-  a leak check proves the displaced value was released exactly once.
-- The empty member name parses. A 256-byte member name parses; a 257-byte name fails with
-  `ResourceExhausted` / `JSON object key exceeds capacity`, leaves no partial
-  value, and truncates nothing (bytes, not runes, decide acceptance).
+  the member retains its first position and a leak check proves the displaced
+  value and duplicate name are released exactly once.
+- Empty and member names longer than 256 UTF-8 bytes parse without truncation;
+  the fixture checks byte-exact name contents after parsing and stringify.
 - Every yyjson read-error code is covered by the error table. Syntax fixtures
   assert its complete copied detail plus computed one-based line and byte
   column and absolute byte position; CRLF, multibyte UTF-8 before the error,
@@ -758,9 +750,9 @@ qualified pack):
 
 Stringify (same fixture gate):
 
-- Output is compact: exact bytes asserted for scalar, array, and single-member
-  object documents; no insignificant whitespace, no trailing newline. Multi-member
-  objects are asserted by content because member order is unspecified.
+- Output is compact: exact bytes asserted for scalar, array, and object
+  documents; no insignificant whitespace, no trailing newline. Object member
+  order matches the stored List order.
 - Output is valid UTF-8 and non-ASCII characters are emitted unescaped: a
   string containing `é` and an emoji round-trips byte-exactly through
   parse → stringify → parse.
@@ -802,6 +794,9 @@ Cleanup:
   `Json.free` releases every distinct allocation once, while `stringify`
   returns `InvalidInput` / `JSON value contains a cycle` without leaking.
 - `Json.free` on each scalar variant performs no release and traps nowhere.
+- A user-built value deeper than `JSONMaxDepth` passed to `Json.free` traps with
+  `[Runtime Error] JSON value nests too deeply`; cleanup does not traverse past
+  the configured bound.
 - No yyjson-allocated pointer is ever reachable as a Hexal value or passed to
   `Heap.free`; the custom allocator is the only allocator yyjson uses.
 
@@ -815,55 +810,12 @@ Conformance:
   snippets; every pre-existing hash is unchanged, and the artifact diff shows
   movement only in the components `std/json` actually selects.
 
-## Open implementation inputs
+## Implementation state
 
-These implementation facts are produced by Phase 0 after the design decisions
-above are closed:
-
-- the exact source file list, confirmed against the 0.13.0 release archive
-  rather than assumed from documentation;
-- the release archive URL, byte size, SHA-256, and pinned commit, per target
-  pack;
-- the archive and probe evidence: symbol and ABI results from the
-  four-archive probe, plus generated-C size, link time, and pack-size deltas;
-- confirmation that the compiler-owned depth configuration is applied to the
-  reader/writer build and every Hexal traversal, plus the default read/write
-  flag sets, confirmed to accept comments and trailing commas while rejecting
-  single quotes, unquoted keys, extension numbers/escapes/whitespace, trailing
-  content, BOM, and the remaining JSON5 surface — any mismatch is a spec
-  correction before Phase 2;
-- confirmation of yyjson's handling of the two remaining number edges —
-  integers between `2^63` and `2^64`, and out-of-`Float64`-range literals —
-  against the value-based mapping table; and
-- every API signature listed in Phase 0 step 8, checked against the vendored
-  `yyjson.h`.
-
-No open input permits system discovery, dynamic loading, public yyjson types,
-an options surface, implicit conversion, truncation, clamping, or a change to
-current text, dictionary, cleanup, or error contracts.
-
-## Implementation readiness
-
-**Not ready.** The release, private dependency boundary, numeric policy,
-cleanup, printing, and configured depth are settled. The remaining object
-representation changes the public `Value` declaration, lookup/order behavior,
-errors, cleanup, and tests. Close it, reconcile the provisional object rows,
-and only then declare Validation exhaustive.
-
-Baseline confirmed against the tree on 2026-09-22: the `Value` declaration
-shape, construction, container use, and exhaustive match compile through
-`compiler.Compile`, so this RFC specifies against the language as it actually
-is.
-
-After those decisions close, start at Phase 0. It produces the archive every
-later phase links against and checks every unverified header signature. Two
-things an implementer should hold onto:
-
-- **Phase 1 is the cheap proof.** Dependency plumbing moves no artifact; if
-  the snippet manifest or any existing hash moves there, the predicate is
-  wired to the wrong demand.
-- **The allocator decision is load-bearing.** Every ownership, leak, and
-  cross-allocator item in Validation follows from running yyjson on the
-  caller's Heap through one custom allocator; an implementation that lets
-  yyjson reach the C allocator has broken the RFC's central contract, not
-  just a test.
+The object representation is ordered `List<Member>` with owning String names;
+duplicate names replace the prior value in place. Phase 0's source, archive,
+ABI, signature, and dependency evidence is recorded in the runtime-pack files.
+Windows and Linux/WSL pack validation and doctor checks pass. Ordinary Go
+tests, vet, build, the generated-snippet manifest, the full tagged C23 suite,
+and the JSON ownership LeakSanitizer fixtures pass. No implementation or
+validation item remains open.

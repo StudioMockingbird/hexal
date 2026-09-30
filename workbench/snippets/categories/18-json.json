@@ -1,0 +1,29 @@
+{
+  "id": "json",
+  "name": "JSON",
+  "snippets": [
+    {
+      "id": "json-parse-and-stringify",
+      "name": "Parse and stringify JSON",
+      "description": "Parse one JSON document, inspect its value through a type match, then serialize and release the owned tree.",
+      "entrypoint": "app.hex",
+      "sources": {"app.hex": [
+        "import",
+        "    Json from std.json",
+        "end",
+        "fun run(h: Heap): Nil | Error do",
+        "    let root: Json.Value = try Json.parse(h, \"{\\\"ok\\\":true}\")",
+        "    let encoded: String = try Json.stringify(h, root)",
+        "    print(encoded)",
+        "    encoded.free(h)",
+        "    Json.free(h, root)",
+        "    return nil",
+        "end",
+        "let result: Nil | Error = run(Heap())",
+        "if result != nil then print(result.message) end"
+      ]},
+      "features": ["json", "errors", "match", "heap-allocation"],
+      "reservedWords": ["import", "end", "from", "fun", "do", "let", "try", "return", "nil", "if", "then"]
+    }
+  ]
+}

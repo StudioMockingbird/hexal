@@ -24,21 +24,25 @@ type hexalHeaderInput struct {
 // moduleHeaderInput carries every value the module-header builder consumes.
 // One field per argument, no derived or cached state.
 type moduleHeaderInput struct {
-	unions      *generatedUnionState
-	adts        *generatedAdtState
-	equality    *generatedEqualityState
-	objects     []*compilerTypes.ObjectType
-	heaps       *heapHelpers
-	printState  *generatedPrintState
-	streams     *generatedStreamState
-	time        *generatedTimeState
-	files       *generatedFileState
-	text        *generatedTextState
-	network     *generatedNetworkState
-	process     *generatedProcessState
-	signal      *generatedSignalState
-	terminal    *generatedTerminalState
-	corelib     *generatedCorelibState
+	unions     *generatedUnionState
+	adts       *generatedAdtState
+	equality   *generatedEqualityState
+	objects    []*compilerTypes.ObjectType
+	heaps      *heapHelpers
+	printState *generatedPrintState
+	streams    *generatedStreamState
+	time       *generatedTimeState
+	files      *generatedFileState
+	text       *generatedTextState
+	network    *generatedNetworkState
+	process    *generatedProcessState
+	signal     *generatedSignalState
+	terminal   *generatedTerminalState
+	corelib    *generatedCorelibState
+	// The two std modules' module states: adapters read the checked tree
+	// against the json/regex demand facts their states carry.
+	jsonState   *generatedJSONState
+	regexState  *generatedRegexState
 	concurrency *generatedConcurrencyState
 	// event selects the Task-parking form of a core-library adapter,
 	// program-wide and compile-time, matching every other bridged family.
@@ -252,6 +256,12 @@ func moduleHeader(input moduleHeaderInput) (string, error) {
 		return "", err
 	}
 	if err := writeCorelibInlineHelpers(&result, input.corelib, input.stringState, input.tags, input.event); err != nil {
+		return "", err
+	}
+	if err := writeJSONInlineHelpers(&result, &input); err != nil {
+		return "", err
+	}
+	if err := writeRegexInlineHelpers(&result, &input); err != nil {
 		return "", err
 	}
 	if err := renderInto(&result, "module.h", "module_header_close", moduleHeaderCloseModel{

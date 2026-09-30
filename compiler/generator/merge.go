@@ -118,6 +118,8 @@ type programEmission struct {
 	// reachable use emits hexal/program.h/.c and hexal/entropy.h/.c once
 	// program-wide.
 	corelibState *generatedCorelibState
+	jsonState    *generatedJSONState
+	regexState   *generatedRegexState
 	// seekUsed is true when any module's stream state reaches Bytes.seek or
 	// IO.seek, selecting hexal/seek.h once program-wide. It is tracked
 	// separately from ioState's own four merged flags, which exist only for
@@ -161,7 +163,7 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		heapState:   &heapHelpers{seen: make(map[string]bool), alignedSeen: make(map[string]bool)},
 		sliceState:  &generatedSliceState{seen: make(map[*compilerTypes.SliceInfo]bool)},
 		stringState: literals,
-		listState:   &generatedListState{seen: make(map[*compilerTypes.ListInfo]bool), seenInline: make(map[*compilerTypes.InlineListInfo]bool)},
+		listState:   newListState(),
 		dictState:   &generatedDictState{seen: make(map[*compilerTypes.DictInfo]bool)},
 		poolState:   &generatedPoolState{seen: make(map[*compilerTypes.PoolInfo]bool)},
 		concurrencyState: &generatedConcurrencyState{
@@ -182,6 +184,8 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		signalState:   &generatedSignalState{},
 		terminalState: &generatedTerminalState{},
 		corelibState:  &generatedCorelibState{},
+		jsonState:     &generatedJSONState{},
+		regexState:    &generatedRegexState{},
 		adapterSites:  make(map[string][]spawnSite),
 	}
 	viewOrders := make([][]compilerTypes.Type, 0, len(modules))
@@ -249,6 +253,8 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		mergeSignalInto(merged.signalState, module.signalState)
 		mergeTerminalInto(merged.terminalState, module.terminalState)
 		mergeCorelibInto(merged.corelibState, module.corelibState)
+		mergeJSONInto(merged.jsonState, module.jsonState)
+		mergeRegexInto(merged.regexState, module.regexState)
 		merged.seekUsed = merged.seekUsed || module.fileState != nil && module.fileState.seek
 		mergeHeapInto(merged.heapState, module.heapState)
 		mergeConcurrencyInto(merged.concurrencyState, module.concurrencyState, spawnedSites)
@@ -265,6 +271,9 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		}
 		if module.listState != nil {
 			listOrders = append(listOrders, module.listState.order)
+			for list := range module.listState.componentOwned {
+				merged.listState.componentOwned[list] = true
+			}
 		}
 		if module.dictState != nil {
 			dictOrders = append(dictOrders, module.dictState.order)
@@ -326,8 +335,10 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 	merged.poolState.order = mergeTypeOrders(poolOrders)
 	merged.adapterSites = routeSpawnSites(merged.concurrencyState)
 	// The discriminant registry finalizes before any file text renders, from
-	// the program-wide union and ADT reachability.
-	merged.tags = buildTagRegistry(unionOrders, adtOrders)
+	// the program-wide union and ADT reachability, plus the member types the
+	// json and regex component adapters switch on even when no source
+	// expression constructs one.
+	merged.tags = buildTagRegistry(unionOrders, adtOrders, forcedTagMembers(merged))
 	// The standard-header and hex_eos requirements aggregate after every
 	// family state is merged, so the umbrella set covers the complete
 	// reachable generated program.

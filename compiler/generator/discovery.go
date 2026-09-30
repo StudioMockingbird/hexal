@@ -96,6 +96,8 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	emission.signalState = discoverGeneratedSignal(program, logicalKey, literals)
 	emission.terminalState = discoverGeneratedTerminal(program, logicalKey, literals)
 	emission.corelibState = discoverGeneratedCorelib(program, logicalKey, literals)
+	emission.jsonState = discoverGeneratedJSON(program, logicalKey, literals)
+	emission.regexState = discoverGeneratedRegex(program, logicalKey, literals)
 	emission.rootReturn = discoverGeneratedRootReturn(program)
 	emission.wrapState = discoverGeneratedWraps(program)
 	concurrencyState, concurrencyErr := discoverGeneratedConcurrency(program, functions, literals, canonicalID, owner, logicalKey)
@@ -140,6 +142,32 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		emission.errorUsed = true
 		heapState.required = true
 		sliceState.required = true
+	}
+	if emission.jsonState != nil && emission.jsonState.used {
+		// The tree owns one heap String per Text payload and one List per
+		// Array/Object payload, so parse / stringify / free all allocate
+		// through the String, List, and Heap machinery. The Value and Member
+		// definitions' List payload also demands the Stack name for the tag
+		// registry: every variant tag the adapter switches on must exist even
+		// if source code never constructs one.
+		literals.used = true
+		literals.requireErrorText()
+		emission.stringUsed = true
+		emission.errorUsed = true
+		heapState.required = true
+		emission.adtState.ensureRegistered(compilerTypes.JsonValueType())
+		forcedJSONLists(listState)
+	}
+	if emission.regexState != nil && emission.regexState.used {
+		// The capture List is Hexal's own container: match operations that
+		// allocate it need the List and Heap machinery, and the Span record
+		// demands String, since compile / match Errors build owned messages.
+		literals.used = true
+		literals.requireErrorText()
+		emission.stringUsed = true
+		emission.errorUsed = true
+		heapState.required = true
+		forcedRegexCapture(listState)
 	}
 	if len(dictState.order) > 0 {
 		// The dict component header declares its String dependency, so the

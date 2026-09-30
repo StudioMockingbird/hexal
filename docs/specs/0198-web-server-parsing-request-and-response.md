@@ -1,43 +1,103 @@
-# RFC 0198: Web Server — HTTP Request and Response Parsing
+# RFC 0198: Web Server — HTTP/1 Parser Integration
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion; active HTTP parser prerequisite; implementation not
-  started
+- Status: Open Discussion; llhttp selected for the first cut; upstream revision
+  and final qualification remain open
 - Created: 2026-09-15
-- Updated: 2026-09-28
-- Depends on: RFC 0144 (high-throughput network runtime), the implemented
-  RFCs 0145 (libuv runtime), 0146 (mimalloc), and 0168 (libuv capability
-  arc), and the current Task, String, Slice, Dict, and Error contracts in
-  `docs/reference.md`
-- Coordinates with: RFC 0210 (web server syntax), RFC 0194 (web server
-  lowering), and the existing IO and print contracts
+- Updated: 2026-09-29
+- Depends on: implemented RFC 0039 (C interoperability) and RFC 0052 (C
+  compiler backend)
+- Coordinates with: RFC 0210 (built-in HTTP types), RFC 0194 (default server
+  backend), and the C23 component build contract
 - Does not add: server lifecycle, connection management, TLS, routing, or
   middleware
 
 ## Motivation
 
 RFC 0210 defines the user-facing HTTP server API. RFC 0194 specifies the
-libuv lowering. This RFC defines the standalone HTTP parsing library: the
-state machine that incrementally parses HTTP/1.1 requests and serializes
-HTTP/1.1 responses. It is a pure C library with no libuv, no Task, and no
-Hexal-specific dependencies.
+default backend. This RFC selects and constrains the private HTTP/1 parser used
+by that backend. It is a pure C component with no libuv, Task, or Hexal
+source-level API.
 
-The parser is usable from both Hexal and C code, and can be embedded in
-non-Hexal programs (tests, benchmarks, tools).
+The selected parser is private to the default server backend; this RFC adds no
+public Hexal or C parser API.
 
-## Existing parser candidate
+## First-cut parser choice
 
-The intended integration candidate may be [PicoHTTPParser](https://github.com/h2o/picohttpparser),
-but the current repository does not record that as a selected dependency. Its
-upstream C API parses HTTP requests, responses, and headers without allocating;
-the returned fields point into the caller-provided input buffer. It also
-provides chunked-transfer decoding. Request-body framing and streaming remain
-the caller's responsibility, so the adapter must preserve the input-buffer
-lifetime while Hexal consumes parsed fields and body bytes.
+Use [llhttp](https://github.com/nodejs/llhttp) for the first HTTP/1 server cut.
+Its stateful, incremental parser maps to the existing connection-Task model:
+each connection owns one parser state, and that Task feeds each newly received
+byte range after resuming from a libuv read. Parser callbacks run synchronously
+inside that Task's call to llhttp; socket-runtime callbacks only complete I/O
+and wake Tasks. Parser state is never shared between connections.
 
-PicoHTTPParser is dual-licensed under the Perl License or MIT License. The
-implementation plan must choose the applicable license, pin an exact upstream
-revision, and qualify the adapter before treating this candidate as selected.
+llhttp parses request start lines, headers, and HTTP/1 message framing, and
+reports body data and completion through callbacks. The adapter retains or
+copies callback data before its input buffer is reused, exposes body bytes
+through RFC 0210's one-shot stream, and applies the strict RFC 9112 framing
+policy. Lenient parser options remain disabled. Client-side response parsing
+and request serialization are not public APIs in this server cut.
+
+Before implementation, record the exact upstream release and commit, the
+generated C/header source files and hashes, license, and qualification evidence.
+Check in the generated C sources used by Hexal so user builds need neither
+Node.js/npm nor a network fetch or code-generation step.
+
+### Parser contract
+
+- Parse HTTP/1.0 and HTTP/1.1 requests incrementally, including request line,
+  headers, and message framing. RFC 0194 owns connection and response-write
+  behavior; RFC 0210 owns public Request/Response types and body streams.
+- Keep one mutable llhttp parser state per connection. Only that connection's
+  Task may call or reset it, after resuming from I/O.
+- Treat callback data as borrowed from the input range. Retain or copy every
+  field/body byte that outlives that range before the buffer is reused.
+- Distinguish incomplete input, a complete request head, body progress,
+  message completion, and malformed input. Pause at message completion until
+  the previous response finishes; preserve already-read bytes for the next
+  request.
+- Use strict parser settings and apply RFC 9112 framing rules before handler
+  dispatch. Reject `Transfer-Encoding` together with `Content-Length`,
+  conflicting/invalid lengths, and unsupported transfer codings; close after
+  the error response rather than guessing a boundary.
+- Use the single request-line, header-count, and total-header limits defined by
+  RFC 0210's `ServerConfig`. A read-buffer chunk size is not a request-size
+  limit.
+- Request-body bytes remain arbitrary bytes; parsing does not decode them as
+  UTF-8.
+
+### Out of scope
+
+- Parsing HTTP responses or serializing HTTP requests; client-side HTTP is not
+  part of the first server cut.
+- Public parser objects or duplicate public definitions of `Request`,
+  `Response`, or `Headers`.
+- A handwritten start-line/header parser or independent message-framing rules.
+
+### First-cut validation
+
+- pinned generated source builds in the generated C23 component on supported
+  targets without Node.js, npm, a network fetch, or package manager;
+- each connection has independent parser state; partial request lines,
+  headers, and bodies resume correctly across arbitrary read boundaries;
+- socket-runtime callbacks never call llhttp or user handlers; parser callbacks
+  execute only while the connection Task owns the parser;
+- callback data is not used after its input range is released or recycled;
+- completed requests pause parsing until their response completes, preserving
+  any bytes already read for a later request;
+- malformed lines, invalid headers, excessive limits, invalid lengths, and
+  ambiguous transfer-framing combinations are rejected;
+- fixed-length and chunked framing deliver the expected body bytes through the
+  adapter; trailer fields are validated and discarded, never merged into
+  request Headers;
+- connection reuse and response serialization remain owned by RFC 0194;
+- no parser allocation or libuv call occurs;
+- ordinary and tagged C23 suites pass.
+
+The legacy proposal from `Scope decision` through `C23 lowering` below is
+historical only and is not an implementation requirement. The later Demand
+rules, Required sweep, Validation, and Open questions sections state the
+current contract.
 
 ## Scope decision
 
@@ -346,72 +406,63 @@ int hex_http_parser_execute(hex_http_parser *parser,
 
 ## Demand rules
 
-- `Parser`, `Request`, `Response`, `Headers`, `ParseResult`,
-  `BodyResult`, `ChunkedResult`, `ParseError`, `serialize_request`,
-  `serialize_response`, `serialize_chunk`, and `serialize_chunks_end`
-  select the HTTP parser component.
-- The HTTP parser component is a pure C library; it does not select
-  libuv, native bootstrap, or the event bridge.
-- A program that uses only the parser (without a server) does not select
-  the server lifecycle or TCP listener components.
+- The private parser adapter and pinned parser source are selected by the
+  default server backend when `Http.serve` is reachable. A custom backend
+  selects them only if it declares that dependency.
+- The parser component has no Hexal public API and does not select libuv,
+  native bootstrap, or the event bridge by itself.
+- Programs that do not use the default backend or an adapter declaring llhttp
+  do not select this parser component.
 
 ## Required sweep
 
-- HTTP parser state machine in `hexal/http_parser.c` and `hexal/http.h`;
-- header storage and case-insensitive lookup;
-- body reading for `Content-Length` and chunked transfer encoding;
-- response parsing;
-- request and response serialization;
-- chunked serialization;
-- parser limits and error handling;
-- demand discovery for HTTP parser component;
-- workbench snippet and manifest entries;
-- `docs/reference.md` HTTP parser surface after explicit approval.
+- pin, license, vendor, and hash the exact llhttp release, commit, and generated
+  source snapshot;
+- keep the parser adapter private to the server component;
+- remove the competing handwritten parser and public parser/serializer API;
+- feed new byte ranges into per-connection parser state and enforce RFC 0210
+  limits;
+- validate framing before dispatch and hand body ownership to RFC 0194;
+- preserve callback-data lifetimes across input-buffer reuse;
+- select the parser only when an HTTP server backend is reachable;
+- update the workbench snippet and generated-C manifest only if the public
+  example or generated artifact changes;
+- update `docs/reference.md` only for a changed public contract owned by
+  RFC 0210.
 
 ## Validation
 
-This section is exhaustive:
+This section is exhaustive for the private server parser integration:
 
-- parser accepts valid HTTP/1.0 and HTTP/1.1 request lines;
-- parser accepts valid HTTP/1.0 and HTTP/1.1 response lines;
-- parser rejects malformed request lines (missing method, path, or
-  version);
-- parser rejects malformed headers (missing colon, invalid name, or
-  invalid value);
-- parser rejects oversized request line, header name, header value, and
-  total headers;
-- header case-insensitive lookup matches all standard HTTP header names;
-- `Content-Length` body reading reads exactly the specified bytes;
-- chunked body reading decodes all chunks including multi-chunk bodies;
-- chunked body reading handles the zero-length terminator correctly;
-- chunked body reading handles trailer headers;
-- response parsing reads status code, reason phrase, headers, and body;
-- serialization produces valid HTTP/1.1 requests and responses;
-- serialization adds `Content-Length` automatically;
-- chunked serialization produces valid chunked transfer encoding;
-- incremental parsing works across multiple calls;
-- parser state is preserved between calls;
-- parser does not allocate memory;
-- parser does not call libuv or any runtime facility;
-- existing Task, Channel, IO, and print behavior unchanged;
+- pinned generated source builds for each qualified target without Node.js,
+  npm, a network fetch, or package manager;
+- per-connection parser state handles complete, incomplete, and malformed
+  HTTP/1.0 and HTTP/1.1 requests across arbitrary read boundaries;
+- parser state is never concurrently accessed by a libuv callback and its
+  connection Task;
+- malformed request lines, invalid headers, configured limit violations,
+  invalid lengths, unsupported transfer codings, and ambiguous framing are
+  rejected before handler dispatch;
+- equal duplicate Content-Length values are handled per RFC 9112, while
+  conflicting values and Transfer-Encoding plus Content-Length are rejected;
+- callback data is copied or retained before its backing input range is
+  released or recycled;
+- fixed-length and chunked request bodies produce the exact byte sequence;
+  trailer fields are not merged into ordinary request headers;
+- parser state and settings are caller-owned; llhttp performs no parser-owned
+  dynamic allocation and makes no libuv calls;
+- client response parsing and request serialization are not exposed as APIs;
 - ordinary and tagged C23 suites pass.
 
 ## Open questions
 
-1. Whether to integrate PicoHTTPParser or select another parser. The current
-   RFC and its dependent backend draft had inconsistent llhttp/hand-written
-   proposals; no upstream parser is selected yet.
-2. Whether `Headers` should be a separate type or a `Dict`-like type
-   with case-insensitive keys.
-3. Whether the parser should support HTTP/1.0 `Connection: close`
-   detection and reporting.
-4. Whether to expose the parser state for custom validation or keep it
-   opaque.
-5. Whether `serialize_request` should validate the request before
-   serializing.
+1. Pin the exact llhttp release/commit and its generated C/header source list,
+   hashes, and license before implementation.
+2. Confirm whether HTTP/1.0 connection persistence is reported by the parser
+   adapter or derived by the RFC 0194 connection state machine.
 
 ## Reference synchronization
 
-Do not edit `docs/reference.md` from this draft. Approved implementation
-adds the HTTP parser types, state machine, and serialization contracts
-only after behavior stabilizes and with explicit user approval.
+This RFC adds no public parser API. Update `docs/reference.md` only if
+implementation changes a public HTTP contract owned by RFC 0210; update it
+after behavior stabilizes and before this RFC is marked implemented or closed.

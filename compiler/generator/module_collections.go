@@ -214,7 +214,12 @@ func moduleOwnedCollectionOrder(input *moduleHeaderInput) []compilerTypes.Type {
 	}
 	lists := []compilerTypes.Type(nil)
 	if input.lists != nil {
-		lists = input.lists.order
+		for _, typ := range input.lists.order {
+			if input.lists.componentOwned[typ.List] {
+				continue
+			}
+			lists = append(lists, typ)
+		}
 	}
 	dicts := []compilerTypes.Type(nil)
 	if input.dicts != nil {

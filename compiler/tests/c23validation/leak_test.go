@@ -2,15 +2,10 @@
 
 package c23validation
 
-// A dedicated LeakSanitizer run for the Tier 3 text transforms. Every other
-// fixture deliberately leaves bindings unfreed, so a program-wide leak check
-// would report their intentional leaks; only the transforms promise to release
-// the malloc buffer utf8proc_map returns, so only they are leak-checked.
-//
-// The transforms' failure path is unreachable from any checker-accepted
-// program -- text is always validated UTF-8, so utf8proc_map cannot report
-// malformed input, and allocator exhaustion is not injectable here -- so this
-// run covers the success path. See docs/status.md for that disposition.
+// Leak checking is limited to fixtures with complete cleanup contracts:
+// transforms release utf8proc buffers, while JSON and regex fixtures exercise
+// their owning boundaries and failure cleanup. Other catalog fixtures
+// intentionally retain program allocations.
 
 import (
 	"bytes"
@@ -22,11 +17,18 @@ import (
 	"testing"
 )
 
-// leakCheckedFixtures names the transforms whose success path must leave no
+// leakCheckedFixtures names programs whose selected path must leave no
 // allocation behind.
 var leakCheckedFixtures = map[string]bool{
 	"normalize-runs": true,
 	"casefold-runs":  true,
+	"json-nested-ownership-and-partial-failure-leak-runs": true,
+	"json-user-built-graph-ownership-runs":                true,
+	"regex-unicode-byte-spans-and-captures-runs":           true,
+	"regex-subject-over-pattern-limit-runs":                true,
+	"regex-invalid-pattern-and-no-match-runs":              true,
+	"regex-shared-pattern-concurrent-matches-run":          true,
+	"regex-resource-limits-run":                            true,
 }
 
 // leakFlags instruments the binary with LeakSanitizer alone. LSan reports a

@@ -31,6 +31,16 @@ type CoreParam uint8
 const (
 	CoreParamHeap CoreParam = iota
 	CoreParamMutByteSlice
+	// CoreParamString is a validated heap String parameter.
+	CoreParamString
+	// CoreParamValue is a Json.Value parameter.
+	CoreParamValue
+	// CoreParamPattern is an owning compiled-regex handle parameter.
+	CoreParamPattern
+	// CoreParamSpan is a half-open byte-range value parameter.
+	CoreParamSpan
+	// CoreParamMatch is an owning Match value parameter.
+	CoreParamMatch
 )
 
 // CoreResult is one function's success shape. The Error union a fallible
@@ -42,6 +52,18 @@ const (
 	CoreResultStringSlice
 	CoreResultNil
 	CoreResultSize
+	// CoreResultValue is Json.Value | Error.
+	CoreResultValue
+	// CoreResultNoValue produces no value and can never fail.
+	CoreResultNoValue
+	// CoreResultPattern is Pattern | Error.
+	CoreResultPattern
+	// CoreResultBool is Bool | Error.
+	CoreResultBool
+	// CoreResultSpanNil is Span | Nil | Error.
+	CoreResultSpanNil
+	// CoreResultMatchNil is Match | Nil | Error.
+	CoreResultMatchNil
 )
 
 // ErrorBehavior classifies whether a function's result unions with the built-in
@@ -113,6 +135,13 @@ const (
 	CoreTypeSignal              CoreTypeID = "Signal"
 	CoreTypeSignals             CoreTypeID = "Signals"
 	CoreTypeTerminalSize        CoreTypeID = "TerminalSize"
+	// CoreTypeJsonValue is std/json's exported union Value.
+	CoreTypeJsonValue CoreTypeID = "JsonValue"
+	// CoreTypeJsonMember is std/json's ordered object member record.
+	CoreTypeJsonMember   CoreTypeID = "JsonMember"
+	CoreTypeRegexPattern CoreTypeID = "Pattern"
+	CoreTypeRegexSpan    CoreTypeID = "Span"
+	CoreTypeRegexMatch   CoreTypeID = "Match"
 )
 
 // coreModules is the registry. It is unexported so no importer can rewrite a
@@ -208,6 +237,34 @@ var coreModules = []CoreModule{
 		Functions: []CoreFunction{
 			{Name: "is_attached", Builtin: "terminal_is_attached"},
 			{Name: "size", Builtin: "terminal_size"},
+		},
+	},
+	{
+		ID: "std/json",
+		Types: []CoreTypeExport{
+			{Name: "Value", TypeID: CoreTypeJsonValue},
+			{Name: "Member", TypeID: CoreTypeJsonMember},
+		},
+		Functions: []CoreFunction{
+			{Name: "parse", Params: []CoreParam{CoreParamHeap, CoreParamString}, Result: CoreResultValue, ErrorBehavior: ErrorFallible, Runtime: "hex_json_parse", Components: []ComponentID{ComponentJSON}},
+			{Name: "stringify", Params: []CoreParam{CoreParamHeap, CoreParamValue}, Result: CoreResultString, ErrorBehavior: ErrorFallible, Runtime: "hex_json_stringify", Components: []ComponentID{ComponentJSON}},
+			{Name: "free", Params: []CoreParam{CoreParamHeap, CoreParamValue}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_json_free", Components: []ComponentID{ComponentJSON}},
+		},
+	},
+	{
+		ID: "std/regex",
+		Types: []CoreTypeExport{
+			{Name: "Span", TypeID: CoreTypeRegexSpan},
+			{Name: "Match", TypeID: CoreTypeRegexMatch},
+			{Name: "Pattern", TypeID: CoreTypeRegexPattern},
+		},
+		Functions: []CoreFunction{
+			{Name: "compile", Params: []CoreParam{CoreParamHeap, CoreParamString}, Result: CoreResultPattern, ErrorBehavior: ErrorFallible, Runtime: "hex_regex_compile", Components: []ComponentID{ComponentRegex}},
+			{Name: "test", Params: []CoreParam{CoreParamHeap, CoreParamPattern, CoreParamString}, Result: CoreResultBool, ErrorBehavior: ErrorFallible, Runtime: "hex_regex_test", Components: []ComponentID{ComponentRegex}},
+			{Name: "find", Params: []CoreParam{CoreParamHeap, CoreParamPattern, CoreParamString}, Result: CoreResultSpanNil, ErrorBehavior: ErrorFallible, Runtime: "hex_regex_find", Components: []ComponentID{ComponentRegex}},
+			{Name: "capture", Params: []CoreParam{CoreParamHeap, CoreParamPattern, CoreParamString}, Result: CoreResultMatchNil, ErrorBehavior: ErrorFallible, Runtime: "hex_regex_capture", Components: []ComponentID{ComponentRegex}},
+			{Name: "free", Params: []CoreParam{CoreParamHeap, CoreParamPattern}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_regex_free", Components: []ComponentID{ComponentRegex}},
+			{Name: "free_match", Params: []CoreParam{CoreParamHeap, CoreParamMatch}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_regex_free_match", Components: []ComponentID{ComponentRegex}},
 		},
 	},
 	{
@@ -365,7 +422,7 @@ func validateCorelib(modules []CoreModule) error {
 				return fmt.Errorf("specdata/corelib: runtime %q is declared by %q and %q", function.Runtime, owner, module.ID)
 			}
 			runtimes[function.Runtime] = module.ID
-			fallible := function.Result != CoreResultSize
+			fallible := function.Result != CoreResultSize && function.Result != CoreResultNoValue
 			if (function.ErrorBehavior == ErrorFallible) != fallible {
 				return fmt.Errorf("specdata/corelib: runtime %q.%q result and error behavior disagree", module.ID, function.Name)
 			}

@@ -60,8 +60,10 @@ func tagLabelBase(typ compilerTypes.Type) string {
 // buildTagRegistry discovers every reachable general-union member and
 // concrete-ADT variant, deduplicates by identity, sorts by identity, and
 // resolves label collisions in identity order: the first identity keeps the
-// base, later ones append _0, _1, and so on.
-func buildTagRegistry(unionOrders, adtOrders [][]compilerTypes.Type) *tagRegistry {
+// base, later ones append _0, _1, and so on. forced carries the member types
+// the json and regex component adapters name; no source expression may
+// construct one, so discovery alone would leave their constants unresolved.
+func buildTagRegistry(unionOrders, adtOrders [][]compilerTypes.Type, forced []compilerTypes.Type) *tagRegistry {
 	registry := &tagRegistry{byIdentity: make(map[string]string), seen: make(map[string]bool)}
 	for _, order := range unionOrders {
 		for _, union := range order {
@@ -84,6 +86,9 @@ func buildTagRegistry(unionOrders, adtOrders [][]compilerTypes.Type) *tagRegistr
 				registry.add(adtVariantIdentity(adt, index), base+compilerTypes.SanitizeIdentifier(adt.Variants[index].Name))
 			}
 		}
+	}
+	for _, member := range forced {
+		registry.add(unionMemberIdentity(member), tagLabelBase(member))
 	}
 	slices.SortStableFunc(registry.records, func(left, right tagRecord) int {
 		return strings.Compare(left.identity, right.identity)
@@ -123,6 +128,11 @@ func (registry *tagRegistry) add(identity, base string) {
 func (registry *tagRegistry) constant(identity string) string {
 	name, ok := registry.byIdentity[identity]
 	if !ok {
+		if identity == "" {
+			fmt.Println("EMPTY IDENTITY")
+		} else {
+			fmt.Printf("MISS %q\n", identity)
+		}
 		if registry.failure == nil {
 			diagnostic := generatorDiagnostic()
 			registry.failure = &diagnostic

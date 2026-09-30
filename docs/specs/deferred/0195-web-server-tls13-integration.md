@@ -3,12 +3,14 @@
 - Kind: Feature Specification (Rust-Style RFC)
 - Status: Deferred; not required for the initial HTTP server surface
 - Created: 2026-09-15
-- Updated: 2026-09-28
-- Depends on: RFC 0210 (web server syntax and semantics), RFC 0194 (web server
+- Updated: 2026-09-29
+- Depends on: RFC 0144 (Task-aware socket runtime), RFC 0210 (web server syntax
+  and semantics), RFC 0194 (web server
   lowering), and the implemented RFCs 0145 (libuv runtime), 0146 (mimalloc),
   0168 (libuv capability arc), and 0184 (atomic print)
-- Coordinates with: RFC 0194 for the shared socket layer and libuv handle
-  lifecycle, and RFC 0039 (C interop) for the underlying TLS library binding
+- Coordinates with: RFC 0144 for the shared Task-aware socket layer, RFC 0194
+  for HTTP connection policy, and RFC 0039 (C interop) for the underlying TLS
+  library binding
 - Does not add: TLS 1.2, DTLS, certificate generation, ACME/Let's Encrypt
   automation, or client certificate authentication
 
@@ -196,45 +198,22 @@ No cipher suite configuration is exposed in v1.
 - Hostname verification is performed for client connections (not in v1
   since client TLS is out of scope).
 
-## libuv integration
+## Socket runtime integration
 
-TLS I/O uses the same libuv event loop as plain TCP:
-
-### TLS read
-
-```c
-static void on_tls_read(uv_stream_t *stream, ssize_t nread,
-                         const uv_buf_t *buf) {
-    if (nread > 0) {
-        /* decrypt through BearSSL */
-        bearssl_ssl_recv(&ctx->ssl, buf->base, nread);
-        /* feed to HTTP parser */
-    }
-}
-```
-
-### TLS write
-
-```c
-int hex_tls_write(bearssl_ssl_context *ctx,
-                   const char *data, size_t len) {
-    /* encrypt through BearSSL */
-    /* write encrypted data through uv_write */
-}
-```
-
-- BearSSL's I/O callbacks use the existing libuv `uv_read_start` /
-  `uv_write` pattern.
-- The TLS layer is transparent to the HTTP parser; decrypted bytes are
-  fed directly to `hex_http_parser_execute`.
-- Encrypted writes go through `uv_write` with the encrypted output from
-  BearSSL.
+TLS wraps the Task-aware TCP streams provided by RFC 0144. BearSSL consumes
+encrypted bytes from runtime reads and produces encrypted bytes for runtime
+writes; its handshake and stream operations park the owning Task while I/O is
+pending. This RFC owns TLS record processing and plaintext/encrypted buffer
+lifetime. RFC 0144 defines Task-aware operation and pending-request lifetime;
+RFC 0145 implements native handles and event delivery beneath that contract.
+TLS code does not call libuv directly.
 
 ### Shutdown
 
 - TLS shutdown sends `close_notify` through BearSSL before closing the
-  TCP connection.
-- A hard timeout skips `close_notify` and closes the TCP handle directly.
+  TCP stream through RFC 0144.
+- A hard timeout skips `close_notify` and closes the TCP stream through
+  RFC 0144.
 
 ## Memory model
 
@@ -318,8 +297,7 @@ The vendoring model follows RFC 0146 (mimalloc) exactly:
 - BearSSL submodule, embedding, and manifest verification;
 - TLS context loading and validation in `hexal/tls.c`;
 - TLS listener and connection wrapping in `hexal/tls.c`;
-- TLS handshake integration with libuv event loop;
-- TLS read/write through BearSSL I/O callbacks;
+- TLS handshake and stream I/O over RFC 0144's Task-aware socket operations;
 - TLS shutdown and `close_notify` handling;
 - demand discovery for TLS component;
 - error mapping for TLS-specific failures;

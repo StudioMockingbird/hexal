@@ -30,12 +30,14 @@ const (
 
 // corelibAdapter is one reachable core-library function in one module: the
 // module-owned result union its adapter produces, plus the declaration facts
-// needed to spell both the adapter and its raw call.
+// needed to spell both the adapter and its raw call. query names the raw
+// result record the component pair owns; the shape's template block reads it.
 type corelibAdapter struct {
 	runtime string
 	result  corelib.Result
 	params  []corelib.Param
 	union   compilerTypes.Type
+	query   string
 }
 
 // generatedCorelibState records one module's (or the merged program's)
@@ -83,6 +85,13 @@ func discoverGeneratedCorelib(program checker.Program, logicalKey string, litera
 			if !ok {
 				return unknownExpressionDiagnostic()
 			}
+			// std/json and std/regex calls own their component demand
+			// through the dedicated json/regex discovery states and their
+			// raw adapters; the program/entropy adapters never spell them.
+			switch path {
+			case "std/json", "std/regex":
+				return nil
+			}
 			state.used = true
 			if path == "std/entropy" {
 				state.entropy = true
@@ -113,6 +122,7 @@ func discoverGeneratedCorelib(program checker.Program, logicalKey string, litera
 						result:  function.Result,
 						params:  function.Params,
 						union:   node.ResultType,
+						query:   corelibRawResultName(function.Result),
 					})
 				}
 			}
@@ -127,15 +137,35 @@ func discoverGeneratedCorelib(program checker.Program, logicalKey string, litera
 }
 
 // renderCorelibCallExpression renders one core-library module call: a direct
-// core call for a bare Size result, otherwise a call to the module's own
-// adapter carrying its source site.
+// core call for a bare Size result, a raw cleanup call for a no-value result,
+// otherwise a call to the module's own adapter carrying its source site.
 func renderCorelibCallExpression(node checker.Expression, state *expressionValidation) (string, error) {
-	_, function, ok := corelib.FunctionByRuntime(node.Name)
+	path, function, ok := corelib.FunctionByRuntime(node.Name)
 	if !ok {
 		return "", unknownExpressionDiagnostic()
 	}
 	if function.Result == corelib.ResultSize {
 		return node.Name + "()", nil
+	}
+	if function.Result == corelib.ResultNoValue {
+		// Json.free, Regex.free, and Regex.free_match produce no value: the
+		// raw entry point renders directly with exactly the checked
+		// arguments. The two addon families suffix every raw entry point
+		// with _raw so the registry name stays free for the adapter form.
+		raw := node.Name
+		switch path {
+		case "std/json", "std/regex":
+			raw += "_raw"
+		}
+		arguments := make([]string, 0, len(node.Arguments))
+		for index := range node.Arguments {
+			rendered, err := renderHoistedOperand(&node.Arguments[index].Node, node.Arguments[index], state)
+			if err != nil {
+				return "", err
+			}
+			arguments = append(arguments, rendered)
+		}
+		return raw + "(" + strings.Join(arguments, ", ") + ")", nil
 	}
 	arguments := make([]string, 0, len(node.Arguments)+1)
 	for index := range node.Arguments {
@@ -217,6 +247,18 @@ func corelibAdapterParameters(params []corelib.Param) (string, error) {
 			rendered = append(rendered, "hex_heap heap")
 		case corelib.ParamMutByteSlice:
 			rendered = append(rendered, "hex_mut_slice_UInt8 into")
+		case corelib.ParamString:
+			// A String value is a pointer in generated C; the raw entries
+			// and every wrapper argument agree on that spelling.
+			rendered = append(rendered, "const hex_string *text")
+		case corelib.ParamValue:
+			rendered = append(rendered, "hex_t_JsonValue value")
+		case corelib.ParamPattern:
+			rendered = append(rendered, "hex_regex_pattern pattern")
+		case corelib.ParamSpan:
+			rendered = append(rendered, "hex_t_Span span")
+		case corelib.ParamMatch:
+			rendered = append(rendered, "hex_t_Match match")
 		default:
 			return "", unknownExpressionDiagnostic()
 		}
@@ -233,6 +275,16 @@ func corelibAdapterArguments(params []corelib.Param) (string, error) {
 			rendered = append(rendered, "heap")
 		case corelib.ParamMutByteSlice:
 			rendered = append(rendered, "into.data, into.length")
+		case corelib.ParamString:
+			rendered = append(rendered, "text")
+		case corelib.ParamValue:
+			rendered = append(rendered, "value")
+		case corelib.ParamPattern:
+			rendered = append(rendered, "pattern")
+		case corelib.ParamSpan:
+			rendered = append(rendered, "span")
+		case corelib.ParamMatch:
+			rendered = append(rendered, "match")
 		default:
 			return "", unknownExpressionDiagnostic()
 		}
@@ -254,8 +306,10 @@ type corelibAdapterModel struct {
 	Parameters string
 	Call       string
 	Arguments  string
+	Query      string
 	Tag        string
 	Field      string
+	NilTag     string
 	Member     string
 	Failure    string
 }
@@ -265,13 +319,29 @@ func writeCorelibInlineHelpers(result *strings.Builder, state *generatedCorelibS
 		return nil
 	}
 	file := "&" + literals.CName(state.fileLiteral)
-	for _, adapter := range state.adapters {
+	return writeAdapterHelpers(result, state.adapters, file, tags, func(adapter corelibAdapter) string {
+		return corelibAdapterCall(adapter.runtime, event)
+	})
+}
+
+// writeAdapterHelpers renders one family's reachable adapters: each wraps a
+// raw component result struct in this module's own union, building failures
+// from the module file literal and the runtime's stable ErrorKind. The
+// shared corelibAdapterModel carries every shape's decided fields and each
+// result-shape template block spells the arm its result takes. call spells
+// the raw entry point one family exposes, which differs between the
+// program/entropy pair and the std/json and std/regex pairs.
+func writeAdapterHelpers(result *strings.Builder, adapters []corelibAdapter, file string, tags *tagRegistry, call func(corelibAdapter) string) error {
+	for _, adapter := range adapters {
 		member, ok := corelibMemberType(adapter.union)
 		if !ok {
 			return unknownExpressionDiagnostic()
 		}
 		tag, field := streamMemberRef(tags, adapter.union, member)
 		if tag == "" || field == "" {
+			return unknownExpressionDiagnostic()
+		}
+		if adapter.query == "" {
 			return unknownExpressionDiagnostic()
 		}
 		failure, err := corelibErrorArm(tags, file, adapter.union, "query.kind", "query.message")
@@ -282,56 +352,45 @@ func writeCorelibInlineHelpers(result *strings.Builder, state *generatedCorelibS
 		if err != nil {
 			return err
 		}
+		if parameters != "" {
+			parameters += ", "
+		}
 		callArguments, err := corelibAdapterArguments(adapter.params)
 		if err != nil {
 			return err
 		}
-		if parameters != "" {
-			parameters += ", "
+		model := corelibAdapterModel{
+			CName:      adapter.union.CName,
+			Runtime:    adapter.runtime,
+			Suffix:     streamAdapterSuffix(adapter.union),
+			Parameters: parameters,
+			Call:       call(adapter),
+			Arguments:  callArguments,
+			Query:      adapter.query,
+			Tag:        tag,
+			Field:      field,
+			Failure:    failure,
 		}
-		call := corelibAdapterCall(adapter.runtime, event)
 		switch adapter.result {
-		case corelib.ResultString:
-			if err := renderInto(result, "module.h", "corelib_string_adapter", corelibAdapterModel{
-				CName:      adapter.union.CName,
-				Runtime:    adapter.runtime,
-				Suffix:     streamAdapterSuffix(adapter.union),
-				Parameters: parameters,
-				Call:       call,
-				Arguments:  callArguments,
-				Tag:        tag,
-				Field:      field,
-				Failure:    failure,
-			}); err != nil {
+		case corelib.ResultString, corelib.ResultValue, corelib.ResultPattern, corelib.ResultBool:
+			if err := renderInto(result, "module.h", adapterBlock(adapter.result), model); err != nil {
 				return err
 			}
 		case corelib.ResultStringSlice:
-			if err := renderInto(result, "module.h", "corelib_slice_adapter", corelibAdapterModel{
-				CName:      adapter.union.CName,
-				Runtime:    adapter.runtime,
-				Suffix:     streamAdapterSuffix(adapter.union),
-				Parameters: parameters,
-				Call:       call,
-				Arguments:  callArguments,
-				Tag:        tag,
-				Field:      field,
-				Member:     member.CName,
-				Failure:    failure,
-			}); err != nil {
+			model.Member = member.CName
+			if err := renderInto(result, "module.h", adapterBlock(adapter.result), model); err != nil {
 				return err
 			}
 		case corelib.ResultNil:
 			nilTag, _ := streamMemberRef(tags, adapter.union, compilerTypes.Nil)
-			if err := renderInto(result, "module.h", "corelib_nil_adapter", corelibAdapterModel{
-				CName:      adapter.union.CName,
-				Runtime:    adapter.runtime,
-				Suffix:     streamAdapterSuffix(adapter.union),
-				Parameters: parameters,
-				Call:       call,
-				Arguments:  callArguments,
-				Tag:        nilTag,
-				Failure:    failure,
-			}); err != nil {
+			model.Tag = nilTag
+			if err := renderInto(result, "module.h", adapterBlock(adapter.result), model); err != nil {
+				return err
+			}
+		case corelib.ResultSpanNil, corelib.ResultMatchNil:
+			nilTag, _ := streamMemberRef(tags, adapter.union, compilerTypes.Nil)
+			model.NilTag = nilTag
+			if err := renderInto(result, "module.h", adapterBlock(adapter.result), model); err != nil {
 				return err
 			}
 		default:
@@ -339,6 +398,32 @@ func writeCorelibInlineHelpers(result *strings.Builder, state *generatedCorelibS
 		}
 	}
 	return nil
+}
+
+// adapterBlock selects the module.h template block name one raw result shape
+// renders through; the shared corelibAdapterModel carries each shape's
+// decided fields and the template spells the arm the shape's value takes.
+func adapterBlock(result corelib.Result) string {
+	switch result {
+	case corelib.ResultString:
+		return "corelib_string_adapter"
+	case corelib.ResultStringSlice:
+		return "corelib_slice_adapter"
+	case corelib.ResultNil:
+		return "corelib_nil_adapter"
+	case corelib.ResultValue:
+		return "corelib_value_adapter"
+	case corelib.ResultPattern:
+		return "corelib_pattern_adapter"
+	case corelib.ResultBool:
+		return "corelib_bool_adapter"
+	case corelib.ResultSpanNil:
+		return "corelib_span_nil_adapter"
+	case corelib.ResultMatchNil:
+		return "corelib_match_nil_adapter"
+	default:
+		return ""
+	}
 }
 
 // mergeCorelibInto unions one module's core-library demand into the program

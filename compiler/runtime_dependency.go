@@ -18,6 +18,8 @@ const (
 	RuntimeMimalloc RuntimeDependency = RuntimeDependency(specdata.DependencyMimalloc)
 	RuntimeLibuv    RuntimeDependency = RuntimeDependency(specdata.DependencyLibuv)
 	RuntimeUtf8proc RuntimeDependency = RuntimeDependency(specdata.DependencyUtf8proc)
+	RuntimeYyjson   RuntimeDependency = RuntimeDependency(specdata.DependencyYyjson)
+	RuntimePcre2    RuntimeDependency = RuntimeDependency(specdata.DependencyPcre2)
 )
 
 // runtimeDependencies validates the generator's dependency names against the

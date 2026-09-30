@@ -22,6 +22,11 @@ type Param = specdata.CoreParam
 const (
 	ParamHeap         Param = specdata.CoreParamHeap
 	ParamMutByteSlice Param = specdata.CoreParamMutByteSlice
+	ParamString       Param = specdata.CoreParamString
+	ParamValue        Param = specdata.CoreParamValue
+	ParamPattern      Param = specdata.CoreParamPattern
+	ParamSpan         Param = specdata.CoreParamSpan
+	ParamMatch        Param = specdata.CoreParamMatch
 )
 
 // Result is one runtime function's success shape. Every Result except
@@ -34,6 +39,12 @@ const (
 	ResultStringSlice Result = specdata.CoreResultStringSlice
 	ResultNil         Result = specdata.CoreResultNil
 	ResultSize        Result = specdata.CoreResultSize
+	ResultValue       Result = specdata.CoreResultValue
+	ResultNoValue     Result = specdata.CoreResultNoValue
+	ResultPattern     Result = specdata.CoreResultPattern
+	ResultBool        Result = specdata.CoreResultBool
+	ResultSpanNil     Result = specdata.CoreResultSpanNil
+	ResultMatchNil    Result = specdata.CoreResultMatchNil
 )
 
 // Function is one exported module function, the registry record a lookup

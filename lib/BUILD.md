@@ -35,6 +35,14 @@ lib/
       utf8proc.a
       include/utf8proc.h
       LICENSE.md
+    yyjson_v0.13.0/
+      yyjson.a
+      include/yyjson.h
+      LICENSE
+    pcre2_v10.48/
+      pcre2.a
+      include/pcre2.h
+      LICENSE
 ```
 
 Pack production is an explicit maintainer operation, never compiler setup, a
@@ -119,6 +127,84 @@ ar rcs utf8proc_v2.11.3/utf8proc.a utf8proc.o
 - Size: `352378` bytes
 - SHA-256: `a3ced9efe7b33d143abd353c85dbd1fc7a2fd94f1e0ab0273fe19742db70a4f6`
 
+### Linux yyjson_v0.13.0
+
+- Source: `modules/yyjson` (git submodule) at commit
+  `6447536015f3d600f3d65323b10976103b337ca7` (`0.13.0`, upstream release tag)
+- Release: https://github.com/ibireme/yyjson/releases/tag/0.13.0
+- Source file: `src/yyjson.c` (one translation unit), public header
+  `src/yyjson.h`
+- Public header: `yyjson_v0.13.0/include/yyjson.h` (copied unchanged)
+- License: `yyjson_v0.13.0/LICENSE` (MIT)
+- Compile definitions: `YYJSON_DISABLE_FILE=1`, `YYJSON_DISABLE_INCR_READER=1`,
+  `YYJSON_DISABLE_UTILS=1` (all three are upstream compile-time switches);
+  `YYJSON_FREESTANDING`, `YYJSON_DISABLE_NON_STANDARD`,
+  `YYJSON_DISABLE_UTF8_VALIDATION` unset; reader and writer depth limits set:
+- Depth limits: `YYJSON_READER_DEPTH_LIMIT=256`, `YYJSON_WRITER_DEPTH_LIMIT=256`
+- Read flags (adapter): `YYJSON_READ_ALLOW_COMMENTS |
+  YYJSON_READ_ALLOW_TRAILING_COMMAS`; write flags: defaults (compact)
+- Compile command:
+
+```text
+clang --target=x86_64-linux-gnu -std=c11 -O2 -DNDEBUG -fPIC -pthread \
+  -DYYJSON_DISABLE_FILE=1 -DYYJSON_DISABLE_INCR_READER=1 -DYYJSON_DISABLE_UTILS=1 \
+  -DYYJSON_READER_DEPTH_LIMIT=256 -DYYJSON_WRITER_DEPTH_LIMIT=256 \
+  -I modules/yyjson/src -c modules/yyjson/src/yyjson.c -o yyjson.o
+ar rcs yyjson_v0.13.0/yyjson.a yyjson.o
+```
+
+- Size: `279086` bytes
+- SHA-256: `b644a5ebb72230c72ecc2e1cca8345cb6042fcfe30d88d4011b6e4eebfeb4865`
+- Header SHA-256: `c80cd7dc504f8c226c3e22adf4894e0161ee302bd85a2008f7ed7a620438e65b`
+- License SHA-256: `7b14b8632bf3d5cb64c7a5f1ddfa9062e9c6eba38ac495a0897541d6658d3ad2`
+
+### Linux pcre2_v10.48
+
+- Source: `modules/pcre2` (git submodule) at commit
+  `7978954dbd2efc6f2196869290553cf1871b4ce6` (`pcre2-10.48`, upstream release
+  tag)
+- Release: https://github.com/PCRE2Project/pcre2/releases/tag/pcre2-10.48
+- 8-bit library only (`PCRE2_CODE_UNIT_WIDTH=8`); JIT compiled out
+  (`SUPPORT_JIT` unset, so the `pcre2_jit_compile.c` stub section compiles and
+  the sljit tree is not built)
+- Compiled from the release's prepared manual-build inputs: `pcre2.h.generic`
+  and `config.h.generic` (copied unchanged to the build staging as `pcre2.h`
+  and `config.h`; produced not by patching the submodule) and
+  `pcre2_chartables.c.dist` as the chartables unit. Compile-time switches:
+  `SUPPORT_PCRE2_8`, `SUPPORT_UNICODE`; `SUPPORT_JIT`, 16/32-bit widths unset.
+  Link size stays the default two-byte internal link (`LINK_SIZE 2` from
+  `config.h.generic`); match limits are runtime context values, not build
+  macros, and the adapter sets them from `compiler/config` at every call.
+- Source files (31 translation units, the upstream libpcre2-8 list):
+  `pcre2_auto_possess.c`, `pcre2_chkdint.c`, `pcre2_compile.c`,
+  `pcre2_compile_cgroup.c`, `pcre2_compile_class.c`, `pcre2_config.c`,
+  `pcre2_context.c`, `pcre2_convert.c`, `pcre2_dfa_match.c`, `pcre2_error.c`,
+  `pcre2_extuni.c`, `pcre2_find_bracket.c`, `pcre2_jit_compile.c`,
+  `pcre2_maketables.c`, `pcre2_match.c`, `pcre2_match_data.c`,
+  `pcre2_match_next.c`, `pcre2_newline.c`, `pcre2_ord2utf.c`,
+  `pcre2_pattern_info.c`, `pcre2_script_run.c`, `pcre2_serialize.c`,
+  `pcre2_string_utils.c`, `pcre2_study.c`, `pcre2_substitute.c`,
+  `pcre2_substring.c`, `pcre2_tables.c`, `pcre2_ucd.c`, `pcre2_valid_utf.c`,
+  `pcre2_xclass.c`, and the chartables translation unit copied from
+  `pcre2_chartables.c.dist`
+- Public header: `pcre2_v10.48/include/pcre2.h` (the release's
+  `pcre2.h.generic`, copied unchanged)
+- License: `pcre2_v10.48/LICENSE` (the release's `LICENCE.md`, BSD-2-Clause
+  AND BSD-3-Clause WITH PCRE2-exception)
+- Compile command (once per source, plus the chartables unit):
+
+```text
+clang --target=x86_64-linux-gnu -std=c11 -O2 -DNDEBUG -fPIC -pthread \
+  -DHAVE_CONFIG_H -DPCRE2_CODE_UNIT_WIDTH=8 -DSUPPORT_PCRE2_8 -DSUPPORT_UNICODE \
+  -I <staging>/pcre2gen -I modules/pcre2/src -c <source> -o pcre2.o
+ar rcs pcre2_v10.48/pcre2.a <objects>
+```
+
+- Size: `615746` bytes
+- SHA-256: `5fb42b137c3d04e48bedbc0345c7de603f4ff85d9b069b4ef5d7293da1fa0991`
+- Header SHA-256: `d59dad66a9e77e5ccffe35ad51c3ca6000ce9afe77a58fafa3d66b4845db9a61`
+- License SHA-256: `4195c519dcfe4a4ffedc4b8ccc5d49e4dd02efd5ece6b69a4fba5d20080902a9`
+
 ### Linux system libraries
 
 `manifest.json` declares `pthread`, `dl`, and `rt` on the libuv dependency, in
@@ -129,32 +215,37 @@ measured necessity on this host.
 
 ### Linux verification
 
-The combined probe compiles, links, and runs one program using all three
+The combined probe compiles, links, and runs one program using all five
 archives:
 
 ```text
-clang -std=c23 -D_POSIX_C_SOURCE=200809L combine.c \
+clang -std=c23 -D_POSIX_C_SOURCE=200809L -DPCRE2_CODE_UNIT_WIDTH=8 combine.c \
   -I lib/x86_64-linux-gnu/libuv_v1.52.1/include \
   -I lib/x86_64-linux-gnu/mimalloc_v3.5.1/include \
   -I lib/x86_64-linux-gnu/utf8proc_v2.11.3/include \
+  -I lib/x86_64-linux-gnu/yyjson_v0.13.0/include \
+  -I lib/x86_64-linux-gnu/pcre2_v10.48/include \
   lib/x86_64-linux-gnu/libuv_v1.52.1/libuv.a \
   lib/x86_64-linux-gnu/mimalloc_v3.5.1/mimalloc.a \
   lib/x86_64-linux-gnu/utf8proc_v2.11.3/utf8proc.a \
+  lib/x86_64-linux-gnu/yyjson_v0.13.0/yyjson.a \
+  lib/x86_64-linux-gnu/pcre2_v10.48/pcre2.a \
   -lpthread -ldl -lrt -o combine
 ./combine
 ```
 
-It calls `mi_malloc`/`mi_free`, `uv_version`, and `utf8proc_version`, and exits
+It calls `mi_malloc`/`mi_free`, `uv_version`, `utf8proc_version`,
+`yyjson_version` (the release's version hex, 3328 for 0.13.0), and
+`pcre2_config`'s compile plus one real `pcre2_compile`/`pcre2_match`, and exits
 0. `hexal doctor` performs the same combined-archive probe plus full manifest
 verification.
 
 ## Windows GNU/UCRT pack
 
-`lib/x86_64-windows-gnu-ucrt/` holds a complete three-archive pack: libuv,
-mimalloc, and utf8proc, each with its public headers and upstream licenses. It
-is checked in but is not embedded or selected by the current driver, which
-qualifies one Linux pair; these records qualify the dependency payloads
-independently of the driver-selection work.
+`lib/x86_64-windows-gnu-ucrt/` holds a complete five-archive pack: libuv,
+mimalloc, utf8proc, yyjson, and PCRE2, each with its public headers and
+upstream licenses. It is embedded in the compiler and `hexal doctor` can verify
+it, while ordinary builds in this release select the Linux profile only.
 
 All three archives were rebuilt from source with installed Clang on 2026-09-24
 and share one build identity. They previously did not: libuv and mimalloc were
@@ -266,15 +357,86 @@ Two upstream libuv sources emit const-qualifier warnings under this Clang
 code and are not patched; the build does not use `-Werror` for third-party
 sources.
 
+### Windows yyjson_v0.13.0
+
+- Source: `modules/yyjson` (git submodule) at commit
+  `6447536015f3d600f3d65323b10976103b337ca7` (`0.13.0`)
+- Release archive: `https://github.com/ibireme/yyjson/archive/refs/tags/0.13.0.tar.gz`
+- Source file: `src/yyjson.c`; public header `src/yyjson.h`
+- Public header: `yyjson_v0.13.0/include/yyjson.h` (copied unchanged)
+- License: `yyjson_v0.13.0/LICENSE` (MIT)
+- Compile definitions: `YYJSON_DISABLE_FILE=1`, `YYJSON_DISABLE_INCR_READER=1`,
+  `YYJSON_DISABLE_UTILS=1`; depth limits `YYJSON_READER_DEPTH_LIMIT=256`,
+  `YYJSON_WRITER_DEPTH_LIMIT=256`; `YYJSON_DISABLE_NON_STANDARD` and
+  `YYJSON_DISABLE_UTF8_VALIDATION` unset
+- Compile command:
+
+```text
+clang --target=x86_64-w64-windows-gnu -std=c11 -O2 -DNDEBUG \
+  -DYYJSON_DISABLE_FILE=1 -DYYJSON_DISABLE_INCR_READER=1 -DYYJSON_DISABLE_UTILS=1 \
+  -DYYJSON_READER_DEPTH_LIMIT=256 -DYYJSON_WRITER_DEPTH_LIMIT=256 \
+  -I modules/yyjson/src -c modules/yyjson/src/yyjson.c -o yyjson.o
+llvm-ar rcs yyjson_v0.13.0/yyjson.a yyjson.o
+```
+
+- Archive size: `241580` bytes
+- Archive SHA-256: `39606bc28ccace8a4aed0cb23b798c617f63b1ceb9901b8056288a70c3404d4f`
+- Header SHA-256: `c80cd7dc504f8c226c3e22adf4894e0161ee302bd85a2008f7ed7a620438e65b`
+- License SHA-256: `7b14b8632bf3d5cb64c7a5f1ddfa9062e9c6eba38ac495a0897541d6658d3ad2`
+
+### Windows pcre2_v10.48
+
+- Source: `modules/pcre2` (git submodule) at commit
+  `7978954dbd2efc6f2196869290553cf1871b4ce6` (`pcre2-10.48`)
+- Release archive:
+  `https://github.com/PCRE2Project/pcre2/archive/refs/tags/pcre2-10.48.tar.gz`
+- 8-bit library only; JIT compiled out; built from the release's
+  `pcre2.h.generic` and `config.h.generic` placed unchanged in the build
+  staging, with `pcre2_chartables.c.dist` as the chartables translation unit;
+  compile-time switches `SUPPORT_PCRE2_8`, `SUPPORT_UNICODE`; link size 2
+- Source files: the same 31 libpcre2-8 translation units listed under the
+  Linux pcre2 entry
+- Public header: `pcre2_v10.48/include/pcre2.h` (the release's
+  `pcre2.h.generic`, copied unchanged)
+- License: `pcre2_v10.48/LICENSE` (the release's `LICENCE.md`)
+- Compile command (once per source, plus the chartables unit):
+
+```text
+clang --target=x86_64-w64-windows-gnu -std=c11 -O2 -DNDEBUG \
+  -DHAVE_CONFIG_H -DPCRE2_CODE_UNIT_WIDTH=8 -DSUPPORT_PCRE2_8 -DSUPPORT_UNICODE \
+  -I <staging>/pcre2gen -I modules/pcre2/src -c <source> -o pcre2.o
+llvm-ar rcs pcre2_v10.48/pcre2.a <objects>
+```
+
+- Archive size: `538862` bytes
+- Archive SHA-256: `6d61a67c5d2d4d800d5c71ac7c4629a27996a0bf39631f0b594efb5dbf4adf5c`
+- Header SHA-256: `d59dad66a9e77e5ccffe35ad51c3ca6000ce9afe77a58fafa3d66b4845db9a61`
+- License SHA-256: `4195c519dcfe4a4ffedc4b8ccc5d49e4dd02efd5ece6b69a4fba5d20080902a9`
+
+### Windows yyjson + pcre2 reproducibility
+
+Both archives were created with `llvm-ar rcs` from clean object directories on
+2026-09-28. The exact source commits, toolchain, target, compile definitions,
+source lists, sizes, and digests above are the build record; the staging trees
+(staged headers, objects, and the build scripts) are not part of the
+repository.
+
 ### Windows verification
 
-The combined probe compiles, links, and runs one program against all three
+The combined probe compiles, links, and runs one program against all five
 archives, mirroring how a generated Hexal program consumes them:
 
 ```text
 clang --target=x86_64-w64-windows-gnu -std=c11 -O2 probe.c -DUTF8PROC_STATIC \
+  -DPCRE2_STATIC -DPCRE2_CODE_UNIT_WIDTH=8 \
   -I modules/mimalloc/include -I modules/utf8proc -I modules/libuv/include \
-  libuv_v1.52.1/libuv.a mimalloc_v3.5.1/mimalloc.a utf8proc_v2.11.3/utf8proc.a \
+  -I lib/x86_64-windows-gnu-ucrt/yyjson_v0.13.0/include \
+  -I lib/x86_64-windows-gnu-ucrt/pcre2_v10.48/include \
+  lib/x86_64-windows-gnu-ucrt/libuv_v1.52.1/libuv.a \
+  lib/x86_64-windows-gnu-ucrt/mimalloc_v3.5.1/mimalloc.a \
+  lib/x86_64-windows-gnu-ucrt/utf8proc_v2.11.3/utf8proc.a \
+  lib/x86_64-windows-gnu-ucrt/yyjson_v0.13.0/yyjson.a \
+  lib/x86_64-windows-gnu-ucrt/pcre2_v10.48/pcre2.a \
   -lpsapi -lshell32 -luser32 -ladvapi32 -lbcrypt -liphlpapi -luserenv \
   -lws2_32 -ldbghelp -lole32 -o probe.exe
 ```
@@ -282,10 +444,12 @@ clang --target=x86_64-w64-windows-gnu -std=c11 -O2 probe.c -DUTF8PROC_STATIC \
 It calls `mi_malloc`/`mi_free`, hands libuv the mimalloc allocator with
 `uv_replace_allocator` exactly as the generated scheduler bootstrap does, runs
 a real loop through `uv_loop_init`/`uv_run`/`uv_loop_close`, exercises a
-Windows syscall path with `uv_exepath`, and decodes U+1F600 with
-`utf8proc_iterate`. It exits 0 and prints
-`pack-ok uv=1.52.1 mi=30501 utf8proc=2.11.3`, which also confirms each archive
-carries the pinned upstream version.
+Windows syscall path with `uv_exepath`, decodes U+1F600 with
+`utf8proc_iterate`, checks `yyjson_version` (the release's version hex, 3328
+for 0.13.0), and compiles a trivial pattern
+with `pcre2_compile` and matches with `pcre2_match`. It exits 0 and prints
+`pack-ok uv=1.52.1 mi=30501 utf8proc=2.11.3 yyjson=0.13.0 pcre2=10.48`, which
+also confirms each archive carries the pinned upstream version.
 
 Those ten system libraries are the Windows counterpart of the Linux pack's
 `pthread`, `dl`, and `rt`, and the driver must declare the same link set when

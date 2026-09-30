@@ -48,6 +48,12 @@ func validPackFiles() map[string]string {
 		"utf8proc_v2.11.3/include/utf8proc.h": "utf8proc",
 		"utf8proc_v2.11.3/utf8proc.a":         "utf8proc-archive",
 		"utf8proc_v2.11.3/LICENSE.md":         "utf8proc-license",
+		"yyjson_v0.13.0/include/yyjson.h":     "yyjson",
+		"yyjson_v0.13.0/yyjson.a":             "yyjson-archive",
+		"yyjson_v0.13.0/LICENSE":              "yyjson-license",
+		"pcre2_v10.48/include/pcre2.h":        "pcre2",
+		"pcre2_v10.48/pcre2.a":                "pcre2-archive",
+		"pcre2_v10.48/LICENSE":                "pcre2-license",
 	}
 }
 
@@ -83,6 +89,20 @@ func validPackManifest() string {
       "archive": "utf8proc_v2.11.3/utf8proc.a",
       "system_libraries": [],
       "license_file": "utf8proc_v2.11.3/LICENSE.md"
+    },
+    {
+      "name": "yyjson",
+      "include_root": "yyjson_v0.13.0/include",
+      "archive": "yyjson_v0.13.0/yyjson.a",
+      "system_libraries": [],
+      "license_file": "yyjson_v0.13.0/LICENSE"
+    },
+    {
+      "name": "pcre2",
+      "include_root": "pcre2_v10.48/include",
+      "archive": "pcre2_v10.48/pcre2.a",
+      "system_libraries": [],
+      "license_file": "pcre2_v10.48/LICENSE"
     }
   ],
   "files": { ` + strings.Join(entries, ", ") + ` }
@@ -193,6 +213,34 @@ func TestLoadRuntimeManifestDemand(t *testing.T) {
 	}
 }
 
+func TestEmbeddedRuntimePacksVerifyEveryShippedPayload(t *testing.T) {
+	dependencies := []compiler.RuntimeDependency{
+		compiler.RuntimeLibuv,
+		compiler.RuntimeMimalloc,
+		compiler.RuntimeUtf8proc,
+		compiler.RuntimeYyjson,
+		compiler.RuntimePcre2,
+	}
+	for _, target := range []compilerTypes.TargetProfileID{
+		compilerTypes.TargetX86_64LinuxGNU,
+		compilerTypes.TargetX86_64WindowsGNU,
+	} {
+		t.Run(string(target), func(t *testing.T) {
+			fsys, err := runtimePackFS(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest, _, err := loadRuntimeManifest(fsys, target, dependencies)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := verifyRuntimePack(fsys, manifest); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
 func TestLoadRuntimeManifestMissingPack(t *testing.T) {
 	_, _, err := loadRuntimeManifest(fstest.MapFS{}, compilerTypes.TargetX86_64LinuxGNU, []compiler.RuntimeDependency{compiler.RuntimeLibuv})
 	if err == nil || err.Error() != "embedded runtime pack for x86_64-linux-gnu is missing or corrupt; rebuild bin/hexal" {
@@ -240,7 +288,7 @@ func TestManifestRejections(t *testing.T) {
 		{"bad abi", strings.Replace(valid, `"runtime_abi_version": 1`, `"runtime_abi_version": 2`, 1), "runtime pack ABI 2 is incompatible; this Hexal compiler requires ABI 1"},
 		{"wrong target", strings.Replace(valid, `"target_profile": "x86_64-linux-gnu"`, `"target_profile": "x86_64-windows-gnu-ucrt"`, 1), "does not match"},
 		{"malformed hash", strings.Replace(valid, hashOf("uv"), "not-a-hash", 1), "malformed hash"},
-		{"wrong order", strings.Replace(valid, `"name": "libuv"`, `"name": "mimalloc_x"`, 1), "must declare libuv, mimalloc, utf8proc in order"},
+		{"wrong order", strings.Replace(valid, `"name": "libuv"`, `"name": "mimalloc_x"`, 1), "must declare libuv, mimalloc, utf8proc, yyjson, pcre2 in order"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			fsys := testPackFS(testCase.manifest, validPackFiles())

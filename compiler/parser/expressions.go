@@ -459,7 +459,7 @@ func (parser *Parser) place() (Expression, error) {
 	for {
 		if parser.check(lexer.Dot) {
 			parser.advance()
-			property, err := parser.consume(lexer.Identifier, "an identifier after '.'")
+			property, err := parser.parseMemberName()
 			if err != nil {
 				return nil, err
 			}
@@ -613,7 +613,7 @@ func (parser *Parser) postfix(expression Expression) (Expression, error) {
 			expression = call
 		case parser.check(lexer.Dot):
 			parser.advance()
-			property, err := parser.consume(lexer.Identifier, "an identifier after '.'")
+			property, err := parser.parseMemberName()
 			if err != nil {
 				return nil, err
 			}
@@ -652,6 +652,15 @@ func (parser *Parser) postfix(expression Expression) (Expression, error) {
 			return expression, nil
 		}
 	}
+}
+
+// parseMemberName admits `end` after a member-selection dot, where it is
+// unambiguous as a property name rather than a block terminator.
+func (parser *Parser) parseMemberName() (lexer.Token, error) {
+	if parser.check(lexer.End) {
+		return parser.advance(), nil
+	}
+	return parser.consume(lexer.Identifier, "an identifier after '.'")
 }
 
 // consumeGenericClose consumes one '>' generic closer, splitting a '>>'

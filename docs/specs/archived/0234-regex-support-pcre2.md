@@ -1,12 +1,10 @@
 # RFC 0234: Regex Support via PCRE2
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; implementation not started. The PCRE2 engine,
-  dependency boundary, v1 API, capture model, UTF behavior, ownership, JIT
-  exclusion, error shape, resource policy, exhaustive Validation, and phased
-  implementation plan are settled
+- Status: Closed 2026-09-30; implemented and validated on Windows and
+  Linux/WSL
 - Created: 2026-09-22
-- Updated: 2026-09-28
+- Updated: 2026-09-30
 - Origin: requested regex support by integrating PCRE2 v10.48
 - Depends on: RFC 0052 (C backend), RFC 0055 (build and runtime-pack inputs),
   and the current String contract in `docs/reference.md`
@@ -314,19 +312,12 @@ without changing the language API.
 - The ordinary Go suite passes with no C toolchain installed; runtime
   behavior is verified by external C23 fixtures against each qualified pack.
 
-## Open implementation inputs
+## Implementation state
 
-Produced by Phase 0: exact source file list and sljit handling, the 8-bit
-width-selection build mechanism, archive URL/size/SHA-256 and pinned commit
-per pack, symbol/ABI evidence from the five-archive probe, size/link deltas,
-license texts, and confirmation of every PCRE2 API the fleshed-out surface
-calls. A signature or default differing from this RFC is a spec correction
-before the dependent phase starts.
-
-## Implementation readiness
-
-**Ready.** The dependency and allocation boundaries, language surface,
-diagnostics, Unicode behavior, ownership, absence of an arbitrary subject cap,
-six centrally owned limits, exhaustive Validation, and ordered implementation
-work are settled. Start at Phase 0; no remaining design decision must be made
-by the implementer.
+The engine, dependency boundary, v1 API, capture model, UTF behavior,
+ownership, JIT exclusion, error shape, resource policy, and implementation
+plan are settled. Phase 0's source, archive, ABI, signature, and dependency
+evidence is recorded in the runtime-pack files. Windows and Linux/WSL pack
+validation and doctor checks pass. Ordinary Go tests, vet, build, the
+generated-snippet manifest, and the complete tagged C23 suite pass. No
+implementation or validation item remains open.

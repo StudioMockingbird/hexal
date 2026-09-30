@@ -1,23 +1,21 @@
-# RFC 0208: Web Server — Pluggable Server Interface
+# RFC 0208: Web Server — Pluggable Backend Contract
 
 - Kind: Feature Specification (Rust-Style RFC)
 - Status: Open Discussion; active design for the HTTP backend contract;
   implementation not started
 - Created: 2026-09-15
-- Updated: 2026-09-28
+- Updated: 2026-09-29
 - Depends on: RFC 0210 (web server surface) and RFC 0039 (C interoperability)
-- Coordinates with: RFC 0194 (default backend), RFC 0195 (TLS), and RFC 0186
-  (stdlib boundary)
+- Coordinates with: RFC 0144 (Task-aware socket runtime), RFC 0194 (default
+  backend), RFC 0195 (TLS), and RFC 0186 (stdlib boundary)
 - Does not add: specific backend implementations (those are separate specs)
 
 ## Motivation
 
-The default libuv-based HTTP server works for most use cases, but library
-writers need to provide specialized backends: HTTP/2 servers, gRPC servers,
-WebSocket-only servers, mock servers for testing, or custom protocol
-servers. Without a pluggable interface, every backend reimplements the
-same server lifecycle, middleware chain, and handler dispatch, or the
-standard library locks into one implementation.
+The default HTTP backend serves the common case, while library writers may
+want to adapt specialized C HTTP libraries. Without a stable adapter boundary,
+each adapter would need to define competing Request/Response types and handler
+contracts, or the standard library would be locked to one implementation.
 
 ## Scope decision
 
@@ -52,14 +50,24 @@ deferred to RFC 0202.
 - Every backend receives the same built-in `Request`, `Response`, `Router`,
   and `ServerConfig` contract from RFC 0210. Backends do not define competing
   request or response types for ordinary HTTP handlers.
-- `Http.serve_with(backend, config, router)` selects a custom backend. Backend
-  selection and the C adapter ABI remain to be specified.
+- `Http.serve_with(backend, config, router)` selects a custom backend.
+  Selection is static: generated code links the selected adapter directly.
+  Hexal has no interface declaration, so this RFC does not introduce one or
+  lower a general-purpose vtable. The exact `backend` parameter and C adapter
+  ABI remain to be specified.
 - The backend contract must define request/response body streaming,
   cancellation, error translation, callback lifetime, and ownership across
   the C boundary before implementation.
 
-These decisions supersede the interface and syntax sketches below. They are
-historical discussion material, not current Hexal syntax or normative behavior.
+The adapter is the compatibility boundary, not the underlying C library. A
+library owner supplies the adapter that translates the library's callbacks and
+buffers to the common Hexal contract. Ordinary handlers do not expose
+backend-specific Request or Response types.
+
+The source examples and C23/performance sketches below are historical
+discussion material, not current Hexal syntax or normative behavior. The later
+Demand rules, Required sweep, Validation, and Open questions sections state the
+current contract.
 
 ## Earlier source-surface sketch (superseded)
 
@@ -128,7 +136,7 @@ end
 
 ## Usage
 
-### Default server (libuv)
+### Default server
 
 ```hexal
 import
@@ -139,7 +147,8 @@ server := Net.Server.new(host = "0.0.0.0", port = 8080)
 server.serve(handler)
 ```
 
-The default server uses the libuv backend (RFC 0194).
+The default server is implemented by RFC 0194 over RFC 0144's Task-aware
+socket operations, which use the libuv foundation in RFC 0145.
 
 ### Custom backend
 
@@ -312,23 +321,23 @@ end
 
 ## Backend implementations
 
-### Standard libuv backend
+### Standard backend
 
 ```hexal
-type LibuvServer is struct
-    -- libuv-specific state
+type DefaultServer is struct
+    -- opaque state backed by the shared socket runtime
     host: String,
     port: UInt16,
     running: Bool,
 end
 
-impl LibuvServer is Net.Server
+impl DefaultServer is Net.Server
     fun start(handler: Net.Handler) -> Nil | Error {
-        -- libuv implementation (RFC 0194)
+        -- default implementation (RFC 0194)
     }
 
     fun stop() -> Nil {
-        -- libuv graceful shutdown (RFC 0204)
+        -- graceful shutdown through the shared runtime
     }
 
     fun is_running() -> Bool {
@@ -387,7 +396,7 @@ impl Http2Server is Net.Server
 end
 ```
 
-## C23 lowering
+## Historical C23 interface-lowering sketch
 
 ### Interface dispatch
 
@@ -469,69 +478,61 @@ typedef struct hex_response {
 
 ## Demand rules
 
-- `Server`, `Handler`, `Request`, `Response`, and `Stream` interfaces
-  select the pluggable server component.
-- The pluggable server component does not select libuv, native bootstrap,
-  or the event bridge; it is a pure interface definition.
-- A specific backend (e.g., libuv) selects its own dependencies.
-- A program that does not use the `Server` interface does not select the
-  pluggable server component.
+- `Http.serve` selects the default adapter; `Http.serve_with` selects the
+  explicitly named adapter.
+- The selected adapter and its declared native dependencies are linked
+  statically; no runtime discovery or plugin loading occurs.
+- Selecting a custom adapter does not select the default HTTP backend or its
+  dependencies. A custom adapter selects the Task-aware socket runtime only
+  when it declares that dependency; it may instead declare its own transport.
+- Programs that do not serve HTTP select no backend adapter.
 
 ## Required sweep
 
-- `Server` interface definition in `hexal/server.h`;
-- `Handler` interface definition;
-- `Request` interface definition;
-- `Response` interface definition;
-- `Stream` interface definition;
-- vtable generation for interface dispatch;
-- default `Handler` implementation (function adapter);
-- demand discovery for pluggable server component;
-- workbench snippet and manifest entries;
-- `docs/reference.md` pluggable server surface after explicit approval.
+- define and implement the static backend adapter ABI without adding a
+  language-wide interface feature;
+- adapt the default server and at least one statically linked C backend to the
+  same public RFC 0210 types;
+- define callback, Task, buffer, cancellation, shutdown, and Error ownership;
+- select and link only the explicitly requested backend and its dependencies;
+- update the workbench snippet and generated-C manifest if the public sample
+  or generated output changes;
+- synchronize `docs/reference.md` with the stabilized public behavior before
+  this RFC is closed.
 
 ## Validation
 
-This section is exhaustive:
+This section is exhaustive for the backend substitution contract:
 
-- `Server.start` dispatches through vtable;
-- `Server.stop` dispatches through vtable;
-- `Server.is_running` dispatches through vtable;
-- `Handler.handle` dispatches through vtable;
-- `Request.method` dispatches through vtable;
-- `Request.path` dispatches through vtable;
-- `Request.headers` dispatches through vtable;
-- `Request.body` dispatches through vtable;
-- `Response.status` dispatches through vtable;
-- `Response.headers` dispatches through vtable;
-- `Response.body` dispatches through vtable;
-- `Stream.read` dispatches through vtable;
-- `Stream.write` dispatches through vtable;
-- `Stream.close` dispatches through vtable;
-- default `Handler` works with any `Request`/`Response`;
-- middleware works with any `Server` implementation;
-- custom `Request` type works with middleware;
-- custom `Response` type works with middleware;
-- libuv backend satisfies `Server` interface;
-- mock backend satisfies `Server` interface;
-- interface dispatch is zero-cost (function pointer table);
-- existing Task, Channel, IO, and TCP behavior unchanged;
+- the default `Http.serve` path selects and links the default backend;
+- `Http.serve_with` selects the explicitly named static adapter and does not
+  discover, load, or negotiate a backend at runtime;
+- default and custom adapters expose the same Request, Response, Router,
+  ServerConfig, handler-error, and body-stream behavior;
+- the adapter translates C callbacks to Task wakeups without retaining a
+  callback pointer or Hexal buffer past its documented lifetime;
+- cancellation, shutdown, and C-side completion cannot resume a Task or free
+  request storage twice;
+- backend failures map to Error without exposing internal details in an HTTP
+  response;
+- ordinary HTTP handlers compile without a backend-specific interface or
+  request/response type;
+- existing Task, Channel, IO, and TCP behavior is unchanged;
 - ordinary and tagged C23 suites pass.
 
 ## Open questions
 
-1. Whether to support runtime backend selection (dynamic dispatch) in
-   addition to compile-time selection.
-2. Whether to add a `ServerBuilder` pattern for configuring backends.
-3. Whether to add backend-specific extensions (e.g., HTTP/2 server push)
-   through an optional interface.
-4. Whether to support backend composition (e.g., TLS wrapping any
-   backend).
-5. Whether to add a `Server.test` method that returns a mock server for
-   testing.
+1. The exact static adapter shape accepted by `Http.serve_with`: imported C
+   functions, a generated function table, or a Hexal value with a fixed set of
+   C-callable functions. Recommend the smallest shape that existing C
+   interoperability supports without adding language-wide interface
+   machinery.
+2. The C ABI for body streaming, callback lifetime, cancellation, shutdown,
+   and Error translation.
+3. How a custom adapter consumes the common Router and handler without
+   requiring backend-specific HTTP types.
 
 ## Reference synchronization
 
-Do not edit `docs/reference.md` from this draft. Approved implementation
-adds the pluggable server interface and contracts only after behavior
-stabilizes and with explicit user approval.
+Implementation updates `docs/reference.md` after backend behavior stabilizes
+and before this RFC is marked implemented or closed.

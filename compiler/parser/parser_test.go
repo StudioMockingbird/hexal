@@ -283,6 +283,21 @@ func TestParseAcceptsGeneralDottedProperty(t *testing.T) {
 	}
 }
 
+func TestParseAcceptsEndAsDottedProperty(t *testing.T) {
+	tokens, err := lexer.Lex("test.hex", "let x: Size = span.end")
+	if err != nil {
+		t.Fatalf("Lex returned an error: %v", err)
+	}
+	program, err := Parse(tokens)
+	if err != nil {
+		t.Fatalf("Parse returned an error: %v", err)
+	}
+	property, ok := program.Statements[0].(Declaration).Initializer.(PropertyExpression)
+	if !ok || property.Property.Lexeme != "end" {
+		t.Fatalf("initializer = %#v, want .end property", program.Statements[0])
+	}
+}
+
 func TestParseRejectsMissingDottedMemberName(t *testing.T) {
 	tokens, err := lexer.Lex("test.hex", "let x: Int32 = point.")
 	if err != nil {

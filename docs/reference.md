@@ -8,7 +8,7 @@ Compiler behavior that disagrees with this file is a conformance bug.
 The grammar defines source shape only. Semantic rules in the remainder of this file may reject a
 grammatically valid form.
 
-Nine lexical/parser rules are not expressible in EBNF:
+Eleven lexical/parser rules are not expressible in EBNF:
 
 - Tokens use maximal munch. Inside nested type-argument lists only, one `>>` token may close two
   levels; in expression position it is always one shift token.
@@ -50,6 +50,8 @@ Nine lexical/parser rules are not expressible in EBNF:
   encode exactly this policy.
 - Maximal munch resolves comments: `--[` begins a multiline comment, and any other `--` begins a
   line comment. The two share the `--` opener, which this notation cannot express as a predicate.
+- `end` remains a reserved block terminator except immediately after `.` in a member-selection
+  suffix, where it is the property name `end`.
 
 The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using the `golang.org/x/exp/ebnf` format.
 
@@ -264,12 +266,93 @@ The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using 
 | `std/process` | `Process`, `Pipe`, `ProcessOptions`, `StartedProcess`, `Environment`, `EnvironmentVariable`, `ProcessStream`, `ExitStatus` | `start(options)` |
 | `std/signal` | `Signal`, `Signals` | `subscribe(subscriptions)` |
 | `std/terminal` | `TerminalSize` | `is_attached(stream)`, `size(stream)` |
+| `std/json` | `Value`, `Member` | `parse(heap, text)`, `stringify(heap, value)`, `free(heap, value)` |
+| `std/regex` | `Pattern`, `Span`, `Match` | `compile(heap, source)`, `test(heap, pattern, subject)`, `find(heap, pattern, subject)`, `capture(heap, pattern, subject)`, `free(heap, pattern)`, `free_match(heap, match)` |
 
 - An ADT variant of a type declared in another module (user or std) is written
   `Alias.Adt.Variant(...)` in construction and `| Alias.Adt.Variant then` in a match pattern. The
   former `Alias.Variant(...)` short form is removed, so a same-named variant of another exported ADT
   can never resolve silently. Variants of a local type keep the unqualified `Adt.Variant(...)` form.
   Seeking a file therefore imports both modules: `Fs.open(...)` with `Io.Seek.Start(position = 16)`.
+
+#### JSON
+
+| `Json.Value` variant | Payload |
+| --- | --- |
+| `Null` | none |
+| `Bool` | `value: Bool` |
+| `Int` | `value: Int64` |
+| `UInt` | `value: UInt64` |
+| `Float` | `value: Float64` |
+| `Text` | `value: String` |
+| `Array` | `items: List<Json.Value>` |
+| `Object` | `entries: List<Json.Member>` |
+
+| Signature | Result |
+| --- | --- |
+| `Json.parse(heap: Heap, text: String)` | `Json.Value \| Error` |
+| `Json.stringify(heap: Heap, value: Json.Value)` | `String \| Error` |
+| `Json.free(heap: Heap, value: Json.Value)` | no value |
+
+- `Member` is a constructible compiler-owned record. Its `name` is an owning heap String; its
+  `value` follows `Json.Value` ownership. `Object` preserves List order.
+- Parsing accepts RFC 8259 plus C-style line/block comments and one trailing comma in an array or
+  object. No other JSON5 extensions are accepted. Parsing reads one complete document and retains
+  no reference to the input.
+- Numbers without a fraction or exponent map to `Int` in `[-2^63, 2^63)`, `UInt` in `[2^63, 2^64)`,
+  and Error outside those ranges. Fraction/exponent numbers map to finite `Float`; non-finite and
+  out-of-range values fail. `-0` maps to `Int(0)`.
+- Member names have no JSON-specific byte limit. Duplicate names are compared after escape decoding;
+  the last value replaces the prior value in place, retaining the first occurrence's position.
+  Stringify emits object members in List order.
+- Stringify emits compact UTF-8 JSON without a trailing newline. Parsing/stringifying round-trips
+  by JSON value, not by whitespace, duplicate members, numeric spelling, or `Int`/`UInt`/`Float`
+  variant identity.
+- `parse` and `stringify` use the private pinned yyjson runtime adapter; `free` traverses only
+  Hexal-owned values and selects no yyjson dependency. No public generated header exposes yyjson.
+  Reader, writer, translation, stringify, and cleanup use the compiler-owned depth limit
+  `JSONMaxDepth = 256`.
+- `Value` has no equality, ordering, or print form; use type-mode matching and `Json.stringify`.
+  `free` releases every distinct owned allocation once; aliases may not be freed twice. Cyclic
+  user-built values terminate cleanup, while stringify rejects cycles. `free` traps before
+  traversing beyond `JSONMaxDepth`. NaN and infinities fail stringify.
+
+#### Regular expressions
+
+```text
+Regex.compile(heap: Heap, source: String) -> Regex.Pattern | Error
+Regex.test(heap: Heap, pattern: Regex.Pattern, subject: String) -> Bool | Error
+Regex.find(heap: Heap, pattern: Regex.Pattern, subject: String) -> Regex.Span | Nil | Error
+Regex.capture(heap: Heap, pattern: Regex.Pattern, subject: String) -> Regex.Match | Nil | Error
+Regex.free(heap: Heap, pattern: Regex.Pattern) -> no value
+Regex.free_match(heap: Heap, match: Regex.Match) -> no value
+```
+
+| Type | Fields |
+| --- | --- |
+| `Span` | `start: Size`, `end: Size` |
+| `Match` | `whole: Span`, `captures: List<Span \| Nil>` |
+
+- `Pattern` is a compiler-owned type that owns a compiled UTF-8 pattern and requires one explicit
+  `free`. `Span` has `start: Size` and `end: Size` fields and is a half-open byte range into the
+  original subject. `capture` stores the whole span and one nullable
+  span per numbered group, excluding the whole match; it copies no subject bytes. `free_match`
+  releases the capture List.
+- UTF and Unicode-property matching are always enabled. Pattern-embedded options are supported;
+  there is no separate options argument. Invalid patterns return Hexal-owned errors with a
+  normalized byte offset; no PCRE2 code or dependency-owned message escapes.
+- No match is `false` from `test` and `Nil` from `find`/`capture`. Matching allocates per-call state
+  from the supplied Heap and releases it before return; read-only calls may share a Pattern
+  concurrently. Subjects have no independent length limit.
+- `Pattern` and `Match` have no equality, ordering, print form, or Dict-key eligibility. `Span` is
+  an ordinary comparable value record.
+- PCRE2 is linked from the selected target pack only when `compile`, `test`, `find`, `capture`, or
+  `free` is reachable; naming types or calling `free_match` alone does not select it. PCRE2 types
+  appear only in one private generated adapter, never in a public header.
+- Compiler-owned policy: source and compiled-pattern limit 64 KiB each, compile nesting 250,
+  match limit 10,000,000, match depth limit 10,000, and match heap limit 8,192 KiB. These values
+  are rendered from one `compiler/config` owner. Embedded `LIMIT_*` directives can lower but not
+  raise the configured match limits.
 
 ## C interoperability
 

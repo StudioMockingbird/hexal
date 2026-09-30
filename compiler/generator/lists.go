@@ -14,13 +14,28 @@ type generatedListState struct {
 	order      []compilerTypes.Type
 	seen       map[*compilerTypes.ListInfo]bool
 	seenInline map[*compilerTypes.InlineListInfo]bool
+	// componentOwned marks a specialization whose body belongs in the shared
+	// hexal/list.h artifact even though its element type routes to module
+	// headers: a core component unit spells the specialization, and the
+	// element's own core header (not any module header) defines its C type,
+	// so the shared artifact can see both.
+	componentOwned map[*compilerTypes.ListInfo]bool
+}
+
+// newListState returns an empty list discovery state.
+func newListState() *generatedListState {
+	return &generatedListState{
+		seen:           make(map[*compilerTypes.ListInfo]bool),
+		seenInline:     make(map[*compilerTypes.InlineListInfo]bool),
+		componentOwned: make(map[*compilerTypes.ListInfo]bool),
+	}
 }
 
 // discoverGeneratedLists walks every type reachable from the program and
 // collects the distinct list types. Discovery order is then sorted by C name
 // so the generated header is deterministic.
 func discoverGeneratedLists(program checker.Program) *generatedListState {
-	state := &generatedListState{seen: make(map[*compilerTypes.ListInfo]bool), seenInline: make(map[*compilerTypes.InlineListInfo]bool)}
+	state := newListState()
 	visitor := &programVisitor{
 		Type: func(typ compilerTypes.Type) error {
 			if typ.List != nil {

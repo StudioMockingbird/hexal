@@ -1,0 +1,79 @@
+null: null
+true: bool(true)
+false: bool(false)
+text: text
+text: "hi"
+array: array
+object: object
+intmax: int(9223372036854775807)
+intmaxover: uint(9223372036854775808)
+uintmax: uint(18446744073709551615)
+uintover: error invalid input: JSON integer is out of range
+intmin: int(-9223372036854775808)
+intunder: error invalid input: JSON integer is out of range
+negzero: int(0)
+intzero: int(0)
+intone: int(1)
+realfirst: float(1)
+real: float(1.5)
+realexp: float(100)
+realover: error invalid input: JSON number is out of range
+esc_all: "\"\\/\b\f\n\r\t"
+esc_u: "A"
+esc_pair: "😀"
+esc_nul: "\u0000"
+esc_ctrl: error invalid input: unexpected control character in string at line 1, column 2 (byte 1)
+esc_surrogate: error invalid input: no low surrogate in string at line 1, column 2 (byte 1)
+depth256: array
+depth257: error invalid input: depth limit exceeded at line 1, column 258 (byte 257)
+jsonc_line: [1,2]
+jsonc_block: [1,2]
+jsonc_trail_array: [1,2]
+jsonc_trail_object: {"a":1}
+jsonc_unclosed: error invalid input: unexpected end of data at line 1, column 8 (byte 7)
+empty: error invalid input: input data is empty at line 1, column 1 (byte 0)
+truncated: error invalid input: unexpected end of data at line 1, column 6 (byte 5)
+trailing: error invalid input: unexpected content after document at line 1, column 5 (byte 4)
+twotop: error invalid input: unexpected content after document at line 1, column 3 (byte 2)
+bom: error invalid input: UTF-8 byte order mark (BOM) is not supported at line 1, column 1 (byte 0)
+singlequote: error invalid input: unexpected character, expected a JSON value at line 1, column 1 (byte 0)
+unquotedkey: error invalid input: unexpected character, expected a string key at line 1, column 2 (byte 1)
+nanlit: error invalid input: unexpected character, expected a JSON value at line 1, column 1 (byte 0)
+inflit: error invalid input: unexpected character, expected a JSON value at line 1, column 1 (byte 0)
+num_lead0: error invalid input: number with leading zero is not allowed at line 1, column 1 (byte 0)
+num_trailingdot: error invalid input: unexpected end of data at line 1, column 3 (byte 2)
+esc_hex: error invalid input: invalid escaped sequence in string at line 1, column 2 (byte 1)
+ws_ff: error invalid input: unexpected character, expected a JSON value at line 1, column 4 (byte 3)
+ws_vt: error invalid input: unexpected character, expected a JSON value at line 1, column 4 (byte 3)
+ws_only: error invalid input: input data is empty at line 1, column 1 (byte 0)
+literal_bad: error invalid input: invalid literal, expected 'true' at line 1, column 2 (byte 1)
+json5_hex: error invalid input: unexpected content after document at line 1, column 2 (byte 1)
+json5_leadfrac: error invalid input: no digit after sign at line 1, column 1 (byte 0)
+json5_plus: error invalid input: no digit after sign at line 1, column 1 (byte 0)
+json5_case_lit: error invalid input: unexpected character, expected a JSON value at line 1, column 1 (byte 0)
+json5_linecont: error invalid input: invalid escaped sequence in string at line 1, column 3 (byte 2)
+json5_esc_v: error invalid input: invalid escaped sequence in string at line 1, column 2 (byte 1)
+json5_esc_zero: error invalid input: invalid escaped sequence in string at line 1, column 2 (byte 1)
+dup: object
+dup: {"a":2}
+dupe: {"a":2}
+dup3: {"a":3}
+dup_position: {"first":1,"a":4,"last":3}
+dupe_escape_position: {"first":1,"a":4,"last":3}
+keyempty: {"":1}
+key256: object
+key300: {"kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk":1}
+loc_crlf: error invalid input: unexpected character, expected a JSON value at line 2, column 2 (byte 6)
+loc_mb: error invalid input: unexpected content after document at line 1, column 6 (byte 5)
+loc_first: error invalid input: unexpected character, expected a JSON value at line 1, column 1 (byte 0)
+loc_end: error invalid input: unexpected end of data at line 1, column 2 (byte 1)
+str_scalar: null
+str_array: [1,2]
+str_object: {"k":"v"}
+str_utf8: "é😀"
+str_inf: error invalid input: JSON cannot represent a non-finite number
+str_nan: error invalid input: JSON cannot represent a non-finite number
+str_deep: error invalid input: JSON value nests too deeply
+nums: [-9223372036854775808,18446744073709551615,2.5]
+roundtrip: [1,"x",{"y":null}]
+str_cycle: error invalid input: JSON value contains a cycle

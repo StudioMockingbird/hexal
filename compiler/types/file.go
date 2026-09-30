@@ -48,15 +48,20 @@ func IsFileMode(typ Type) bool { return typ.Adt != nil && typ.Adt == FileModeTyp
 // IsBuiltinAdt reports whether typ is a compiler-owned ADT whose struct lives
 // in a shared component header rather than in any module header.
 func IsBuiltinAdt(typ Type) bool {
-	return IsSeek(typ) || IsFileMode(typ) || IsErrorKind(typ) || IsUnicodeCategory(typ) || IsNormalizationForm(typ) ||
-		IsAddress(typ) || IsEnvironment(typ) || IsProcessStream(typ) || IsExitStatus(typ) || IsSignal(typ)
+	return IsSeek(typ) || IsFileMode(typ) || IsErrorKind(typ) || IsUnicodeCategory(typ) ||
+		IsNormalizationForm(typ) ||
+		IsAddress(typ) || IsEnvironment(typ) || IsProcessStream(typ) || IsExitStatus(typ) ||
+		IsSignal(typ) || IsJsonValue(typ)
 }
 
 // IsBuiltinObject reports whether object is a compiler-owned struct whose
 // body lives in a shared component header (hexal/process.h) rather than in
 // any module header, mirroring IsBuiltinAdt for the Object family.
 func IsBuiltinObject(object *ObjectType) bool {
-	return object != nil && (object == EnvironmentVariableType.Object || object == ProcessOptionsType.Object || object == StartedProcessType.Object || object == TerminalSizeType.Object)
+	return object != nil && (object == EnvironmentVariableType.Object || object == ProcessOptionsType.Object ||
+		object == StartedProcessType.Object || object == TerminalSizeType.Object ||
+		object == JsonMemberType().Object || object == RegexSpanType().Object ||
+		object == RegexMatchType().Object)
 }
 
 // IsBuiltinUnion reports whether union is one of the fixed structural `T |

@@ -80,3 +80,44 @@ const (
 	ErrorHeaderCapacity  = 128
 	ErrorMessageCapacity = 256
 )
+
+// RegexMaxPatternBytes bounds the source pattern's UTF-8 bytes at compilation
+// time (pcre2_set_max_pattern_length). A regular expression approaching 64 KiB
+// is already outside ordinary program use; the bound prevents
+// attacker-controlled input from requesting unbounded compiler work.
+const RegexMaxPatternBytes = 64 << 10
+
+// RegexMaxCompiledPatternBytes bounds the compiled representation
+// (pcre2_set_max_pattern_compiled_length). The 8-bit library's default
+// two-byte internal link size already limits compiled patterns to
+// approximately this size; Hexal retains the smaller and faster representation
+// instead of widening links for extreme patterns.
+const RegexMaxCompiledPatternBytes = 64 << 10
+
+// RegexMaxParenthesisDepth pins PCRE2's documented default parenthesis nesting
+// limit (pcre2_set_parens_nest_limit), which exists to protect the system
+// stack during compilation.
+const RegexMaxParenthesisDepth = 250
+
+// RegexMatchLimit is the per-match work allowance (pcre2_set_match_limit),
+// PCRE2's established default rather than a lowered Hexal choice.
+const RegexMatchLimit = 10_000_000
+
+// RegexMatchDepthLimit is the per-match backtracking nesting limit
+// (pcre2_set_depth_limit), a finite value replacing a default that is
+// effectively unlimited for Hexal's purposes. It is a conservative safety
+// ceiling, not a measured optimum.
+const RegexMatchDepthLimit = 10_000
+
+// RegexMatchHeapLimitKiB is the per-match heap allowance in KiB
+// (pcre2_set_heap_limit), a finite value replacing a default that is
+// effectively unlimited for Hexal's purposes. It is a conservative safety
+// ceiling, not a measured optimum.
+const RegexMatchHeapLimitKiB = 8 << 10
+
+// JSONMaxDepth is the JSON traversal depth compiler-owned bound: the reader
+// and writer depth macros are set from it when the yyjson archive is built,
+// and Hexal's translation, stringify, and cleanup guards consult it. It is a
+// safety ceiling against adversarial nesting, not a language argument or
+// per-call option.
+const JSONMaxDepth = 256

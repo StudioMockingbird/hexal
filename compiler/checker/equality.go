@@ -30,6 +30,10 @@ func EqualityAvailable(typ compilerTypes.Type) (bool, string) {
 // identities are keyed; structural unions are interned and can reach
 // themselves only through one.
 func equalityAvailable(typ compilerTypes.Type, seen map[any]bool) (bool, string) {
+	// Match owns runtime capture storage, so structural equality is not its contract.
+	if compilerTypes.IsRegexMatch(typ) {
+		return false, ""
+	}
 	key := nominalIdentity(typ)
 	if key != nil {
 		if seen[key] {

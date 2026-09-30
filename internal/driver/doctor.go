@@ -76,14 +76,20 @@ func Doctor(options DoctorOptions) (report []string, problems []string) {
 }
 
 // doctorRuntimePack fully verifies the selected profile's embedded pack and
-// proves both archives and every declared system library compile, link, and
-// run through the selected compiler. A normal build never does this.
+// proves every archive and declared system library compile, link, and run
+// through the selected compiler. A normal build never does this.
 func doctorRuntimePack(selected *backend.Backend, options DoctorOptions, triple string, defines []string) error {
 	fsys, err := runtimePackFS(options.Target)
 	if err != nil {
 		return err
 	}
-	manifest, pack, err := loadRuntimeManifest(fsys, options.Target, []compiler.RuntimeDependency{compiler.RuntimeLibuv, compiler.RuntimeMimalloc, compiler.RuntimeUtf8proc})
+	manifest, pack, err := loadRuntimeManifest(fsys, options.Target, []compiler.RuntimeDependency{
+		compiler.RuntimeLibuv,
+		compiler.RuntimeMimalloc,
+		compiler.RuntimeUtf8proc,
+		compiler.RuntimeYyjson,
+		compiler.RuntimePcre2,
+	})
 	if err != nil {
 		return err
 	}
@@ -102,11 +108,10 @@ func doctorRuntimePack(selected *backend.Backend, options DoctorOptions, triple 
 	return runPackConsumptionProbe(selected, dir, includeDirs, archives, pack.SystemLibraries, triple, defines)
 }
 
-// runPackConsumptionProbe compiles and links a program that includes the
-// packaged libuv, mimalloc, and utf8proc headers, calls a representative symbol
-// from each archive, and uses every declared system library in manifest order.
+// runPackConsumptionProbe compiles and links a program that consumes every
+// packaged archive and uses every declared system library in manifest order.
 func runPackConsumptionProbe(selected *backend.Backend, dir string, includeDirs, archives, systemLibraries []string, triple string, defines []string) error {
-	const probe = "#include <uv.h>\n#include <mimalloc.h>\n#include <utf8proc.h>\n\nint main(void) {\n    void *memory = mi_malloc(16);\n    mi_free(memory);\n    return uv_version() == 0 || utf8proc_version() == nullptr ? 1 : 0;\n}\n"
+	const probe = "#include <uv.h>\n#include <mimalloc.h>\n#include <utf8proc.h>\n#include <yyjson.h>\n#define PCRE2_CODE_UNIT_WIDTH 8\n#define PCRE2_STATIC\n#include <pcre2.h>\n\nint main(void) {\n    void *memory = mi_malloc(16);\n    mi_free(memory);\n    if (uv_version() == 0 || utf8proc_version() == nullptr || yyjson_version() != 3328) return 1;\n    char version[32];\n    if (pcre2_config(PCRE2_CONFIG_VERSION, version) <= 0 || version[0] == '\\0') return 2;\n    int error_code = 0;\n    PCRE2_SIZE error_offset = 0;\n    pcre2_code *code = pcre2_compile((PCRE2_SPTR)\"x\", 1, 0, &error_code, &error_offset, nullptr);\n    if (code == nullptr) return 3;\n    pcre2_match_data *match = pcre2_match_data_create_from_pattern(code, nullptr);\n    if (match == nullptr) { pcre2_code_free(code); return 4; }\n    int result = pcre2_match(code, (PCRE2_SPTR)\"x\", 1, 0, 0, match, nullptr);\n    pcre2_match_data_free(match);\n    pcre2_code_free(code);\n    return result < 0 ? 5 : 0;\n}\n"
 	source := filepath.Join(dir, "pack.c")
 	if err := os.WriteFile(source, []byte(probe), 0o644); err != nil {
 		return fmt.Errorf("could not write the pack probe source: %v", err)
