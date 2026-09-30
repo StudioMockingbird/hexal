@@ -1241,6 +1241,35 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{requiredStderrSubstring: "[Error] app.hex:", exitStatus: 1},
 	},
 	{
+		name:       "method-mut-writes-caller-storage-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type Account is struct mut balance: Int64 end\n" +
+			"method mut Account.deposit(n: Int64) do\n    self.balance = self.balance + n\nend\n" +
+			"method Account.balance_of(): Int64 do\n    return self.balance\nend\n" +
+			"let mut acct: Account = Account(balance = 0)\n" +
+			"acct.deposit(50)\nacct.deposit(50)\n" +
+			"print(acct.balance_of())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "100"},
+	},
+	{
+		name:       "method-mut-over-list-elements-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type Account is struct mut balance: Int64 end\n" +
+			"method mut Account.deposit(n: Int64) do\n    self.balance = self.balance + n\nend\n" +
+			"method Account.balance_of(): Int64 do\n    return self.balance\nend\n" +
+			"fun demo(h: Heap) do\n" +
+			"    let mut accounts: List<Account> = List<Account>(h)\n" +
+			"    defer accounts.free(h)\n" +
+			"    accounts.push(Account(balance = 1))\n" +
+			"    accounts.push(Account(balance = 2))\n" +
+			"    accounts.push(Account(balance = 3))\n" +
+			"    for i, a in accounts do\n        accounts[i].deposit(5)\n    end\n" +
+			"    print(accounts[0].balance_of(), \" \", accounts[1].balance_of(), \" \", accounts[2].balance_of(), \"\\n\")\n" +
+			"end\n" +
+			"demo(Heap())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "6 7 8\n"},
+	},
+	{
 		name:        "sizes-run",
 		entrypoint:  "app.hex",
 		sources:     map[string]string{"app.hex": "print(size_of<String<31>>(), \" \", align_of<String<31>>(), \" \", size_of<Error>(), \" \", size_of<String>(), \"\\n\")\n"},

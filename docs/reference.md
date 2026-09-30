@@ -43,7 +43,8 @@ Eleven lexical/parser rules are not expressible in EBNF:
 - In a `method-declaration`, the receiver is the written `type-expression` and the method name is
   the final `.` component. A dotted receiver such as `Geometry.Point.rotate` is one qualified
   chain, so the parser peels the final `. identifier` back out of the receiver as the method name;
-  `Ptr<Point>.length` peels the same way.
+  `Ptr<Point>.length` peels the same way. An optional `mut` between `method` and the receiver declares
+  a method that may write its receiver.
 - A trailing comma is accepted in a value or member list -- struct members, ADT payload fields, call
   and method arguments, and inline List elements -- and rejected in a declaration or type list -- imports,
   exports, parameters, generic parameters, and type arguments. The grammar's `[ "," ]` alternatives
@@ -672,23 +673,40 @@ HeapAllocation
   must match their declarations; result-producing bodies cannot fall through.
 - Infallible commands with no payload return no value. Fallible commands with no success payload
   return `Nil | Error`.
-- `method T.name(...)` declares a method on exactly one nominal struct type `T` (`type T is struct
-  ... end`, or a transparent alias naming it, which creates no second method owner). No other
-  receiver form exists: `Ptr<T>`, `Ptr<mut T>`, a nullable type, a union, a primitive, a builtin
-  generic type, or a non-struct nominal type is rejected with `method receiver must be a struct
-  type; got <type>`. `T` must also be shallow-copyable under the same classification an ordinary
-  value copy uses; a struct that directly or transitively contains `Atomic<T>` (or another
-  non-copyable value) is rejected with `method receiver must be shallow-copyable; got <type>`, even
-  when the method is reached only through `Ptr<T>` or `Ptr<mut T>`. An explicit function taking
-  `Ptr<mut T>` remains the non-copying way to operate on a non-copyable struct.
-- `self` is an implicit fixed binding of type `T`, copied when the method is entered. Assigning to
-  `self` or writing `self.field` is rejected; a method that needs to mutate copies `self` into a
-  `mut` local first and returns the modified copy as an ordinary `T` value. A method call on a `T`
-  value uses it directly. A call on `Ptr<T>` or `Ptr<mut T>` autoderefs exactly one pointer layer,
-  copies the pointee, and invokes the same value-receiver method on that copy; neither pointer mode
-  grants mutation of the original, and a nullable pointer must be narrowed first. More than one
-  pointer layer is never implicitly dereferenced for method dispatch. In-place mutation through a
-  pointer is expressed with an explicit function taking `Ptr<mut T>`, not with a method.
+- `method T.name(...)` and `method mut T.name(...)` declare a method on exactly one nominal struct type
+  `T` (`type T is struct ... end`, or a transparent alias naming it, which creates no second method
+  owner). No other receiver form exists: `Ptr<T>`, `Ptr<mut T>`, a nullable type, a union, a primitive, a
+  builtin generic type, or a non-struct nominal type is rejected with `method receiver must be a struct
+  type; got <type>`. A struct containing `Atomic<T>` may declare methods.
+- `self` names the receiver's storage in every method: reading `self.m` reads the caller's member and
+  writing `self.m = v` writes it. Only `mut` members are writable through `self`, and assigning to `self`
+  itself is rejected. `@self` yields `Ptr<mut T>` and `@self.m` a pointer to the caller's member, under
+  the ordinary `@` rules. A result reached through `self` borrows the receiver: it is valid on an
+  addressable receiver, and a call whose result may borrow `self` on a temporary or call result is
+  rejected (`method <T>.<name> returns a view of its receiver, which here is a temporary; bind the
+  receiver to a place first`). An address derived from `self` passed to `spawn` is rejected.
+- A method without `mut` is readonly: its body is rejected with `type.readonly-method-writes-self` when
+  any path assigns to receiver-owned storage (`self.m`, a value member below it, or an inline
+  `List<T, N>` element or mutator below it), takes a writable address rooted at `self` (`@self`,
+  `@self.m`), or calls a `mut` method on a receiver rooted at `self` through value members. The walk
+  stops at an indirection (a `Ptr`, Slice, allocated List, Dict, String, or other handle): writing
+  through one changes separately owned storage, not the receiver. The declaration is the contract,
+  resolved by method identity at every call including forward, recursive, generic-specialized, and
+  imported calls; a `mut` method may currently have a readonly body, and adding or removing `mut` is an
+  explicit interface change.
+- A call `r.m(args)` to a `mut` method is valid exactly when `@r` would be a writable address: a `let
+  mut` binding or a `mut` member path of one, `Ptr<mut T>` (one autoderef, writing the pointee), a
+  non-nil narrowed `Ptr<mut T> | Nil`, and a writable element place. A fixed `let` binding, parameter,
+  `for` binder, `Ptr<T>`, temporary or call result, and non-`mut` member path are rejected with
+  `type.method-writes-fixed-receiver`: `mut method <T>.<name> requires a writable receiver, but
+  <receiver> is not writable`; for a `for` binder the diagnostic adds `write through the collection
+  instead: for i, x in xs do xs[i].<name>(...) end`. A readonly method accepts every receiver, and a
+  readonly call on a temporary gives it storage for the call. A `mut` call takes the receiver's
+  address implicitly: it clears a narrowing on the receiver binding, participates in the stale
+  collection view rules (an element receiver is a view of its collection), and in a deferred call the
+  receiver place is captured at registration. A call on `Ptr<T>` or `Ptr<mut T>` autoderefs exactly one
+  pointer layer and passes the pointee's storage, never a copy; a nullable pointer must be narrowed
+  first, and more than one pointer layer is never implicitly dereferenced for method dispatch.
 - One method name exists at most once per struct. It cannot equal a member name or be extracted as
   a function value. Only the struct's defining module may declare its methods; an imported struct
   may call exported methods but cannot receive local ones.

@@ -27,6 +27,11 @@ type viewRoot struct {
 // root that only summaries consume.
 const viewRootIncoming = "#view"
 
+// viewRootSelf is the path spelling of an address derived from a method's
+// receiver: it points into the caller's storage, which no collection root
+// names, so only summaries and the spawn rule consume it.
+const viewRootSelf = "#self"
+
 // rootSet is a sorted, duplicate-free set of roots.
 type rootSet []viewRoot
 

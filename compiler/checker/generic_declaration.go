@@ -289,9 +289,6 @@ func checkOpenGenericMethod(open *openGenericMethod, ctx checkContext) compilerT
 	generics.frame = mergedFrame(generics.frame, receiverFrame)
 	_, methodFrame := functionPlaceholderFrame(open.Parameters, open.Generic, ctx.typeEnvironment)
 	generics.frame = mergedFrame(generics.frame, methodFrame)
-	if diagnostic := methodReceiverCopyDiagnostic(receiverType, open.Declaration.Keyword); diagnostic != nil {
-		return compilerTypes.Diagnostics{*diagnostic}
-	}
 	parameters, parameterDiagnostics := checkParameters(open.Declaration.Parameters, ctx.typeEnvironment, generics)
 	result, resultUse, resultDiagnostics := checkResultType(open.Declaration.Return, open.Declaration.Name, ctx.typeEnvironment, generics)
 	if len(parameterDiagnostics) > 0 {
@@ -303,21 +300,22 @@ func checkOpenGenericMethod(open *openGenericMethod, ctx checkContext) compilerT
 	selfID := ctx.names.newBindingID()
 	self := receiverType
 	body := &scope{
-		module:     ctx.names.module,
-		local:      make(map[string]binding, len(parameters)),
-		owner:      open.Name,
-		result:     result,
-		resultUse:  resultUse,
-		methods:    ctx.names.methods,
-		self:       &self,
-		selfID:     selfID,
-		function:   true,
-		nextID:     ctx.names.nextID,
-		flow:       newFlowState(),
-		generics:   generics,
-		registry:   ctx.names.registry,
-		moduleID:   ctx.names.moduleID,
-		logicalKey: ctx.names.logicalKey,
+		module:       ctx.names.module,
+		local:        make(map[string]binding, len(parameters)),
+		owner:        open.Name,
+		result:       result,
+		resultUse:    resultUse,
+		methods:      ctx.names.methods,
+		self:         &self,
+		selfID:       selfID,
+		selfMutating: open.Declaration.Mutating,
+		function:     true,
+		nextID:       ctx.names.nextID,
+		flow:         newFlowState(),
+		generics:     generics,
+		registry:     ctx.names.registry,
+		moduleID:     ctx.names.moduleID,
+		logicalKey:   ctx.names.logicalKey,
 	}
 	if ctx.names.isEntryModule() {
 		body.capture = &captureState{allowed: true, bindings: make(map[string]binding)}

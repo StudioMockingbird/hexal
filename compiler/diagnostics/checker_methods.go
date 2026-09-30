@@ -29,8 +29,24 @@ func TypeAlreadyHasMethod(owner, name string) Message {
 func TypeAlreadyHasMember(owner, name string) Message {
 	return message("type.method-name-is-member", CategoryType, StageChecker, owner+" already has a member named "+name)
 }
-func MethodReceiverNotCopyable(name string) Message {
-	return message("type.method-receiver-not-copyable", CategoryType, StageChecker, "method receiver must be shallow-copyable; got "+name)
+
+// MethodWritesFixedReceiver reports a call to a mut method whose receiver
+// cannot take the write. A for binder adds the way to write through the
+// collection instead.
+func MethodWritesFixedReceiver(owner, name, receiver string, forBinder bool) Message {
+	text := fmt.Sprintf("mut method %s.%s requires a writable receiver, but %s is not writable", owner, name, receiver)
+	if forBinder {
+		text += fmt.Sprintf("; write through the collection instead: for i, x in xs do xs[i].%s(...) end", name)
+	}
+	return message("type.method-writes-fixed-receiver", CategoryType, StageChecker, text)
+}
+
+// ReadonlyMethodWritesSelf reports a method declared without mut that writes
+// receiver-owned storage, takes a writable address of it, or calls a mut
+// method on it.
+func ReadonlyMethodWritesSelf(owner, name, action string) Message {
+	return message("type.readonly-method-writes-self", CategoryType, StageChecker,
+		fmt.Sprintf("method %s.%s is not declared mut but %s; declare it method mut %s.%s", owner, name, action, owner, name))
 }
 func CanonicalConstructorCall(name string) Message {
 	return message("type.canonical-constructor-call", CategoryType, StageChecker, "constructors use '"+name+"(...)', not '.new(...)'")

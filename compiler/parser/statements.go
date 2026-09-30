@@ -141,6 +141,11 @@ func (parser *Parser) anonymousFunctionLiteral() (AnonymousFunctionLiteral, erro
 
 func (parser *Parser) methodDeclaration(exported bool) (MethodDeclaration, error) {
 	keyword := parser.advance()
+	mutating := false
+	if parser.check(lexer.Mut) {
+		parser.advance()
+		mutating = true
+	}
 	// The receiver is parsed with the shared type grammar rather than a
 	// narrower receiver rule, so an invalid receiver reaches the checker and
 	// gets one clear semantic diagnostic instead of a confusing syntax error.
@@ -177,6 +182,7 @@ func (parser *Parser) methodDeclaration(exported bool) (MethodDeclaration, error
 		}
 		return MethodDeclaration{
 			Keyword:         keyword,
+			Mutating:        mutating,
 			SelfType:        selfType,
 			Name:            name,
 			Parameters:      parameters,
@@ -212,6 +218,7 @@ func (parser *Parser) methodDeclaration(exported bool) (MethodDeclaration, error
 	}
 	return MethodDeclaration{
 		Keyword:         keyword,
+		Mutating:        mutating,
 		SelfType:        selfType,
 		Name:            name,
 		TypeParameters:  typeParameters,

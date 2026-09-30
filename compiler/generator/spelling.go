@@ -36,6 +36,18 @@ func pointerSpelling(typ compilerTypes.Type) string {
 	return result
 }
 
+// selfPointerSpelling is the C type of a method's receiver parameter: a
+// pointer to the caller's storage, const-qualified for a readonly method. A
+// receiver that contains an Atomic stays non-const because atomic operations
+// need a non-const object even when the method is readonly.
+func selfPointerSpelling(self compilerTypes.Type, mutating bool) string {
+	qualifier := "const "
+	if mutating || compilerTypes.ContainsAtomic(self) {
+		qualifier = ""
+	}
+	return qualifier + typeSpelling(self) + " *"
+}
+
 // declaration builds the complete C declarator for typ bound to name. Every type but Fun<...> is spelled inside the declarator, which is why a CName prefix cannot express it.
 func declaration(typ compilerTypes.Type, name string, mutable bool) string {
 	if typ.Signature != nil {

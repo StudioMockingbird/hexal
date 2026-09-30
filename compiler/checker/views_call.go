@@ -94,6 +94,7 @@ func (a *viewAnalyzer) applyCall(node *Expression, args []viewArg, callee funcTa
 	if !known {
 		summary = mergeTargets(callee)
 	}
+	a.checkTemporaryReceiver(node, summary, at)
 	for index := range args {
 		fact, carries := args[index].value.whole()
 		if !carries {
@@ -187,6 +188,9 @@ func (a *viewAnalyzer) callResult(node *Expression, summary *viewSummary, args [
 			}
 			return
 		}
+		if path == viewRootSelf {
+			return
+		}
 		derived := args[index].rootsAt(path, st)
 		viewRoots = viewRoots.union(derived)
 		handleRoots = handleRoots.union(derived)
@@ -240,4 +244,26 @@ func mergeTargets(targets funcTargets) *viewSummary {
 		}
 	}
 	return merged
+}
+
+// checkTemporaryReceiver rejects a method call whose receiver is a
+// materialized temporary when the result may be a view borrowed from the
+// receiver: the temporary would die while the result stayed usable.
+func (a *viewAnalyzer) checkTemporaryReceiver(node *Expression, summary *viewSummary, at span.Span) {
+	if node.Kind != MethodCallExpression || node.Operand == nil || !node.Operand.MaterializedReceiver || !typeMayHoldView(node.ResultType, 0) {
+		return
+	}
+	borrowsReceiver := summary.unknown
+	for _, borrow := range summary.borrows {
+		if borrow.param == 0 {
+			borrowsReceiver = true
+		}
+	}
+	if borrowsReceiver {
+		owner := node.OperandType.Name
+		if node.Owner != nil {
+			owner = node.Owner.Name
+		}
+		a.report(at, diagnostics.MethodResultBorrowsTemporaryReceiver(owner, node.Name))
+	}
 }

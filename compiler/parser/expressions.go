@@ -447,9 +447,17 @@ func (parser *Parser) addressOperand() (Expression, error) {
 // place parses a syntactic place accepted by @ and assignment targets.
 // Member names are intentionally left unresolved for the checker.
 func (parser *Parser) place() (Expression, error) {
-	name, err := parser.consume(lexer.Identifier, "a place identifier")
-	if err != nil {
-		return nil, err
+	// `self` roots a place but is a keyword, never an identifier: only the
+	// checker knows whether a method body encloses it.
+	var name lexer.Token
+	if parser.check(lexer.Self) {
+		name = parser.advance()
+	} else {
+		var err error
+		name, err = parser.consume(lexer.Identifier, "a place identifier")
+		if err != nil {
+			return nil, err
+		}
 	}
 	expression := Expression(VariableExpression{Name: name})
 	// A place is an addressable root followed by any ordered sequence of

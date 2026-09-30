@@ -221,7 +221,7 @@ func TestMethodDeclarationsAndCalls(t *testing.T) {
 		"let flag: Bool = here.is_origin()\n")
 }
 
-func TestMethodCallsThroughPointersCopyThePointee(t *testing.T) {
+func TestMethodCallsThroughPointersReachThePointee(t *testing.T) {
 	assertChecked(t, pointType+
 		"method Point.is_origin(): Bool do\n    return (self.x == 0) and (self.y == 0)\nend\n"+
 		"let mut here: Point = Point(x = 0, y = 0, )\n"+
@@ -235,7 +235,7 @@ func TestSelfIsAFixedBinding(t *testing.T) {
 	assertRejectsAnyDiagnostic(t, pointType+"method Point.reset() do\n    self = self\nend\n",
 		"cannot assign to self; self is a fixed binding")
 	assertRejectsAnyDiagnostic(t, pointType+"method Point.moved(dx: Int32): Point do\n    self.x = self.x + dx\n    return self\nend\n",
-		"cannot assign to read-only member self.x")
+		"method Point.moved is not declared mut but assigns to self.x")
 	assertChecked(t, pointType+"method Point.moved(dx: Int32): Point do\n    let mut result: Point = self\n    result.x = result.x + dx\n    return result\nend\n")
 }
 
@@ -310,21 +310,216 @@ func TestGeneratedMethodDefinitionsAndCalls(t *testing.T) {
 	}
 	generated := withoutLineDirectives(rootC(t, result))
 	for _, want := range []string{
-		"static int32_t hex_f_m3_app_Point_length_squared(const hex_t_m3_app_Point hex_v_self) {",
-		"static bool hex_f_m3_app_Point_is_origin(const hex_t_m3_app_Point hex_v_self) {",
+		"static int32_t hex_f_m3_app_Point_length_squared(const hex_t_m3_app_Point *const hex_v_self) {",
+		"static bool hex_f_m3_app_Point_is_origin(const hex_t_m3_app_Point *const hex_v_self) {",
 		"static void hex_f_m3_app_translate(hex_t_m3_app_Point *const hex_v_target",
 		"hex_f_m3_app_translate(&hex_v_here, 5, 5);",
-		"hex_f_m3_app_Point_length_squared(hex_v_here)",
-		"hex_f_m3_app_Point_is_origin(hex_v_here)",
-		"hex_f_m3_app_Point_is_origin(*hex_v_reader)",
+		"hex_f_m3_app_Point_length_squared(&hex_v_here)",
+		"hex_f_m3_app_Point_is_origin(&hex_v_here)",
+		"hex_f_m3_app_Point_is_origin(hex_v_reader)",
 	} {
 		if !strings.Contains(generated, want) {
 			t.Fatalf("modules/app.c = %q, want %q", generated, want)
 		}
 	}
-	if strings.Contains(generated, "hex_t_m3_app_Point *const hex_v_self") {
-		t.Fatalf("modules/app.c = %q, want no pointer-receiver definition", generated)
+	if strings.Contains(generated, "const hex_t_m3_app_Point hex_v_self") {
+		t.Fatalf("modules/app.c = %q, want no value-receiver definition", generated)
 	}
+}
+
+const accountType = "type Account is struct mut balance: Int64 end\n"
+
+// A method mut writes the caller's storage through a pointer receiver; a
+// method without mut reads it through a const one.
+func TestMutMethodWritesCallerStorage(t *testing.T) {
+	result := assertCompiles(t, accountType+
+		"method mut Account.deposit(n: Int64) do\n    self.balance = self.balance + n\nend\n"+
+		"method Account.balance_of(): Int64 do\n    return self.balance\nend\n"+
+		"let mut acct: Account = Account(balance = 0)\nacct.deposit(50)\nacct.deposit(50)\nprint(acct.balance_of())\n")
+	generated := withoutLineDirectives(rootC(t, result))
+	for _, want := range []string{
+		"static void hex_f_m3_app_Account_deposit(hex_t_m3_app_Account *const hex_v_self, const int64_t hex_v_n) {",
+		"hex_v_self->hex_m_balance = hex_wrap_add_int64_t(hex_v_self->hex_m_balance, hex_v_n);",
+		"static int64_t hex_f_m3_app_Account_balance_of(const hex_t_m3_app_Account *const hex_v_self) {",
+		"hex_f_m3_app_Account_deposit(&hex_v_acct, INT64_C(50));",
+		"hex_f_m3_app_Account_balance_of(&hex_v_acct)",
+	} {
+		if !strings.Contains(generated, want) {
+			t.Fatalf("modules/app.c = %q, want %q", generated, want)
+		}
+	}
+}
+
+func TestSelfWriteRules(t *testing.T) {
+	assertRejects(t, "type Fixed is struct balance: Int64 end\nmethod mut Fixed.set() do\n    self.balance = 1\nend\n", "cannot assign to read-only member self.balance")
+	assertRejects(t, accountType+"method mut Account.reset(other: Account) do\n    self = other\nend\n", "cannot assign to self; self is a fixed binding")
+}
+
+// The mut declaration is the contract, resolved by method identity, so a
+// readonly method may not call a later-declared mut method on self, and a
+// cycle of mut methods compiles.
+func TestReadonlyMethodContractIsDeclared(t *testing.T) {
+	const want = "method Account.a is not declared mut but calls mut method Account.b on self"
+	assertRejects(t, accountType+"method Account.a() do\n    self.b()\nend\nmethod mut Account.b() do\n    self.balance = 1\nend\n", want)
+	assertCompiles(t, accountType+"method mut Account.a() do\n    self.b()\nend\nmethod mut Account.b() do\n    self.balance = 1\nend\n")
+	assertCompiles(t, accountType+"method mut Account.ping(n: Int64) do\n    if n > 0 then\n        self.pong(n - 1)\n    end\nend\nmethod mut Account.pong(n: Int64) do\n    self.balance = n\n    self.ping(n)\nend\n")
+	assertRejects(t, accountType+"method Account.ping(n: Int64) do\n    self.pong(n)\nend\nmethod mut Account.pong(n: Int64) do\n    self.balance = n\n    self.ping(n)\nend\n", "method Account.ping is not declared mut but calls mut method Account.pong on self")
+}
+
+// A writable address rooted at self can carry the write anywhere, so only a
+// mut method takes one.
+func TestSelfAddressRequiresMutMethod(t *testing.T) {
+	poke := accountType + "fun poke(p: Ptr<mut Account>) do\n    p.balance = 1\nend\n"
+	assertCompiles(t, poke+"method mut Account.go() do\n    poke(@self)\nend\n")
+	assertRejects(t, poke+"method Account.go() do\n    poke(@self)\nend\n", "method Account.go is not declared mut but takes a writable address of self")
+	assertCompiles(t, accountType+"fun poke(p: Ptr<mut Int64>) do\n    ^p = 1\nend\nmethod mut Account.go() do\n    poke(@self.balance)\nend\n")
+	assertRejects(t, accountType+"fun poke(p: Ptr<mut Int64>) do\n    ^p = 1\nend\nmethod Account.go() do\n    poke(@self.balance)\nend\n", "takes a writable address of self.balance")
+}
+
+// Writing through an indirection below self changes separately owned storage,
+// not the receiver's bytes; an inline List is the receiver's own.
+func TestStorageBelowSelfAndIndirectionBoundary(t *testing.T) {
+	const bag = "type Bag is struct items: List<Int32> end\n"
+	assertCompiles(t, bag+"method Bag.add(x: Int32) do\n    self.items.push(x)\n    self.items[0] = x\nend\nlet h = Heap()\nlet fixed: Bag = Bag(items = List<Int32>(h))\nfixed.add(1)\n")
+	assertCompiles(t, "type Holder is struct p: Ptr<mut Int32>, s: Slice<mut Int32> end\nmethod Holder.set() do\n    ^self.p = 1\n    self.s[0] = 2\nend\n")
+	assertCompiles(t, bag+"method Bag.count(): Size do\n    return self.items.length()\nend\n")
+	const cell = "type Cell is struct mut a: List<Int32, 2> end\n"
+	assertRejects(t, cell+"method Cell.set() do\n    self.a[0] = 1\nend\n", "method Cell.set is not declared mut but assigns to self.a[...]")
+	assertCompiles(t, cell+"method mut Cell.set() do\n    self.a[0] = 1\nend\n")
+}
+
+// A mut call is valid exactly when its receiver could take a writable
+// address; the rejected kinds are the ones where the write would land on a
+// copy or a read-only view.
+func TestMutCallNeedsWritableReceiver(t *testing.T) {
+	const dep = accountType + "method mut Account.dep() do\n    self.balance = 1\nend\n"
+	const want = "mut method Account.dep requires a writable receiver, but "
+	for _, testCase := range []struct{ name, body, reason string }{
+		{"fixed binding", "let a: Account = Account(balance = 0)\na.dep()\n", "a is not writable"},
+		{"parameter", "fun f(a: Account) do\n    a.dep()\nend\n", "a is not writable"},
+		{"for binder", "let h = Heap()\nlet mut xs: List<Account> = List<Account>(h)\nxs.push(Account(balance = 0))\nfor x in xs do\n    x.dep()\nend\n", "x is not writable; write through the collection instead: for i, x in xs do xs[i].dep(...) end"},
+		{"read-only pointer", "fun f(a: Ptr<Account>) do\n    a.dep()\nend\n", "a is not writable"},
+		{"call result", "fun make(): Account do\n    return Account(balance = 0)\nend\nmake().dep()\n", "a temporary is not writable"},
+		{"non-mut member", "type Wrap is struct inner: Account end\nlet mut w: Wrap = Wrap(inner = Account(balance = 0))\nw.inner.dep()\n", "w.inner is not writable"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertRejects(t, dep+testCase.body, want+testCase.reason)
+		})
+	}
+	assertCompiles(t, dep+"let mut a: Account = Account(balance = 0)\na.dep()\n")
+	assertCompiles(t, dep+"fun f(a: Ptr<mut Account>) do\n    a.dep()\nend\n")
+}
+
+// A readonly call on a temporary materializes it for the call.
+func TestReadonlyMethodOnTemporary(t *testing.T) {
+	result := assertCompiles(t, accountType+
+		"method Account.balance_of(): Int64 do\n    return self.balance\nend\n"+
+		"fun make(): Account do\n    return Account(balance = 3)\nend\n"+
+		"print(make().balance_of())\n")
+	generated := withoutLineDirectives(rootC(t, result))
+	if !strings.Contains(generated, "(const hex_t_m3_app_Account[1]){ hex_f_m3_app_make() }") {
+		t.Fatalf("modules/app.c = %q, want the temporary materialized before its address is passed", generated)
+	}
+}
+
+const counterLib = "type Counter is struct mut n: Int32 end\n" +
+	"method mut Counter.bump() do\n    self.n = self.n + 1\nend\n" +
+	"method Counter.read(): Int32 do\n    return self.n\nend\n" +
+	"fun make(): Counter do\n    return Counter(n = 0)\nend\n" +
+	"export\n    Counter,\n    Counter.bump,\n    Counter.read,\n    make\nend\n"
+
+// An imported mut method keeps its declared contract in the importer, and
+// both artifacts declare its receiver with the same pointer spelling.
+func TestImportedMethodKeepsDeclaredContract(t *testing.T) {
+	const imports = "import\n    Lib from \"./lib\"\nend\n"
+	rejected := compiler.Compile(map[string]string{"app.hex": imports + "let c = Lib.make()\nc.bump()\n", "lib.hex": counterLib}, "app.hex", compiler.Project{})
+	if rejected.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(rejected.Stderr, "\n"), "mut method Counter.bump requires a writable receiver, but c is not writable") {
+		t.Fatalf("a fixed binding must not take an imported mut call; stderr = %v", rejected.Stderr)
+	}
+	accepted := compiler.Compile(map[string]string{
+		"app.hex": imports + "fun f(c: Ptr<mut Lib.Counter>) do\n    c.bump()\n    print(c.read())\nend\nlet mut c = Lib.make()\nf(@c)\n",
+		"lib.hex": counterLib,
+	}, "app.hex", compiler.Project{})
+	if accepted.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile stderr = %v, want success", accepted.Stderr)
+	}
+	for file, wants := range map[string][]string{
+		"modules/lib.h": {"Counter_bump(hex_t_m3_lib_Counter *)", "Counter_read(const hex_t_m3_lib_Counter *)"},
+		"modules/app.h": {"Counter_bump(hex_t_m3_lib_Counter *)", "Counter_read(const hex_t_m3_lib_Counter *)"},
+		"modules/lib.c": {"Counter_bump(hex_t_m3_lib_Counter *const hex_v_self)", "Counter_read(const hex_t_m3_lib_Counter *const hex_v_self)"},
+	} {
+		for _, want := range wants {
+			if !strings.Contains(accepted.Files[file], want) {
+				t.Fatalf("%s = %q, want %q", file, accepted.Files[file], want)
+			}
+		}
+	}
+}
+
+// A generic method keeps its declared contract for every specialization, and
+// a call that only resolves per specialization is verified against the
+// declaration.
+func TestGenericMethodsKeepDeclaredContract(t *testing.T) {
+	const box = "type Box<T> is struct mut value: T end\n"
+	assertCompiles(t, box+"method mut Box<T>.set(v: T) do\n    self.value = v\nend\nlet mut a: Box<Int32> = Box<Int32>(value = 1)\na.set(2)\nlet mut b: Box<Bool> = Box<Bool>(value = true)\nb.set(false)\n")
+	assertRejects(t, box+"method mut Box<T>.set(v: T) do\n    self.value = v\nend\nlet a: Box<Int32> = Box<Int32>(value = 1)\na.set(2)\n", "mut method Box<Int32>.set requires a writable receiver")
+	assertRejects(t, box+"method mut Box<T>.set(v: T) do\n    self.value = v\nend\nmethod Box<T>.touch(v: T) do\n    self.set(v)\nend\nlet a: Box<Int32> = Box<Int32>(value = 1)\na.touch(2)\n", "method Box<Int32>.touch is not declared mut but calls mut method Box<Int32>.set on self")
+	assertRejects(t, accountType+"method mut Account.dep() do\n    self.balance = 1\nend\n"+
+		"type Wrapper<T> is struct mut inner: T end\nmethod Wrapper<T>.poke() do\n    self.inner.dep()\nend\n"+
+		"let w: Wrapper<Account> = Wrapper<Account>(inner = Account(balance = 0))\nw.poke()\n", "method Wrapper<Account>.poke is not declared mut but calls mut method Account.dep on self.inner")
+}
+
+// Calling a mut method takes the receiver's address implicitly, so a union
+// narrowing on the receiver binding no longer holds; a readonly call keeps it.
+func TestMutCallClearsReceiverNarrowing(t *testing.T) {
+	const dep = accountType + "method mut Account.dep() do\n    self.balance = 1\nend\nmethod Account.get(): Int64 do\n    return self.balance\nend\n"
+	assertRejects(t, dep+"fun f(): Int64 do\n    let mut a: Account | Int32 = Account(balance = 1)\n    if a is Account then\n        a.dep()\n        return a.balance\n    end\n    return 0\nend\n", "cannot access .balance on Int32 | Account")
+	assertCompiles(t, dep+"fun f(): Int64 do\n    let mut a: Account | Int32 = Account(balance = 1)\n    if a is Account then\n        let x: Int64 = a.get()\n        return a.balance\n    end\n    return 0\nend\n")
+}
+
+// An element receiver is a view of its collection, so passing the collection
+// in the same call is rejected when the call can change it.
+func TestElementReceiverWithCollectionArgument(t *testing.T) {
+	const prelude = accountType + "method mut Account.absorb(other: List<Account>) do\n    other.push(Account(balance = 0))\nend\nlet h = Heap()\nlet mut xs: List<Account> = List<Account>(h)\nxs.push(Account(balance = 1))\n"
+	assertRejects(t, prelude+"xs[0].absorb(xs)\n", "call receives a view of xs and can also change xs")
+	assertCompiles(t, accountType+"method mut Account.dep(n: Int64) do\n    self.balance = self.balance + n\nend\nlet h = Heap()\nlet mut accounts: List<Account> = List<Account>(h)\naccounts.push(Account(balance = 1))\nfor i, a in accounts do\n    accounts[i].dep(5)\nend\n")
+}
+
+// A result reached through self borrows the receiver: valid on an addressable
+// receiver, rejected on a temporary that would die while the result is used.
+func TestResultBorrowingSelfNeedsAPlaceReceiver(t *testing.T) {
+	const fixed = "type Fixed is struct balance: Int64 end\nmethod Fixed.balance_ref(): Ptr<Int64> do\n    return @self.balance\nend\nfun make(): Fixed do\n    return Fixed(balance = 1)\nend\n"
+	assertCompiles(t, fixed+"let f: Fixed = make()\nlet p = f.balance_ref()\nprint(^p)\n")
+	assertRejects(t, fixed+"let p = make().balance_ref()\n", "method Fixed.balance_ref returns a view of its receiver, which here is a temporary")
+	const bag = "type Bag is struct items: List<Int32> end\nmethod Bag.head(): Slice<Int32> do\n    return self.items.slice(0, 1)\nend\nfun make_bag(h: Heap): Bag do\n    return Bag(items = List<Int32>(h))\nend\nlet h = Heap()\n"
+	assertCompiles(t, bag+"let bag: Bag = make_bag(h)\nbag.items.push(1)\nlet s = bag.head()\nprint(s[0])\n")
+	assertRejects(t, bag+"let s = make_bag(h).head()\n", "method Bag.head returns a view of its receiver, which here is a temporary")
+}
+
+// Two receiver types may share a method name and keep independent contracts.
+func TestSameMethodNameKeepsEachReceiversContract(t *testing.T) {
+	const types = "type A is struct mut n: Int32 end\ntype B is struct mut n: Int32 end\nmethod mut A.touch() do\n    self.n = 1\nend\nmethod B.touch() do\n    print(self.n)\nend\n"
+	assertCompiles(t, types+"let mut a: A = A(n = 0)\nlet b: B = B(n = 0)\na.touch()\nb.touch()\n")
+	assertRejects(t, types+"let a: A = A(n = 0)\na.touch()\n", "mut method A.touch requires a writable receiver")
+}
+
+// A deferred mut call acts on the receiver place captured at registration,
+// and an address derived from self cannot reach a spawned Task.
+func TestDeferredMutCallAndSelfAddressInSpawn(t *testing.T) {
+	result := assertCompiles(t, accountType+
+		"method mut Account.dep() do\n    self.balance = 7\nend\n"+
+		"fun demo(): Int64 do\n    let mut a: Account = Account(balance = 0)\n    defer a.dep()\n    return a.balance\nend\n"+
+		"print(demo())\n")
+	generated := withoutLineDirectives(rootC(t, result))
+	for _, want := range []string{
+		"hex_t_m3_app_Account *const hex_defer_capture_1 = &hex_v_a;",
+		"hex_f_m3_app_Account_dep(hex_defer_capture_1);",
+	} {
+		if !strings.Contains(generated, want) {
+			t.Fatalf("modules/app.c = %q, want %q", generated, want)
+		}
+	}
+	assertRejects(t, accountType+"fun work(p: Ptr<mut Account>): Int32 do\n    return 1\nend\nmethod mut Account.go() do\n    let t = spawn work(@self)\nend\n", "an address derived from self cannot be passed to spawn")
 }
 
 func TestGeneratedFunctionDefinitionIsStaticAtFileScope(t *testing.T) {

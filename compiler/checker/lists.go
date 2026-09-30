@@ -120,6 +120,12 @@ func checkListMethodCall(call methodCall) checkedExpression {
 		diagnostic := messageAt(call.callee.Property, diag.CollectionHasNoMethod(listType.Name, name))
 		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
 	}
+	// An inline List's bytes belong to its owner, so changing them or lending
+	// a writable view of them writes receiver-owned storage.
+	if listType.InlineList != nil && inlineListMutator(name) && call.receiver.source.Writable && call.ctx.names.readonlySelfWrite(&call.receiver.source.Node) {
+		diagnostic := readonlySelfWriteDiagnostic(call.ctx.names, call.callee.Property, "calls "+name+" on inline List "+placeDescription(call.callee.Receiver))
+		return checkedExpression{token: call.callee.Property, diagnostic: &diagnostic}
+	}
 	if listType.List != nil {
 		var diagnostic *compilerTypes.Diagnostic
 		if name == "free" {

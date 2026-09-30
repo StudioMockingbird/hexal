@@ -164,10 +164,6 @@ func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.Obj
 	// function or literal declared in its body can, and that inner template
 	// specializes while this frame is still active.
 	generics.frame = mergedFrame(previousFrame, frame)
-	if diagnostic := methodReceiverCopyDiagnostic(receiverType, open.Declaration.Keyword); diagnostic != nil {
-		generics.frame = previousFrame
-		return MethodDeclaration{}, diagnostic
-	}
 	parameters, parameterDiagnostics := checkParameters(open.Declaration.Parameters, ctx.typeEnvironment, generics)
 	result, resultUse, resultDiagnostics := checkResultType(open.Declaration.Return, open.Declaration.Name, ctx.typeEnvironment, generics)
 	if len(parameterDiagnostics) > 0 {
@@ -184,6 +180,7 @@ func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.Obj
 	}
 	specialized := MethodDeclaration{
 		Name:       methodName,
+		Mutating:   open.Declaration.Mutating,
 		Object:     receiverObject,
 		SelfType:   receiverType,
 		Parameters: parameters,
@@ -197,21 +194,22 @@ func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.Obj
 	selfID := ctx.names.newBindingID()
 	specialized.SelfBinding = selfID
 	body := &scope{
-		module:     ctx.names.module,
-		local:      make(map[string]binding, len(parameters)),
-		owner:      methodName,
-		result:     result,
-		resultUse:  resultUse,
-		methods:    ctx.names.methods,
-		self:       &specialized.SelfType,
-		selfID:     selfID,
-		function:   true,
-		nextID:     ctx.names.nextID,
-		flow:       newFlowState(),
-		generics:   generics,
-		registry:   ctx.names.registry,
-		moduleID:   ctx.names.moduleID,
-		logicalKey: ctx.names.logicalKey,
+		module:       ctx.names.module,
+		local:        make(map[string]binding, len(parameters)),
+		owner:        methodName,
+		result:       result,
+		resultUse:    resultUse,
+		methods:      ctx.names.methods,
+		self:         &specialized.SelfType,
+		selfID:       selfID,
+		selfMutating: specialized.Mutating,
+		function:     true,
+		nextID:       ctx.names.nextID,
+		flow:         newFlowState(),
+		generics:     generics,
+		registry:     ctx.names.registry,
+		moduleID:     ctx.names.moduleID,
+		logicalKey:   ctx.names.logicalKey,
 	}
 	for index := range parameters {
 		parameters[index].Binding = ctx.names.newBindingID()

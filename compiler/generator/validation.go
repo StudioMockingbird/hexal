@@ -92,7 +92,9 @@ func validateMethodDeclaration(declared checker.MethodDeclaration, typeState *ge
 			return err
 		}
 	}
-	if _, err := state.allocateBinding(declared.SelfBinding, "self", declared.SelfType, false); err != nil {
+	// self names the caller's storage and is writable wherever its members are;
+	// the checker owns the readonly contract.
+	if _, err := state.allocateBinding(declared.SelfBinding, "self", declared.SelfType, true); err != nil {
 		return err
 	}
 	for _, parameter := range declared.Parameters {

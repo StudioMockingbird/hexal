@@ -426,11 +426,12 @@ func TestSelfCannotBeAssigned(t *testing.T) {
 		"cannot assign to self; self is a fixed binding")
 }
 
-// A value receiver's self is fixed, so a member write fails; the workaround
-// is an explicit mutable copy.
-func TestValueReceiverSelfIsFixed(t *testing.T) {
+// self is the caller's storage: writing a mut member needs a method declared
+// mut, and a local copy of self remains the way to return a changed value.
+func TestSelfMemberWriteRequiresMutMethod(t *testing.T) {
 	requireDiagnostic(t, point+"method Point.moved(dx: Int32): Point do\n    self.x = self.x + dx\n    return self\nend\n",
-		"cannot assign to read-only member self.x")
+		"method Point.moved is not declared mut but assigns to self.x; declare it method mut Point.moved")
+	requireAccepted(t, point+"method mut Point.moved(dx: Int32): Point do\n    self.x = self.x + dx\n    return self\nend\n")
 	requireAccepted(t, point+"method Point.moved(dx: Int32): Point do\n    let mut result: Point = self\n    result.x = result.x + dx\n    return result\nend\n")
 }
 
@@ -616,9 +617,9 @@ func TestMethodCallProducesCheckedIR(t *testing.T) {
 	if node.Owner == nil || node.Owner.Name != "Point" {
 		t.Fatalf("call owner = %#v, want Point", node.Owner)
 	}
-	// The receiver arrives as the value itself: no address is taken.
-	if node.Operand == nil || node.Operand.Kind != VariableExpression {
-		t.Fatalf("receiver = %#v, want a variable expression", node.Operand)
+	// The receiver arrives as the address of the caller's place.
+	if node.Operand == nil || node.Operand.Kind != AddressOfExpression || node.Operand.Operand == nil || node.Operand.Operand.Kind != VariableExpression {
+		t.Fatalf("receiver = %#v, want the address of a variable", node.Operand)
 	}
 	if node.OperandType.Name != "Point" || len(node.Arguments) != 1 {
 		t.Fatalf("call node = %#v, want a Point receiver and one argument", node)

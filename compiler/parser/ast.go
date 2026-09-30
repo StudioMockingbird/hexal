@@ -298,7 +298,10 @@ func (AnonymousFunctionLiteral) expressionNode() {}
 // local nominal struct, which is the only valid receiver. Exported records an
 // `export` prefix.
 type MethodDeclaration struct {
-	Keyword         lexer.Token
+	Keyword lexer.Token
+	// Mutating records the `mut` written between `method` and the receiver
+	// type: the method may write its receiver's `mut` members.
+	Mutating        bool
 	SelfType        TypeExpression
 	Name            lexer.Token
 	TypeParameters  []lexer.Token // the method's own generic parameters

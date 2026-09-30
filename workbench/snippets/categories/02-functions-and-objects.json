@@ -148,7 +148,7 @@
     {
       "id": "functions-receiver-forms",
       "name": "Method and function forms",
-      "description": "Contrasts value methods, pointer autoderef calls, and explicit mutation functions.",
+      "description": "Contrasts readonly methods, pointer autoderef calls, and explicit mutation functions.",
       "entrypoint": "app.hex",
       "sources": {"app.hex": [
         "type Meter is struct mut reading: Int32 end",

@@ -78,7 +78,11 @@ func unexpectedBuiltinMethod(typ compilerTypes.Type, token lexer.Token) checkedE
 // the implicit `self` binding.
 // A method is not a value, so unlike a function it carries no Fun<...> type.
 type MethodDeclaration struct {
-	Name        string
+	Name string
+	// Mutating is the declared `method mut` bit: the method may write its
+	// receiver's mut members. It is part of the method's public contract,
+	// never inferred from its body.
+	Mutating    bool
 	Object      *compilerTypes.ObjectType
 	SelfType    compilerTypes.Type
 	SelfBinding BindingID
@@ -264,8 +268,9 @@ func nonCallableMemberDiagnostic(token lexer.Token, member *compilerTypes.Object
 func collectMethodSignature(declaration parser.MethodDeclaration, ctx checkContext) (MethodDeclaration, compilerTypes.Diagnostics) {
 	name := declaration.Name.Lexeme
 	checked := MethodDeclaration{
-		Name: name,
-		Span: declaration.Name.Span,
+		Name:     name,
+		Mutating: declaration.Mutating,
+		Span:     declaration.Name.Span,
 		// Exported is stamped later by applyExportFlags; see the identical
 		// note on checkFunctionBody.
 	}
@@ -299,9 +304,6 @@ func collectMethodSignature(declaration parser.MethodDeclaration, ctx checkConte
 		return MethodDeclaration{}, compilerTypes.Diagnostics{messageAt(receiverSpellingToken(declaration.SelfType, declaration.Keyword),
 			diagnosticsPkg.CannotDeclareMethodsForImportedType(receiverSpelling(declaration.SelfType, object.Name)))}
 	}
-	if diagnostic := methodReceiverCopyDiagnostic(target, declaration.Keyword); diagnostic != nil {
-		return MethodDeclaration{}, compilerTypes.Diagnostics{*diagnostic}
-	}
 	checked.Object = object
 	checked.SelfType = target
 
@@ -333,19 +335,6 @@ func collectMethodSignature(declaration parser.MethodDeclaration, ctx checkConte
 	return checked, nil
 }
 
-// methodReceiverCopyDiagnostic rejects a receiver the language cannot deliver
-// as the value snapshot the receiver contract promises. The receiver is a
-// hidden first value parameter, so it reuses that position's own copy
-// classification rather than a method-specific approximation; the compiler
-// never silently turns one receiver into a hidden alias because copying it
-// would be invalid.
-func methodReceiverCopyDiagnostic(target compilerTypes.Type, token lexer.Token) *compilerTypes.Diagnostic {
-	if compilerTypes.Eligible(target, compilerTypes.PositionFunctionParam) {
-		return nil
-	}
-	return diagnosticAt(messageAt(token, diagnosticsPkg.MethodReceiverNotCopyable(target.Name)))
-}
-
 // checkMethodBody checks a method's body against its already-collected
 // signature (collectMethodSignature). It runs in the module's second pass,
 // after every module-level function and method signature is registered, so
@@ -358,21 +347,22 @@ func checkMethodBody(declaration parser.MethodDeclaration, checked MethodDeclara
 	selfID := ctx.names.newBindingID()
 	checked.SelfBinding = selfID
 	body := &scope{
-		module:     ctx.names.module,
-		local:      make(map[string]binding, len(parameters)),
-		owner:      checked.Name,
-		result:     checked.Result,
-		resultUse:  checked.ResultUse,
-		methods:    ctx.names.methods,
-		self:       &checked.SelfType,
-		selfID:     selfID,
-		function:   true,
-		nextID:     ctx.names.nextID,
-		flow:       newFlowState(),
-		generics:   ctx.names.generics,
-		registry:   ctx.names.registry,
-		moduleID:   ctx.names.moduleID,
-		logicalKey: ctx.names.logicalKey,
+		module:       ctx.names.module,
+		local:        make(map[string]binding, len(parameters)),
+		owner:        checked.Name,
+		result:       checked.Result,
+		resultUse:    checked.ResultUse,
+		methods:      ctx.names.methods,
+		self:         &checked.SelfType,
+		selfID:       selfID,
+		selfMutating: checked.Mutating,
+		function:     true,
+		nextID:       ctx.names.nextID,
+		flow:         newFlowState(),
+		generics:     ctx.names.generics,
+		registry:     ctx.names.registry,
+		moduleID:     ctx.names.moduleID,
+		logicalKey:   ctx.names.logicalKey,
 	}
 	if ctx.names.isEntryModule() {
 		body.capture = &captureState{allowed: true, bindings: make(map[string]binding)}
@@ -770,7 +760,7 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 
-	adapted, diagnostic := adaptReceiver(receiver, *method, callee, ctx.typeEnvironment, ctx.names.flow)
+	adapted, diagnostic := adaptMethodReceiver(receiver, *method, callee, ctx)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
@@ -798,13 +788,14 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		resultType = *method.Result
 	}
 	node := Expression{
-		Kind:        MethodCallExpression,
-		Name:        name,
-		Owner:       object,
-		Operand:     &adapted.Node,
-		Arguments:   arguments,
-		OperandType: method.SelfType,
-		ResultType:  resultType,
+		Kind:           MethodCallExpression,
+		Name:           name,
+		Owner:          object,
+		Operand:        &adapted.Node,
+		Arguments:      arguments,
+		OperandType:    method.SelfType,
+		ResultType:     resultType,
+		MutatingMethod: method.Mutating,
 	}
 	applyParameterRestMetadata(&node, method.Parameters)
 	return checkedExpression{
@@ -834,7 +825,7 @@ func checkImportedMethodCall(call parser.CallExpression, callee parser.PropertyE
 		}
 		method = specialized
 	}
-	adapted, diagnostic := adaptReceiver(receiver, method, callee, ctx.typeEnvironment, ctx.names.flow)
+	adapted, diagnostic := adaptMethodReceiver(receiver, method, callee, ctx)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
@@ -868,6 +859,7 @@ func checkImportedMethodCall(call parser.CallExpression, callee parser.PropertyE
 		OperandType:      method.SelfType,
 		ResultType:       resultType,
 		MethodParameters: methodParameterTypes(&method),
+		MutatingMethod:   method.Mutating,
 	}
 	return checkedExpression{
 		source: Operand{Kind: ExpressionOperand, Type: resultType, Name: name, Node: node},
@@ -950,17 +942,16 @@ func methodParameterTypes(method *MethodDeclaration) []compilerTypes.Type {
 	return types
 }
 
-// adaptReceiver applies the ordered receiver rules and returns the
-// receiver already converted to the method's target form:
+// adaptReceiver applies the ordered receiver rules of compiler-owned
+// pointer-target operations such as the Bytes stream surface and returns the
+// receiver already converted to the operation's target form:
 //
 //  1. an exact target type is passed directly;
-//  2. Ptr<T> or Ptr<mut T> dereferences to a copied T target; or
+//  2. Ptr<T> or Ptr<mut T> dereferences to a T target; or
 //  3. an addressable T uses @ for a Ptr<T> or Ptr<mut T> target.
 //
-// Rule 3 serves compiler-owned pointer-target operations such as the
-// Bytes stream surface. User-declared methods never have pointer targets,
-// so neither pointer mode changes user-method value semantics: the
-// dereferenced copy, not caller storage, enters the method.
+// User-declared methods take their receiver by reference through
+// adaptMethodReceiver instead.
 func adaptReceiver(receiver checkedExpression, method MethodDeclaration, callee parser.PropertyExpression, typeEnvironment *compilerTypes.Environment, flow *flowState) (Operand, *compilerTypes.Diagnostic) {
 	target := method.SelfType
 	switch {
@@ -995,4 +986,66 @@ func adaptReceiver(receiver checkedExpression, method MethodDeclaration, callee 
 	diagnostic := messageAt(callee.Property, diagnosticsPkg.ReceiverTypeIncompatible(
 		method.Name, target.Name, placeDescription(callee.Receiver), receiver.typ.Name))
 	return Operand{}, &diagnostic
+}
+
+// adaptMethodReceiver converts a call's receiver to the pointer a user method
+// takes: the address of an addressable place, the pointer itself when the
+// receiver already is one, or the address of a materialized temporary for a
+// readonly method. A mut method is valid exactly when @receiver would be a
+// writable address, so a fixed binding, parameter, for binder, read-only
+// pointer, temporary, or non-mut member path is rejected.
+func adaptMethodReceiver(receiver checkedExpression, method MethodDeclaration, callee parser.PropertyExpression, ctx checkContext) (Operand, *compilerTypes.Diagnostic) {
+	target := method.SelfType
+	environment := ctx.typeEnvironment
+	switch {
+	case compilerTypes.Equal(target, receiver.typ), assignable(target, receiver.typ):
+		writable := receiver.source.Writable
+		pointer := environment.PtrType(target)
+		if writable {
+			pointer = environment.MutPtrType(target)
+		}
+		addressNode := unaryNode(AddressOfExpression, receiver.source.Node)
+		addressNode.ResultType = pointer
+		if !receiver.source.Addressable {
+			if method.Mutating {
+				return Operand{}, methodFixedReceiverDiagnostic(method, callee, "a temporary", false)
+			}
+			addressNode.MaterializedReceiver = true
+		} else if method.Mutating {
+			if !writable {
+				return Operand{}, methodFixedReceiverDiagnostic(method, callee, placeDescription(callee.Receiver), receiver.loopBinder)
+			}
+			if ctx.names.readonlySelfWrite(&receiver.source.Node) {
+				diagnostic := readonlySelfWriteDiagnostic(ctx.names, callee.Property, "calls mut method "+method.Object.Name+"."+method.Name+" on "+placeDescription(callee.Receiver))
+				return Operand{}, &diagnostic
+			}
+			// The call takes @receiver implicitly, so it carries the same
+			// effect on the binding's flow facts as an explicit writable
+			// address: narrowing no longer holds.
+			if ctx.names.flow != nil && receiver.source.Binding != 0 {
+				ctx.names.flow.escape(receiver.source.Binding)
+			}
+		}
+		return Operand{Kind: VariableOperand, Type: pointer, Node: addressNode}, nil
+	case receiver.typ.Element != nil && compilerTypes.Equal(*receiver.typ.Element, target):
+		if diagnostic := freedPointeeDiagnostic(receiver, callee.Property, ctx.names.flow); diagnostic != nil {
+			return Operand{}, diagnostic
+		}
+		if method.Mutating && !receiver.typ.PointeeWritable {
+			return Operand{}, methodFixedReceiverDiagnostic(method, callee, placeDescription(callee.Receiver), false)
+		}
+		return valueFromPlace(receiver).source, nil
+	}
+	diagnostic := messageAt(callee.Property, diagnosticsPkg.ReceiverTypeIncompatible(
+		method.Name, target.Name, placeDescription(callee.Receiver), receiver.typ.Name))
+	return Operand{}, &diagnostic
+}
+
+func methodFixedReceiverDiagnostic(method MethodDeclaration, callee parser.PropertyExpression, receiver string, forBinder bool) *compilerTypes.Diagnostic {
+	owner := method.SelfType.Name
+	if method.Object != nil {
+		owner = method.Object.Name
+	}
+	diagnostic := messageAt(callee.Property, diagnosticsPkg.MethodWritesFixedReceiver(owner, method.Name, receiver, forBinder))
+	return &diagnostic
 }

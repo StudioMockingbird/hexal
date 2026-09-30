@@ -1,7 +1,12 @@
 # RFC 0254: Reference `self` and Explicit Mutating Methods
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; implementation not started
+- Status: Closed. Implemented and verified 2026-09-30: `self` names the
+  caller's storage in every method, `method mut` is the declared contract
+  verified against each body, a `mut` call requires a writable receiver,
+  every method lowers through a pointer receiver, the receiver-copy rule and
+  its diagnostic are removed, and the snippet artifacts of the three
+  method-declaring snippets moved; see Implementation state
 - Supersedes: the current value-copy `self` and shallow-copyable receiver rules
   in `docs/reference.md`; archived RFC 0162 remains historical
 - Depends on: RFC 0255 (stale collection views) for element receivers and the
@@ -309,6 +314,46 @@ the moved artifacts.
 9. Synchronize `docs/reference.md`, regenerate only legitimately changed
    snippet hashes, review the artifact-family diff, and run `gofmt -l`,
    `go test ./...`, `go vet ./...`, and the focused tagged C23 lane.
+
+## Implementation state
+
+- The declared `mut` bit is carried by the parsed, checked, specialized, and
+  exported method records and by the call node (`MutatingMethod`), so a
+  dependent module sees the contract through the registry record it already
+  reads. The tree has no interface-fingerprint mechanism, so validation 25's
+  fingerprint and dependant invalidation have nothing to attach to; the
+  compiler recompiles every module on each call.
+- User-method receivers adapt through `adaptMethodReceiver` to a pointer:
+  `&place` (typed `Ptr<mut T>` or `Ptr<T>` by the place), the pointer value,
+  or the address of a materialized temporary. `adaptReceiver` remains only for
+  compiler-owned pointer-target operations.
+- Readonly verification is in-line at the first proven write, at the three
+  sites the spec names plus inline-List mutators and `mut_slice`, because the
+  contract is declared, not inferred. A readonly generic template that writes
+  a receiver member independent of its type parameters is rejected at the
+  template; a write that resolves only per specialization is rejected at the
+  specialization.
+- A temporary receiver is lowered as a one-element `const` compound literal
+  (`(const T[1]){ value }`) instead of a hoisted local: hoisting would evaluate
+  the receiver before operands written earlier and under short-circuit
+  operators, while the compound literal evaluates it where it is written and
+  still gives the call an address. The evaluation-order pass already hoists it
+  ahead of later effects.
+- `result borrows self` is the receiver entry of the stale-view summary. An
+  address derived from `self` is an abstract view of the caller's storage, so
+  a method returning one records the borrow and a call on a temporary
+  receiver is rejected by the view pass; the two diagnostics this adds are
+  `type.method-result-borrows-temporary` and `type.self-address-escapes-task`.
+- A readonly method on a struct that contains an `Atomic` keeps a non-const
+  receiver pointer, because atomic operations need a non-const object.
+- The swept receiver-copy rule, its diagnostic, the three call sites, and the
+  value-copy lowering tests are removed; the shallow-copyable rejections
+  became an Atomic-struct acceptance test.
+- The snippet manifest moved exactly the artifacts of
+  `functions-generic-container`, `functions-receiver-forms`, and
+  `modules-nested-import` (`modules/app.c` three times, `modules/app.h`,
+  `modules/graphics/shapes.c`, `modules/graphics/shapes.h`): the method C
+  signatures and calls, and nothing else. The snippet sources needed no edit.
 
 ## Settled decisions
 

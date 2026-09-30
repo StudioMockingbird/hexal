@@ -165,7 +165,7 @@ func TestMethodControlFlowLowering(t *testing.T) {
 		"static int32_t hex_f_m3_app_Counter_step",
 		"if (hex_v_amount > 0) {",
 		"hex_v_next.hex_m_count =",
-		"hex_f_m3_app_Counter_step(hex_v_counter, 2)",
+		"hex_f_m3_app_Counter_step(&hex_v_counter, 2)",
 	} {
 		if !strings.Contains(rootC(t, result), want) {
 			t.Fatalf("modules/app.c = %q, want %q", rootC(t, result), want)

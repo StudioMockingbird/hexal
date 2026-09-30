@@ -196,6 +196,17 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if err != nil {
 			return "", err
 		}
+		if node.MaterializedReceiver {
+			// A readonly method on a temporary receives the address of a one-element
+			// compound literal: the value is evaluated where it is written, so
+			// short-circuit and argument order are preserved.
+			return "(const " + typeSpelling(operandType) + "[1]){ " + operand + " }", nil
+		}
+		if node.Operand.Kind == checker.VariableExpression {
+			if pointer, isSelf := state.selfPointers[node.Operand.Binding]; isSelf {
+				return pointer, nil
+			}
+		}
 		if atomic {
 			return "&" + operand, nil
 		}
@@ -372,12 +383,18 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if err != nil {
 			return "", err
 		}
+		selector := "."
+		if node.Operand.Kind == checker.VariableExpression {
+			if pointer, isSelf := state.selfPointers[node.Operand.Binding]; isSelf {
+				receiver, selector = pointer, "->"
+			}
+		}
 		// A foreign record member keeps its original C field spelling; every
 		// other member renders through the ordinary owner-qualified name.
 		if node.Member.CName != "" {
-			return receiver + "." + node.Member.CName, nil
+			return receiver + selector + node.Member.CName, nil
 		}
-		return receiver + "." + privateCName(memberName, node.Member.Name, ""), nil
+		return receiver + selector + privateCName(memberName, node.Member.Name, ""), nil
 	case checker.NullTestExpression:
 		// The nullable union shares its base pointer's null niche, so the
 		// test lowers to the ordinary C null pointer comparison.

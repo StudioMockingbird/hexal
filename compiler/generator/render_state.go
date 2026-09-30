@@ -11,11 +11,14 @@ import (
 )
 
 type expressionValidation struct {
-	expressions    map[*checker.Expression]bool
-	objects        map[*checker.ObjectValue]bool
-	variables      map[string]generatedBinding
-	bindings       map[checker.BindingID]generatedBinding
-	bindingNames   map[checker.BindingID]string
+	expressions  map[*checker.Expression]bool
+	objects      map[*checker.ObjectValue]bool
+	variables    map[string]generatedBinding
+	bindings     map[checker.BindingID]generatedBinding
+	bindingNames map[checker.BindingID]string
+	// selfPointers names the receiver pointer parameter of the method body
+	// being rendered, keyed by the self binding.
+	selfPointers   map[checker.BindingID]string
 	activeScopes   []map[checker.BindingID]bool
 	loopDepth      int
 	usedNames      map[string]bool
@@ -103,6 +106,7 @@ func newExpressionValidation() *expressionValidation {
 		variables:                   make(map[string]generatedBinding),
 		bindings:                    make(map[checker.BindingID]generatedBinding),
 		bindingNames:                make(map[checker.BindingID]string),
+		selfPointers:                make(map[checker.BindingID]string),
 		usedNames:                   make(map[string]bool),
 		envFunctions:                make(map[string]bool),
 		envMethods:                  make(map[string]bool),

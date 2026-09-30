@@ -62,7 +62,7 @@ TypeDeclaration = "type"  identifier  [ GenericParameterList ]
                     "is"  TypeDefinition .
 FunctionDeclaration = "fun"  identifier  [ GenericParameterList ]
                         Signature  "do"  Block  "end" .
-MethodDeclaration = "method"  TypeExpression  "."  identifier
+MethodDeclaration = "method"  [ "mut" ]  TypeExpression  "."  identifier
                       [ GenericParameterList ]  Signature
                       "do"  Block  "end" .
 Signature = "("  [ ParameterList ]  ")"  [ ":"  TypeExpression ] .

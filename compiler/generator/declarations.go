@@ -316,15 +316,19 @@ func (ctx definitionContext) writeMethodDefinition(declared checker.MethodDeclar
 			return err
 		}
 	}
-	selfName, selfErr := state.allocateBinding(declared.SelfBinding, "self", declared.SelfType, false)
+	selfName, selfErr := state.allocateBinding(declared.SelfBinding, "self", declared.SelfType, true)
 	if selfErr != nil {
 		return selfErr
 	}
+	// The receiver is a pointer to the caller's storage: reads of self name the
+	// pointee, and member access spells through the pointer.
+	state.bindingNames[declared.SelfBinding] = "(*" + selfName + ")"
+	state.selfPointers[declared.SelfBinding] = selfName
 	parameters := make([]string, 0, len(declared.Parameters)+2)
 	if declared.EnvDependent {
 		parameters = append(parameters, entryEnvironmentName+" *env")
 	}
-	parameters = append(parameters, declaration(declared.SelfType, selfName, false))
+	parameters = append(parameters, selfPointerSpelling(declared.SelfType, declared.Mutating)+"const "+selfName)
 	for _, parameter := range declared.Parameters {
 		if !validSourceName(parameter.Name) || parameter.Binding == 0 || !validateGeneratedType(parameter.Type, ctx.typeState, false) {
 			return unknownExpressionDiagnostic()
@@ -417,7 +421,7 @@ func writeExportedPrototypes(result *strings.Builder, program checker.Program, o
 			if declared.Result != nil {
 				resultSpelling = standaloneResultSpelling(*declared.Result)
 			}
-			parameters := []string{typeSpelling(declared.SelfType)}
+			parameters := []string{selfPointerSpelling(declared.SelfType, declared.Mutating)}
 			for _, parameter := range declared.Parameters {
 				parameters = append(parameters, typeSpelling(parameter.Type))
 			}
@@ -492,7 +496,7 @@ func writeForeignPrototypes(result *strings.Builder, program checker.Program, st
 					return nil
 				}
 				emitted[symbol] = true
-				parameters := []string{typeSpelling(node.OperandType)}
+				parameters := []string{selfPointerSpelling(node.OperandType, node.MutatingMethod)}
 				for _, parameter := range node.MethodParameters {
 					parameters = append(parameters, typeSpelling(parameter))
 				}
@@ -562,7 +566,7 @@ func writeModulePrototypes(body *strings.Builder, program checker.Program, owner
 			if declared.EnvDependent {
 				parameters = append(parameters, entryEnvironmentName+" *env")
 			}
-			parameters = append(parameters, typeSpelling(declared.SelfType))
+			parameters = append(parameters, selfPointerSpelling(declared.SelfType, declared.Mutating))
 			for _, parameter := range declared.Parameters {
 				parameters = append(parameters, typeSpelling(parameter.Type))
 			}
@@ -644,7 +648,7 @@ func writeSpecializedPrototypes(body *strings.Builder, functions []checker.Funct
 		if declared.EnvDependent {
 			parameters = append(parameters, entryEnvironmentName+" *env")
 		}
-		parameters = append(parameters, typeSpelling(declared.SelfType))
+		parameters = append(parameters, selfPointerSpelling(declared.SelfType, declared.Mutating))
 		for _, parameter := range declared.Parameters {
 			if !validateGeneratedType(parameter.Type, typeState, false) {
 				return unknownExpressionDiagnostic()

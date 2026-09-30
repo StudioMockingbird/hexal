@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"hexal/compiler/lexer"
 )
 
 func TestParseImplReceiverForms(t *testing.T) {
@@ -54,6 +56,32 @@ func TestParseImplMethodName(t *testing.T) {
 	}
 	if len(method.Body) != 1 {
 		t.Fatalf("body length = %d, want 1", len(method.Body))
+	}
+}
+
+func TestParseMutatingMethodAndSelfAddress(t *testing.T) {
+	mutating := parseOneItem(t, "method mut Account.deposit(n: Int64) do\nself.balance = n\nend").(MethodDeclaration)
+	if !mutating.Mutating || mutating.Name.Lexeme != "deposit" {
+		t.Fatalf("method = %#v, want mutating deposit", mutating)
+	}
+	if named, ok := mutating.SelfType.(NamedTypeExpression); !ok || named.Name.Lexeme != "Account" {
+		t.Fatalf("self type = %#v, want Account", mutating.SelfType)
+	}
+	if readonly := parseOneItem(t, "method Account.read() do\nend").(MethodDeclaration); readonly.Mutating {
+		t.Fatalf("a method without mut must not be mutating: %#v", readonly)
+	}
+	for _, source := range []string{"let p: Ptr<mut Account> = @self", "let q: Ptr<mut Int64> = @self.balance"} {
+		address, ok := parseInitializer(t, source).(AddressExpression)
+		if !ok {
+			t.Fatalf("%q did not parse as an address expression", source)
+		}
+		root := address.Place
+		if property, isProperty := root.(PropertyExpression); isProperty {
+			root = property.Receiver
+		}
+		if variable, isVariable := root.(VariableExpression); !isVariable || variable.Name.Kind != lexer.Self {
+			t.Fatalf("%q place root = %#v, want self", source, root)
+		}
 	}
 }
 

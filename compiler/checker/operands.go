@@ -504,12 +504,19 @@ type Expression struct {
 	// RootExit belongs to TryExpression alone: the try sits at entry-module
 	// root, so its Error branch exits the program instead of returning
 	// through an enclosing function, and Element stays zero.
-	RootExit     bool
-	ResultType   compilerTypes.Type
-	MemberIndex  int
-	VariantIndex int
-	TestType     compilerTypes.Type
-	MemberMap    []int
+	RootExit bool
+	// MaterializedReceiver belongs to AddressOfExpression alone: the operand
+	// is a temporary value a readonly method receives by address, so the
+	// generator gives it storage for the duration of the call.
+	MaterializedReceiver bool
+	// MutatingMethod belongs to MethodCallExpression alone: the called method is
+	// declared mut, which selects its receiver's non-const pointer spelling.
+	MutatingMethod bool
+	ResultType     compilerTypes.Type
+	MemberIndex    int
+	VariantIndex   int
+	TestType       compilerTypes.Type
+	MemberMap      []int
 	// MatchConstants is parallel to Arguments and MemberMap for a
 	// MatchExpression: the contextual constant of each scalar arm, zero for
 	// every non-scalar arm. Constant is the arm's checked value and Type is

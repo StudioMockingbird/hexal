@@ -433,7 +433,7 @@ func buildConcreteMethodCall(call parser.CallExpression, callee parser.PropertyE
 	if !parameterAritySatisfied(specialized.Parameters, len(call.Arguments)) {
 		return checkedExpression{token: callee.Property, diagnostic: diagnosticAt(messageAt(callee.Property, parameterArityDiagnostic(specialized.Name, specialized.Parameters, len(call.Arguments))))}
 	}
-	adapted, diagnostic := adaptReceiver(receiver, specialized, callee, ctx.typeEnvironment, ctx.names.flow)
+	adapted, diagnostic := adaptMethodReceiver(receiver, specialized, callee, ctx)
 	if diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
@@ -451,13 +451,14 @@ func buildConcreteMethodCall(call parser.CallExpression, callee parser.PropertyE
 		resultType = *specialized.Result
 	}
 	node := Expression{
-		Kind:        MethodCallExpression,
-		Name:        specialized.Name,
-		Owner:       specialized.Object,
-		Operand:     &adapted.Node,
-		Arguments:   arguments,
-		OperandType: specialized.SelfType,
-		ResultType:  resultType,
+		Kind:           MethodCallExpression,
+		Name:           specialized.Name,
+		Owner:          specialized.Object,
+		Operand:        &adapted.Node,
+		Arguments:      arguments,
+		OperandType:    specialized.SelfType,
+		ResultType:     resultType,
+		MutatingMethod: specialized.Mutating,
 	}
 	applyParameterRestMetadata(&node, specialized.Parameters)
 	return checkedExpression{

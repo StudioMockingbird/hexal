@@ -505,6 +505,12 @@ func checkAddress(expression parser.AddressExpression, ctx checkContext) checked
 		diagnostic := messageAt(place.token, diag.RestBackedSliceEscape())
 		return checkedExpression{token: place.token, diagnostic: &diagnostic}
 	}
+	// A writable address rooted at self can carry a write anywhere, so a
+	// readonly method may not take one.
+	if place.source.Writable && ctx.names.readonlySelfWrite(&place.source.Node) {
+		diagnostic := readonlySelfWriteDiagnostic(ctx.names, expression.Operator, "takes a writable address of "+placeDescription(expression.Place))
+		return checkedExpression{token: expression.Operator, diagnostic: &diagnostic}
+	}
 	if place.typ.Atomic != nil {
 		diagnostic := messageAt(place.token, diag.AtomicValueCannotBeCopied())
 		return checkedExpression{token: place.token, diagnostic: &diagnostic}

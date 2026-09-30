@@ -461,6 +461,8 @@ func checkAssignment(assignment parser.Assignment, ctx checkContext) (Assignment
 		diagnostics = append(diagnostics, messageAt(nameToken, diag.LoopBinderIsImmutable(nameToken.Lexeme)))
 	case !target.source.Writable:
 		diagnostics = append(diagnostics, assignmentTargetDiagnostic(assignment.Target, nameToken))
+	case ctx.names.readonlySelfWrite(&target.source.Node):
+		diagnostics = append(diagnostics, readonlySelfWriteDiagnostic(ctx.names, nameToken, "assigns to "+placeDescription(assignment.Target)))
 	}
 
 	// Assignment writes to the binding's declared storage slot, never to a

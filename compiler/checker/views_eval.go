@@ -537,10 +537,15 @@ func (a *viewAnalyzer) evalAddressOf(node *Expression, st *viewState) viewValue 
 			return retainFacts(derived, viewPointer)
 		case VariableExpression:
 			// The address of a local's own storage: a local that holds a view
-			// reads it; the address itself points at the local, not a root.
+			// reads it; the address itself points at the local, not a root. The
+			// receiver is the caller's storage, so an address derived from self
+			// is a view the callee cannot name.
 			if current.Binding != 0 {
 				place := viewPlace{binding: current.Binding}
 				a.useCheck(place, st, a.currentSpan(current))
+				if a.cur.callable.selfType != nil && current.Binding == a.cur.callable.selfID {
+					return singleFact(viewFact{roots: singleRoot(viewRoot{binding: current.Binding, path: viewRootSelf}), kind: viewPointer})
+				}
 			}
 			return viewValue{}
 		default:
@@ -677,6 +682,13 @@ func (a *viewAnalyzer) evalSpawn(node *Expression, st *viewState) {
 		a.evalNode(call.Operand, st)
 	}
 	for index := range args {
+		if fact, ok := args[index].value.whole(); ok {
+			for _, root := range fact.roots {
+				if root.path == viewRootSelf {
+					a.report(a.currentSpan(node), diagnostics.SelfAddressEscapesTask())
+				}
+			}
+		}
 		a.escape(args[index].value, node, st)
 	}
 }
@@ -692,6 +704,9 @@ func (a *viewAnalyzer) escape(value viewValue, node *Expression, st *viewState) 
 	for _, root := range fact.roots {
 		if index, isParam := a.cur.params[root.binding]; isParam && root.path == viewRootIncoming {
 			a.cur.summary.addEscape(summaryRoot{param: index})
+			continue
+		}
+		if root.path == viewRootSelf {
 			continue
 		}
 		if a.cur.unsafeDepth > 0 {

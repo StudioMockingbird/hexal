@@ -193,7 +193,9 @@ func validateMethodCallExpression(node checker.Expression, expected *compilerTyp
 	if receiverErr != nil {
 		return receiverErr
 	}
-	if !crossModule && !generatedAssignable(node.OperandType, receiverType) {
+	// The receiver is the pointer a method takes: to the caller's storage, or to a
+	// materialized temporary for a readonly method.
+	if !isPointerType(receiverType) || !compilerTypes.Equal(*receiverType.Element, node.OperandType) {
 		return unknownExpressionDiagnostic()
 	}
 	if err := validateExpressionChildWithState(node.Operand, receiverType, state); err != nil {
@@ -280,6 +282,13 @@ func validateAddressExpression(node checker.Expression, expected *compilerTypes.
 	}
 	if err := validateExpressionChildWithState(node.Operand, *resultType.Element, state); err != nil {
 		return err
+	}
+	if node.MaterializedReceiver {
+		// A temporary receiver has no place: only a readonly pointer to it exists.
+		if resultType.PointeeWritable {
+			return unknownExpressionDiagnostic()
+		}
+		return nil
 	}
 	place, err := checkedPlaceMetadata(*node.Operand, state)
 	if err != nil {

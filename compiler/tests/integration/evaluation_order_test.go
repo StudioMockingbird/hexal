@@ -57,7 +57,7 @@ func TestMethodReceiverEvaluatesBeforeArguments(t *testing.T) {
 		"fun delta(): Int32 do\n    return 5\nend\n"+
 		"let result: Int32 = make_point().sum(delta())\n")
 	body := rootC(t, result)
-	positions := order(t, body, "_make_point();", "_delta();", "_sum(hex_seq_1, hex_seq_2)")
+	positions := order(t, body, "_make_point() }", "_delta();", "_sum(hex_seq_1, hex_seq_2)")
 	requireAscending(t, positions, "make_point()", "delta()", "sum(...)")
 }
 

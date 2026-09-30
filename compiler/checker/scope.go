@@ -44,13 +44,16 @@ type scope struct {
 	// table resolves a carried span to the line and column a diagnostic
 	// renders. It is the compilation's one table, shared by reference with
 	// every child scope, and nil for a lone module checked outside Compile.
-	table        *span.Table
-	owner        string // enclosing function or method name, for diagnostics
-	result       *compilerTypes.Type
-	resultUse    *compilerTypes.TypeUse
-	methods      *methodTable
-	self         *compilerTypes.Type // the method receiver struct; nil outside a method body
-	selfID       BindingID
+	table     *span.Table
+	owner     string // enclosing function or method name, for diagnostics
+	result    *compilerTypes.Type
+	resultUse *compilerTypes.TypeUse
+	methods   *methodTable
+	self      *compilerTypes.Type // the method receiver struct; nil outside a method body
+	selfID    BindingID
+	// selfMutating is the declared mut bit of the method whose body this scope
+	// checks; a readonly method rejects every write through self.
+	selfMutating bool
 	function     bool
 	nextID       *BindingID
 	flow         *flowState // branch-local narrowing facts
@@ -246,9 +249,9 @@ func (names *scope) setCollectionRoot(id BindingID, root BindingID) bool {
 
 // selfPlace resolves the implicit receiver. `self` is a keyword, so it can
 // never be declared or shadowed; it exists exactly when a scope carries a
-// method receiver. The place is never writable: the receiver is a fixed copy
-// of the caller's struct, so neither assigning to self nor writing a member
-// through it can reach caller storage.
+// method receiver. The place names the caller's storage and is writable, so
+// its mut members accept writes; a readonly method's writes are rejected by
+// the method-contract checks, and assigning to self itself stays rejected.
 func selfPlace(names *scope, token lexer.Token) checkedExpression {
 	if names.self == nil {
 		return checkedExpression{token: token, diagnostic: selfNotBoundDiagnostic(token)}
@@ -261,6 +264,7 @@ func selfPlace(names *scope, token lexer.Token) checkedExpression {
 			Binding:     names.selfID,
 			Node:        variableNodeWithBinding("self", names.selfID),
 			Addressable: true,
+			Writable:    true,
 		},
 		typ:   *names.self,
 		use:   compilerTypes.NewTypeUse(*names.self),
@@ -456,6 +460,7 @@ func (names *scope) child() *scope {
 		methods:          names.methods,
 		self:             names.self,
 		selfID:           names.selfID,
+		selfMutating:     names.selfMutating,
 		function:         names.function,
 		nextID:           names.nextID,
 		flow:             names.flow,

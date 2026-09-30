@@ -41,7 +41,13 @@ func writeDeferStatement(body *strings.Builder, statement checker.DeferStatement
 		if node.Operand == nil {
 			return unknownExpressionDiagnostic()
 		}
-		receiverOperand := checker.Operand{Kind: checker.ExpressionOperand, Type: node.OperandType, Node: *node.Operand}
+		// The receiver is captured as the pointer the method takes, so the deferred
+		// call acts on the place the defer saw.
+		receiverType, receiverErr := methodReceiverType(*node.Operand, node.OperandType, state)
+		if receiverErr != nil {
+			return receiverErr
+		}
+		receiverOperand := checker.Operand{Kind: checker.ExpressionOperand, Type: receiverType, Node: *node.Operand}
 		name, err := state.captureOperand(body, receiverOperand, indent)
 		if err != nil {
 			return err
