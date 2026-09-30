@@ -37,7 +37,6 @@ A bug is real whether or not its owning spec is scheduled.
 
 | Bug | Owning spec | Effort | ROI |
 | --- | --- | --- | --- |
-| A pointer (`@xs[i]`) or Slice (`xs.slice(...)`, String `bytes()`) into an allocated List or String stays usable after `push`, `pop`, `clear`, or `free` on the root, an alias, or a call that captures it; the checker accepts the use and generated C reads released storage (undefined behavior). Probed 2026-09-29: seven forms compile with exit 0. | [0255](specs/0255-stale-collection-views.md) | Medium | High |
 | `try String<N>.interpolate(...)` fails at generation with `[Unknown Error] String<N>.interpolate expression reached generation without hoisting`; the same call as a plain `let x: String<N> \| Error = ...` assignment hoists and compiles. Fail-closed, no miscompile. | unassigned (needs a hoisting-order spec) | Medium | High |
 
 ## Known coverage gaps

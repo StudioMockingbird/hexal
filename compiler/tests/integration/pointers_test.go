@@ -513,3 +513,111 @@ func TestPointeeEligibilityMatrix(t *testing.T) {
 		})
 	}
 }
+
+// viewPrelude creates one allocated List holding a single element.
+const viewPrelude = "let h = Heap()\nlet mut xs: List<Int32> = List<Int32>(h)\nxs.push(1)\n"
+
+const staleView = "points into xs's storage, which was structurally changed at"
+
+func TestElementPointerStaleAfterStructuralChange(t *testing.T) {
+	for _, testCase := range []struct{ name, body string }{
+		{"push", "let p = @xs[0]\nxs.push(2)\nprint(^p)\n"},
+		{"pop", "let p = @xs[0]\nxs.pop()\nprint(^p)\n"},
+		{"clear", "let p = @xs[0]\nxs.clear()\nprint(^p)\n"},
+		{"free", "let p = @xs[0]\nxs.free(h)\nprint(^p)\n"},
+		{"push through alias", "let p = @xs[0]\nlet ys = xs\nys.push(2)\nprint(^p)\n"},
+		{"push through captured call", "fun grow() do\n    xs.push(2)\nend\nlet p = @xs[0]\ngrow()\nprint(^p)\n"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertRejects(t, viewPrelude+testCase.body, "this pointer "+staleView)
+		})
+	}
+}
+
+// A change on one branch is enough to reach released storage, two changing
+// branches report the earlier site, and a change later in a loop body reaches
+// the use at the top of the next iteration.
+func TestStaleViewJoinsAcrossPaths(t *testing.T) {
+	assertRejects(t, viewPrelude+"let p = @xs[0]\nlet c = true\nif c then\n    xs.push(2)\nend\nprint(^p)\n", staleView+" 7:8")
+	assertRejects(t, viewPrelude+"let p = @xs[0]\nlet c = true\nif c then\n    xs.push(2)\nelse\n    xs.push(3)\nend\nprint(^p)\n", staleView+" 7:8")
+	assertRejects(t, viewPrelude+"let p = @xs[0]\nlet mut i: Int32 = 0\nwhile i < 2 do\n    print(^p)\n    xs.push(2)\n    i = i + 1\nend\n", staleView+" 8:8")
+}
+
+func TestElementPointerValidUses(t *testing.T) {
+	assertCompiles(t, viewPrelude+"let p = @xs[0]\nxs.push(2)\nlet q = @xs[0]\nprint(^q)\n")
+	assertCompiles(t, viewPrelude+"let p = @xs[0]\nprint(^p)\nxs.push(2)\n")
+	assertCompiles(t, viewPrelude+"let mut a: List<Int32, 4> = [1]\nlet p = @a[0]\na.push(2)\nprint(^p)\n")
+	assertCompiles(t, viewPrelude+"let p = @xs[0]\nlet s = xs.slice(0, 1)\nxs[0] = 9\nprint(^p)\nprint(s[0])\n")
+	assertCompiles(t, viewPrelude+"let mut p = @xs[0]\nxs.push(2)\np = @xs[0]\nprint(^p)\n")
+	assertCompiles(t, viewPrelude+"let ys: List<Int32> = List<Int32>(h)\nys.push(1)\nlet p = @xs[0]\nys.push(2)\nprint(^p)\n")
+}
+
+func TestFreshViewAfterChange(t *testing.T) {
+	assertCompiles(t, viewPrelude+"xs.push(2)\nlet a = @xs[0]\nxs.pop()\nlet b = @xs[0]\nxs.clear()\nxs.push(1)\nlet c = @xs[0]\nprint(^c)\n")
+	assertRejects(t, viewPrelude+"xs.free(h)\nlet p = @xs[0]\n", "storage was released on every path to this point")
+}
+
+// A call that receives a view of a List and the List itself is rejected only
+// when its summary lets the call change the List or hide the view.
+func TestViewAndRootPassedToOneCall(t *testing.T) {
+	const want = "call receives a view of xs and can also change xs"
+	assertRejects(t, viewPrelude+"fun grow_with(p: Ptr<Int32>, l: List<Int32>) do\n    l.push(1)\nend\ngrow_with(@xs[0], xs)\n", want)
+	assertCompiles(t, viewPrelude+"fun peek_with(p: Ptr<Int32>, l: List<Int32>): Int32 do\n    return ^p + l.length().to<Int32>()\nend\nprint(peek_with(@xs[0], xs))\n")
+	assertCompiles(t, viewPrelude+"fun grow_other(p: Ptr<Int32>, l: List<Int32>) do\n    l.push(1)\nend\nlet ys: List<Int32> = List<Int32>(h)\ngrow_other(@xs[0], ys)\n")
+	// The same holds when the List reaches the callee through its captures.
+	assertRejects(t, viewPrelude+"fun grow_captured(p: Ptr<Int32>) do\n    xs.push(1)\nend\ngrow_captured(@xs[0])\n", want)
+	assertCompiles(t, viewPrelude+"fun peek_captured(p: Ptr<Int32>): Int32 do\n    return ^p + xs.length().to<Int32>()\nend\nprint(peek_captured(@xs[0]))\n")
+}
+
+func TestViewHeldInAggregateAndMemberHandles(t *testing.T) {
+	assertRejects(t, viewPrelude+"type Holder is struct p: Ptr<mut Int32> end\nlet holder = Holder(p = @xs[0])\nxs.push(2)\nprint(^holder.p)\n", "this pointer "+staleView)
+	box := "type Box is struct mut items: List<Int32> end\n"
+	assertRejects(t, viewPrelude+box+"let mut box = Box(items = xs)\nlet p = @xs[0]\nbox.items.push(2)\nprint(^p)\n", "this pointer "+staleView)
+	assertRejects(t, viewPrelude+box+"let ys: List<Int32> = List<Int32>(h)\nlet mut box = Box(items = ys)\nbox.items = xs\nlet p = @xs[0]\nbox.items.push(2)\nprint(^p)\n", "this pointer "+staleView)
+}
+
+// A view created in one argument is stale when a later argument changes its
+// root, and the whole argument list is checked.
+func TestViewStaleWithinOneArgumentList(t *testing.T) {
+	assertRejects(t, viewPrelude+"fun two(p: Ptr<Int32>, n: Int32) do\nend\ntwo(@xs[0], xs.pop())\n", "this pointer "+staleView)
+}
+
+// A proven read-only helper leaves a live view alone, and a call through an
+// unresolved Fun value fails closed.
+func TestViewCallSummaries(t *testing.T) {
+	assertCompiles(t, viewPrelude+"fun count(l: List<Int32>): Size do\n    return l.length()\nend\nlet p = @xs[0]\nprint(count(xs))\nprint(^p)\n")
+	assertRejects(t, viewPrelude+"fun apply(f: Fun<(List<Int32>)>, l: List<Int32>) do\n    f(l)\nend\nfun nop(l: List<Int32>) do\nend\nlet p = @xs[0]\napply(nop, xs)\nprint(^p)\n", "this pointer "+staleView)
+	assertRejects(t, viewPrelude+"fun grow(l: List<Int32>) do\n    l.push(2)\nend\nlet p = @xs[0]\ngrow(xs)\nprint(^p)\n", "this pointer "+staleView)
+	lib := map[string]string{
+		"app.hex": "import\n    Lib from \"./lib\"\nend\n" + viewPrelude + "let p = @xs[0]\nLib.grow(xs)\nprint(^p)\n",
+		"lib.hex": "fun grow(l: List<Int32>) do\n    l.push(2)\nend\nexport\n    grow\nend\n",
+	}
+	if result := compiler.Compile(lib, "app.hex", compiler.Project{}); result.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(result.Stderr, "\n"), staleView) {
+		t.Fatalf("an imported changing callee must stale the view; stderr = %v", result.Stderr)
+	}
+}
+
+// A result keeps the root of the argument it borrows through the callee
+// summary, including when nested in an aggregate.
+func TestReturnedViewKeepsArgumentRoot(t *testing.T) {
+	assertRejects(t, viewPrelude+"fun first(l: List<Int32>): Ptr<Int32> do\n    return @l[0]\nend\nlet p = first(xs)\nxs.push(2)\nprint(^p)\n", "this pointer "+staleView)
+	assertRejects(t, viewPrelude+"type Holder is struct p: Ptr<Int32> end\nfun wrap(l: List<Int32>): Holder do\n    return Holder(p = @l[0])\nend\nlet holder = wrap(xs)\nxs.push(2)\nprint(^holder.p)\n", "this pointer "+staleView)
+}
+
+// Hiding a view in storage the checker cannot follow is rejected in safe code
+// and admitted inside unsafe.
+func TestViewEscapeIntoUntrackedStorage(t *testing.T) {
+	const want = "view of xs escapes storage tracked by the compiler"
+	for _, testCase := range []struct{ name, body string }{
+		{"list element", "let lp: List<Ptr<Int32>> = List<Ptr<Int32>>(h)\nlp.push(@xs[0])\n"},
+		{"heap pointee", "let hp = h.allocate<Ptr<Int32>>(@xs[0])\n"},
+		{"write through Ptr<mut T>", "let mut slot: Ptr<Int32> = @xs[0]\nlet pp = @slot\n^pp = @xs[0]\n"},
+		{"module storage", "let mut m: Ptr<Int32> = @xs[0]\nfun store() do\n    m = @xs[0]\nend\nstore()\n"},
+		{"spawn argument", "fun work(p: Ptr<Int32>): Int32 do\n    return ^p\nend\nlet t = spawn work(@xs[0])\n"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertRejects(t, viewPrelude+testCase.body, want)
+		})
+	}
+	assertCompiles(t, viewPrelude+"let lp: List<Ptr<Int32>> = List<Ptr<Int32>>(h)\nunsafe do\n    lp.push(@xs[0])\nend\n")
+}

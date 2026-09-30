@@ -363,6 +363,43 @@ func TestRetiredTypeNamesRejected(t *testing.T) {
 	}
 }
 
+func TestSliceStaleAfterStructuralChange(t *testing.T) {
+	for _, testCase := range []struct{ name, body string }{
+		{"push", "let s = xs.slice(0, 1)\nxs.push(2)\nprint(s[0])\n"},
+		{"pop", "let s = xs.slice(0, 1)\nxs.pop()\nprint(s[0])\n"},
+		{"clear", "let s = xs.slice(0, 1)\nxs.clear()\nprint(s[0])\n"},
+		{"free", "let s = xs.slice(0, 1)\nxs.free(h)\nprint(s[0])\n"},
+		{"mut_slice write", "let s = xs.mut_slice(0, 1)\nxs.push(2)\ns[0] = 1\n"},
+		{"re-slice", "let s = xs.slice(0, 1)\nxs.push(2)\nlet t = s.slice(0, 1)\n"},
+		{"pass", "fun take(s: Slice<Int32>) do\nend\nlet s = xs.slice(0, 1)\nxs.push(2)\ntake(s)\n"},
+		{"store", "type Holder is struct mut s: Slice<Int32> end\nlet s = xs.slice(0, 1)\nxs.push(2)\nlet holder = Holder(s = s)\n"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			assertRejects(t, viewPrelude+testCase.body, "this slice "+staleView)
+		})
+	}
+	assertRejects(t, viewPrelude+"fun keep(l: List<Int32>): Slice<Int32> do\n    let s = l.slice(0, 1)\n    l.push(2)\n    return s\nend\nlet s = keep(xs)\n", "this slice points into l's storage, which was structurally changed at")
+}
+
+func TestStringViewsStaleAfterFree(t *testing.T) {
+	const prelude = "let h = Heap()\nlet s: String = \"abc\".copy(h)\n"
+	const staleString = "points into s's storage, which was structurally changed at"
+	assertRejects(t, prelude+"let b = s.bytes()\ns.free(h)\nprint(b[0])\n", "this slice "+staleString)
+	assertRejects(t, prelude+"let t = s\nlet b = s.bytes()\nt.free(h)\nprint(b[0])\n", "this slice "+staleString)
+	for _, cursor := range []string{"byte_cursor", "rune_cursor", "grapheme_cursor"} {
+		assertRejects(t, prelude+"let t = s\nlet c = s."+cursor+"()\nt.free(h)\nprint(c.has_next())\n", "this cursor "+staleString)
+	}
+	assertCompiles(t, prelude+"let c = s.byte_cursor()\nprint(c.has_next())\ns.free(h)\n")
+}
+
+// A Slice returned through a callee summary borrows the argument it derives
+// from, and a Slice over storage a callee owns cannot be returned.
+func TestReturnedSliceRoots(t *testing.T) {
+	assertRejects(t, viewPrelude+"fun head(l: List<Int32>): Slice<Int32> do\n    return l.slice(0, 1)\nend\nlet s = head(xs)\nxs.push(2)\nprint(s[0])\n", "this slice "+staleView)
+	assertCompiles(t, viewPrelude+"fun head(l: List<Int32>): Slice<Int32> do\n    return l.slice(0, 1)\nend\nlet s = head(xs)\nprint(s[0])\n")
+	assertRejects(t, viewPrelude+"fun make(hp: Heap): Slice<Int32> do\n    let l: List<Int32> = List<Int32>(hp)\n    l.push(1)\n    return l.slice(0, 1)\nend\nlet s = make(h)\n", "view of l escapes storage tracked by the compiler")
+}
+
 func TestSliceCopiesAliasElements(t *testing.T) {
 	// Copies share elements while holding independent descriptors: a write
 	// through one copy reads back through the other.

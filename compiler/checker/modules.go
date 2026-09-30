@@ -72,6 +72,11 @@ type moduleEntry struct {
 	// sorts the keys and emits the records into the module's checked output.
 	functionSpecializations map[string]FunctionDeclaration
 	methodSpecializations   map[string]MethodDeclaration
+
+	// viewSummaries are the module's callable summaries for the stale-view
+	// analysis: which argument storage a call may structurally change, which
+	// view arguments it may hide, and which arguments its result derives from.
+	viewSummaries map[callableKey]*viewSummary
 	// definingScope and definingEnvironment are this module's own top-level
 	// scope and type environment, retained after it checks clean. An
 	// importer's qualified generic use re-resolves the open template's

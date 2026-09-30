@@ -471,10 +471,8 @@ ABI type set on a qualified target:
 - Values referring to external state include String, List, Dict, Task, Channel, Mutex, Stash, Pool,
   Slice, and aggregates containing them. Copies alias the same state. Freeing one
   alias leaves others dangling; losing the last handle can leak. A Slice additionally never
-  owns its backing inline List, allocated List, String, allocation, or foreign region: keeping that storage
-  alive and unreallocated for every Slice use is the programmer's responsibility, and misuse
-  may produce undefined behavior in generated C. This is an explicit narrowing of the
-  no-undefined-behavior goal, chosen to avoid a language-wide lifetime system.
+  owns its backing inline List, allocated List, String, allocation, or foreign region; the checker
+  rejects the uses of stale collection views defined under Slice.
 - Every value is copyable except `Atomic<T>` and inline aggregates transitively containing one.
   Atomic containment traversal stops at every pointer and handle indirection.
 - Full statements execute in source order, and evaluation within a statement is fully ordered:
@@ -1313,12 +1311,38 @@ Slice<mut T>.slice(start: Integer, end: Integer) -> Slice<mut T>
   allocation's length, alignment, initialization, lifetime, provenance, or future validity.
   `empty()` and an empty slice of an empty List use null data plus zero length; no valid
   operation dereferences it.
-- Slicing a temporary inline List is rejected because no source place exists. Every other backing
-  store — inline List, allocated List, String, allocation, or foreign region — is the programmer's
-  responsibility: it must remain alive and unreallocated for every Slice use. Growing or
-  freeing a List, freeing a String, or resetting/destroying an allocator invalidates Slices
-  into its old storage. Such misuse is outside the Slice contract and may produce undefined
-  behavior in generated C.
+- Slicing a temporary inline List is rejected because no source place exists. A Slice over an
+  inline List, allocation, or foreign region, and storage an allocator reset or destroy releases,
+  is outside view tracking; allocator reset and destroy keep their own rules.
+- Stale collection views. A storage root is one allocated List or allocated String backing store;
+  handle copies, parameters, and handle-valued members initialized or assigned from an alias share
+  one root. A view of a root is `@R[i]` and any place below it, `R.slice(...)`, `R.mut_slice(...)`,
+  an allocated String's `bytes()`, `slice`, `ByteCursor`, `RuneCursor`, or `GraphemeCursor`, any
+  re-slice or `offset` of a view, and any binding or inline aggregate place initialized or assigned
+  from a view; provenance is place-sensitive, and assigning a fresh view replaces the old one. The
+  invalidating operations on a root are allocated-List `push`, `pop`, `clear`, and `free` and
+  allocated-String `free`; element replacement is not structural.
+- After an invalidating operation on a root or any alias, every view of it is stale on that path.
+  Staleness joins by union at control-flow joins and loop back-edges, and the earliest change site
+  is reported. Reading, writing, dereferencing, indexing, re-slicing, passing, returning, or storing
+  a stale view is rejected with `type.stale-collection-view`: `this <pointer|slice|cursor> points
+  into <root>'s storage, which was structurally changed at <line:column>`. A new view derived
+  from live storage is valid; deriving from a freed root keeps `type.use-after-free`.
+- Every callable has a summary: the argument and captured storage it may structurally change, the
+  view arguments it may hide, and the arguments its result borrows. A call invalidates views only
+  for what its summary says it changes; an unresolved callee (a call through a `Fun` value, an
+  unresolved import) is may-change and may-escape. Compiler-owned operations carry exact summaries.
+  A call receiving a view of R and also R, an alias of R, or a capture of R is rejected with
+  `type.collection-view-passed-with-root` when its summary may change or hide either: `call
+  receives a view of <root> and can also change <root>`; a read-only, non-escaping helper may
+  receive both.
+- A view stored in allocated List or Dict elements, Heap pointees, storage written through `Ptr<mut
+  T>`, module storage or a captured entry-root binding, or a spawned Task's arguments, a returned
+  view whose root the callee summary cannot preserve, and a view passed to a parameter its
+  summary lets escape are rejected with `type.collection-view-escapes-root`: `view of <root>
+  escapes storage tracked by the compiler; place this operation in unsafe only when the root
+  outlives every use`. Inside `unsafe ... end` the operation is admitted and the programmer owns
+  the lifetime; the compiler adds no tracking after it.
 - Indexing traps unless `0 <= index < length` after Size normalization. Re-slicing traps
   unless both bounds form a valid half-open subrange; it cannot widen the represented range
   and preserves the receiver's access mode. Bounds checks validate only the descriptor

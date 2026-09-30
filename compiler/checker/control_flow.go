@@ -658,10 +658,10 @@ func (scanner *iterationMutationScanner) walkExpression(node *Expression, s span
 	case CollectionMethodCallExpression:
 		receiverRoot := collectionRootOfNode(node.Operand)
 		if receiverRoot == scanner.sourceRoot && node.OperandType == scanner.collectionType {
-			switch node.Name {
-			case "free":
+			switch {
+			case node.Name == "free":
 				scanner.report(s, diag.FreeCollectionDuringIteration)
-			case "push", "pop", "clear", "insert", "remove":
+			case structuralCollectionOperation(node.OperandType, node.Name):
 				if baseBindingID(node.Operand) == scanner.sourceBinding {
 					scanner.report(s, diag.MutateCollectionDuringIteration)
 				}

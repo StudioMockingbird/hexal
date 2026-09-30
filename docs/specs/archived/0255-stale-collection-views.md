@@ -1,7 +1,13 @@
 # RFC 0255: Stale Collection Views
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; implementation not started
+- Status: Closed. Implemented and verified 2026-09-30: the checker tracks
+  storage roots for allocated List and String handles, stale pointer, Slice,
+  and cursor views with union joins and loop fixpoints, exact structural
+  operations, callable summaries (exported to importers, merged across known
+  indirect targets, fail-closed otherwise), and the three diagnostics; the
+  22 validation cases pass and no snippet artifact moved; see Implementation
+  state
 - Supersedes: the "programmer's responsibility" clause for Slices into
   growing or freed storage in `docs/reference.md` (Slice section)
 
@@ -237,6 +243,32 @@ cases) and `compiler/tests/integration/slice_test.go` (Slice cases):
 
 No existing snippet hash changes. Run `gofmt -l`, `go test ./...`, and
 `go vet ./...`; the ordinary suite remains toolchain-free.
+
+## Implementation state
+
+- The analysis is a checked-tree pass (`compiler/checker/views*.go`) that runs
+  after a module checks clean, beside the starvation pass, not threaded
+  through the in-line flow state. Summaries need every callable body, loops
+  need a fixpoint, and joins need a total order over paths, none of which the
+  single-pass checker provides; the pass owns them and reuses only the
+  collection-root and freed-state facts the checker already computes.
+  `use-after-free` keeps precedence because the checker reports it first.
+- One closed structural classification (`structuralListOperation`) serves view
+  invalidation and the traversal scanner.
+- Summaries live in the module registry records (`moduleEntry.viewSummaries`)
+  that importers read. The tree has no interface-fingerprint mechanism, so the
+  plan's fingerprint participation has nothing to attach to yet.
+- Indirect calls merge the summaries of every callable a function-valued place
+  was initialized or assigned from; a `Fun` parameter or any other source is an
+  unresolved target and fails closed. A call to an imported generic
+  specialization resolves only when its summary is published, otherwise fails
+  closed.
+- An `errdefer` action is not applied on the joined success paths. A deferred
+  call's operands are checked at registration and its effect applied where its
+  scope exits.
+- Diagnostics point at the use's statement, or the expression's own span when it
+  has one; the change site is the statement that made the view stale.
+- No generated file or snippet hash moved.
 
 ## Settled decisions
 

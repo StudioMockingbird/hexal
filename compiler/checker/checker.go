@@ -916,7 +916,12 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 	if len(starvationDiagnostics) > 0 {
 		return checked, starvationDiagnostics
 	}
+	viewDiagnostics, viewSummaries := checkCollectionViews(checked, moduleID, table, registry, moduleID == entrypointCanonical)
+	if len(viewDiagnostics) > 0 {
+		return checked, viewDiagnostics
+	}
 	if registry != nil {
+		registry.registerViewSummaries(moduleID, viewSummaries)
 		// A clean module publishes its generic templates and its own
 		// specialization requests, so importers resolve and record against
 		// the defining module's collection.
