@@ -254,6 +254,13 @@ func discoverGeneratedRootReturn(program checker.Program) bool {
 			}
 			return nil
 		},
+		// A root try leaves through the same status slot and exit label.
+		Expression: func(node checker.Expression) error {
+			if node.Kind == checker.TryExpression && node.RootExit {
+				found = true
+			}
+			return nil
+		},
 	}
 	if err := walkProgram(program, visitor); err != nil {
 		return false

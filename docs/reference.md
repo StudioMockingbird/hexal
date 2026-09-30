@@ -965,7 +965,8 @@ destinations only. `none` means no fixed-width destination.
 - A root `return` under `if`, `while`, or `for` exits the program body and is a context-valid
   terminating statement for `is`/nil flow facts, exactly like a function `return`. A `return` inside
   a function or method retains that declaration's ordinary result contract. `try` and `errdefer`
-  remain invalid at entry-module root because the root has no Error result.
+  are valid at entry-module root, including root `if`, `while`, and `for` bodies, and exit the
+  program as defined under Errors.
 - The generated entry adapter is emitted when `std/program.arguments()` or
   `std/program.executable_path(heap)` is reachable. Executable-path demand runs the native
   bootstrap and then `uv_setup_args` exactly once before the first query; argument demand alone
@@ -974,8 +975,9 @@ destinations only. `none` means no fixed-width destination.
 - `defer expression` registers cleanup in the current scope. Actions run in reverse registration
   order on fallthrough, return, break, or continue. A direct call captures callee, receiver, and
   arguments at registration; other expressions evaluate on exit.
-- `errdefer` uses the same rules but runs only while the function exits with active Error. It shares
-  reverse order with defer on Error exit and is discarded otherwise.
+- `errdefer` uses the same rules but runs only while the function exits with active Error, or the
+  program exits through a root `try`. It shares reverse order with defer on Error exit and is
+  discarded otherwise; a root `return`, fallthrough, or trap never runs it.
 - Cleanup result values are discarded. Process traps need not run cleanup. Errors defines `try` and
   `errdefer` validity.
 
@@ -1112,8 +1114,19 @@ about 432 bytes on `x86_64-linux-gnu` (`size_of<Error>()`), and `T | Error` resu
 - A try expression or try statement requires exactly one Error member and at least one success
   member. It evaluates once and returns Error unchanged. A try expression yields the normalized
   success value/union; a try statement discards it. Neither catches traps.
-- `try` and `errdefer` are valid only inside a function whose declared result accepts Error; both are
-  invalid at root scope. `try` is additionally invalid inside any cleanup action.
+- `try` and `errdefer` are valid inside a function whose declared result accepts Error and at
+  entry-module root; both are invalid at imported-module root and in a function whose result cannot
+  carry Error (`try requires an enclosing function whose result accepts Error`). `try` is
+  additionally invalid inside any cleanup action.
+- A root `try` has the operand rule of a function `try` and yields the same normalized success
+  value. When the active member is Error it: (1) runs every active root cleanup as an Error exit,
+  so root errdefers run with defers in shared reverse registration order; (2) flushes stdout; (3)
+  writes `[Error] ` followed by the Error's direct print form (`file:line:column: header:
+  message`) and a newline to stderr; (4) exits with status 1. A failed stderr write is ignored
+  and the status stays 1; the report uses no Heap and creates no further Error (a report beyond the
+  256-byte inline print buffer grows it with the C library allocator, and a failed growth traps). A
+  trap during cleanup ends the program as any trap does and writes no report. A successful root `try` runs no
+  errdefer. Status 1 is indistinguishable from a root `return 1`. Root exit does not join tasks.
 
 ## Allocation and lifetime
 

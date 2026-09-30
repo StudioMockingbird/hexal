@@ -2,11 +2,11 @@ package checker
 
 import "testing"
 
-// try requires an enclosing function whose result accepts Error, a union
-// operand with exactly one Error member, and valid statement or expression
-// placement. Parser and integration coverage live in parser/try_test.go and
-// compiler/error_test.go; this file proves the checker-level contract
-// directly.
+// try requires an enclosing function whose result accepts Error or the entry
+// module's root, a union operand with exactly one Error member, and valid
+// statement or expression placement. Parser and integration coverage live in
+// parser/try_test.go and compiler/error_test.go; this file proves the
+// checker-level contract directly.
 
 func TestCheckerAcceptsTryInErrorResultFunction(t *testing.T) {
 	requireAccepted(t, "fun read(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"x\"), \"y\")\nend\nfun demo(): Int32 | Error do\n    let count: Int32 = try read()\n    return count\nend\n")
@@ -15,8 +15,11 @@ func TestCheckerAcceptsTryInErrorResultFunction(t *testing.T) {
 	requireAccepted(t, "fun read(): Int32 | Float32 | Error do\n    return Error(ErrorKind.Other(header = \"x\"), \"y\")\nend\nfun demo(): Int32 | Error do\n    let value: Int32 | Float32 = try read()\n    return 1\nend\n")
 }
 
+func TestCheckerAcceptsTryAtEntryRoot(t *testing.T) {
+	requireAccepted(t, "fun read(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"x\"), \"y\")\nend\ntry read()\nlet count: Int32 = try read()\n")
+}
+
 func TestCheckerRejectsTryOutsideErrorResultFunction(t *testing.T) {
-	requireDiagnostic(t, "fun read(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"x\"), \"y\")\nend\ntry read()\n", "try requires an enclosing function whose result accepts Error")
 	requireDiagnostic(t, "fun read(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"x\"), \"y\")\nend\nfun demo(): Int32 do\n    let value: Int32 = try read()\n    return value\nend\n", "try requires an enclosing function whose result accepts Error")
 }
 

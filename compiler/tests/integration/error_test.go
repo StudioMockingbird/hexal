@@ -145,7 +145,7 @@ func TestTryStatementDiagnostics(t *testing.T) {
 		want   string
 	}{
 		{"fun demo(): Int32 | Error do\n    let value: Int32 = 1\n    try value\nend\n", "try requires a union containing Error"},
-		{"fun read(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"x\"), \"y\")\nend\ntry read()\n", "try requires an enclosing function whose result accepts Error"},
+		{"fun read(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"x\"), \"y\")\nend\nfun demo(): Int32 do\n    try read()\n    return 1\nend\n", "try requires an enclosing function whose result accepts Error"},
 		{"fun demo(): Int32 | Error do\n    try Error(ErrorKind.Other(header = \"x\"), \"y\")\nend\n", "try requires a union containing Error"},
 	} {
 		result := compileSource(testCase.source)
@@ -349,25 +349,89 @@ func TestTryInsideBranchAndLoop(t *testing.T) {
 	}
 }
 
+// An errdefer is valid in a function whose result accepts Error and at
+// entry-module root; a function whose result cannot carry an Error rejects it.
 func TestErrdeferAtRootScope(t *testing.T) {
-	bad := "errdefer cleanup()\nfun cleanup() do\nend\n"
-	result := compileSource(bad)
-	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 ||
-		!strings.Contains(result.Stderr[0], "errdefer requires an enclosing function whose result accepts Error") {
-		t.Fatalf("want root errdefer Type Error; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
-	}
-	for _, diagnostic := range result.Stderr {
-		if strings.Contains(diagnostic, "Unknown Error") {
-			t.Fatalf("root errdefer must not be Unknown Error: %v", result.Stderr)
+	assertCompiles(t, "fun cleanup() do\nend\nerrdefer cleanup()\n")
+	assertCompiles(t, "fun cleanup() do\nend\nfun run(): Int32 | Error do\n    errdefer cleanup()\n    return 1\nend\n")
+	assertCompiles(t, "fun cleanup() do\nend\ndefer cleanup()\n")
+	assertRejects(t, "fun cleanup() do\nend\nfun run(): Int32 do\n    errdefer cleanup()\n    return 1\nend\n", "errdefer requires an enclosing function whose result accepts Error")
+}
+
+const rootTryFailing = "fun read_count(): Int32 | Error do\n    return Error(ErrorKind.Other(header = \"Read Error\"), \"no count\")\nend\n"
+
+// A root try yields the normalized success value and is valid in root if and
+// for bodies.
+func TestRootTryCompilesWithSuccessValue(t *testing.T) {
+	assertCompiles(t, rootTryFailing+"let count: Int32 = try read_count()\nprint(count)\n")
+	assertCompiles(t, rootTryFailing+"if true then\n    let inner: Int32 = try read_count()\n    print(inner)\nend\n")
+	assertCompiles(t, rootTryFailing+"let items: List<Int32, 2> = [1, 2]\nfor item in items do\n    let inner: Int32 = try read_count()\n    print(inner, item)\nend\n")
+}
+
+// An imported module's root has no enclosing function and no program to exit,
+// so try and errdefer stay rejected there. An imported root statement such as
+// errdefer is already an executable-statement error in the module phase,
+// which owns it earlier than the checker.
+func TestRootTryAndErrdeferRejectedInImportedModule(t *testing.T) {
+	for _, testCase := range []struct{ body, want string }{
+		{rootTryFailing + "let count: Int32 = try read_count()\n", "try requires an enclosing function whose result accepts Error"},
+		{"fun cleanup() do\nend\nerrdefer cleanup()\n", "imported module lib contains executable statements"},
+	} {
+		sources := map[string]string{
+			"app.hex": "import\n    Lib from \"./lib\"\nend\n",
+			"lib.hex": testCase.body,
+		}
+		result := compiler.Compile(sources, "app.hex", compiler.Project{})
+		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(strings.Join(result.Stderr, "\n"), testCase.want) {
+			t.Fatalf("Compile(lib %q) stderr = %#v, want %q", testCase.body, result.Stderr, testCase.want)
 		}
 	}
-	// Function-scoped errdefer remains valid, and root defer is unchanged.
-	valid := "fun cleanup() do\nend\nfun run(): Int32 | Error do\n    errdefer cleanup()\n    return 1\nend\n"
-	if result := compileSource(valid); result.ExitCode != compiler.ExitSuccess {
-		t.Fatalf("function errdefer must compile: %v", result.Stderr)
+}
+
+// The root errdefer action is emitted only on the root try exit path; the
+// fallthrough exit runs defers alone.
+func TestRootErrdeferRunsOnlyOnRootTryExit(t *testing.T) {
+	root := rootC(t, assertCompiles(t, "fun cleanup(value: Int32) do\nend\n"+rootTryFailing+
+		"errdefer cleanup(1)\ndefer cleanup(2)\nlet count: Int32 = try read_count()\nprint(count)\n"))
+	if strings.Count(root, "hex_f_m3_app_cleanup(hex_defer_capture_1);") != 1 {
+		t.Fatalf("the errdefer action must be emitted once, on the try exit path:\n%s", root)
 	}
-	rootDefer := "fun cleanup() do\nend\ndefer cleanup()\n"
-	if result := compileSource(rootDefer); result.ExitCode != compiler.ExitSuccess {
-		t.Fatalf("root defer must still compile: %v", result.Stderr)
+	arm := strings.Index(root, "if (hex_try_1.tag == hex_tag_Error) {")
+	errdefer := strings.Index(root, "hex_f_m3_app_cleanup(hex_defer_capture_1);")
+	exit := strings.Index(root, "goto hex_exit;")
+	if arm < 0 || !(arm < errdefer && errdefer < exit) {
+		t.Fatalf("the errdefer must run inside the try Error arm before the exit jump:\n%s", root)
+	}
+	if strings.Count(root, "hex_f_m3_app_cleanup(hex_defer_capture_2);") != 2 {
+		t.Fatalf("the defer must run on the try exit path and on fallthrough:\n%s", root)
+	}
+}
+
+// The root try Error arm records status 1, flushes standard output before it
+// writes the report line, and leaves through the single exit label; a program
+// without a root try carries no report code.
+func TestRootTryExitPath(t *testing.T) {
+	root := rootC(t, assertCompiles(t, rootTryFailing+"let count: Int32 = try read_count()\nprint(count)\n"))
+	var last int
+	for _, want := range []string{
+		"if (hex_try_1.tag == hex_tag_Error) {",
+		"hex_exit_status = (uint8_t)(1);",
+		"\"[Error] \"",
+		"hex_print_error_direct(&hex_try_1_report, &hex_try_1.payload.hex_m_Error);",
+		"(void)fflush(stdout);",
+		"(void)fwrite(hex_try_1_report.data, 1, hex_try_1_report.length, stderr);",
+		"goto hex_exit;",
+	} {
+		at := strings.Index(root[last:], want)
+		if at < 0 {
+			t.Fatalf("root try exit path lacks %q after offset %d:\n%s", want, last, root)
+		}
+		last += at + len(want)
+	}
+	quiet := rootC(t, assertCompiles(t, "let count: Int32 = 1\nprint(count)\nreturn 2\n"))
+	for _, unwanted := range []string{"[Error] ", "fflush(stdout)", "hex_print_error_direct"} {
+		if strings.Contains(quiet, unwanted) {
+			t.Fatalf("a program without a root try must emit no report code (%q):\n%s", unwanted, quiet)
+		}
 	}
 }

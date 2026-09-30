@@ -396,29 +396,68 @@ func renderReturnStatement(statement checker.ReturnStatement, result *compilerTy
 	return indent + "return " + value + ";\n", nil
 }
 
-// renderRootReturnStatement lowers one entry-module return: the status value
-// is evaluated once into the entry status slot, every active defer runs from
-// the innermost scope outward, and control jumps to the entry cleanup label.
-// A bare return records zero.
-func renderRootReturnStatement(statement checker.RootReturnStatement, state *expressionValidation, indent string) (string, error) {
-	var builder strings.Builder
-	if statement.Value == nil {
-		if err := renderInto(&builder, "module.c", "exit_status_zero", indentModel{Indent: indent}); err != nil {
-			return "", err
+// rootExit describes one way the entry module's root leaves the program: a
+// root return and a root try whose operand is an Error share the status slot,
+// the cleanup unwind, and the jump to the single exit label, and differ only
+// in these three facts.
+type rootExit struct {
+	// Status is the C expression recorded as the process status; empty
+	// records zero.
+	Status string
+	// ErrorExit is the classification unwindAllDefers receives: "true" runs
+	// errdefers with the defers, "false" runs only the defers.
+	ErrorExit string
+	// Report is the C lvalue of the Error written to standard error after
+	// cleanup; empty writes nothing. ReportBuffer names its print buffer.
+	Report       string
+	ReportBuffer string
+}
+
+// writeRootExit lowers one root exit: the status is recorded once, every
+// active defer runs from the innermost scope outward, the optional Error
+// report follows cleanup so a trap during cleanup suppresses it, and control
+// jumps to the entry cleanup label.
+func writeRootExit(body *strings.Builder, exit rootExit, state *expressionValidation, indent string) error {
+	if exit.Status == "" {
+		if err := renderInto(body, "module.c", "exit_status_zero", indentModel{Indent: indent}); err != nil {
+			return err
 		}
-	} else {
+	} else if err := renderInto(body, "module.c", "exit_status_value", forStmtLineModel{Indent: indent, Value: exit.Status}); err != nil {
+		return err
+	}
+	if err := unwindAllDefers(body, state, indent, exit.ErrorExit); err != nil {
+		return err
+	}
+	if exit.Report != "" {
+		if err := renderInto(body, "module.c", "root_error_report", rootErrorReportModel{Indent: indent, Buffer: exit.ReportBuffer, Error: exit.Report}); err != nil {
+			return err
+		}
+	}
+	return renderInto(body, "module.c", "goto_exit", indentModel{Indent: indent})
+}
+
+// rootErrorReportModel carries one root report's decided print buffer and
+// Error lvalue.
+type rootErrorReportModel struct {
+	Indent string
+	Buffer string
+	Error  string
+}
+
+// renderRootReturnStatement lowers one entry-module return: the status value
+// is evaluated once into the entry status slot and the root exit runs with
+// defers only. A bare return records zero.
+func renderRootReturnStatement(statement checker.RootReturnStatement, state *expressionValidation, indent string) (string, error) {
+	exit := rootExit{ErrorExit: "false"}
+	if statement.Value != nil {
 		value, err := renderOperandWithState(*statement.Value, state)
 		if err != nil {
 			return "", err
 		}
-		if err := renderInto(&builder, "module.c", "exit_status_value", forStmtLineModel{Indent: indent, Value: value}); err != nil {
-			return "", err
-		}
+		exit.Status = value
 	}
-	if err := unwindAllDefers(&builder, state, indent, "false"); err != nil {
-		return "", err
-	}
-	if err := renderInto(&builder, "module.c", "goto_exit", indentModel{Indent: indent}); err != nil {
+	var builder strings.Builder
+	if err := writeRootExit(&builder, exit, state, indent); err != nil {
 		return "", err
 	}
 	return builder.String(), nil
@@ -678,14 +717,7 @@ func writeRootReturnStatement(statement checker.RootReturnStatement, body *strin
 		if err != nil {
 			return err
 		}
-		if err := renderInto(body, "module.c", "exit_status_value", forStmtLineModel{Indent: indent, Value: result}); err != nil {
-			return err
-		}
-		if err := unwindAllDefers(body, state, indent, "false"); err != nil {
-			return err
-		}
-		err = renderInto(body, "module.c", "goto_exit", indentModel{Indent: indent})
-		return err
+		return writeRootExit(body, rootExit{Status: result, ErrorExit: "false"}, state, indent)
 	}
 	text, returnErr := renderRootReturnStatement(statement, state, indent)
 	if returnErr != nil {

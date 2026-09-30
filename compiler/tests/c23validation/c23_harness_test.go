@@ -15,6 +15,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -331,20 +332,65 @@ func runGeneratedC(t *testing.T, result compiler.CompilationResult, buildRoot st
 	return strings.ReplaceAll(stdout, "\r\n", "\n")
 }
 
+// runProcessMerged runs path like runProcess but with stdout and stderr on
+// one pipe, so the returned text is in write order, and reports the exit
+// status. It exists for the Tier 3 expectations that assert how the two
+// streams interleave or an exact status; every other caller wants the streams
+// apart.
+func runProcessMerged(t *testing.T, path string) (output string, exitCode int) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), runProcessTimeout)
+	defer cancel()
+	command := exec.CommandContext(ctx, path)
+	command.Dir = t.TempDir()
+	var merged bytes.Buffer
+	command.Stdout = &merged
+	command.Stderr = &merged
+	err := command.Run()
+	if ctx.Err() == context.DeadlineExceeded {
+		t.Fatalf("generated program at %s did not exit within %s", path, runProcessTimeout)
+	}
+	if err != nil {
+		var exitError *exec.ExitError
+		if !errors.As(err, &exitError) {
+			t.Fatalf("generated program at %s did not run: %v", path, err)
+		}
+		exitCode = exitError.ExitCode()
+	}
+	return strings.ReplaceAll(merged.String(), "\r\n", "\n"), exitCode
+}
+
 // trapGeneratedC (Tier 3) compiles under Clang and runs a program that must
-// terminate by a runtime trap: a successful exit fails the test, and stderr
-// must contain requiredSubstring, the fixture's exact expected
-// "[Runtime Error] ..." text. Stdout up to the trap point is not constrained
-// by this helper; callers with output expectations before the trap assert it
-// themselves.
-func trapGeneratedC(t *testing.T, result compiler.CompilationResult, buildRoot, requiredSubstring string) {
+// terminate by a runtime trap or a non-zero exit: a successful exit fails the
+// test, and stderr must contain want.requiredStderrSubstring, the fixture's
+// expected "[Runtime Error] ..." or "[Error] ..." text. Stdout up to the exit
+// point is not constrained unless the fixture names exactOutput, which
+// compares the merged stream and the exact exitStatus, so interleaving is
+// observable.
+func trapGeneratedC(t *testing.T, result compiler.CompilationResult, buildRoot string, want processExpectation) {
 	t.Helper()
 	exe := buildGeneratedC(t, clangToolchain(t), result, buildRoot)
-	_, stderr, exitedZero := runProcess(t, exe)
-	if exitedZero {
-		t.Fatalf("program must trap but exited successfully")
+	if want.exitStatus == 0 && want.exactOutput == "" {
+		_, stderr, exitedZero := runProcess(t, exe)
+		if exitedZero {
+			t.Fatalf("program must trap but exited successfully")
+		}
+		if !strings.Contains(stderr, want.requiredStderrSubstring) {
+			t.Fatalf("program's stderr = %q, want it to contain %q", stderr, want.requiredStderrSubstring)
+		}
+		return
 	}
-	if !strings.Contains(stderr, requiredSubstring) {
-		t.Fatalf("program's stderr = %q, want it to contain %q", stderr, requiredSubstring)
+	output, exitCode := runProcessMerged(t, exe)
+	if exitCode == 0 {
+		t.Fatalf("program must exit non-zero but exited successfully; output=%q", output)
+	}
+	if want.exitStatus != 0 && exitCode != want.exitStatus {
+		t.Fatalf("exit status = %d, want %d; output=%q", exitCode, want.exitStatus, output)
+	}
+	if !strings.Contains(output, want.requiredStderrSubstring) {
+		t.Fatalf("program's output = %q, want it to contain %q", output, want.requiredStderrSubstring)
+	}
+	if want.exactOutput != "" && output != want.exactOutput {
+		t.Fatalf("program's merged output = %q, want %q", output, want.exactOutput)
 	}
 }

@@ -34,6 +34,12 @@ type processExpectation struct {
 	// requiredStderrSubstring is Tier 3's required "[Runtime Error] ..."
 	// text. Required when !zeroExit.
 	requiredStderrSubstring string
+	// exitStatus, when non-zero, is the exact status Tier 3 requires instead
+	// of any non-zero status.
+	exitStatus int
+	// exactOutput, when non-empty, is Tier 3's complete stdout and stderr
+	// merged onto one stream in write order, after "\r\n" normalization.
+	exactOutput string
 }
 
 // fixture is one catalog entry. Exactly one of snippetID or sources+
@@ -163,6 +169,9 @@ func validateCatalog(t *testing.T, catalog []fixture) {
 			}
 			if !exp.zeroExit && exp.requiredStderrSubstring == "" {
 				t.Fatalf("fixture %q is a non-zero expectation but names no required stderr substring", f.name)
+			}
+			if exp.zeroExit && (exp.exitStatus != 0 || exp.exactOutput != "") {
+				t.Fatalf("fixture %q is a zero-exit expectation but also names a Tier 3 exit status or merged output", f.name)
 			}
 			if !exp.zeroExit && exp.exactStdout != "" {
 				t.Fatalf("fixture %q is a non-zero (trap) expectation but also names an exact stdout; Tier 3 does not constrain stdout", f.name)

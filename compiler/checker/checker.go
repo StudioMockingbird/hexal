@@ -853,11 +853,13 @@ func checkModule(program parser.Program, moduleID string, logicalKey string, ent
 				checked.Statements = append(checked.Statements, checkedStatement)
 			}
 		case parser.ErrdeferStatement:
-			// errdefer is grammatically a statement at root but is valid only
-			// where an enclosing function result accepts Error; the shared
-			// check owns that diagnostic. Never append the invalid action.
-			_, statementDiagnostics := checkErrdeferStatement(statement, ctx)
+			// The shared check owns the diagnostic for a scope that cannot
+			// exit on Error; an invalid action is never appended.
+			checkedStatement, statementDiagnostics := checkErrdeferStatement(statement, ctx)
 			diagnostics = append(diagnostics, statementDiagnostics...)
+			if len(statementDiagnostics) == 0 {
+				checked.Statements = append(checked.Statements, checkedStatement)
+			}
 		case parser.MethodDeclaration:
 			// A missing collected declaration means either a generic
 			// template (checked lazily at specialization) or a pass-2
@@ -956,8 +958,11 @@ func checkRootExecutable(item parser.TopLevelItem, ctx checkContext) (Statement,
 	case parser.DeferStatement:
 		return checkDeferStatement(statement, ctx)
 	case parser.ErrdeferStatement:
-		_, statementDiagnostics := checkErrdeferStatement(statement, ctx)
-		return nil, statementDiagnostics
+		checkedStatement, statementDiagnostics := checkErrdeferStatement(statement, ctx)
+		if len(statementDiagnostics) > 0 {
+			return nil, statementDiagnostics
+		}
+		return checkedStatement, nil
 	}
 	return nil, nil
 }

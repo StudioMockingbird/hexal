@@ -128,12 +128,59 @@ type tryArmModel struct {
 	Payload string
 }
 
+// writeTryErrorArm emits the Error arm of one try prologue. In a function the
+// eligible defers and errdefers unwind and the Error returns through the
+// enclosing function's declared result. At entry-module root the same unwind
+// runs as an Error exit, then the Error is reported to standard error and the
+// process exits with status 1.
+func writeTryErrorArm(builder *strings.Builder, node checker.Expression, temp string, errorMember compilerTypes.Type, state *expressionValidation, indent string) error {
+	if err := renderInto(builder, "module.c", "tag_test_open", tryGuardModel{Indent: indent, Temp: temp, Tag: state.tags.unionMemberTag(errorMember)}); err != nil {
+		return err
+	}
+	if node.RootExit {
+		exit := rootExit{
+			Status:       "1",
+			ErrorExit:    "true",
+			Report:       temp + ".payload." + state.tags.unionPayloadField(errorMember),
+			ReportBuffer: temp + "_report",
+		}
+		if err := writeRootExit(builder, exit, state, indent+"    "); err != nil {
+			return err
+		}
+		return renderInto(builder, "module.c", "block_close", indentModel{Indent: indent})
+	}
+	// The deferred actions unwind only on the Error path, before the Error
+	// returns: the success path runs them at the scope's own exit, and
+	// running them twice would double-release the same resources. The
+	// unwind must precede the return so it executes.
+	if err := unwindAllDefers(builder, state, indent, "true"); err != nil {
+		return err
+	}
+	resultType := node.Element
+	if compilerTypes.IsError(resultType) {
+		if err := renderInto(builder, "module.c", "payload_return", tryGuardModel{Indent: indent, Temp: temp, Field: state.tags.unionPayloadField(errorMember)}); err != nil {
+			return err
+		}
+	} else {
+		resultErrorIndex := unionMemberIndex(resultType, compilerTypes.ErrorType)
+		if resultErrorIndex < 0 {
+			return unknownExpressionDiagnostic()
+		}
+		resultMembers := compilerTypes.UnionMembers(resultType)
+		resultErrorMember, _ := resultMembers.At(resultErrorIndex)
+		if err := renderInto(builder, "module.c", "union_return", tryArmModel{Indent: indent, Type: resultType.CName, Tag: state.tags.unionMemberTag(errorMember), Field: state.tags.unionPayloadField(resultErrorMember), Temp: temp, Payload: state.tags.unionPayloadField(errorMember)}); err != nil {
+			return err
+		}
+	}
+	return renderInto(builder, "module.c", "block_close", indentModel{Indent: indent})
+}
+
 // hoistTry emits one try prologue: the operand evaluates exactly once into a
-// temporary; on Error the eligible defers and errdefers unwind and the Error
-// returns through the enclosing function's declared result; otherwise the
-// temporary yields the active success value.
+// temporary; on Error the arm written by writeTryErrorArm leaves the
+// function or the program; otherwise the temporary yields the active success
+// value.
 func hoistTry(node checker.Expression, body *strings.Builder, state *expressionValidation, result *compilerTypes.Type, indent string) error {
-	if node.Operand == nil || node.Element == (compilerTypes.Type{}) || node.MemberIndex < 0 {
+	if node.Operand == nil || (node.Element == (compilerTypes.Type{})) != node.RootExit || node.MemberIndex < 0 {
 		return unknownExpressionDiagnostic()
 	}
 	state.tryCounter++
@@ -162,40 +209,7 @@ func hoistTry(node checker.Expression, body *strings.Builder, state *expressionV
 	if err := renderInto(&builder, "module.c", "const_decl", forStmtLineModel{Indent: indent, Type: physicalType.CName, Name: temp, Value: operand}); err != nil {
 		return err
 	}
-	resultType := node.Element
-	resultErrorIndex := -1
-	if compilerTypes.IsError(resultType) {
-		if err := renderInto(&builder, "module.c", "tag_test_open", tryGuardModel{Indent: indent, Temp: temp, Tag: state.tags.unionMemberTag(errorMember)}); err != nil {
-			return err
-		}
-	} else {
-		resultErrorIndex = unionMemberIndex(resultType, compilerTypes.ErrorType)
-		if resultErrorIndex < 0 {
-			return unknownExpressionDiagnostic()
-		}
-		if err := renderInto(&builder, "module.c", "tag_test_open", tryGuardModel{Indent: indent, Temp: temp, Tag: state.tags.unionMemberTag(errorMember)}); err != nil {
-			return err
-		}
-	}
-	// The deferred actions unwind only on the Error path, before the Error
-	// returns: the success path runs them at the scope's own exit, and
-	// running them twice would double-release the same resources. The
-	// unwind must precede the return so it executes.
-	if err := unwindAllDefers(&builder, state, indent, "true"); err != nil {
-		return err
-	}
-	if compilerTypes.IsError(resultType) {
-		if err := renderInto(&builder, "module.c", "payload_return", tryGuardModel{Indent: indent, Temp: temp, Field: state.tags.unionPayloadField(errorMember)}); err != nil {
-			return err
-		}
-	} else {
-		resultMembers := compilerTypes.UnionMembers(resultType)
-		resultErrorMember, _ := resultMembers.At(resultErrorIndex)
-		if err := renderInto(&builder, "module.c", "union_return", tryArmModel{Indent: indent, Type: resultType.CName, Tag: state.tags.unionMemberTag(errorMember), Field: state.tags.unionPayloadField(resultErrorMember), Temp: temp, Payload: state.tags.unionPayloadField(errorMember)}); err != nil {
-			return err
-		}
-	}
-	if err := renderInto(&builder, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+	if err := writeTryErrorArm(&builder, node, temp, errorMember, state, indent); err != nil {
 		return err
 	}
 	success := node.ResultType
@@ -222,33 +236,7 @@ func hoistTry(node checker.Expression, body *strings.Builder, state *expressionV
 	if err := renderInto(&builder, "module.c", "const_decl", forStmtLineModel{Indent: indent, Type: physicalType.CName, Name: temp, Value: operand}); err != nil {
 		return err
 	}
-	resultErrorIndex = -1
-	if !compilerTypes.IsError(resultType) {
-		resultErrorIndex = unionMemberIndex(resultType, compilerTypes.ErrorType)
-		if resultErrorIndex < 0 {
-			return unknownExpressionDiagnostic()
-		}
-	}
-	if err := renderInto(&builder, "module.c", "tag_test_open", tryGuardModel{Indent: indent, Temp: temp, Tag: state.tags.unionMemberTag(errorMember)}); err != nil {
-		return err
-	}
-	// The unwind must precede the return so it executes; see the identical
-	// note on the first Error check above.
-	if err := unwindAllDefers(&builder, state, indent, "true"); err != nil {
-		return err
-	}
-	if compilerTypes.IsError(resultType) {
-		if err := renderInto(&builder, "module.c", "payload_return", tryGuardModel{Indent: indent, Temp: temp, Field: state.tags.unionPayloadField(errorMember)}); err != nil {
-			return err
-		}
-	} else {
-		resultMembers := compilerTypes.UnionMembers(resultType)
-		resultErrorMember, _ := resultMembers.At(resultErrorIndex)
-		if err := renderInto(&builder, "module.c", "union_return", tryArmModel{Indent: indent, Type: resultType.CName, Tag: state.tags.unionMemberTag(errorMember), Field: state.tags.unionPayloadField(resultErrorMember), Temp: temp, Payload: state.tags.unionPayloadField(errorMember)}); err != nil {
-			return err
-		}
-	}
-	if err := renderInto(&builder, "module.c", "block_close", indentModel{Indent: indent}); err != nil {
+	if err := writeTryErrorArm(&builder, node, temp, errorMember, state, indent); err != nil {
 		return err
 	}
 	// mutable: every switch case below assigns resultTemp exactly once at

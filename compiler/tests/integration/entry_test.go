@@ -93,14 +93,6 @@ func TestRootReturnKeepsFunctionReturnsUnchanged(t *testing.T) {
 	}
 }
 
-// The root has no Error result, so try and errdefer stay rejected there.
-func TestRootTryAndErrdeferRejected(t *testing.T) {
-	assertRejects(t, "fun f(): Int32 | Error do\n    return 1\nend\nlet x = try f()\n",
-		"try requires an enclosing function whose result accepts Error")
-	assertRejects(t, "errdefer print(\"x\")\n",
-		"errdefer requires an enclosing function whose result accepts Error")
-}
-
 // A union narrowed by an if whose alternative ends in a root return is used
 // as its remaining member without further narrowing.
 func TestRootReturnStatusSurvivesNarrowing(t *testing.T) {

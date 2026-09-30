@@ -21,7 +21,6 @@ gets deleted.
 | Work | Spec | Effort | ROI |
 | --- | --- | --- | --- |
 | Replace copied method receivers with reference `self` and explicit `method mut` | [0254](specs/0254-reference-self-and-explicit-mutating-methods.md) | High | High |
-| Allow root `try` and root `errdefer`, reporting the Error and exiting 1 | [0253](specs/0253-root-try-and-errdefer.md) | Low | High |
 | One call-shape guideline: union methods, std/regex and std/json methods, and `.to<T>()` conversions on the source value | [0251](specs/0251-call-shape-rule.md) | High | Medium |
 
 ## Deferred ideas

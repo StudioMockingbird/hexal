@@ -110,6 +110,11 @@ func discoverGeneratedPrint(program checker.Program) (*generatedPrintState, erro
 		// first, then its structural descendants), so the first callback
 		// per argument is exactly that argument's own top-level type.
 		Expression: func(node checker.Expression) error {
+			if node.Kind == checker.TryExpression && node.RootExit {
+				// A root try reports its Error through the direct print form.
+				state.used = true
+				return addType(compilerTypes.ErrorType)
+			}
 			if node.Kind == checker.PrintExpression {
 				state.used = true
 				for _, argument := range node.Arguments {

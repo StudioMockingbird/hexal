@@ -1,7 +1,11 @@
 # RFC 0253: Root `try` and Root `errdefer`
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; implementation not started
+- Status: Closed. Implemented and verified 2026-09-30: root `try` and root
+  `errdefer` are accepted at entry-module root, the Error arm runs the root
+  cleanup as an Error exit, flushes stdout, writes the `[Error] ` report to
+  stderr, and exits 1; integration cases 1-7 and C23 fixtures 8-11 pass; the
+  reference documents the rule; see Implementation state
 
 ## Summary
 
@@ -166,6 +170,32 @@ debug/release lane also proves both modes print the same report):
     no `errdefer`.
 11. A runtime-produced Error (`Fs.open` of a missing file) through a root
     `try` exits 1 with its report.
+
+## Implementation state
+
+- The checked `try` node records `RootExit` (no enclosing result); the
+  generator's root return and root `try` share one `writeRootExit` helper
+  (status slot, cleanup unwind under the exit classification, optional Error
+  report, jump to the single exit label), and a root `try` selects the print
+  runtime only for its `print_error_direct` report, so a program without one
+  emits no report code.
+- Root `errdefer` needed the two entry-root statement dispatch sites in
+  `compiler/checker/checker.go` to keep the checked statement; both formerly
+  discarded it because it was always invalid there.
+- Validation 5 as worded is not reachable: an imported module's root
+  `errdefer` is an executable statement, so the module phase reports
+  `module.imported-executable-statements` first, the earlier owner. The test
+  asserts that diagnostic; `type.errdefer-requires-error-result` remains the
+  diagnostic for a function whose result cannot carry Error. An imported root
+  `try` inside a module value initializer reaches the checker and is rejected
+  with `type.try-requires-error-result`.
+- The report reuses the 256-byte inline print buffer; a longer report grows it
+  with the C library allocator and a failed growth traps, so "allocates
+  nothing" holds for Heap, not for the C allocator beyond that size.
+- The C23 fixtures needed two optional Tier 3 fields, an exact `exitStatus`
+  and a merged stdout/stderr `exactOutput`, because the separate-pipe harness
+  could not observe status 1 or stream ordering.
+- No snippet hash moved; no existing snippet uses root `try` or `errdefer`.
 
 ## Alternatives rejected
 

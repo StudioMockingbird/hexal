@@ -130,6 +130,14 @@ int main(int argc, char **argv) {
 {{end}}{{define "exit_status_zero"}}{{.Indent}}hex_exit_status = 0;
 {{end}}{{define "exit_status_value"}}{{.Indent}}hex_exit_status = (uint8_t)({{.Value}});
 {{end}}{{define "goto_exit"}}{{.Indent}}goto hex_exit;
+{{end}}{{define "root_error_report"}}{{.Indent}}hex_print_buffer {{.Buffer}};
+{{.Indent}}hex_print_begin(&{{.Buffer}});
+{{.Indent}}hex_print_text(&{{.Buffer}}, (const uint8_t *)"[Error] ", 8);
+{{.Indent}}hex_print_error_direct(&{{.Buffer}}, &{{.Error}});
+{{.Indent}}hex_print_text(&{{.Buffer}}, (const uint8_t *)"\n", 1);
+{{.Indent}}(void)fflush(stdout);
+{{.Indent}}(void)fwrite({{.Buffer}}.data, 1, {{.Buffer}}.length, stderr);
+{{.Indent}}hex_print_destroy(&{{.Buffer}});
 {{end}}{{define "line_directive"}}#line {{.Line}} "{{.File}}"
 {{end}}{{define "object_literal"}}({{.Type}}){{"{"}}{{range .Fields}}
         .{{.Name}} = {{.Value}},{{end}}

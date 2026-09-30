@@ -1032,7 +1032,9 @@ func validateEndianConversionExpression(node checker.Expression, expected *compi
 }
 
 func validateTryExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
-	if node.Operand == nil || node.OperandType == (compilerTypes.Type{}) || node.ResultType == (compilerTypes.Type{}) || node.Element == (compilerTypes.Type{}) || node.MemberIndex < 0 || node.OperandType.Union == nil {
+	// A root try has no enclosing function result to return through; every
+	// other try names one.
+	if node.Operand == nil || node.OperandType == (compilerTypes.Type{}) || node.ResultType == (compilerTypes.Type{}) || (node.Element == (compilerTypes.Type{})) != node.RootExit || node.MemberIndex < 0 || node.OperandType.Union == nil {
 		return unknownExpressionDiagnostic()
 	}
 	if unionMemberIndex(node.OperandType, compilerTypes.ErrorType) != node.MemberIndex {

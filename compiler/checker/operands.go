@@ -501,11 +501,15 @@ type Expression struct {
 	// type for a plain copy-initialization. Zero when the operand is not a
 	// place or was never narrowed, in which case it equals OperandType.
 	OperandStorageType compilerTypes.Type
-	ResultType         compilerTypes.Type
-	MemberIndex        int
-	VariantIndex       int
-	TestType           compilerTypes.Type
-	MemberMap          []int
+	// RootExit belongs to TryExpression alone: the try sits at entry-module
+	// root, so its Error branch exits the program instead of returning
+	// through an enclosing function, and Element stays zero.
+	RootExit     bool
+	ResultType   compilerTypes.Type
+	MemberIndex  int
+	VariantIndex int
+	TestType     compilerTypes.Type
+	MemberMap    []int
 	// MatchConstants is parallel to Arguments and MemberMap for a
 	// MatchExpression: the contextual constant of each scalar arm, zero for
 	// every non-scalar arm. Constant is the arm's checked value and Type is

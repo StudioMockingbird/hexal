@@ -79,7 +79,7 @@ func TestC23SuiteQualifiedProfile(t *testing.T) {
 				return
 			}
 			t.Run("trap", func(t *testing.T) {
-				trapGeneratedC(t, result, buildRoot, f.expectation.requiredStderrSubstring)
+				trapGeneratedC(t, result, buildRoot, *f.expectation)
 			})
 		})
 	}

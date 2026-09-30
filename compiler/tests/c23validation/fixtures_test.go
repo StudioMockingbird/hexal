@@ -1182,6 +1182,65 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] ErrorKind.Other header exceeds 128 bytes"},
 	},
 	{
+		name:       "root-try-user-error-exits-with-report",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun fail(): Int32 | Error do\n" +
+			"    return Error(ErrorKind.Other(header = \"Boom\"), \"it broke\")\n" +
+			"end\n" +
+			"let n: Int32 = try fail()\n" +
+			"print(n)\n"},
+		expectation: &processExpectation{
+			requiredStderrSubstring: "[Error] app.hex:2:12: Boom: it broke",
+			exitStatus:              1,
+			exactOutput:             "[Error] app.hex:2:12: Boom: it broke\n",
+		},
+	},
+	{
+		// The deferred and errdefer actions write to stderr so their order
+		// against the report, and the stdout line before the try, are
+		// observable on the merged stream.
+		name:       "root-try-runs-cleanup-before-report",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "import\n  Io from std.io\nend\n" +
+			"fun note(text: String) do\n" +
+			"    let stream = Io.stderr()\n" +
+			"    if stream is Error then\n        return\n    end\n" +
+			"    let wrote: Size | Error = stream.write(text.bytes())\n" +
+			"end\n" +
+			"fun fail(): Int32 | Error do\n" +
+			"    return Error(ErrorKind.Other(header = \"Boom\"), \"it broke\")\n" +
+			"end\n" +
+			"print(\"first\\n\")\n" +
+			"defer note(\"defer\\n\")\n" +
+			"errdefer note(\"errdefer\\n\")\n" +
+			"let n: Int32 = try fail()\n" +
+			"print(\"unreachable\\n\")\n"},
+		expectation: &processExpectation{
+			requiredStderrSubstring: "[Error] app.hex:12:12: Boom: it broke",
+			exitStatus:              1,
+			exactOutput:             "first\nerrdefer\ndefer\n[Error] app.hex:12:12: Boom: it broke\n",
+		},
+	},
+	{
+		name:       "root-try-success-runs-no-errdefer-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun ok(): Int32 | Error do\n    return 7\nend\n" +
+			"print(\"start\\n\")\n" +
+			"errdefer print(\"errdefer\\n\")\n" +
+			"let a: Int32 = try ok()\n" +
+			"let b: Int32 = try ok()\n" +
+			"print(a + b)\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "start\n14"},
+	},
+	{
+		name:       "root-try-runtime-error-exits-with-report",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "import\n  Fs from std.fs\nend\n" +
+			"let file = try Fs.open(\"hexal-missing-file.txt\", Fs.FileMode.Read())\n" +
+			"print(\"unreachable\\n\")\n"},
+		expectation: &processExpectation{requiredStderrSubstring: "[Error] app.hex:", exitStatus: 1},
+	},
+	{
 		name:        "sizes-run",
 		entrypoint:  "app.hex",
 		sources:     map[string]string{"app.hex": "print(size_of<String<31>>(), \" \", align_of<String<31>>(), \" \", size_of<Error>(), \" \", size_of<String>(), \"\\n\")\n"},

@@ -151,15 +151,27 @@ func checkErrorKindMethodCall(call methodCall) checkedExpression {
 	return checkedExpression{source: source, typ: compilerTypes.ErrorHeaderText, token: call.callee.Property}
 }
 
+// errorExitAllowed reports whether `try` and `errdefer` are valid in this
+// scope: a function whose result accepts Error, or the entry module's own
+// root, where the Error exits the program. An imported module's root has no
+// enclosing function and stays rejected.
+func errorExitAllowed(names *scope) bool {
+	if !names.inFunction() {
+		return names.isEntryModule()
+	}
+	return names.result != nil && resultAcceptsError(*names.result)
+}
+
 // checkTryExpression resolves the `try` form: the operand must be a
-// union containing Error and at least one success member, the enclosing
-// function's result must accept Error, and the try yields the normalized
-// success value or union.
+// union containing Error and at least one success member, the scope must be
+// able to exit on Error (see errorExitAllowed), and the try yields the
+// normalized success value or union. At entry-module root the node records
+// RootExit and no enclosing result.
 func checkTryExpression(expression parser.TryExpression, context expressionContext, ctx checkContext) checkedExpression {
 	if context.inCleanup || ctx.names.cleanupDepth > 0 {
 		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(messageAt(expression.Keyword, diag.TryInsideCleanup()))}
 	}
-	if !ctx.names.inFunction() || ctx.names.result == nil || !resultAcceptsError(*ctx.names.result) {
+	if !errorExitAllowed(ctx.names) {
 		return checkedExpression{token: expression.Keyword, diagnostic: diagnosticAt(messageAt(expression.Keyword, diag.TryRequiresErrorResult()))}
 	}
 	operand := checkExpression(expression.Operand, expressionContext{foldConstants: true}, ctx)
@@ -190,8 +202,12 @@ func checkTryExpression(expression parser.TryExpression, context expressionConte
 		OperandType:        operand.typ,
 		OperandStorageType: operand.storageType,
 		ResultType:         success,
-		Element:            *ctx.names.result,
 		MemberIndex:        memberIndex,
+	}
+	if ctx.names.inFunction() {
+		node.Element = *ctx.names.result
+	} else {
+		node.RootExit = true
 	}
 	source := Operand{Kind: ExpressionOperand, Type: success, Name: "try", Node: node}
 	return checkedExpression{source: source, typ: success, token: expression.Keyword}
@@ -199,9 +215,10 @@ func checkTryExpression(expression parser.TryExpression, context expressionConte
 
 // checkErrdeferStatement registers an error-only cleanup action.
 // Registration and capture follow `defer` exactly; the action runs only when
-// the current function exits by returning Error.
+// the current function exits by returning Error, or the program exits
+// through a root `try`.
 func checkErrdeferStatement(statement parser.ErrdeferStatement, ctx checkContext) (ErrdeferStatement, compilerTypes.Diagnostics) {
-	if !ctx.names.inFunction() || ctx.names.result == nil || !resultAcceptsError(*ctx.names.result) {
+	if !errorExitAllowed(ctx.names) {
 		return ErrdeferStatement{}, compilerTypes.Diagnostics{messageAt(statement.Keyword, diag.ErrdeferRequiresErrorResult())}
 	}
 	ctx.names.cleanupDepth++
