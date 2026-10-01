@@ -21,6 +21,9 @@ var jsonCaseStdout string
 //go:embed testdata/network_close_cancel.hex
 var networkCloseCancelSource string
 
+//go:embed testdata/network_accept_burst.hex
+var networkAcceptBurstSource string
+
 //go:embed testdata/http_common.hex
 var httpCommonSource string
 
@@ -2145,6 +2148,15 @@ var fixtureCatalog = []fixture{
 	},
 	// Closing a connection or listener from another Task completes the one
 	// parked read, accept, or write with Closed instead of leaving it parked.
+	{
+		name:       "network-accept-burst-completes-every-accept-runs",
+		entrypoint: "app.hex",
+		sources:    map[string]string{"app.hex": networkAcceptBurstSource},
+		expectation: &processExpectation{
+			zeroExit:    true,
+			exactStdout: "served: 4\nheard: 4 of 5\n",
+		},
+	},
 	{
 		name:       "network-close-cancels-parked-operations-runs",
 		entrypoint: "app.hex",

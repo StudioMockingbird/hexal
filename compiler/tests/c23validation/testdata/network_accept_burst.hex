@@ -1,0 +1,69 @@
+import
+    Net from std.net,
+    Time from std.time
+end
+
+-- Several clients connect before the first accept: libuv reports the first,
+-- holds the rest, and stops watching the listener until each earlier
+-- connection is taken. Every accept after the first must still complete, and a
+-- connection still unclaimed when the listener closes is closed with it.
+
+fun serve_one(listener: Net.TcpListener): Nil | Error do
+    let accepted = try listener.accept()
+    defer accepted.close()
+    let note: String = "x"
+    try accepted.write(note.bytes())
+    return nil
+end
+
+fun heard(connection: Net.TcpConnection): Bool do
+    let heap = Heap()
+    let buffer: List<Byte> = List<Byte>(heap)
+    let got = connection.read(buffer, 1)
+    buffer.free(heap)
+    connection.close()
+    return got is Size
+end
+
+fun run(): Nil | Error do
+    let address = try Net.parse_address("127.0.0.1", 18736)
+    let listener = try Net.listen(address, 8)
+    let first = try Net.connect(address)
+    let second = try Net.connect(address)
+    let third = try Net.connect(address)
+    let fourth = try Net.connect(address)
+    let unclaimed = try Net.connect(address)
+    Time.sleep(Time.milliseconds(100))
+    try serve_one(listener)
+    try serve_one(listener)
+    try serve_one(listener)
+    try serve_one(listener)
+    print("served: 4\n")
+    Time.sleep(Time.milliseconds(50))
+    try listener.close()
+    -- Which four clients were accepted is up to the platform's accept order;
+    -- the fifth was never accepted and sees its connection closed.
+    let mut count: Int32 = 0
+    if heard(first) then
+        count = count + 1
+    end
+    if heard(second) then
+        count = count + 1
+    end
+    if heard(third) then
+        count = count + 1
+    end
+    if heard(fourth) then
+        count = count + 1
+    end
+    if heard(unclaimed) then
+        count = count + 1
+    end
+    print("heard: ", count, " of 5\n")
+    return nil
+end
+
+let outcome = run()
+if outcome != nil then
+    print("failed: ", outcome.header(), ": ", outcome.message, "\n")
+end

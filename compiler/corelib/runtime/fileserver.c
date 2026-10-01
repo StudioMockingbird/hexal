@@ -988,6 +988,10 @@ static bool hex_files_etag_matches(const uint8_t *list, size_t length, const uin
 
 // --- Serving ---
 
+// One transfer step reads at most this many bytes into a single heap buffer and
+// writes them through the Writer, so a transfer's memory is this bound and never
+// the file size. It equals the default write buffer, making a step one flush; it
+// is a resource bound, not a measured optimum.
 constexpr size_t HEX_FILES_CHUNK = 65536;
 
 static bool hex_files_request_header(hex_http_request request, const hex_string *name, hex_slice_UInt8 *value) {

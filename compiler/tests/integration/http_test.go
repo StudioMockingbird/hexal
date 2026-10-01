@@ -156,9 +156,38 @@ func TestHttpServerSurfaceCompilesAndSelectsTheRuntime(t *testing.T) {
 			t.Errorf("serving does not select %s", key)
 		}
 	}
+	server := moduleFile(t, result, "hexal/server.c")
+	if !strings.Contains(server, "config.hex_m_tcp_nodelay") || !strings.Contains(server, "hex_tcp_no_delay(accepted.connection") {
+		t.Errorf("the configured TCP_NODELAY choice must reach every accepted connection:\n%s", server)
+	}
 	header := moduleFile(t, result, "modules/app.h")
 	if !strings.Contains(header, "hex_http_router_route_invoke_") {
 		t.Errorf("the route registration must pass the module's invoke thunk:\n%s", header)
+	}
+}
+
+// Socket waits park the connection Task on the loop thread: neither the TCP
+// runtime nor the server submits a worker-pool job, and the parser adapter
+// makes no libuv call.
+func TestHttpServerSocketWaitsUseNoWorkerPoolJob(t *testing.T) {
+	source := httpServerPrelude +
+		"fun serve(heap: Heap): Nil | Error do\n" +
+		"    let app = App(hits = Atomic<Int32>(0))\n" +
+		"    let mut router = Http.Router<App>(heap)\n" +
+		"    try router.route(\"GET\", \"/\", home)\n" +
+		"    let server = try Http.listen<App>(heap, Http.default_config(\"127.0.0.1\", 8080), router, @app)\n" +
+		"    try server.run()\n" +
+		"    server.free(heap)\n" +
+		"    router.free(heap)\n" +
+		"    return nil\nend\n"
+	result := assertCompiles(t, source)
+	for _, key := range []string{"hexal/server.c", "hexal/network.c"} {
+		if strings.Contains(moduleFile(t, result, key), "hex_event_work_call") {
+			t.Errorf("%s submits a worker-pool job; socket waits must park on the loop thread", key)
+		}
+	}
+	if strings.Contains(moduleFile(t, result, "hexal/http.c"), "uv_") {
+		t.Errorf("the parser adapter calls libuv")
 	}
 }
 

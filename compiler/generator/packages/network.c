@@ -268,11 +268,18 @@ typedef struct hex_tcp_control {
     bool busy_accept;
     // pending_client holds one already-accepted connection's control block
     // when its uv_connection_cb fires with no Task currently parked in
-    // accept(); the next accept() call consumes it before submitting a new
-    // wait. Both fields are touched only from the loop thread (the
-    // callback) or under a park/resume boundary that never overlaps it.
+    // accept(); the next accept command takes it. accept_declined records
+    // that libuv may still hold connections the callback could not take
+    // because pending_client was occupied: the Linux backend then stops
+    // watching the listener and the Windows backend queues them, so the accept
+    // command that frees the slot must take the next one. spare_client is an
+    // initialized, unconnected socket kept for the next uv_accept so that a
+    // probe which finds nothing allocates nothing. All of these fields are
+    // touched only on the loop thread.
     struct hex_tcp_control *pending_client;
+    struct hex_tcp_control *spare_client;
     hex_event_command *accept_command;
+    bool accept_declined;
     int state;
     hex_tcp_read_request *read_op;
     hex_tcp_write_request *write_op;
@@ -293,6 +300,12 @@ typedef struct hex_tcp_control {
 
 static hex_tcp_control *hex_tcp_control_new(void) {
     return (hex_tcp_control *)hex_heap_allocate_zeroed_or_null(sizeof(hex_tcp_control));
+}
+
+// hex_tcp_discard_done releases a control block whose socket never reached a
+// Task: the handle is closed first because uv_tcp_init linked it into the loop.
+static void hex_tcp_discard_done(uv_handle_t *handle) {
+    hex_heap_free(handle->data);
 }
 
 static void hex_tcp_sockaddr(hex_t_Address address, struct sockaddr_storage *out) {
@@ -389,6 +402,14 @@ static void hex_tcp_close_done(uv_handle_t *handle) {
 // Closed, and its own callback is the one wake.
 static void hex_tcp_begin_close(hex_tcp_control *control) {
     control->state = HEX_TCP_CLOSING;
+    if (control->spare_client != nullptr) {
+        uv_close((uv_handle_t *)&control->spare_client->socket, hex_tcp_discard_done);
+        control->spare_client = nullptr;
+    }
+    if (control->pending_client != nullptr) {
+        uv_close((uv_handle_t *)&control->pending_client->socket, hex_tcp_discard_done);
+        control->pending_client = nullptr;
+    }
     if (control->read_op != nullptr) {
         hex_tcp_read_settle(control, HEX_TCP_OP_CLOSED);
     }
@@ -519,28 +540,80 @@ typedef struct hex_tcp_listen_request {
     int status;
 } hex_tcp_listen_request;
 
+// hex_tcp_accept_take moves the next connection libuv holds for the listener
+// into a control block, reusing the spare socket a previous empty attempt
+// left. It returns nullptr when libuv holds none (the spare stays for the next
+// attempt) or when no socket could be set up. Loop thread only.
+static hex_tcp_control *hex_tcp_accept_take(hex_tcp_control *listener) {
+    uv_stream_t *server = (uv_stream_t *)&listener->socket;
+    hex_tcp_control *client_control = listener->spare_client;
+    if (client_control == nullptr) {
+        client_control = hex_tcp_control_new();
+        if (client_control == nullptr) {
+            return nullptr;
+        }
+        if (uv_tcp_init(server->loop, &client_control->socket) != 0) {
+            hex_heap_free(client_control);
+            return nullptr;
+        }
+        client_control->socket.data = client_control;
+    }
+    if (uv_accept(server, (uv_stream_t *)&client_control->socket) != 0) {
+        listener->spare_client = client_control;
+        return nullptr;
+    }
+    listener->spare_client = nullptr;
+    return client_control;
+}
+
+// hex_tcp_accept_resume takes a connection the callback declined into the free
+// pending slot. A successful uv_accept also restarts the Linux backend's watch
+// of the listener; an empty attempt proves libuv holds nothing more.
+static void hex_tcp_accept_resume(hex_tcp_control *listener) {
+    if (!listener->accept_declined || listener->pending_client != nullptr) {
+        return;
+    }
+    hex_tcp_control *client_control = hex_tcp_accept_take(listener);
+    if (client_control != nullptr) {
+        listener->pending_client = client_control;
+    } else {
+        listener->accept_declined = false;
+    }
+}
+
+typedef struct hex_tcp_accept_request {
+    hex_event_command command;
+    hex_tcp_control *listener;
+    // The accepted connection, set on the loop thread before the wake; nullptr
+    // when the listener closed instead.
+    hex_tcp_control *client;
+} hex_tcp_accept_request;
+
 static void hex_tcp_connection_arrived(uv_stream_t *server, int status) {
     hex_tcp_control *listener = (hex_tcp_control *)server->data;
-    if (status < 0 || listener->pending_client != nullptr) {
-        // A failed incoming connection is dropped; a connection arriving
-        // while one is already held unclaimed stays in libuv's own backlog.
+    if (status < 0) {
         return;
     }
-    hex_tcp_control *client_control = hex_tcp_control_new();
+    if (listener->accept_command == nullptr && listener->pending_client != nullptr) {
+        // libuv keeps this connection and stops watching the listener until
+        // an accept command takes it through hex_tcp_accept_resume.
+        listener->accept_declined = true;
+        return;
+    }
+    hex_tcp_control *client_control = hex_tcp_accept_take(listener);
     if (client_control == nullptr) {
+        // libuv still holds the connection; the next accept command retries.
+        listener->accept_declined = true;
         return;
     }
-    if (uv_tcp_init(server->loop, &client_control->socket) != 0 || uv_accept(server, (uv_stream_t *)&client_control->socket) != 0) {
-        hex_heap_free(client_control);
-        return;
-    }
-    client_control->socket.data = client_control;
-    listener->pending_client = client_control;
     if (listener->accept_command != nullptr) {
-        hex_event_command *waiting = listener->accept_command;
+        hex_tcp_accept_request *waiting = (hex_tcp_accept_request *)listener->accept_command;
         listener->accept_command = nullptr;
-        hex_task_event_wake(waiting->task);
+        waiting->client = client_control;
+        hex_task_event_wake(waiting->command.task);
+        return;
     }
+    listener->pending_client = client_control;
 }
 
 static void hex_tcp_listen_start(hex_event_command *command) {
@@ -589,25 +662,25 @@ hex_tcp_listen_result hex_tcp_listen(hex_t_Address address, size_t backlog) {
     return (hex_tcp_listen_result){.status = 0, .listener = {.handle = handle}};
 }
 
-typedef struct hex_tcp_accept_request {
-    hex_event_command command;
-    hex_tcp_control *listener;
-} hex_tcp_accept_request;
-
 static void hex_tcp_accept_start(hex_event_command *command) {
     hex_tcp_accept_request *accept_request = (hex_tcp_accept_request *)command;
-    if (accept_request->listener->state != HEX_TCP_OPEN) {
+    hex_tcp_control *listener = accept_request->listener;
+    if (listener->state != HEX_TCP_OPEN) {
         hex_task_event_wake(accept_request->command.task);
         return;
     }
-    // Both this callback and hex_tcp_connection_arrived run only on the
-    // loop thread, so there is no race between checking pending_client here
-    // and a connection that arrived first setting it.
-    if (accept_request->listener->pending_client != nullptr) {
+    // This command and hex_tcp_connection_arrived run only on the loop
+    // thread, so a connection that arrived first is seen here, and taking it
+    // frees the slot for the next one libuv may be holding.
+    hex_tcp_accept_resume(listener);
+    if (listener->pending_client != nullptr) {
+        accept_request->client = listener->pending_client;
+        listener->pending_client = nullptr;
+        hex_tcp_accept_resume(listener);
         hex_task_event_wake(accept_request->command.task);
         return;
     }
-    accept_request->listener->accept_command = command;
+    listener->accept_command = command;
 }
 
 hex_tcp_accept_result hex_tcp_accept(hex_tcp_listener listener) {
@@ -625,14 +698,9 @@ hex_tcp_accept_result hex_tcp_accept(hex_tcp_listener listener) {
         return (hex_tcp_accept_result){.status = HEX_NETWORK_BUSY};
     }
     control->busy_accept = true;
-    hex_tcp_control *client_control = control->pending_client;
-    control->pending_client = nullptr;
-    if (client_control == nullptr) {
-        hex_tcp_accept_request accept_request = {.command = {.task = task, .start = hex_tcp_accept_start}, .listener = control};
-        hex_event_submit(task, &accept_request.command);
-        client_control = control->pending_client;
-        control->pending_client = nullptr;
-    }
+    hex_tcp_accept_request accept_request = {.command = {.task = task, .start = hex_tcp_accept_start}, .listener = control};
+    hex_event_submit(task, &accept_request.command);
+    hex_tcp_control *client_control = accept_request.client;
     control->busy_accept = false;
     hex_handle_release(lease);
     if (client_control == nullptr) {
@@ -654,11 +722,6 @@ int hex_tcp_listener_close(hex_tcp_listener listener) {
         return HEX_NETWORK_CLOSED;
     }
     hex_tcp_control *control = (hex_tcp_control *)control_ptr;
-    if (control->pending_client != nullptr) {
-        hex_tcp_native_close(control->pending_client);
-        hex_heap_free(control->pending_client);
-        control->pending_client = nullptr;
-    }
     hex_tcp_native_close(control);
     hex_handle_close_finish(listener.handle);
     return 0;

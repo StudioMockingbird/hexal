@@ -20,6 +20,12 @@ Connection: close
 Content-Length: 6
 
 hit 3
+== upload several times the receive buffer
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 16
+
+received 100000
 hits seen by the application: 3
 run: true
 waiter: true

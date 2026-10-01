@@ -12,6 +12,60 @@ fun home(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Err
     return nil
 end
 
+-- Counts the body bytes, whatever the connection's receive buffer holds at a time.
+fun size_of_body(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let heap = Heap()
+    let body: List<Byte> = List<Byte>(heap)
+    let mut total: Size = 0
+    let mut finished = false
+    while finished == false do
+        body.clear()
+        let step = request.read(body, 4096)
+        if step is Error then
+            body.free(heap)
+            return step
+        end
+        if step is EoS then
+            finished = true
+        end
+        if step is Size then
+            total = total + step
+        end
+    end
+    body.free(heap)
+    let text = String.interpolate(heap, "received {{ total }}\n")
+    try response.content_length(text.length())
+    try response.write(text.bytes())
+    text.free(heap)
+    return nil
+end
+
+-- Sends one request whose body is several times the default receive buffer.
+fun upload(heap: Heap, label: String, address: Net.Address, size: Size) do
+    let head = String.interpolate(heap, "POST /size HTTP/1.1\r\nHost: x\r\nContent-Length: {{ size }}\r\nConnection: close\r\n\r\n")
+    let bytes: List<Byte> = List<Byte>(heap)
+    let view = head.bytes()
+    let mut index: Size = 0
+    while index < view.length() do
+        bytes.push(view[index])
+        index = index + 1
+    end
+    head.free(heap)
+    let mut sent: Size = 0
+    while sent < size do
+        bytes.push(97)
+        sent = sent + 1
+    end
+    let request = bytes.slice(0, bytes.length()).to<String>(heap)
+    bytes.free(heap)
+    if request is Error then
+        print(label, ": request is not text\n")
+        return
+    end
+    show(heap, label, address, request)
+    request.free(heap)
+end
+
 fun report(label: String, result: Nil | Error) do
     if result != nil then
         print(label, ": ", result.header(), ": ", result.message, "\n")
@@ -39,6 +93,7 @@ fun run(): Nil | Error do
     let mut router = Http.Router<App>(heap)
     try router.route("GET", "/count", counted)
     try router.route("GET", "/", home)
+    try router.route("POST", "/size", size_of_body)
 
     let config = Http.default_config("127.0.0.1", 18920)
     let server = try Http.listen<App>(heap, config, router, @app)
@@ -54,6 +109,7 @@ fun run(): Nil | Error do
     show(heap, "first count", address, "GET /count HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
     show(heap, "second count", address, "GET /count HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
     show(heap, "third count", address, "GET /count HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    upload(heap, "upload several times the receive buffer", address, 100000)
     print("hits seen by the application: ", app.hits.load(), "\n")
     server.stop()
     server.stop()
