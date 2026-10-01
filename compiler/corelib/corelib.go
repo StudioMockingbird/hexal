@@ -37,6 +37,7 @@ const (
 	ParamAppPtr       Param = specdata.CoreParamAppPtr
 	ParamHandler      Param = specdata.CoreParamHandler
 	ParamSize         Param = specdata.CoreParamSize
+	ParamByteList     Param = specdata.CoreParamByteList
 )
 
 // Result is one runtime function's success shape. Every Result except

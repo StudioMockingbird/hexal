@@ -46,7 +46,8 @@ func discoverModuleAddonAdapters(program checker.Program, path string) []corelib
 			if query == "" {
 				return unknownExpressionDiagnostic()
 			}
-			key := node.Name + "|" + node.ResultType.CName
+			app := routeApplication(node)
+			key := addonAdapterSuffix(node.Name, node.ResultType, app) + "|" + node.Name
 			if !seen[key] {
 				seen[key] = true
 				adapters = append(adapters, corelibAdapter{
@@ -55,6 +56,7 @@ func discoverModuleAddonAdapters(program checker.Program, path string) []corelib
 					params:  function.Params,
 					union:   node.ResultType,
 					query:   query,
+					app:     app,
 				})
 			}
 			return nil
@@ -84,6 +86,8 @@ func addonRawResultName(path string, result corelib.Result) string {
 			return "hex_http_server_result"
 		case corelib.ResultReadBody:
 			return "hex_http_read_result"
+		case corelib.ResultBytesNil:
+			return "hex_http_bytes_result"
 		}
 	case "std/regex":
 		switch result {

@@ -38,6 +38,8 @@ func corelibParamType(param corelib.Param, app compilerTypes.Type, ctx checkCont
 		return compilerTypes.SizeType
 	case corelib.ParamBytes:
 		return compilerTypes.HttpByteSliceType()
+	case corelib.ParamByteList:
+		return ctx.typeEnvironment.ListType(compilerTypes.UInt8)
 	case corelib.ParamConfig:
 		return compilerTypes.HttpServerConfigType()
 	case corelib.ParamRequest:

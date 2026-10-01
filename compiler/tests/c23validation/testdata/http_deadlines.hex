@@ -1,0 +1,170 @@
+fun home(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let text: String = "home\n"
+    try response.write(text.bytes())
+    return nil
+end
+
+-- Reads the whole body; a stalled upload makes the second read fail.
+fun slow_body(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let heap = Heap()
+    let body: List<Byte> = List<Byte>(heap)
+    defer body.free(heap)
+    let mut finished = false
+    while finished == false do
+        let step = request.read(body, 64)
+        if step is Error then
+            print("body read: ", step.header(), ": ", step.message, "\n")
+            return step
+        end
+        if step is EoS then
+            finished = true
+        end
+    end
+    try response.write(body.slice(0, body.length()))
+    return nil
+end
+
+fun fill_chunk(heap: Heap): List<Byte> do
+    let chunk: List<Byte> = List<Byte>(heap)
+    let mut index: Size = 0
+    while index < 1048576 do
+        chunk.push(120)
+        index = index + 1
+    end
+    return chunk
+end
+
+-- Streams until the peer, which never reads, backs the connection up and the
+-- response write deadline closes it.
+fun stalled_write(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let heap = Heap()
+    let chunk = fill_chunk(heap)
+    defer chunk.free(heap)
+    let mut round: Int32 = 0
+    while round < 4096 do
+        let result = response.write(chunk.slice(0, chunk.length()))
+        if result != nil then
+            print("response write: ", result.header(), ": ", result.message, "\n")
+            return result
+        end
+        round = round + 1
+    end
+    print("response write: never stalled\n")
+    return nil
+end
+
+fun client_idle(address: Net.Address, silent_for: UInt64, request: String): String do
+    let connected = Net.connect(address)
+    if connected is Error then
+        return "connect failed\n"
+    end
+    if request.length() != 0 then
+        let sent = connected.write(request.bytes())
+        if sent != nil then
+            connected.close()
+            return "send failed\n"
+        end
+    end
+    Time.sleep(Time.milliseconds(silent_for))
+    let buffer: List<Byte> = List<Byte>(Heap())
+    let mut total: Size = 0
+    let mut finished = false
+    while finished == false do
+        let step = connected.read(buffer, 4096)
+        if step is Error then
+            finished = true
+        end
+        if step is EoS then
+            finished = true
+        end
+        if step is Size then
+            total = total + step
+        end
+    end
+    connected.close()
+    buffer.free(Heap())
+    let nothing: String = "no data, then the server closed\n"
+    let something: String = "data received, then the server closed\n"
+    if total == 0 then
+        return nothing.copy(Heap())
+    end
+    return something.copy(Heap())
+end
+
+fun report_client(heap: Heap, label: String, address: Net.Address, silent_for: UInt64, request: String) do
+    print("== ", label, "\n")
+    let outcome = client_idle(address, silent_for, request)
+    print(outcome)
+    outcome.free(Heap())
+end
+
+fun show_after(heap: Heap, label: String, address: Net.Address, silent_for: UInt64, request: String) do
+    print("== ", label, "\n")
+    let connected = Net.connect(address)
+    if connected is Error then
+        print("connect failed\n")
+        return
+    end
+    let sent = connected.write(request.bytes())
+    if sent != nil then
+        print("send failed\n")
+        return
+    end
+    Time.sleep(Time.milliseconds(silent_for))
+    let buffer: List<Byte> = List<Byte>(heap)
+    let mut finished = false
+    while finished == false do
+        let step = connected.read(buffer, 4096)
+        if step is Error then
+            finished = true
+        end
+        if step is EoS then
+            finished = true
+        end
+    end
+    connected.close()
+    let text = buffer.slice(0, buffer.length()).to<String>(heap)
+    buffer.free(heap)
+    if text is String then
+        let shown = without_date(heap, text)
+        print(shown)
+        shown.free(heap)
+        text.free(heap)
+    end
+end
+
+fun run(): Nil | Error do
+    let heap = Heap()
+    let app = App(hits = Atomic<Int32>(0))
+    let mut router = Http.Router<App>(heap)
+    try router.route("GET", "/", home)
+    try router.route("POST", "/body", slow_body)
+    try router.route("GET", "/stall", stalled_write)
+    let mut config = Http.default_config("127.0.0.1", 18930)
+    config.header_timeout = Time.milliseconds(300)
+    config.body_timeout = Time.milliseconds(300)
+    config.idle_timeout = Time.milliseconds(400)
+    config.write_timeout = Time.milliseconds(300)
+    let server = try Http.listen<App>(heap, config, router, @app)
+    let runner = try spawn serve(server)
+    settle()
+    let address = try Net.parse_address("127.0.0.1", 18930)
+
+    show_after(heap, "slow header", address, 600, "GET / HTTP/1.1\r\nHost: x\r\n")
+    report_client(heap, "idle before a request", address, 600, "")
+    show_after(heap, "idle between keep-alive requests", address, 600, "GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+    show_after(heap, "slow upload", address, 600, "POST /body HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\nabc")
+    report_client(heap, "stalled download", address, 1200, "GET /stall HTTP/1.1\r\nHost: x\r\n\r\n")
+    show_after(heap, "served after every timeout", address, 0, "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+
+    server.stop()
+    print("run: ", runner.join(), "\n")
+    server.free(heap)
+    router.free(heap)
+    return nil
+end
+
+let outcome = run()
+if outcome != nil then
+    print("failed: ", outcome.header(), ": ", outcome.message, "\n")
+end

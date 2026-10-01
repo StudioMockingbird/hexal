@@ -1,0 +1,103 @@
+import
+    Http from std.http,
+    Net from std.net,
+    Time from std.time
+end
+
+-- Shared helpers for the std/http wire fixtures: a raw TCP client that sends
+-- exact bytes and reads to the end of the stream, and a printer that drops the
+-- one nondeterministic line (Date) so the whole response can be compared.
+
+type App is struct
+    hits: Atomic<Int32>
+end
+
+fun starts_with_date(bytes: Slice<Byte>, at: Size): Bool do
+    if (at + 6) > bytes.length() then
+        return false
+    end
+    return (bytes[at] == 68) and (bytes[at + 1] == 97) and (bytes[at + 2] == 116) and (bytes[at + 3] == 101) and (bytes[at + 4] == 58)
+end
+
+fun without_date(heap: Heap, text: String): String do
+    let kept: List<Byte> = List<Byte>(heap)
+    let bytes = text.bytes()
+    let mut at: Size = 0
+    let mut skipping = false
+    let mut line_start = true
+    while at < bytes.length() do
+        let current = bytes[at]
+        if line_start and starts_with_date(bytes, at) then
+            skipping = true
+        end
+        if skipping == false then
+            kept.push(current)
+        end
+        if current == 10 then
+            skipping = false
+            line_start = true
+        else
+            line_start = false
+        end
+        at = at + 1
+    end
+    let result = kept.slice(0, kept.length()).to<String>(heap)
+    kept.free(heap)
+    if result is Error then
+        return text.copy(heap)
+    end
+    return result
+end
+
+-- wire sends request and reads until the server closes the connection.
+fun wire(heap: Heap, address: Net.Address, request: String): String do
+    let connected = Net.connect(address)
+    if connected is Error then
+        return "connect failed\n"
+    end
+    let sent = connected.write(request.bytes())
+    if sent != nil then
+        connected.close()
+        return "send failed\n"
+    end
+    let buffer: List<Byte> = List<Byte>(heap)
+    let mut finished = false
+    while finished == false do
+        let step = connected.read(buffer, 4096)
+        if step is Error then
+            finished = true
+        end
+        if step is EoS then
+            finished = true
+        end
+    end
+    connected.close()
+    let text = buffer.slice(0, buffer.length()).to<String>(heap)
+    buffer.free(heap)
+    if text is Error then
+        return "response is not text\n"
+    end
+    let shown = without_date(heap, text)
+    text.free(heap)
+    return shown
+end
+
+fun show(heap: Heap, label: String, address: Net.Address, request: String) do
+    print("== ", label, "\n")
+    let response = wire(heap, address, request)
+    print(response)
+    response.free(heap)
+end
+
+fun serve(server: Http.Server<App>): Bool do
+    let result = server.run()
+    if result != nil then
+        print("run failed: ", result.header(), ": ", result.message, "\n")
+        return false
+    end
+    return true
+end
+
+fun settle() do
+    Time.sleep(Time.milliseconds(100))
+end

@@ -64,6 +64,7 @@ enum {
     HEX_NETWORK_CLOSED = 3,
     HEX_NETWORK_ALLOCATION_FAILED = 4,
     HEX_NETWORK_EOS = 5,
+    HEX_NETWORK_TIMED_OUT = 6,
 };
 
 typedef struct hex_address_parsed {
@@ -135,9 +136,9 @@ hex_tcp_transfer hex_tcp_read(hex_tcp_connection connection, hex_list_UInt8 *int
 int hex_tcp_write(hex_tcp_connection connection, hex_slice_UInt8 from);
 // The deadline-bearing forms the server runtime uses. deadline is an absolute
 // hex_instant reading, or zero for none. A read that reaches its deadline
-// returns UV_ETIMEDOUT with no byte consumed and leaves the connection
+// returns HEX_NETWORK_TIMED_OUT with no byte consumed and leaves the connection
 // usable. A write cannot be cancelled alone, so a write that reaches its
-// deadline closes the connection natively and returns UV_ETIMEDOUT; later
+// deadline closes the connection natively and returns HEX_NETWORK_TIMED_OUT; later
 // operations on it return HEX_NETWORK_CLOSED until it is closed explicitly.
 // Closing a connection or listener from another Task completes a parked
 // read, write, or accept with HEX_NETWORK_CLOSED. The read fills a raw

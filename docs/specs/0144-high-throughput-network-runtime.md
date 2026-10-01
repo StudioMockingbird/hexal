@@ -466,7 +466,7 @@ the reference already specified Closed for that case.
   that wakes it. `closer` is the waiting explicit close request, if any.
 - Request outcome: `PENDING`, `DONE` (native completion or native failure, status in
   the record), `DEADLINE`, `CLOSED`. Public statuses: `DEADLINE` returns
-  `UV_ETIMEDOUT`, `CLOSED` returns `HEX_NETWORK_CLOSED`.
+  `HEX_NETWORK_TIMED_OUT`, `CLOSED` returns `HEX_NETWORK_CLOSED`.
 - Timers live in the control block (`read_timer`, `write_timer`), initialized on
   first deadline use on the loop thread and closed with the socket. Stopping one is
   synchronous, so a timer never has to outlive the Task stack and no stale timer
@@ -482,10 +482,10 @@ Read (loop thread; each row wakes the Task exactly once):
 | Event while a read is parked | Winner | Action | Result |
 | --- | --- | --- | --- |
 | `uv_read_cb` with nread != 0 | completion | `uv_read_stop`, stop timer, wake | bytes, `EOS`, or native error |
-| read timer fires at or after the deadline | deadline | `uv_read_stop`, stop timer, wake | `UV_ETIMEDOUT`; connection stays usable |
+| read timer fires at or after the deadline | deadline | `uv_read_stop`, stop timer, wake | `HEX_NETWORK_TIMED_OUT`; connection stays usable |
 | another Task closes the connection | close | `uv_read_stop`, stop timer, wake; then `uv_close` | `Closed` |
 | start finds `state != OPEN` | close | wake | `Closed` |
-| start finds the deadline past | deadline | wake without reading | `UV_ETIMEDOUT` |
+| start finds the deadline past | deadline | wake without reading | `HEX_NETWORK_TIMED_OUT` |
 
 A read that completes before the Task parks wakes through the same path: the
 start command runs on the loop thread after the Task has armed and suspended.
@@ -495,10 +495,10 @@ Write (one `uv_write_t` per chunk; the deadline is shared by all chunks):
 | Event while a write is parked | Winner | Action | Result |
 | --- | --- | --- | --- |
 | `uv_write_cb` with status | completion | stop timer, wake | success or native error |
-| write timer fires at or after the deadline | deadline | mark `DEADLINE`, `uv_close` of the socket; libuv completes the write with `UV_ECANCELED` before the close callback, and that callback is the one wake | `UV_ETIMEDOUT`; connection closed natively |
+| write timer fires at or after the deadline | deadline | mark `DEADLINE`, `uv_close` of the socket; libuv completes the write with `UV_ECANCELED` before the close callback, and that callback is the one wake | `HEX_NETWORK_TIMED_OUT`; connection closed natively |
 | another Task closes the connection | close | mark `CLOSED`, close timers and socket; the write callback is the one wake | `Closed` |
 | start finds `state != OPEN` | close | wake | `Closed` |
-| start finds the deadline past | deadline | `uv_close`, wake (no write in flight) | `UV_ETIMEDOUT`; connection closed natively |
+| start finds the deadline past | deadline | `uv_close`, wake (no write in flight) | `HEX_NETWORK_TIMED_OUT`; connection closed natively |
 
 A later explicit close of a connection closed by a write deadline finds
 `CLOSING` (waits for the close callbacks) or `CLOSED` (returns at once).

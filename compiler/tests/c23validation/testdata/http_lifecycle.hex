@@ -1,0 +1,83 @@
+fun counted(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let seen = (^app).hits.fetch_add(1) + 1
+    let text = String.interpolate(Heap(), "hit {{ seen }}\n")
+    try response.write(text.bytes())
+    text.free(Heap())
+    return nil
+end
+
+fun home(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let text: String = "home\n"
+    try response.write(text.bytes())
+    return nil
+end
+
+fun report(label: String, result: Nil | Error) do
+    if result != nil then
+        print(label, ": ", result.header(), ": ", result.message, "\n")
+    else
+        print(label, ": ok\n")
+    end
+end
+
+fun report_server(label: String, result: Http.Server<App> | Error) do
+    if result is Error then
+        print(label, ": ", result.header(), ": ", result.message, "\n")
+    else
+        print(label, ": listening\n")
+    end
+end
+
+fun wait_twice(server: Http.Server<App>): Bool do
+    let result = server.wait()
+    return result == nil
+end
+
+fun run(): Nil | Error do
+    let heap = Heap()
+    let app = App(hits = Atomic<Int32>(0))
+    let mut router = Http.Router<App>(heap)
+    try router.route("GET", "/count", counted)
+    try router.route("GET", "/", home)
+
+    let config = Http.default_config("127.0.0.1", 18920)
+    let server = try Http.listen<App>(heap, config, router, @app)
+    report("route while attached", router.route("GET", "/late", home))
+    report_server("second listen on the same address", Http.listen<App>(heap, config, router, @app))
+    report("wait before run", server.wait())
+
+    let runner = try spawn serve(server)
+    settle()
+    report("run twice", server.run())
+    let waiter = try spawn wait_twice(server)
+    let address = try Net.parse_address("127.0.0.1", 18920)
+    show(heap, "first count", address, "GET /count HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    show(heap, "second count", address, "GET /count HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    show(heap, "third count", address, "GET /count HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    print("hits seen by the application: ", app.hits.load(), "\n")
+    server.stop()
+    server.stop()
+    print("run: ", runner.join(), "\n")
+    print("waiter: ", waiter.join(), "\n")
+    report("wait after run", server.wait())
+    server.free(heap)
+
+    let early = try Http.listen<App>(heap, Http.default_config("127.0.0.1", 18921), router, @app)
+    early.stop()
+    report("run after an early stop", early.run())
+    early.free(heap)
+
+    let mut bad = Http.default_config("127.0.0.1", 18922)
+    bad.max_connections = 0
+    report_server("zero connection ceiling", Http.listen<App>(heap, bad, router, @app))
+    let mut named = Http.default_config("localhost", 18922)
+    report_server("hostname instead of an address", Http.listen<App>(heap, named, router, @app))
+
+    router.free(heap)
+    return nil
+end
+
+let outcome = run()
+if outcome != nil then
+    print("failed: ", outcome.header(), ": ", outcome.message, "\n")
+end

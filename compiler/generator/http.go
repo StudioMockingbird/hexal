@@ -30,6 +30,10 @@ type generatedServerState struct {
 	router bool
 	route  bool
 	free   bool
+	// runtime is set by every operation that needs the connection runtime:
+	// listen, the Server operations, and the Request and Writer operations. It
+	// selects the Task-aware network, scheduler, and clock machinery.
+	runtime bool
 	// parser is set by every operation that validates a method token or
 	// parses a request: route registration and the listening server.
 	parser   bool
@@ -73,7 +77,10 @@ func discoverGeneratedServer(program checker.Program, logicalKey string, literal
 			case "hex_http_router_free":
 				state.free = true
 			default:
-				return unknownExpressionDiagnostic()
+				// Every other registered operation belongs to the connection
+				// runtime, which owns the router record it dispatches over.
+				state.runtime = true
+				state.router = true
 			}
 			// A route or a free operates on the router record the constructor
 			// defines, so either one selects that definition.
@@ -120,6 +127,9 @@ func httpServerComponents(merged *programEmission) ([]componentArtifact, error) 
 		IdleTimeout:         uint64(config.HTTPIdleTimeout),
 		ShutdownTimeout:     uint64(config.HTTPShutdownTimeout),
 		TCPNoDelay:          config.HTTPTCPNoDelay,
+		ResponseHeadBytes:   config.HTTPResponseHeadBytes,
+		LingerTimeout:       uint64(config.HTTPLingerTimeout),
+		PollInterval:        uint64(config.HTTPPollInterval),
 	}
 	artifacts := []componentArtifact{{key: "hexal/server.h", template: "server.h", model: model}}
 	if state.calls {
@@ -167,6 +177,9 @@ type serverSourceModel struct {
 	IdleTimeout         uint64
 	ShutdownTimeout     uint64
 	TCPNoDelay          bool
+	ResponseHeadBytes   int
+	LingerTimeout       uint64
+	PollInterval        uint64
 }
 
 // mergeServerInto unions one module's std/http demand into the program state.
@@ -180,6 +193,7 @@ func mergeServerInto(merged, state *generatedServerState) {
 	merged.router = merged.router || state.router
 	merged.route = merged.route || state.route
 	merged.free = merged.free || state.free
+	merged.runtime = merged.runtime || state.runtime
 	merged.parser = merged.parser || state.parser
 }
 
@@ -195,9 +209,10 @@ func moduleServerComponent(emission *moduleEmission) []string {
 // The server component's templates read the reachable raw entry points through
 // these accessors, since the program state's fields are unexported. Each gates
 // one raw entry point so it renders only when its operation is reachable.
-func (model serverSourceModel) Calls() bool      { return model.Program.calls }
-func (model serverSourceModel) NeedConfig() bool { return model.Program.config }
-func (model serverSourceModel) NeedRouter() bool { return model.Program.router }
-func (model serverSourceModel) NeedRoute() bool  { return model.Program.route }
-func (model serverSourceModel) NeedFree() bool   { return model.Program.free }
-func (model serverSourceModel) NeedParser() bool { return model.Program.parser }
+func (model serverSourceModel) Calls() bool       { return model.Program.calls }
+func (model serverSourceModel) NeedConfig() bool  { return model.Program.config }
+func (model serverSourceModel) NeedRouter() bool  { return model.Program.router }
+func (model serverSourceModel) NeedRoute() bool   { return model.Program.route }
+func (model serverSourceModel) NeedFree() bool    { return model.Program.free }
+func (model serverSourceModel) NeedRuntime() bool { return model.Program.runtime }
+func (model serverSourceModel) NeedParser() bool  { return model.Program.parser }

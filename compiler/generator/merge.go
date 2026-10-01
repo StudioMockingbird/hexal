@@ -412,6 +412,7 @@ func mergeConcurrencyInto(merged, state *generatedConcurrencyState, spawnedSites
 	if state.used {
 		merged.used = true
 	}
+	merged.server = merged.server || state.server
 	merged.detach = merged.detach || state.detach
 	merged.yield = merged.yield || state.yield
 	merged.mutexNew = merged.mutexNew || state.mutexNew

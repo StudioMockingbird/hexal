@@ -1,0 +1,20 @@
+== stop closes idle connections and lets an in-flight request finish
+run: true
+idle connection closed by the server: true
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 9
+
+finished
+== the shutdown deadline closes what is still running
+stuck handler: closed: connection closed
+run: true
+== accepting pauses at the connection ceiling
+first connection releasing its slot
+first held: true
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 5
+
+home
+run: true

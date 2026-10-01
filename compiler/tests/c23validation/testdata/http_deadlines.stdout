@@ -1,0 +1,32 @@
+== slow header
+HTTP/1.1 408 Request Timeout
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 16
+
+Request Timeout
+== idle before a request
+no data, then the server closed
+== idle between keep-alive requests
+HTTP/1.1 200 OK
+Content-Length: 5
+
+home
+== slow upload
+body read: timed out: request body timed out
+HTTP/1.1 500 Internal Server Error
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 22
+
+Internal Server Error
+== stalled download
+response write: timed out: response write timed out
+data received, then the server closed
+== served after every timeout
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 5
+
+home
+run: true

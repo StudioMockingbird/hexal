@@ -674,10 +674,11 @@ func (parser *Parser) postfix(expression Expression) (Expression, error) {
 	}
 }
 
-// parseMemberName admits `end` after a member-selection dot, where it is
-// unambiguous as a property name rather than a block terminator.
+// parseMemberName admits `end` and `method` after a member-selection dot,
+// where each is unambiguous as a property name rather than a block terminator
+// or a method declaration.
 func (parser *Parser) parseMemberName() (lexer.Token, error) {
-	if parser.check(lexer.End) {
+	if parser.check(lexer.End) || parser.check(lexer.Method) {
 		return parser.advance(), nil
 	}
 	return parser.consume(lexer.Identifier, "an identifier after '.'")

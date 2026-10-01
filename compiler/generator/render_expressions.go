@@ -383,6 +383,11 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 		if err != nil {
 			return "", err
 		}
+		if strings.HasPrefix(receiver, "*") {
+			// An element access renders as a dereference, which binds looser than
+			// member selection.
+			receiver = "(" + receiver + ")"
+		}
 		selector := "."
 		if node.Operand.Kind == checker.VariableExpression {
 			if pointer, isSelf := state.selfPointers[node.Operand.Binding]; isSelf {

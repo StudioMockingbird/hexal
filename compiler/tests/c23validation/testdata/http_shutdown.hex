@@ -1,0 +1,150 @@
+fun home(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let text: String = "home\n"
+    try response.write(text.bytes())
+    return nil
+end
+
+-- Takes a while to answer, so a stop arrives while it is in flight.
+fun slow(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    Time.sleep(Time.milliseconds(400))
+    let text: String = "finished\n"
+    try response.write(text.bytes())
+    return nil
+end
+
+-- Waits for a body that never arrives, so only the shutdown deadline ends it.
+fun stuck(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let heap = Heap()
+    let body: List<Byte> = List<Byte>(heap)
+    defer body.free(heap)
+    let mut finished = false
+    while finished == false do
+        let step = request.read(body, 64)
+        if step is Error then
+            print("stuck handler: ", step.header(), ": ", step.message, "\n")
+            return step
+        end
+        if step is EoS then
+            finished = true
+        end
+    end
+    return nil
+end
+
+fun idle_client(address: Net.Address): Bool do
+    let connected = Net.connect(address)
+    if connected is Error then
+        return false
+    end
+    let buffer: List<Byte> = List<Byte>(Heap())
+    let step = connected.read(buffer, 64)
+    buffer.free(Heap())
+    connected.close()
+    return step is EoS
+end
+
+fun request_client(address: Net.Address, request: String, pause: UInt64): String do
+    let connected = Net.connect(address)
+    if connected is Error then
+        return "connect failed\n"
+    end
+    let sent = connected.write(request.bytes())
+    if sent != nil then
+        connected.close()
+        return "send failed\n"
+    end
+    Time.sleep(Time.milliseconds(pause))
+    let buffer: List<Byte> = List<Byte>(Heap())
+    let mut finished = false
+    while finished == false do
+        let step = connected.read(buffer, 4096)
+        if step is Error then
+            finished = true
+        end
+        if step is EoS then
+            finished = true
+        end
+    end
+    connected.close()
+    let text = buffer.slice(0, buffer.length()).to<String>(Heap())
+    buffer.free(Heap())
+    if text is Error then
+        return "response is not text\n"
+    end
+    return without_date(Heap(), text)
+end
+
+fun held_client(address: Net.Address, hold: UInt64): Bool do
+    let connected = Net.connect(address)
+    if connected is Error then
+        return false
+    end
+    Time.sleep(Time.milliseconds(hold))
+    print("first connection releasing its slot\n")
+    connected.close()
+    return true
+end
+
+fun make_server(heap: Heap, router: Http.Router<App>, app: Ptr<App>, port: UInt16, connections: Size, grace: UInt64): Http.Server<App> | Error do
+    let mut config = Http.default_config("127.0.0.1", port)
+    config.max_connections = connections
+    config.shutdown_timeout = Time.milliseconds(grace)
+    return Http.listen<App>(heap, config, router, app)
+end
+
+fun run(): Nil | Error do
+    let heap = Heap()
+    let app = App(hits = Atomic<Int32>(0))
+    let mut router = Http.Router<App>(heap)
+    try router.route("GET", "/", home)
+    try router.route("GET", "/slow", slow)
+    try router.route("POST", "/stuck", stuck)
+
+    print("== stop closes idle connections and lets an in-flight request finish\n")
+    let server = try make_server(heap, router, @app, 18940, 64, 5000)
+    let runner = try spawn serve(server)
+    settle()
+    let address = try Net.parse_address("127.0.0.1", 18940)
+    let idle = try spawn idle_client(address)
+    let busy = try spawn request_client(address, "GET /slow HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n", 0)
+    Time.sleep(Time.milliseconds(150))
+    server.stop()
+    print("run: ", runner.join(), "\n")
+    print("idle connection closed by the server: ", idle.join(), "\n")
+    print(busy.join())
+    server.free(heap)
+
+    print("== the shutdown deadline closes what is still running\n")
+    let forced = try make_server(heap, router, @app, 18941, 64, 300)
+    let forced_runner = try spawn serve(forced)
+    settle()
+    let forced_address = try Net.parse_address("127.0.0.1", 18941)
+    let stalled = try spawn request_client(forced_address, "POST /stuck HTTP/1.1\r\nHost: x\r\nContent-Length: 10\r\n\r\nabc", 1500)
+    Time.sleep(Time.milliseconds(150))
+    forced.stop()
+    print("run: ", forced_runner.join(), "\n")
+    print(stalled.join())
+    forced.free(heap)
+
+    print("== accepting pauses at the connection ceiling\n")
+    let ceiling = try make_server(heap, router, @app, 18942, 1, 5000)
+    let ceiling_runner = try spawn serve(ceiling)
+    settle()
+    let ceiling_address = try Net.parse_address("127.0.0.1", 18942)
+    let first = try spawn held_client(ceiling_address, 500)
+    Time.sleep(Time.milliseconds(100))
+    let second = try spawn request_client(ceiling_address, "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n", 0)
+    print("first held: ", first.join(), "\n")
+    print(second.join())
+    ceiling.stop()
+    print("run: ", ceiling_runner.join(), "\n")
+    ceiling.free(heap)
+
+    router.free(heap)
+    return nil
+end
+
+let outcome = run()
+if outcome != nil then
+    print("failed: ", outcome.header(), ": ", outcome.message, "\n")
+end

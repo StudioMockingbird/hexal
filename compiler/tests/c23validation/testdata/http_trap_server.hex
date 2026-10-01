@@ -1,0 +1,31 @@
+import
+    Http from std.http,
+    Time from std.time
+end
+
+type App is struct
+    hits: Int32
+end
+
+fun home(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    return nil
+end
+
+fun serve(server: Http.Server<App>): Bool do
+    let result = server.run()
+    return result == nil
+end
+
+fun run(): Nil | Error do
+    let heap = Heap()
+    let app = App(hits = 0)
+    let mut router = Http.Router<App>(heap)
+    try router.route("GET", "/", home)
+    let server = try Http.listen<App>(heap, Http.default_config("127.0.0.1", 18951), router, @app)
+    let runner = try spawn serve(server)
+    Time.sleep(Time.milliseconds(100))
+    server.free(heap)
+    return nil
+end
+
+let outcome = run()

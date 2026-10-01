@@ -165,7 +165,7 @@ LiteralPostfixSuffix = IndexSuffix | MemberSuffix .
 PostfixSuffix = GenericOwnerCall | MemberSuffix | GenericCall
                  | IndexSuffix | CallSuffix .
 MemberSuffix = "."  MemberName .
-MemberName = identifier | "end" .
+MemberName = identifier | "end" | "method" .
 GenericOwnerCall = TypeArgumentList  "."  identifier  CallArguments .
 GenericCall = TypeArgumentList  CallArguments .
 CallSuffix = CallArguments .

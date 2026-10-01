@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"hexal/compiler/checker"
+	"hexal/compiler/corelib"
 	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
@@ -277,6 +278,16 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 		}
 		callArguments := renderRestSliceArgument(&node, arguments[1:])
 		return arguments[0] + "(" + strings.Join(callArguments, ", ") + ")", nil
+	case checker.CorelibCallExpression:
+		// A deferred std module call is a cleanup that produces no value or a
+		// value with no failure arm (free, stop): its raw entry point renders
+		// with the captured arguments in call order. A fallible call has an
+		// adapter and a source site, which a deferred action cannot carry.
+		path, function, ok := corelib.FunctionByRuntime(node.Name)
+		if !ok || !(function.Result == corelib.ResultNoValue || corelibDirectResult(path, function.Result)) {
+			return "", unknownExpressionDiagnostic()
+		}
+		return corelibRawName(path, node.Name) + "(" + strings.Join(arguments, ", ") + ")", nil
 	case checker.HeapFreeExpression:
 		if len(arguments) != 2 {
 			return "", unknownExpressionDiagnostic()

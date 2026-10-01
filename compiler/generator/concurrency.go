@@ -30,7 +30,10 @@ import (
 // uses, so the emitted runtime contains exactly the families the program
 // needs.
 type generatedConcurrencyState struct {
-	used        bool // Task, Channel, or Mutex linked the scheduler runtime
+	used bool // Task, Channel, or Mutex linked the scheduler runtime
+	// server marks the std/http connection runtime, which spawns Tasks and
+	// uses the Channel and Mutex cores without any typed source operation.
+	server      bool
 	taskTypes   map[string]compilerTypes.Type
 	joinTypes   map[string]compilerTypes.Type // Task<R> types whose join is called
 	detach      bool

@@ -38,6 +38,30 @@ type corelibAdapter struct {
 	params  []corelib.Param
 	union   compilerTypes.Type
 	query   string
+	// app is the application type of a std/http route registration, whose
+	// invoke thunk restores the handler's own C signature; zero elsewhere.
+	app compilerTypes.Type
+}
+
+// addonAdapterSuffix names one adapter by its result union, and by the
+// application too for a route registration: two applications share the
+// Nil | Error union but not the handler signature the thunk casts back to.
+func addonAdapterSuffix(runtime string, union, app compilerTypes.Type) string {
+	suffix := streamAdapterSuffix(union)
+	if runtime == "hex_http_router_route" {
+		suffix += "_" + strings.TrimPrefix(app.CName, "hex_t_")
+	}
+	return suffix
+}
+
+// routeApplication is the application type a route call's receiver Router
+// carries, or the zero Type for every other call.
+func routeApplication(node checker.Expression) compilerTypes.Type {
+	if node.Name != "hex_http_router_route" || len(node.Arguments) == 0 {
+		return compilerTypes.Type{}
+	}
+	app, _ := compilerTypes.HttpGenericApp(node.Arguments[0].Type)
+	return app
 }
 
 // generatedCorelibState records one module's (or the merged program's)
@@ -168,15 +192,21 @@ func renderCorelibCallExpression(node checker.Expression, state *expressionValid
 		// point renders directly with exactly the checked arguments. The
 		// addon families suffix every raw entry point with _raw so the
 		// registry name stays free for the adapter form.
-		raw := node.Name
-		switch path {
-		case "std/json", "std/regex", "std/http":
-			raw += "_raw"
-		}
-		return raw + "(" + strings.Join(arguments, ", ") + ")", nil
+		return corelibRawName(path, node.Name) + "(" + strings.Join(arguments, ", ") + ")", nil
 	}
 	arguments = append(arguments, fmt.Sprintf("%d, %d", state.line(node.Span), state.column(node.Span)))
-	return fmt.Sprintf("%s_%s(%s)", node.Name, streamAdapterSuffix(node.ResultType), strings.Join(arguments, ", ")), nil
+	return fmt.Sprintf("%s_%s(%s)", node.Name, addonAdapterSuffix(node.Name, node.ResultType, routeApplication(node)), strings.Join(arguments, ", ")), nil
+}
+
+// corelibRawName spells a std module's raw entry point: the addon families
+// suffix every one with _raw so the registry name stays free for the adapter
+// form.
+func corelibRawName(path, runtime string) string {
+	switch path {
+	case "std/json", "std/regex", "std/http":
+		return runtime + "_raw"
+	}
+	return runtime
 }
 
 // corelibDirectResult reports whether a std/http result shape is produced
@@ -293,6 +323,8 @@ func corelibParamSpellings(params []corelib.Param) ([]corelibParamSpelling, erro
 			declaration, base = "uint16_t %s", "port"
 		case corelib.ParamSize:
 			declaration, base = "size_t %s", "count"
+		case corelib.ParamByteList:
+			declaration, base = "hex_list_UInt8 *%s", "into"
 		case corelib.ParamBytes:
 			declaration, base = "hex_slice_UInt8 %s", "bytes"
 		case corelib.ParamConfig:
@@ -306,7 +338,7 @@ func corelibParamSpellings(params []corelib.Param) ([]corelibParamSpelling, erro
 		case corelib.ParamWriter:
 			declaration, base = "hex_http_writer %s", "writer"
 		case corelib.ParamAppPtr:
-			declaration, base = "void *%s", "app"
+			declaration, base = "const void *%s", "app"
 		case corelib.ParamHandler:
 			declaration, base = "hex_http_handler %s", "handler"
 		default:
@@ -373,8 +405,11 @@ type corelibAdapterModel struct {
 	Tag        string
 	Field      string
 	NilTag     string
+	EosTag     string
 	Member     string
 	Failure    string
+	// AppPointer spells the handler's context parameter in a route adapter.
+	AppPointer string
 }
 
 func writeCorelibInlineHelpers(result *strings.Builder, state *generatedCorelibState, literals *literalRegistry, tags *tagRegistry, event bool) error {
@@ -396,6 +431,12 @@ func writeCorelibInlineHelpers(result *strings.Builder, state *generatedCorelibS
 // program/entropy pair and the std/json and std/regex pairs.
 func writeAdapterHelpers(result *strings.Builder, adapters []corelibAdapter, file string, tags *tagRegistry, call func(corelibAdapter) string) error {
 	for _, adapter := range adapters {
+		if adapter.result == corelib.ResultBytesNil {
+			if err := writeBytesNilAdapter(result, adapter, tags, call); err != nil {
+				return err
+			}
+			continue
+		}
 		member, ok := corelibMemberType(adapter.union)
 		if !ok {
 			return unknownExpressionDiagnostic()
@@ -425,7 +466,7 @@ func writeAdapterHelpers(result *strings.Builder, adapters []corelibAdapter, fil
 		model := corelibAdapterModel{
 			CName:      adapter.union.CName,
 			Runtime:    adapter.runtime,
-			Suffix:     streamAdapterSuffix(adapter.union),
+			Suffix:     addonAdapterSuffix(adapter.runtime, adapter.union, adapter.app),
 			Parameters: parameters,
 			Call:       call(adapter),
 			Arguments:  callArguments,
@@ -447,6 +488,27 @@ func writeAdapterHelpers(result *strings.Builder, adapters []corelibAdapter, fil
 		case corelib.ResultNil:
 			nilTag, _ := streamMemberRef(tags, adapter.union, compilerTypes.Nil)
 			model.Tag = nilTag
+			block := adapterBlock(adapter.result)
+			if adapter.runtime == "hex_http_router_route" {
+				// A route registration also builds the thunk that restores the
+				// handler's own C signature, which only this module can spell.
+				block = "corelib_route_adapter"
+				model.AppPointer = typeSpelling(compilerTypes.NewEnvironment().PtrType(adapter.app))
+				model.Arguments += ", " + adapter.runtime + "_invoke_" + model.Suffix
+			}
+			if err := renderInto(result, "module.h", block, model); err != nil {
+				return err
+			}
+		case corelib.ResultServer:
+			if err := renderInto(result, "module.h", adapterBlock(adapter.result), model); err != nil {
+				return err
+			}
+		case corelib.ResultReadBody:
+			// The success member is the Size; corelibMemberType names the first
+			// non-Error member, which in this union is EoS.
+			model.Tag, model.Field = streamMemberRef(tags, adapter.union, compilerTypes.SizeType)
+			eosTag, _ := streamMemberRef(tags, adapter.union, compilerTypes.EoS)
+			model.EosTag = eosTag
 			if err := renderInto(result, "module.h", adapterBlock(adapter.result), model); err != nil {
 				return err
 			}
@@ -461,6 +523,39 @@ func writeAdapterHelpers(result *strings.Builder, adapters []corelibAdapter, fil
 		}
 	}
 	return nil
+}
+
+// writeBytesNilAdapter renders the one std/http adapter whose union has no
+// Error arm: a header lookup builds a Slice<Byte> | Nil from the raw found
+// flag. It takes the source site its siblings take so every adapter call
+// renders alike.
+func writeBytesNilAdapter(result *strings.Builder, adapter corelibAdapter, tags *tagRegistry, call func(corelibAdapter) string) error {
+	tag, field := streamMemberRef(tags, adapter.union, compilerTypes.HttpByteSliceType())
+	nilTag, _ := streamMemberRef(tags, adapter.union, compilerTypes.Nil)
+	parameters, err := corelibAdapterParameters(adapter.params)
+	if err != nil {
+		return err
+	}
+	if parameters != "" {
+		parameters += ", "
+	}
+	arguments, err := corelibAdapterArguments(adapter.params)
+	if err != nil {
+		return err
+	}
+	model := corelibAdapterModel{
+		CName:      adapter.union.CName,
+		Runtime:    adapter.runtime,
+		Suffix:     streamAdapterSuffix(adapter.union),
+		Parameters: parameters,
+		Call:       call(adapter),
+		Arguments:  arguments,
+		Query:      adapter.query,
+		Tag:        tag,
+		Field:      field,
+		NilTag:     nilTag,
+	}
+	return renderInto(result, "module.h", "corelib_bytes_nil_adapter", model)
 }
 
 // adapterBlock selects the module.h template block name one raw result shape
@@ -484,6 +579,10 @@ func adapterBlock(result corelib.Result) string {
 		return "corelib_span_nil_adapter"
 	case corelib.ResultMatchNil:
 		return "corelib_match_nil_adapter"
+	case corelib.ResultServer:
+		return "corelib_server_adapter"
+	case corelib.ResultReadBody:
+		return "corelib_read_adapter"
 	default:
 		return ""
 	}

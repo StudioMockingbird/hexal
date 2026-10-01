@@ -106,6 +106,19 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		return nil, concurrencyErr
 	}
 	emission.concurrencyState = concurrencyState
+	if emission.serverState != nil && emission.serverState.runtime {
+		// The connection runtime accepts and serves on Tasks over the
+		// Task-aware TCP operations, signals completion through a Channel
+		// and guards its registry with a Mutex, reads the monotonic clock for
+		// its deadlines, and sleeps while at its connection ceiling.
+		emission.networkState.used = true
+		emission.networkState.tcp = true
+		emission.timeState.used = true
+		emission.timeState.instant = true
+		emission.timeState.sleep = true
+		concurrencyState.used = true
+		concurrencyState.server = true
+	}
 	if concurrencyState.used {
 		// The task runtime needs the String typedefs, the inline text structs, and the
 		// Error object for the failure Errors every recoverable operation

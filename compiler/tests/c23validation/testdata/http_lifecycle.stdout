@@ -1,0 +1,29 @@
+route while attached: busy: router is attached to a running server
+second listen on the same address: address in use: address already in use
+wait before run: invalid input: server has not started
+run twice: invalid input: server already ran or is running
+== first count
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 6
+
+hit 1
+== second count
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 6
+
+hit 2
+== third count
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 6
+
+hit 3
+hits seen by the application: 3
+run: true
+waiter: true
+wait after run: ok
+run after an early stop: ok
+zero connection ceiling: invalid input: server configuration values must be positive and in range
+hostname instead of an address: invalid input: host must be a numeric IP address

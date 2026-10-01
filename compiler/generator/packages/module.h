@@ -723,6 +723,50 @@ static inline {{.CName}} {{.Runtime}}_{{.Suffix}}({{.Parameters}}size_t line, si
     }
     return {{.Failure}};
 }
+{{end}}{{define "corelib_server_adapter"}}
+static inline {{.CName}} {{.Runtime}}_{{.Suffix}}({{.Parameters}}size_t line, size_t column) {
+    {{.Query}} query = {{.Call}}({{.Arguments}});
+    if (query.ok) {
+        return ({{.CName}}){ .tag = {{.Tag}}, .payload.{{.Field}} = query.server };
+    }
+    return {{.Failure}};
+}
+{{end}}{{define "corelib_read_adapter"}}
+static inline {{.CName}} {{.Runtime}}_{{.Suffix}}({{.Parameters}}size_t line, size_t column) {
+    {{.Query}} query = {{.Call}}({{.Arguments}});
+    if (query.ok) {
+        if (query.end_of_stream) {
+            return ({{.CName}}){ .tag = {{.EosTag}} };
+        }
+        return ({{.CName}}){ .tag = {{.Tag}}, .payload.{{.Field}} = query.count };
+    }
+    return {{.Failure}};
+}
+{{end}}{{define "corelib_bytes_nil_adapter"}}
+static inline {{.CName}} {{.Runtime}}_{{.Suffix}}({{.Parameters}}size_t line, size_t column) {
+    (void)line;
+    (void)column;
+    {{.Query}} query = {{.Call}}({{.Arguments}});
+    if (query.found) {
+        return ({{.CName}}){ .tag = {{.Tag}}, .payload.{{.Field}} = query.bytes };
+    }
+    return ({{.CName}}){ .tag = {{.NilTag}} };
+}
+{{end}}{{define "corelib_route_adapter"}}
+// The runtime stores a handler behind one erased function pointer; this thunk
+// is the only place the handler's own signature is spelled, so the call goes
+// through exactly the type the function was defined with.
+static inline bool {{.Runtime}}_invoke_{{.Suffix}}(hex_http_handler handler, const void *app, hex_http_request request, hex_http_writer writer) {
+    {{.CName}} outcome = (({{.CName}} (*)({{.AppPointer}}, hex_http_request, hex_http_writer))handler)(({{.AppPointer}})app, request, writer);
+    return outcome.tag == {{.Tag}};
+}
+static inline {{.CName}} {{.Runtime}}_{{.Suffix}}({{.Parameters}}size_t line, size_t column) {
+    {{.Query}} query = {{.Call}}({{.Arguments}});
+    if (query.ok) {
+        return ({{.CName}}){ .tag = {{.Tag}} };
+    }
+    return {{.Failure}};
+}
 {{end}}{{define "corelib_nil_adapter"}}
 static inline {{.CName}} {{.Runtime}}_{{.Suffix}}({{.Parameters}}size_t line, size_t column) {
     {{.Query}} query = {{.Call}}({{.Arguments}});

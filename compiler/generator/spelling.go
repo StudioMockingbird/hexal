@@ -22,7 +22,12 @@ func pointerSpelling(typ compilerTypes.Type) string {
 	for index := len(layers) - 1; index >= 0; index-- {
 		if !layers[index].PointeeWritable {
 			if index == len(layers)-1 {
-				result = "const " + result
+				// A pointee that holds an Atomic stays non-const: atomic
+				// operations need a non-const object even through a read-only
+				// pointer, exactly as a receiver that holds one does.
+				if !compilerTypes.ContainsAtomic(base) {
+					result = "const " + result
+				}
 			} else {
 				result = qualifyLastPointer(result)
 			}
@@ -103,7 +108,9 @@ func declaration(typ compilerTypes.Type, name string, mutable bool) string {
 	}
 	if typ.Element == nil {
 		prefix := ""
-		if !mutable {
+		if !mutable && !compilerTypes.ContainsAtomic(typ) {
+			// An aggregate that holds an Atomic carries no top-level const, for
+			// the same reason an Atomic binding does.
 			prefix = "const "
 		}
 		return prefix + typ.CName + " " + name

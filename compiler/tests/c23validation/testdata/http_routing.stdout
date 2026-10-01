@@ -1,0 +1,230 @@
+== simple
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 5
+
+home
+== pipelined
+HTTP/1.1 200 OK
+Content-Length: 5
+
+home
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 85
+
+GET
+/inspect?q=1
+/inspect
+abc
+Host: x
+X-Token: abc
+x-token: second
+Connection: close
+== unknown path
+HTTP/1.1 404 Not Found
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 10
+
+Not Found
+== method not allowed
+HTTP/1.1 405 Method Not Allowed
+Allow: DELETE, GET, POST
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 19
+
+Method Not Allowed
+== head without alias
+HTTP/1.1 405 Method Not Allowed
+Allow: GET
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 19
+
+Method Not Allowed
+== head route
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 6
+
+== get on head route
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 6
+
+abcdef== http 1.0
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 5
+
+home
+== no content
+HTTP/1.1 204 No Content
+Connection: close
+
+== cookies
+HTTP/1.1 201 Created
+Set-Cookie: a=1
+Set-Cookie: b=2
+Connection: close
+Content-Length: 3
+
+ok
+== handler error
+HTTP/1.1 500 Internal Server Error
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 22
+
+Internal Server Error
+== chunked streaming
+HTTP/1.1 200 OK
+Connection: close
+Transfer-Encoding: chunked
+
+body bytes: 200039
+== declared length streaming
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 150000
+
+body bytes: 150000
+== unknown length over http 1.0
+HTTP/1.1 200 OK
+Connection: close
+
+body bytes: 200000
+== length shortfall
+== length overrun
+overrun: invalid input: response body exceeds the declared content length
+HTTP/1.1 500 Internal Server Error
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 22
+
+Internal Server Error
+== writer misuse
+length header: invalid input
+bad name: invalid input
+bad status: invalid input
+after write: invalid input
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 4
+
+fine== content-length body
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 5
+
+hello== chunked body
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 11
+
+hello world== expect continue
+HTTP/1.1 100 Continue
+
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 3
+
+abc== unread body closes
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 5
+
+home
+== body over limit
+HTTP/1.1 413 Content Too Large
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 18
+
+Content Too Large
+== chunked body over limit
+HTTP/1.1 500 Internal Server Error
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 22
+
+Internal Server Error
+== request line over limit
+HTTP/1.1 414 URI Too Long
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 13
+
+URI Too Long
+== header bytes over limit
+HTTP/1.1 431 Request Header Fields Too Large
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 32
+
+Request Header Fields Too Large
+== header count over limit
+HTTP/1.1 431 Request Header Fields Too Large
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 32
+
+Request Header Fields Too Large
+== malformed request
+HTTP/1.1 400 Bad Request
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 12
+
+Bad Request
+== duplicate content length
+HTTP/1.1 400 Bad Request
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 12
+
+Bad Request
+== length and transfer coding
+HTTP/1.1 400 Bad Request
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 12
+
+Bad Request
+== tunnel request
+HTTP/1.1 501 Not Implemented
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 16
+
+Not Implemented
+== upgrade request
+HTTP/1.1 501 Not Implemented
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 16
+
+Not Implemented
+== unsupported expectation
+HTTP/1.1 417 Expectation Failed
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 19
+
+Expectation Failed
+== unsupported version
+HTTP/1.1 505 HTTP Version Not Supported
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 27
+
+HTTP Version Not Supported
+== served after errors
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 5
+
+home
+served: true

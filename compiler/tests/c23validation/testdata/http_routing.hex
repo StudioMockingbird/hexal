@@ -1,0 +1,261 @@
+fun home(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let text: String = "home\n"
+    try response.content_length(text.length())
+    try response.write(text.bytes())
+    return nil
+end
+
+fun inspect(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let nl: String = "\n"
+    try response.write(request.method())
+    try response.write(nl.bytes())
+    try response.write(request.target())
+    try response.write(nl.bytes())
+    try response.write(request.path())
+    try response.write(nl.bytes())
+    let token = request.header("X-TOKEN")
+    if token != nil then
+        try response.write(token)
+    else
+        let none: String = "(none)"
+        try response.write(none.bytes())
+    end
+    try response.write(nl.bytes())
+    let headers = request.headers()
+    let mut index: Size = 0
+    let separator: String = ": "
+    while index < headers.length() do
+        try response.write(headers[index].name)
+        try response.write(separator.bytes())
+        try response.write(headers[index].value)
+        try response.write(nl.bytes())
+        index = index + 1
+    end
+    return nil
+end
+
+fun echo(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let heap = Heap()
+    let body: List<Byte> = List<Byte>(heap)
+    defer body.free(heap)
+    let mut finished = false
+    while finished == false do
+        let step = request.read(body, 16)
+        if step is Error then
+            return step
+        end
+        if step is EoS then
+            finished = true
+        end
+    end
+    try response.write(body.slice(0, body.length()))
+    return nil
+end
+
+fun empty(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    try response.status(204)
+    return nil
+end
+
+fun cookies(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let first: String = "a=1"
+    let second: String = "b=2"
+    let text: String = "ok\n"
+    try response.status(201)
+    try response.header("Set-Cookie", first.bytes())
+    try response.header("Set-Cookie", second.bytes())
+    try response.write(text.bytes())
+    return nil
+end
+
+fun fill_chunk(heap: Heap): List<Byte> do
+    let chunk: List<Byte> = List<Byte>(heap)
+    let mut index: Size = 0
+    while index < 1000 do
+        chunk.push(120)
+        index = index + 1
+    end
+    return chunk
+end
+
+fun big(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let heap = Heap()
+    let chunk = fill_chunk(heap)
+    defer chunk.free(heap)
+    let mut round: Int32 = 0
+    while round < 200 do
+        try response.write(chunk.slice(0, chunk.length()))
+        round = round + 1
+    end
+    return nil
+end
+
+fun fixed(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let heap = Heap()
+    let chunk = fill_chunk(heap)
+    defer chunk.free(heap)
+    try response.content_length(150000)
+    let mut round: Int32 = 0
+    while round < 150 do
+        try response.write(chunk.slice(0, chunk.length()))
+        round = round + 1
+    end
+    return nil
+end
+
+fun short(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let text: String = "four"
+    try response.content_length(10)
+    try response.write(text.bytes())
+    return nil
+end
+
+fun overrun(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let text: String = "twelve bytes"
+    try response.content_length(4)
+    let result = response.write(text.bytes())
+    if result != nil then
+        print("overrun: ", result.header(), ": ", result.message, "\n")
+    end
+    return nil
+end
+
+fun fail(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    return Error(ErrorKind.InvalidInput(), "private detail")
+end
+
+fun head_route(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let text: String = "abcdef"
+    try response.write(text.bytes())
+    return nil
+end
+
+fun report(label: String, result: Nil | Error) do
+    if result != nil then
+        print(label, ": ", result.header(), "\n")
+    else
+        print(label, ": ok\n")
+    end
+end
+
+fun misuse(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let name: String = "Content-Length"
+    let broken: String = "bad name"
+    let value: String = "1"
+    let fine: String = "fine"
+    let result_length = response.header(name, value.bytes())
+    let result_name = response.header(broken, value.bytes())
+    let result_status = response.status(99)
+    report("length header", result_length)
+    report("bad name", result_name)
+    report("bad status", result_status)
+    try response.write(fine.bytes())
+    report("after write", response.status(404))
+    return nil
+end
+
+fun register(router: Http.Router<App>): Nil | Error do
+    try router.route("GET", "/", home)
+    try router.route("GET", "/inspect", inspect)
+    try router.route("POST", "/echo", echo)
+    try router.route("GET", "/empty", empty)
+    try router.route("GET", "/cookies", cookies)
+    try router.route("GET", "/big", big)
+    try router.route("GET", "/fixed", fixed)
+    try router.route("GET", "/short", short)
+    try router.route("GET", "/overrun", overrun)
+    try router.route("GET", "/fail", fail)
+    try router.route("HEAD", "/h", head_route)
+    try router.route("GET", "/h", head_route)
+    try router.route("GET", "/g", home)
+    try router.route("POST", "/m", home)
+    try router.route("GET", "/m", home)
+    try router.route("DELETE", "/m", home)
+    try router.route("GET", "/misuse", misuse)
+    return nil
+end
+
+fun summarize(heap: Heap, label: String, address: Net.Address, request: String) do
+    print("== ", label, "\n")
+    let response = wire(heap, address, request)
+    let bytes = response.bytes()
+    let mut at: Size = 0
+    let mut cut: Size = bytes.length()
+    while (at + 3) < bytes.length() do
+        if (bytes[at] == 13) and (bytes[at + 1] == 10) and (bytes[at + 2] == 13) and (bytes[at + 3] == 10) then
+            cut = at + 4
+            at = bytes.length()
+        else
+            at = at + 1
+        end
+    end
+    let head = response.slice(0, cut).to<String>(heap)
+    if head is String then
+        print(head)
+        head.free(heap)
+    end
+    print("body bytes: ", bytes.length() - cut, "\n")
+    response.free(heap)
+end
+
+fun run(): Nil | Error do
+    let heap = Heap()
+    let app = App(hits = Atomic<Int32>(0))
+    let mut router = Http.Router<App>(heap)
+    try register(router)
+    let mut config = Http.default_config("127.0.0.1", 18910)
+    config.max_request_line_bytes = 128
+    config.max_header_bytes = 128
+    config.max_header_count = 8
+    config.max_body_bytes = 64
+    let server = try Http.listen<App>(heap, config, router, @app)
+    let runner = try spawn serve(server)
+    settle()
+    let address = try Net.parse_address("127.0.0.1", 18910)
+
+    show(heap, "simple", address, "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    show(heap, "pipelined", address, "GET / HTTP/1.1\r\nHost: x\r\n\r\nGET /inspect?q=1 HTTP/1.1\r\nHost: x\r\nX-Token: abc\r\nx-token: second\r\nConnection: close\r\n\r\n")
+    show(heap, "unknown path", address, "GET /nope HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    show(heap, "method not allowed", address, "PUT /m HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    show(heap, "head without alias", address, "HEAD /g HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    show(heap, "head route", address, "HEAD /h HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    show(heap, "get on head route", address, "GET /h HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    show(heap, "http 1.0", address, "GET / HTTP/1.0\r\n\r\n")
+    show(heap, "no content", address, "GET /empty HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    show(heap, "cookies", address, "GET /cookies HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    show(heap, "handler error", address, "GET /fail HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    summarize(heap, "chunked streaming", address, "GET /big HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    summarize(heap, "declared length streaming", address, "GET /fixed HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    summarize(heap, "unknown length over http 1.0", address, "GET /big HTTP/1.0\r\n\r\n")
+    show(heap, "length shortfall", address, "GET /short HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    show(heap, "length overrun", address, "GET /overrun HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    show(heap, "writer misuse", address, "GET /misuse HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+    show(heap, "content-length body", address, "POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello")
+    show(heap, "chunked body", address, "POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\nTrailer: ignored\r\n\r\n")
+    show(heap, "expect continue", address, "POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\nExpect: 100-continue\r\nConnection: close\r\n\r\nabc")
+    show(heap, "unread body closes", address, "POST /m HTTP/1.1\r\nHost: x\r\nContent-Length: 4\r\n\r\nwxyz")
+    show(heap, "body over limit", address, "POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 1000\r\nConnection: close\r\n\r\n")
+    show(heap, "chunked body over limit", address, "POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n41\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n0\r\n\r\n")
+    show(heap, "request line over limit", address, "GET /aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HTTP/1.1\r\nHost: x\r\n\r\n")
+    show(heap, "header bytes over limit", address, "GET / HTTP/1.1\r\nHost: x\r\nX-Big: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n\r\n")
+    show(heap, "header count over limit", address, "GET / HTTP/1.1\r\nHost: x\r\nA: 1\r\nB: 2\r\nC: 3\r\nD: 4\r\nE: 5\r\nF: 6\r\nG: 7\r\nH: 8\r\n\r\n")
+    show(heap, "malformed request", address, "NOT A REQUEST\r\n\r\n")
+    show(heap, "duplicate content length", address, "POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\nContent-Length: 3\r\n\r\nabc")
+    show(heap, "length and transfer coding", address, "POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\nTransfer-Encoding: chunked\r\n\r\nabc")
+    show(heap, "tunnel request", address, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n")
+    show(heap, "upgrade request", address, "GET / HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+    show(heap, "unsupported expectation", address, "POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 1\r\nExpect: nonsense\r\n\r\na")
+    show(heap, "unsupported version", address, "GET / HTTP/2.0\r\nHost: x\r\n\r\n")
+    show(heap, "served after errors", address, "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+
+    server.stop()
+    print("served: ", runner.join(), "\n")
+    server.free(heap)
+    router.free(heap)
+    return nil
+end
+
+let outcome = run()
+if outcome != nil then
+    print("failed: ", outcome.header(), ": ", outcome.message, "\n")
+end

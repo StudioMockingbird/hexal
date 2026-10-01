@@ -1,0 +1,24 @@
+import
+    Http from std.http
+end
+
+type App is struct
+    hits: Int32
+end
+
+fun home(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    return nil
+end
+
+fun run(): Nil | Error do
+    let heap = Heap()
+    let app = App(hits = 0)
+    let mut router = Http.Router<App>(heap)
+    try router.route("GET", "/", home)
+    let server = try Http.listen<App>(heap, Http.default_config("127.0.0.1", 18950), router, @app)
+    router.free(heap)
+    server.free(heap)
+    return nil
+end
+
+let outcome = run()

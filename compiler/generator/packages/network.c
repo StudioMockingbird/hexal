@@ -120,6 +120,9 @@ hex_t_Error hex_network_error(size_t line, size_t column, int status, const hex_
     case HEX_NETWORK_CLOSED:
         kind = (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_Closed};
         break;
+    case HEX_NETWORK_TIMED_OUT:
+        kind = (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_TimedOut};
+        break;
     case HEX_NETWORK_ALLOCATION_FAILED:
         kind = (hex_t_ErrorKind){.tag = hex_tag_ErrorKind_ResourceExhausted};
         break;
@@ -767,7 +770,7 @@ static hex_tcp_transfer hex_tcp_read_core(hex_tcp_connection connection, hex_lis
         return (hex_tcp_transfer){.status = HEX_NETWORK_CLOSED};
     }
     if (read_request.outcome == HEX_TCP_OP_DEADLINE) {
-        return (hex_tcp_transfer){.status = UV_ETIMEDOUT};
+        return (hex_tcp_transfer){.status = HEX_NETWORK_TIMED_OUT};
     }
     if (read_request.result == UV_EOF) {
         return (hex_tcp_transfer){.status = HEX_NETWORK_EOS};
@@ -797,7 +800,7 @@ static void hex_tcp_write_done(uv_write_t *request, int status) {
         uv_timer_stop(&control->write_timer);
     }
     if (write_request->outcome == HEX_TCP_OP_DEADLINE) {
-        status = UV_ETIMEDOUT;
+        status = HEX_NETWORK_TIMED_OUT;
     } else if (write_request->outcome == HEX_TCP_OP_CLOSED) {
         status = HEX_NETWORK_CLOSED;
     }
@@ -832,7 +835,7 @@ static void hex_tcp_write_start(hex_event_command *command) {
     }
     if (write_request->deadline != 0) {
         if (uv_hrtime() >= write_request->deadline) {
-            write_request->status = UV_ETIMEDOUT;
+            write_request->status = HEX_NETWORK_TIMED_OUT;
             hex_tcp_begin_close(control);
             hex_task_event_wake(command->task);
             return;
@@ -883,7 +886,7 @@ int hex_tcp_write_until(hex_tcp_connection connection, hex_slice_UInt8 from, uin
             .deadline = deadline,
         };
         hex_event_submit(task, &write_request.command);
-        if (write_request.status < 0 || write_request.status == HEX_NETWORK_CLOSED) {
+        if (write_request.status != 0) {
             status = write_request.status;
             break;
         }

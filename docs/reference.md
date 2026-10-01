@@ -51,8 +51,8 @@ Eleven lexical/parser rules are not expressible in EBNF:
   encode exactly this policy.
 - Maximal munch resolves comments: `--[` begins a multiline comment, and any other `--` begins a
   line comment. The two share the `--` opener, which this notation cannot express as a predicate.
-- `end` remains a reserved block terminator except immediately after `.` in a member-selection
-  suffix, where it is the property name `end`.
+- `end` and `method` remain reserved words except immediately after `.` in a member-selection
+  suffix, where each is an ordinary property name (`range.end`, `request.method()`).
 
 The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using the `golang.org/x/exp/ebnf` format.
 

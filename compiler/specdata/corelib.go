@@ -62,6 +62,8 @@ const (
 	CoreParamHandler
 	// CoreParamSize is a Size parameter.
 	CoreParamSize
+	// CoreParamByteList is a List<Byte> the call appends to.
+	CoreParamByteList
 )
 
 // CoreResult is one function's success shape. The Error union a fallible
@@ -235,6 +237,10 @@ const (
 	CoreTypeRegexMatch       CoreTypeID = "Match"
 )
 
+// httpRuntime is the demand of every std/http operation that needs the
+// connection runtime: the server component and its private parser adapter.
+var httpRuntime = []ComponentID{ComponentServer, ComponentHTTP}
+
 // coreModules is the registry. It is unexported so no importer can rewrite a
 // record, and every query clones the slices it returns, so a caller can never
 // reach the registry's own backing arrays.
@@ -377,10 +383,25 @@ var coreModules = []CoreModule{
 		Functions: []CoreFunction{
 			{Name: "default_config", Params: []CoreParam{CoreParamString, CoreParamUInt16}, Result: CoreResultConfig, ErrorBehavior: ErrorNever, Runtime: "hex_http_default_config", Components: []ComponentID{ComponentServer}},
 			{Name: "Router", Params: []CoreParam{CoreParamHeap}, Result: CoreResultRouter, ErrorBehavior: ErrorNever, Runtime: "hex_http_router_new", Components: []ComponentID{ComponentServer}, TypeParams: 1, Constructs: CoreTypeHttpRouter},
+			{Name: "listen", Params: []CoreParam{CoreParamHeap, CoreParamConfig, CoreParamRouter, CoreParamAppPtr}, Result: CoreResultServer, ErrorBehavior: ErrorFallible, Runtime: "hex_http_listen", Components: httpRuntime, TypeParams: 1},
 		},
 		Methods: []CoreMethod{
 			{CoreTypeHttpRouter, 0, CoreFunction{Name: "route", Params: []CoreParam{CoreParamRouter, CoreParamString, CoreParamString, CoreParamHandler}, Result: CoreResultNil, ErrorBehavior: ErrorFallible, Runtime: "hex_http_router_route", Components: []ComponentID{ComponentServer, ComponentHTTP}}},
 			{CoreTypeHttpRouter, 0, CoreFunction{Name: "free", Params: []CoreParam{CoreParamRouter, CoreParamHeap}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_http_router_free", Components: []ComponentID{ComponentServer}}},
+			{CoreTypeHttpServer, 0, CoreFunction{Name: "run", Params: []CoreParam{CoreParamServer}, Result: CoreResultNil, ErrorBehavior: ErrorFallible, Runtime: "hex_http_server_run", Components: httpRuntime}},
+			{CoreTypeHttpServer, 0, CoreFunction{Name: "wait", Params: []CoreParam{CoreParamServer}, Result: CoreResultNil, ErrorBehavior: ErrorFallible, Runtime: "hex_http_server_wait", Components: httpRuntime}},
+			{CoreTypeHttpServer, 0, CoreFunction{Name: "stop", Params: []CoreParam{CoreParamServer}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_http_server_stop", Components: httpRuntime}},
+			{CoreTypeHttpServer, 0, CoreFunction{Name: "free", Params: []CoreParam{CoreParamServer, CoreParamHeap}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_http_server_free", Components: httpRuntime}},
+			{CoreTypeHttpRequest, 0, CoreFunction{Name: "method", Params: []CoreParam{CoreParamRequest}, Result: CoreResultBytes, ErrorBehavior: ErrorNever, Runtime: "hex_http_request_method", Components: httpRuntime}},
+			{CoreTypeHttpRequest, 0, CoreFunction{Name: "target", Params: []CoreParam{CoreParamRequest}, Result: CoreResultBytes, ErrorBehavior: ErrorNever, Runtime: "hex_http_request_target", Components: httpRuntime}},
+			{CoreTypeHttpRequest, 0, CoreFunction{Name: "path", Params: []CoreParam{CoreParamRequest}, Result: CoreResultBytes, ErrorBehavior: ErrorNever, Runtime: "hex_http_request_path", Components: httpRuntime}},
+			{CoreTypeHttpRequest, 0, CoreFunction{Name: "headers", Params: []CoreParam{CoreParamRequest}, Result: CoreResultHeaders, ErrorBehavior: ErrorNever, Runtime: "hex_http_request_headers", Components: httpRuntime}},
+			{CoreTypeHttpRequest, 0, CoreFunction{Name: "header", Params: []CoreParam{CoreParamRequest, CoreParamString}, Result: CoreResultBytesNil, ErrorBehavior: ErrorNever, Runtime: "hex_http_request_header", Components: httpRuntime}},
+			{CoreTypeHttpRequest, 0, CoreFunction{Name: "read", Params: []CoreParam{CoreParamRequest, CoreParamByteList, CoreParamSize}, Result: CoreResultReadBody, ErrorBehavior: ErrorFallible, Runtime: "hex_http_request_read", Components: httpRuntime}},
+			{CoreTypeHttpWriter, 0, CoreFunction{Name: "status", Params: []CoreParam{CoreParamWriter, CoreParamUInt16}, Result: CoreResultNil, ErrorBehavior: ErrorFallible, Runtime: "hex_http_writer_status", Components: httpRuntime}},
+			{CoreTypeHttpWriter, 0, CoreFunction{Name: "header", Params: []CoreParam{CoreParamWriter, CoreParamString, CoreParamBytes}, Result: CoreResultNil, ErrorBehavior: ErrorFallible, Runtime: "hex_http_writer_header", Components: httpRuntime}},
+			{CoreTypeHttpWriter, 0, CoreFunction{Name: "content_length", Params: []CoreParam{CoreParamWriter, CoreParamSize}, Result: CoreResultNil, ErrorBehavior: ErrorFallible, Runtime: "hex_http_writer_content_length", Components: httpRuntime}},
+			{CoreTypeHttpWriter, 0, CoreFunction{Name: "write", Params: []CoreParam{CoreParamWriter, CoreParamBytes}, Result: CoreResultNil, ErrorBehavior: ErrorFallible, Runtime: "hex_http_writer_write", Components: httpRuntime}},
 		},
 	},
 	{

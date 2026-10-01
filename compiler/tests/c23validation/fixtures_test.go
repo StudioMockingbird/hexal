@@ -21,6 +21,53 @@ var jsonCaseStdout string
 //go:embed testdata/network_close_cancel.hex
 var networkCloseCancelSource string
 
+//go:embed testdata/http_common.hex
+var httpCommonSource string
+
+//go:embed testdata/http_routing.hex
+var httpRoutingSource string
+
+//go:embed testdata/http_routing.stdout
+var httpRoutingStdout string
+
+//go:embed testdata/http_lifecycle.hex
+var httpLifecycleSource string
+
+//go:embed testdata/http_lifecycle.stdout
+var httpLifecycleStdout string
+
+//go:embed testdata/http_deadlines.hex
+var httpDeadlinesSource string
+
+//go:embed testdata/http_deadlines.stdout
+var httpDeadlinesStdout string
+
+//go:embed testdata/http_shutdown.hex
+var httpShutdownSource string
+
+//go:embed testdata/http_shutdown.stdout
+var httpShutdownStdout string
+
+//go:embed testdata/http_trap_router.hex
+var httpTrapRouterSource string
+
+//go:embed testdata/http_trap_server.hex
+var httpTrapServerSource string
+
+// httpWireFixture builds one std/http wire fixture: the shared client helpers
+// and a body, run to completion, with the expected output normalized to LF.
+func httpWireFixture(name, body, stdout string) fixture {
+	return fixture{
+		name:       name,
+		entrypoint: "app.hex",
+		sources:    map[string]string{"app.hex": httpCommonSource + body},
+		expectation: &processExpectation{
+			zeroExit:    true,
+			exactStdout: strings.ReplaceAll(stdout, "\r\n", "\n"),
+		},
+	}
+}
+
 var fixtureCatalog = []fixture{
 	// Compile-only: representative programs across the constructs whose
 	// generated C has never been read by a compiler before this suite.
@@ -2802,6 +2849,22 @@ var fixtureCatalog = []fixture{
 		},
 	},
 	jsonNestedOwnershipFixture(),
+	httpWireFixture("http-server-routing-and-framing-runs", httpRoutingSource, httpRoutingStdout),
+	httpWireFixture("http-server-lifecycle-and-state-runs", httpLifecycleSource, httpLifecycleStdout),
+	httpWireFixture("http-server-phase-deadlines-run", httpDeadlinesSource, httpDeadlinesStdout),
+	httpWireFixture("http-server-shutdown-and-admission-runs", httpShutdownSource, httpShutdownStdout),
+	{
+		name:        "http-router-free-while-attached-traps",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": httpTrapRouterSource},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] router freed while attached to a server"},
+	},
+	{
+		name:        "http-server-free-while-running-traps",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": httpTrapServerSource},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] server freed while running"},
+	},
 	{
 		name:       "http-router-registration-runs",
 		entrypoint: "app.hex",
