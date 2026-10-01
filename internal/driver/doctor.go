@@ -89,6 +89,7 @@ func doctorRuntimePack(selected *backend.Backend, options DoctorOptions, triple 
 		compiler.RuntimeUtf8proc,
 		compiler.RuntimeYyjson,
 		compiler.RuntimePcre2,
+		compiler.RuntimeLlhttp,
 	})
 	if err != nil {
 		return err

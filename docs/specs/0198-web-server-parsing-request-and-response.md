@@ -229,16 +229,16 @@ and restarts hexal play; native packaging evidence is retained in the spec.
   `release/v9.4.3`, commit `0e815792b167a9bd8ace259b95b7da953776c288`. The release
   branch ships the generated C, so no Node.js, npm, or generator runs.
 - Sources, three translation units, with SHA-256: `src/api.c`
-  `c4c1599434d5e10c1bba4fc509c2b9599911ed2edafb6c17048c0820aa2c4074`, `src/http.c`
-  `924ef08d9fbdfa5ae1ede5a2d50dad1365b9b9ff8acdac2d9681b54a34ae98e3`, `src/llhttp.c`
-  `899b7d1e420a62360dfc57e3b7e855530b171167438becd5f31a505f990acc20`; header
+  `0f8590206fe2f264db2825401b5fb856b979ee1363dc88b06f36dc9577afb941`, `src/http.c`
+  `a1f2b23168f8e9b5bfa464c89027d3ca259fc649ae3d7e72bfff997d1aeb5d72`, `src/llhttp.c`
+  `391e7c99912abf3b1c9dd8a9c85fdeaac2663e9fa55b6f3871154d16fef8b892`; header
   `include/llhttp.h`
-  `bea09fd94e87e55d717b01d850ad00dbdb670f6545cab0f8a102d52ec047f7c1`; license
+  `5bc82fa51b19aa8bee7d921038393fbfc74e8cc9bae0844c2d82c102fb8cfd68`; license
   (MIT) `LICENSE`
-  `279012e02a10acfd59a3f2d8f13a497332535d871c2b27c89988985b06a3a438`.
+  `628168d68bb5a8a17e0bbefb3bd74e326e1edc20583d76f52f457c82c921867d`.
 - Packs: `lib/<profile>/llhttp_v9.4.3/{llhttp.a,include/llhttp.h,LICENSE}` for
-  `x86_64-linux-gnu` (115766 bytes, SHA-256 `7b83d61a...232e3e`) and
-  `x86_64-windows-gnu-ucrt` (81688 bytes, SHA-256 `1a270469...eed26`); compile
+  `x86_64-linux-gnu` (115766 bytes, SHA-256 `38ca8f70...610543`) and
+  `x86_64-windows-gnu-ucrt` (81688 bytes, SHA-256 `db0a182f...16ca2`); compile
   commands, producers, and full digests are in `lib/BUILD.md`. The dependency
   declares no system library.
 - Registration: `DependencyLlhttp` in `compiler/specdata/components.go`,

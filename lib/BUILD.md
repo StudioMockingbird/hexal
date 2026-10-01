@@ -218,12 +218,13 @@ ar rcs pcre2_v10.48/pcre2.a <objects>
 - Release: https://github.com/nodejs/llhttp/releases/tag/release%2Fv9.4.3
 - Source files (three translation units): `src/api.c`, `src/http.c`,
   `src/llhttp.c`; public header `include/llhttp.h`
-- Source digests: `src/api.c`
-  `c4c1599434d5e10c1bba4fc509c2b9599911ed2edafb6c17048c0820aa2c4074`,
+- Source digests, of the upstream blobs (LF), which the archive was compiled
+  from rather than from an autocrlf working checkout: `src/api.c`
+  `0f8590206fe2f264db2825401b5fb856b979ee1363dc88b06f36dc9577afb941`,
   `src/http.c`
-  `924ef08d9fbdfa5ae1ede5a2d50dad1365b9b9ff8acdac2d9681b54a34ae98e3`,
+  `a1f2b23168f8e9b5bfa464c89027d3ca259fc649ae3d7e72bfff997d1aeb5d72`,
   `src/llhttp.c`
-  `899b7d1e420a62360dfc57e3b7e855530b171167438becd5f31a505f990acc20`
+  `391e7c99912abf3b1c9dd8a9c85fdeaac2663e9fa55b6f3871154d16fef8b892`
 - Public header: `llhttp_v9.4.3/include/llhttp.h` (the release's, copied
   unchanged); only `hexal/http.c` includes it
 - License: `llhttp_v9.4.3/LICENSE` (MIT)
@@ -240,9 +241,9 @@ ar rcs llhttp_v9.4.3/llhttp.a <objects>
 
 - Producer: Clang 23.1.1, GNU ar (binutils) 2.45.0
 - Size: `115766` bytes
-- SHA-256: `7b83d61a4f223145b0b73f5ce44c0dcf6c4c45b88bb4cd1046cca1445c232e3e`
-- Header SHA-256: `bea09fd94e87e55d717b01d850ad00dbdb670f6545cab0f8a102d52ec047f7c1`
-- License SHA-256: `279012e02a10acfd59a3f2d8f13a497332535d871c2b27c89988985b06a3a438`
+- SHA-256: `38ca8f7080aab8ab2efdcd73b1171c6e2bc6c4eb791e353fda7f261a93610543`
+- Header SHA-256: `5bc82fa51b19aa8bee7d921038393fbfc74e8cc9bae0844c2d82c102fb8cfd68`
+- License SHA-256: `628168d68bb5a8a17e0bbefb3bd74e326e1edc20583d76f52f457c82c921867d`
 
 ### Linux system libraries
 
@@ -458,7 +459,8 @@ llvm-ar rcs pcre2_v10.48/pcre2.a <objects>
   `0e815792b167a9bd8ace259b95b7da953776c288` (`release/v9.4.3`); the three
   source digests, the unchanged public header, the MIT license, and the
   no-system-library, no-allocator contract are the Linux entry's
-- Producer: Clang 23.1.2, `llvm-ar`
+- Producer: Clang 23.1.2, `llvm-ar`; COFF objects carry a build timestamp, so a
+  rebuild from the same sources has the same size but different bytes
 - Compile command (once per source):
 
 ```text
@@ -468,9 +470,9 @@ llvm-ar rcs llhttp_v9.4.3/llhttp.a <objects>
 ```
 
 - Archive size: `81688` bytes
-- Archive SHA-256: `1a2704696746fd9f91c166298264249ae7a4ebb1799c738e88dcaa409c8eed26`
-- Header SHA-256: `bea09fd94e87e55d717b01d850ad00dbdb670f6545cab0f8a102d52ec047f7c1`
-- License SHA-256: `279012e02a10acfd59a3f2d8f13a497332535d871c2b27c89988985b06a3a438`
+- Archive SHA-256: `db0a182f9d324d0a15eef74e06ae941027dad5191c8beb12d1210b27d4f16ca2`
+- Header SHA-256: `5bc82fa51b19aa8bee7d921038393fbfc74e8cc9bae0844c2d82c102fb8cfd68`
+- License SHA-256: `628168d68bb5a8a17e0bbefb3bd74e326e1edc20583d76f52f457c82c921867d`
 
 ### Windows yyjson + pcre2 reproducibility
 
