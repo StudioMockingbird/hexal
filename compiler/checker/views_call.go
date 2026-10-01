@@ -262,7 +262,7 @@ func (a *viewAnalyzer) checkTemporaryReceiver(node *Expression, summary *viewSum
 	if borrowsReceiver {
 		owner := node.OperandType.Name
 		if node.Owner != nil {
-			owner = node.Owner.Name
+			owner = node.Owner.NominalName()
 		}
 		a.report(at, diagnostics.MethodResultBorrowsTemporaryReceiver(owner, node.Name))
 	}

@@ -256,6 +256,12 @@ func selfPlace(names *scope, token lexer.Token) checkedExpression {
 	if names.self == nil {
 		return checkedExpression{token: token, diagnostic: selfNotBoundDiagnostic(token)}
 	}
+	// A union method narrows self by variant like any binding; the place keeps
+	// the declared union type and records the active variant.
+	var narrowedVariant *compilerTypes.AdtVariant
+	if variant, ok := names.flow.narrowedVariant(names.selfID); ok {
+		narrowedVariant = variant
+	}
 	return checkedExpression{
 		source: Operand{
 			Kind:        VariableOperand,
@@ -266,10 +272,12 @@ func selfPlace(names *scope, token lexer.Token) checkedExpression {
 			Addressable: true,
 			Writable:    true,
 		},
-		typ:   *names.self,
-		use:   compilerTypes.NewTypeUse(*names.self),
-		token: token,
-		self:  true,
+		typ:         *names.self,
+		use:         compilerTypes.NewTypeUse(*names.self),
+		storageType: *names.self,
+		variant:     narrowedVariant,
+		token:       token,
+		self:        true,
 	}
 }
 

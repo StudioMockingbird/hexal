@@ -146,7 +146,7 @@ func specializeFunctionIn(open *openGenericFunction, arguments []compilerTypes.T
 // the requesting module's own table for a local generic method, or the
 // defining module's registry collection (registry.methodSpecializationStore)
 // for an imported one, exactly like specializeFunctionIn.
-func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.ObjectType, receiverType compilerTypes.Type, receiverArguments []compilerTypes.Type, methodArguments []compilerTypes.Type, ctx checkContext, collection map[string]MethodDeclaration) (MethodDeclaration, *compilerTypes.Diagnostic) {
+func specializeMethod(open *openGenericMethod, receiverOwner compilerTypes.NominalOwner, receiverType compilerTypes.Type, receiverArguments []compilerTypes.Type, methodArguments []compilerTypes.Type, ctx checkContext, collection map[string]MethodDeclaration) (MethodDeclaration, *compilerTypes.Diagnostic) {
 	generics := ctx.names.generics
 	key := open.ObjectName + "|" + argumentNames(receiverArguments) + "|" + open.Name + "|" + argumentNames(methodArguments)
 	if cached, ok := collection[key]; ok {
@@ -181,7 +181,7 @@ func specializeMethod(open *openGenericMethod, receiverObject *compilerTypes.Obj
 	specialized := MethodDeclaration{
 		Name:       methodName,
 		Mutating:   open.Declaration.Mutating,
-		Object:     receiverObject,
+		Object:     receiverOwner,
 		SelfType:   receiverType,
 		Parameters: parameters,
 		Result:     result,

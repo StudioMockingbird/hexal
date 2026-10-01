@@ -153,7 +153,7 @@ func validateCallExpression(node checker.Expression, expected *compilerTypes.Typ
 }
 
 func validateMethodCallExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {
-	if node.Owner == nil || !validSourceName(compilerTypes.SanitizeIdentifier(node.Owner.Name)) || !validSourceName(node.Name) || node.Operand == nil {
+	if node.Owner == nil || !validSourceName(compilerTypes.SanitizeIdentifier(node.Owner.NominalName())) || !validSourceName(node.Name) || node.Operand == nil {
 		return unknownExpressionDiagnostic()
 	}
 	// A method whose receiver type another module declares is not in the
@@ -161,7 +161,7 @@ func validateMethodCallExpression(node checker.Expression, expected *compilerTyp
 	// module's exported records, so the checked node is authoritative for a
 	// cross-module call (mirroring the cross-module function reference
 	// path).
-	crossModule := moduleOwner(node.Owner.ModuleID, state.owner) != state.owner
+	crossModule := moduleOwner(node.Owner.NominalModuleID(), state.owner) != state.owner
 	declared, ok := state.methods[methodKey(node.Owner, node.Name)]
 	if !crossModule {
 		if !ok || declared.Object != node.Owner {

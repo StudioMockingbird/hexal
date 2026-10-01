@@ -73,9 +73,9 @@ func unexpectedBuiltinMethod(typ compilerTypes.Type, token lexer.Token) checkedE
 	return checkedExpression{token: token, diagnostic: &diagnostic}
 }
 
-// MethodDeclaration is a checked `method` declaration. Object is the nominal struct
-// the method is associated with; SelfType is that struct and is the type of
-// the implicit `self` binding.
+// MethodDeclaration is a checked `method` declaration. Object is the nominal
+// struct or union the method is associated with; SelfType is that type and is
+// the type of the implicit `self` binding.
 // A method is not a value, so unlike a function it carries no Fun<...> type.
 type MethodDeclaration struct {
 	Name string
@@ -83,7 +83,7 @@ type MethodDeclaration struct {
 	// receiver's mut members. It is part of the method's public contract,
 	// never inferred from its body.
 	Mutating    bool
-	Object      *compilerTypes.ObjectType
+	Object      compilerTypes.NominalOwner
 	SelfType    compilerTypes.Type
 	SelfBinding BindingID
 	Parameters  []FunctionParameter
@@ -107,7 +107,7 @@ func (MethodDeclaration) statementNode() {}
 // one method, while two distinct objects that happen to print the same name
 // stay separate.
 type methodTable struct {
-	byObject map[*compilerTypes.ObjectType]map[string]*MethodDeclaration
+	byObject map[compilerTypes.NominalOwner]map[string]*MethodDeclaration
 	// cNames maps the private C spelling stem a method produces
 	// (Point_translate for method Point.translate) to that method's source
 	// spelling. The hex_f_ encoding is not injective, so a collision between
@@ -117,12 +117,12 @@ type methodTable struct {
 
 func newMethodTable() *methodTable {
 	return &methodTable{
-		byObject: make(map[*compilerTypes.ObjectType]map[string]*MethodDeclaration),
+		byObject: make(map[compilerTypes.NominalOwner]map[string]*MethodDeclaration),
 		cNames:   make(map[string]string),
 	}
 }
 
-func (table *methodTable) lookup(object *compilerTypes.ObjectType, name string) *MethodDeclaration {
+func (table *methodTable) lookup(object compilerTypes.NominalOwner, name string) *MethodDeclaration {
 	if table == nil || object == nil {
 		return nil
 	}
@@ -136,7 +136,7 @@ func (table *methodTable) define(method *MethodDeclaration) {
 		table.byObject[method.Object] = methods
 	}
 	methods[method.Name] = method
-	table.cNames[method.Object.Name+"_"+method.Name] = method.Object.Name + "." + method.Name
+	table.cNames[method.Object.NominalName()+"_"+method.Name] = method.Object.NominalName() + "." + method.Name
 }
 
 func collisionDiagnostic(functionName, methodName string, token lexer.Token) compilerTypes.Diagnostic {
@@ -287,35 +287,35 @@ func collectMethodSignature(declaration parser.MethodDeclaration, ctx checkConte
 		return MethodDeclaration{}, compilerTypes.Diagnostics{*targetDiagnostic}
 	}
 	target := targetUse.Type
-	// Method receivers are nominal structs only. Pointer, nullable, union,
-	// primitive, builtin-generic, and non-struct nominal receivers are
+	// Method receivers are nominal structs or nominal unions only. Pointer,
+	// nullable, anonymous union, primitive, and builtin-generic receivers are
 	// rejected here, before ownership checks or body checking.
-	object := target.Object
+	object := compilerTypes.NominalOwnerOf(target)
 	if object == nil {
 		return MethodDeclaration{}, compilerTypes.Diagnostics{messageAt(declaration.Keyword,
-			diagnosticsPkg.MethodReceiverMustBeStruct(target.Name))}
+			diagnosticsPkg.MethodReceiverMustBeNominal(target.Name))}
 	}
 	// Only the type's defining module may declare its methods. An imported
 	// receiver -- or a transparent alias of one -- resolves to the defining
 	// module's identity, so the ModuleID comparison rejects every spelling of
 	// it, qualified or not. Builtins carry an empty id and keep their
 	// compiler-owned behavior.
-	if object.ModuleID != "" && object.ModuleID != ctx.names.moduleID {
+	if object.NominalModuleID() != "" && object.NominalModuleID() != ctx.names.moduleID {
 		return MethodDeclaration{}, compilerTypes.Diagnostics{messageAt(receiverSpellingToken(declaration.SelfType, declaration.Keyword),
-			diagnosticsPkg.CannotDeclareMethodsForImportedType(receiverSpelling(declaration.SelfType, object.Name)))}
+			diagnosticsPkg.CannotDeclareMethodsForImportedType(receiverSpelling(declaration.SelfType, object.NominalName())))}
 	}
 	checked.Object = object
 	checked.SelfType = target
 
 	// Method rules 4 and 5, then the non-injective C name rule.
 	if ctx.names.methods.lookup(object, name) != nil {
-		diagnostics = append(diagnostics, messageAt(declaration.Name, diagnosticsPkg.TypeAlreadyHasMethod(object.Name, name)))
-	} else if _, exists := object.Member(name); exists {
-		diagnostics = append(diagnostics, messageAt(declaration.Name, diagnosticsPkg.TypeAlreadyHasMember(object.Name, name)))
-	} else if bound, declared := ctx.names.module[object.Name+"_"+name]; declared && bound.kind == functionBinding {
-		diagnostics = append(diagnostics, collisionDiagnostic(object.Name+"_"+name, object.Name+"."+name, declaration.Name))
-	} else if existing, taken := ctx.names.methods.cNames[object.Name+"_"+name]; taken {
-		diagnostics = append(diagnostics, methodCollisionDiagnostic(object.Name, name, existing, declaration.Name))
+		diagnostics = append(diagnostics, messageAt(declaration.Name, diagnosticsPkg.TypeAlreadyHasMethod(object.NominalName(), name)))
+	} else if nominalHasMember(target, name) {
+		diagnostics = append(diagnostics, messageAt(declaration.Name, diagnosticsPkg.TypeAlreadyHasMember(object.NominalName(), name)))
+	} else if bound, declared := ctx.names.module[object.NominalName()+"_"+name]; declared && bound.kind == functionBinding {
+		diagnostics = append(diagnostics, collisionDiagnostic(object.NominalName()+"_"+name, object.NominalName()+"."+name, declaration.Name))
+	} else if existing, taken := ctx.names.methods.cNames[object.NominalName()+"_"+name]; taken {
+		diagnostics = append(diagnostics, methodCollisionDiagnostic(object.NominalName(), name, existing, declaration.Name))
 	}
 
 	parameters, parameterDiagnostics := checkParameters(declaration.Parameters, ctx.typeEnvironment, ctx.names.generics)
@@ -430,7 +430,7 @@ func receiverSpellingToken(expression parser.TypeExpression, fallback lexer.Toke
 
 // checkMethodCall resolves receiver.method(...). The receiver is checked as a
 // place -- adaptation may dereference it -- and the method is found by the
-// receiver's nominal object identity, so values and pointers reach the one
+// receiver's nominal owner identity, so values and pointers reach the one
 // method declared on that object.
 func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpression, expectedType compilerTypes.Type, ctx checkContext) checkedExpression {
 	name := callee.Property.Lexeme
@@ -719,21 +719,30 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 
-	// Rule 2: one nominal object owns the method, reached through T, Ptr<T>,
-	// or Ptr<mut T>. Deeper pointers have no object at this layer and fail here.
-	object := receiver.typ.Object
-	if object == nil && receiver.typ.Element != nil {
-		object = receiver.typ.Element.Object
+	// Rule 2: one nominal struct or union owns the method, reached through T,
+	// Ptr<T>, or Ptr<mut T>. Deeper pointers have no owner at this layer and
+	// fail here.
+	receiverType := receiver.typ
+	if compilerTypes.NominalOwnerOf(receiverType) == nil && receiver.typ.Element != nil {
+		receiverType = *receiver.typ.Element
 	}
+	object := compilerTypes.NominalOwnerOf(receiverType)
 	if object == nil {
 		diagnostic := messageAt(callee.Property, diagnosticsPkg.TypeHasNoMethod(receiver.typ.Name, name))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
+	// Only a struct has members a Fun-valued call can dispatch through.
+	structMember := func() (*compilerTypes.ObjectMember, bool) {
+		if receiverType.Object == nil {
+			return nil, false
+		}
+		return receiverType.Object.Member(name)
+	}
 	// A receiver whose type another module defines routes its method lookup
 	// to that module's recorded exported methods. Builtin receivers carry an
 	// empty id and keep the local path.
-	if object.ModuleID != "" && object.ModuleID != ctx.names.moduleID {
-		if member, ok := object.Member(name); ok {
+	if object.NominalModuleID() != "" && object.NominalModuleID() != ctx.names.moduleID {
+		if member, ok := structMember(); ok {
 			if member.Type.Signature != nil || isNullableFun(member.Type) {
 				return checkFunMemberCall(call, callee, receiver, member, ctx)
 			}
@@ -749,14 +758,14 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 		if genericMethod := lookupGenericMethod(ctx.names, object, name); genericMethod != nil {
 			return checkGenericMethodCall(call, callee, genericMethod, object, receiver, ctx)
 		}
-		if member, ok := object.Member(name); ok {
+		if member, ok := structMember(); ok {
 			if member.Type.Signature != nil || isNullableFun(member.Type) {
 				return checkFunMemberCall(call, callee, receiver, member, ctx)
 			}
 			diagnostic := nonCallableMemberDiagnostic(callee.Property, member)
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
-		diagnostic := messageAt(callee.Property, diagnosticsPkg.TypeHasNoMethod(object.Name, name))
+		diagnostic := messageAt(callee.Property, diagnosticsPkg.TypeHasNoMethod(object.NominalName(), name))
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 	}
 
@@ -812,15 +821,15 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 // checked call mirrors a local method call: the same receiver adaptation,
 // argument checking, and node shape, with the defining module's resolved
 // signature.
-func checkImportedMethodCall(call parser.CallExpression, callee parser.PropertyExpression, name string, object *compilerTypes.ObjectType, receiver checkedExpression, ctx checkContext) checkedExpression {
-	method, ok := ctx.names.registry.exportedMethod(object.ModuleID, object.Name, name)
+func checkImportedMethodCall(call parser.CallExpression, callee parser.PropertyExpression, name string, object compilerTypes.NominalOwner, receiver checkedExpression, ctx checkContext) checkedExpression {
+	method, ok := ctx.names.registry.exportedMethod(object.NominalModuleID(), object.NominalName(), name)
 	if !ok {
 		specialized, diagnostic, specializedOk := checkImportedGenericMethodCall(call, callee, object, name, receiver, ctx)
 		if diagnostic != nil {
 			return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 		}
 		if !specializedOk {
-			diagnostic := privateToModuleDiagnostic(callee.Property, name, object.ModuleID)
+			diagnostic := privateToModuleDiagnostic(callee.Property, name, object.NominalModuleID())
 			return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
 		}
 		method = specialized
@@ -879,20 +888,20 @@ func checkImportedMethodCall(call parser.CallExpression, callee parser.PropertyE
 // result is false when object is not a generic specialization at all or
 // this module declares no such method template, so the caller reports the
 // ordinary visibility diagnostic instead.
-func checkImportedGenericMethodCall(call parser.CallExpression, callee parser.PropertyExpression, object *compilerTypes.ObjectType, name string, receiver checkedExpression, ctx checkContext) (MethodDeclaration, *compilerTypes.Diagnostic, bool) {
-	definingCtx, ok := ctx.names.registry.definingContext(object.ModuleID)
+func checkImportedGenericMethodCall(call parser.CallExpression, callee parser.PropertyExpression, object compilerTypes.NominalOwner, name string, receiver checkedExpression, ctx checkContext) (MethodDeclaration, *compilerTypes.Diagnostic, bool) {
+	definingCtx, ok := ctx.names.registry.definingContext(object.NominalModuleID())
 	if !ok {
 		return MethodDeclaration{}, nil, false
 	}
-	open, ok := definingCtx.names.generics.objectOpen[object]
+	open, ok := definingCtx.names.generics.openOf(object)
 	if !ok {
 		return MethodDeclaration{}, nil, false
 	}
-	methodOpen, ok := ctx.names.registry.genericMethod(object.ModuleID, open.Name, name)
+	methodOpen, ok := ctx.names.registry.genericMethod(object.NominalModuleID(), open.Name, name)
 	if !ok {
 		return MethodDeclaration{}, nil, false
 	}
-	receiverArguments := definingCtx.names.generics.objectArguments[object]
+	receiverArguments := definingCtx.names.generics.argumentsOf(object)
 	if receiverArguments == nil {
 		diagnostic := unknownAt(callee.Property)
 		return MethodDeclaration{}, &diagnostic, true
@@ -919,10 +928,10 @@ func checkImportedGenericMethodCall(call parser.CallExpression, callee parser.Pr
 		methodArguments = inferred
 	}
 	receiverValue := receiver.typ
-	if receiverValue.Object == nil && receiverValue.Element != nil {
+	if compilerTypes.NominalOwnerOf(receiverValue) == nil && receiverValue.Element != nil {
 		receiverValue = *receiverValue.Element
 	}
-	specialized, diagnostic := specializeMethod(methodOpen, object, receiverValue, receiverArguments, methodArguments, definingCtx, ctx.names.registry.methodSpecializationStore(object.ModuleID))
+	specialized, diagnostic := specializeMethod(methodOpen, object, receiverValue, receiverArguments, methodArguments, definingCtx, ctx.names.registry.methodSpecializationStore(object.NominalModuleID()))
 	if diagnostic := diagnosticInDefiningModule(diagnostic, definingCtx.names.logicalKey); diagnostic != nil {
 		return MethodDeclaration{}, diagnostic, true
 	}
@@ -1016,7 +1025,7 @@ func adaptMethodReceiver(receiver checkedExpression, method MethodDeclaration, c
 				return Operand{}, methodFixedReceiverDiagnostic(method, callee, placeDescription(callee.Receiver), receiver.loopBinder)
 			}
 			if ctx.names.readonlySelfWrite(&receiver.source.Node) {
-				diagnostic := readonlySelfWriteDiagnostic(ctx.names, callee.Property, "calls mut method "+method.Object.Name+"."+method.Name+" on "+placeDescription(callee.Receiver))
+				diagnostic := readonlySelfWriteDiagnostic(ctx.names, callee.Property, "calls mut method "+method.Object.NominalName()+"."+method.Name+" on "+placeDescription(callee.Receiver))
 				return Operand{}, &diagnostic
 			}
 			// The call takes @receiver implicitly, so it carries the same
@@ -1044,8 +1053,29 @@ func adaptMethodReceiver(receiver checkedExpression, method MethodDeclaration, c
 func methodFixedReceiverDiagnostic(method MethodDeclaration, callee parser.PropertyExpression, receiver string, forBinder bool) *compilerTypes.Diagnostic {
 	owner := method.SelfType.Name
 	if method.Object != nil {
-		owner = method.Object.Name
+		owner = method.Object.NominalName()
 	}
 	diagnostic := messageAt(callee.Property, diagnosticsPkg.MethodWritesFixedReceiver(owner, method.Name, receiver, forBinder))
 	return &diagnostic
+}
+
+// nominalHasMember reports whether a struct declares a member, or a union
+// declares a payload field in any variant, named name: a method may not share
+// a name with either, so a member read or a call after narrowing is never
+// ambiguous.
+func nominalHasMember(typ compilerTypes.Type, name string) bool {
+	switch {
+	case typ.Object != nil:
+		_, exists := typ.Object.Member(name)
+		return exists
+	case typ.Adt != nil:
+		for _, variant := range typ.Adt.Variants {
+			for _, member := range variant.Payload {
+				if member.Name == name {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

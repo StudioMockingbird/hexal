@@ -117,7 +117,7 @@ func declaredMethods(program checker.Program) (map[string]checker.MethodDeclarat
 		if !ok {
 			continue
 		}
-		if declared.Object == nil || !validSourceName(compilerTypes.SanitizeIdentifier(declared.Object.Name)) || !validSourceName(declared.Name) {
+		if declared.Object == nil || !validSourceName(compilerTypes.SanitizeIdentifier(declared.Object.NominalName())) || !validSourceName(declared.Name) {
 			return nil, unknownExpressionDiagnostic()
 		}
 		key := methodKey(declared.Object, declared.Name)
@@ -127,7 +127,7 @@ func declaredMethods(program checker.Program) (map[string]checker.MethodDeclarat
 		methods[key] = declared
 	}
 	for _, declared := range program.SpecializedMethods {
-		if declared.Object == nil || !validSourceName(compilerTypes.SanitizeIdentifier(declared.Object.Name)) || !validSourceName(declared.Name) {
+		if declared.Object == nil || !validSourceName(compilerTypes.SanitizeIdentifier(declared.Object.NominalName())) || !validSourceName(declared.Name) {
 			return nil, unknownExpressionDiagnostic()
 		}
 		key := methodKey(declared.Object, declared.Name)
@@ -139,14 +139,14 @@ func declaredMethods(program checker.Program) (map[string]checker.MethodDeclarat
 	return methods, nil
 }
 
-func methodKey(object *compilerTypes.ObjectType, name string) string {
+func methodKey(object compilerTypes.NominalOwner, name string) string {
 	if object == nil {
 		return ""
 	}
-	return compilerTypes.SanitizeIdentifier(object.Name) + "_" + name
+	return compilerTypes.SanitizeIdentifier(object.NominalName()) + "_" + name
 }
 
-func methodCName(object *compilerTypes.ObjectType, name, owner string) string {
+func methodCName(object compilerTypes.NominalOwner, name, owner string) string {
 	return privateCName(functionNameKind, methodKey(object, name), owner)
 }
 
@@ -285,7 +285,7 @@ func (ctx definitionContext) writeMethodDefinition(declared checker.MethodDeclar
 	if !validateGeneratedType(declared.SelfType, ctx.typeState, false) {
 		return unknownExpressionDiagnostic()
 	}
-	if declared.SelfType.Object != declared.Object && (declared.SelfType.Element == nil || declared.SelfType.Element.Object != declared.Object) {
+	if compilerTypes.NominalOwnerOf(declared.SelfType) != declared.Object && (declared.SelfType.Element == nil || compilerTypes.NominalOwnerOf(*declared.SelfType.Element) != declared.Object) {
 		return unknownExpressionDiagnostic()
 	}
 	resultSpelling := "void"
@@ -488,10 +488,10 @@ func writeForeignPrototypes(result *strings.Builder, program checker.Program, st
 					return err
 				}
 			case checker.MethodCallExpression:
-				if node.Owner == nil || node.Owner.ModuleID == "" || node.Owner.ModuleID == state.moduleID {
+				if node.Owner == nil || node.Owner.NominalModuleID() == "" || node.Owner.NominalModuleID() == state.moduleID {
 					return nil
 				}
-				symbol := methodCName(node.Owner, node.Name, moduleOwner(node.Owner.ModuleID, state.owner))
+				symbol := methodCName(node.Owner, node.Name, moduleOwner(node.Owner.NominalModuleID(), state.owner))
 				if emitted[symbol] {
 					return nil
 				}

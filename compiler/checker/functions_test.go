@@ -384,7 +384,7 @@ func TestMethodDeclarationProducesCheckedIR(t *testing.T) {
 	if !ok {
 		t.Fatalf("statement = %T, want MethodDeclaration", checked.Statements[0])
 	}
-	if declaration.Name != "length_squared" || declaration.Object == nil || declaration.Object.Name != "Point" {
+	if declaration.Name != "length_squared" || declaration.Object == nil || declaration.Object.NominalName() != "Point" {
 		t.Fatalf("declaration = %#v, want length_squared on Point", declaration)
 	}
 	if !compilerTypes.Equal(declaration.SelfType, checked.TypeDeclarations[0].Type) {
@@ -416,7 +416,7 @@ func TestValueReceiverBindsSelf(t *testing.T) {
 	if declaration.SelfType.Name != "Point" {
 		t.Fatalf("self type = %s, want Point", declaration.SelfType.Name)
 	}
-	if declaration.Object == nil || declaration.Object.Name != "Point" {
+	if declaration.Object == nil || declaration.Object.NominalName() != "Point" {
 		t.Fatalf("method is owned by %#v, want Point", declaration.Object)
 	}
 }
@@ -511,15 +511,15 @@ func TestMethodsAreNotValues(t *testing.T) {
 
 func TestMethodTargetMustBeAStruct(t *testing.T) {
 	requireDiagnostic(t, "method Int32.doubled(): Int32 do\n    return 0\nend\n",
-		"method receiver must be a struct type; got Int32")
+		"method receiver must be a struct or union type; got Int32")
 	requireDiagnostic(t, "method Ptr<Int32>.doubled(): Int32 do\n    return 0\nend\n",
-		"method receiver must be a struct type; got Ptr<Int32>")
+		"method receiver must be a struct or union type; got Ptr<Int32>")
 	requireDiagnostic(t, "method Ptr<mut Int32>.doubled(): Int32 do\n    return 0\nend\n",
-		"method receiver must be a struct type; got Ptr<mut Int32>")
+		"method receiver must be a struct or union type; got Ptr<mut Int32>")
 	requireDiagnostic(t, "method Fun<(Int32) : Int32>.doubled(): Int32 do\n    return 0\nend\n",
-		"method receiver must be a struct type; got Fun<(Int32) : Int32>")
+		"method receiver must be a struct or union type; got Fun<(Int32) : Int32>")
 	requireDiagnostic(t, "method Int32 | Bool.doubled(): Int32 do\n    return 0\nend\n",
-		"method receiver must be a struct type; got Bool | Int32")
+		"method receiver must be a struct or union type; got Bool | Int32")
 }
 
 // Nullable integration: signatures, returns, arguments, and
@@ -588,7 +588,7 @@ func TestNullableFunctionPointerRequiresNarrowingBeforeCall(t *testing.T) {
 func TestMethodTargetCannotBeNullable(t *testing.T) {
 	requireDiagnostic(t, "type Node is struct value: Int32, mut next: Ptr<mut Node> | Nil, end\n"+
 		"method Ptr<mut Node> | Nil.read(): Int32 do\n    return 0\nend\n",
-		"method receiver must be a struct type; got Ptr<mut Node> | Nil")
+		"method receiver must be a struct or union type; got Ptr<mut Node> | Nil")
 }
 
 // hex_f_ name encoding is not injective, so the checker owns the clash.
@@ -614,7 +614,7 @@ func TestMethodCallProducesCheckedIR(t *testing.T) {
 	if node.Kind != MethodCallExpression || node.Name != "translate" {
 		t.Fatalf("call node = %#v, want a translate method call", node)
 	}
-	if node.Owner == nil || node.Owner.Name != "Point" {
+	if node.Owner == nil || node.Owner.NominalName() != "Point" {
 		t.Fatalf("call owner = %#v, want Point", node.Owner)
 	}
 	// The receiver arrives as the address of the caller's place.

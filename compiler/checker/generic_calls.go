@@ -312,8 +312,8 @@ func buildConcreteCall(call parser.CallExpression, specialized FunctionDeclarati
 
 // lookupGenericMethod finds an open generic method whose receiver object
 // matches the specialized receiver object.
-func lookupGenericMethod(names *scope, object *compilerTypes.ObjectType, name string) *openGenericMethod {
-	open, ok := names.generics.objectOpen[object]
+func lookupGenericMethod(names *scope, object compilerTypes.NominalOwner, name string) *openGenericMethod {
+	open, ok := names.generics.openOf(object)
 	if !ok {
 		return nil
 	}
@@ -322,8 +322,8 @@ func lookupGenericMethod(names *scope, object *compilerTypes.ObjectType, name st
 
 // checkGenericMethodCall specializes a generic method for the concrete
 // receiver and infers or validates the method's own type arguments.
-func checkGenericMethodCall(call parser.CallExpression, callee parser.PropertyExpression, open *openGenericMethod, object *compilerTypes.ObjectType, receiver checkedExpression, ctx checkContext) checkedExpression {
-	receiverArguments := ctx.names.generics.objectArguments[object]
+func checkGenericMethodCall(call parser.CallExpression, callee parser.PropertyExpression, open *openGenericMethod, object compilerTypes.NominalOwner, receiver checkedExpression, ctx checkContext) checkedExpression {
+	receiverArguments := ctx.names.generics.argumentsOf(object)
 	if receiverArguments == nil {
 		diagnostic := unknownAt(callee.Property)
 		return checkedExpression{token: callee.Property, diagnostic: &diagnostic}
@@ -355,7 +355,7 @@ func checkGenericMethodCall(call parser.CallExpression, callee parser.PropertyEx
 	// pointer-receiver definition the language does not have.
 	// buildConcreteMethodCall's adaptation inserts the one-layer copy.
 	receiverValue := receiver.typ
-	if receiverValue.Object == nil && receiverValue.Element != nil {
+	if compilerTypes.NominalOwnerOf(receiverValue) == nil && receiverValue.Element != nil {
 		receiverValue = *receiverValue.Element
 	}
 	specialized, diagnostic := specializeMethod(open, object, receiverValue, receiverArguments, methodArguments, ctx, ctx.names.generics.methodSpecializations)

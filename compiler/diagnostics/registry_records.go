@@ -418,7 +418,7 @@ var declaredRecords = map[ID]record{
 	"type.method-no-type-arguments":                     {category: CategoryType, stage: StageChecker},
 	"type.method-result-borrows-temporary":              {category: CategoryType, stage: StageChecker},
 	"type.method-on-imported-type":                      {category: CategoryType, stage: StageChecker},
-	"type.method-receiver-must-be-struct":               {category: CategoryType, stage: StageChecker},
+	"type.method-receiver-must-be-nominal":              {category: CategoryType, stage: StageChecker},
 	"type.method-writes-fixed-receiver":                 {category: CategoryType, stage: StageChecker},
 	"type.missing-constructor-member":                   {category: CategoryType, stage: StageChecker},
 	"type.missing-variant-payload-field":                {category: CategoryType, stage: StageChecker},

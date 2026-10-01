@@ -252,7 +252,7 @@ func renderDeferredCall(action checker.DeferredAction, state *expressionValidati
 			}
 			methodArguments = append([]string{state.envPointer}, methodArguments...)
 		}
-		return methodCName(node.Owner, node.Name, moduleOwner(node.Owner.ModuleID, state.owner)) + "(" + strings.Join(append([]string{arguments[0]}, methodArguments...), ", ") + ")", nil
+		return methodCName(node.Owner, node.Name, moduleOwner(node.Owner.NominalModuleID(), state.owner)) + "(" + strings.Join(append([]string{arguments[0]}, methodArguments...), ", ") + ")", nil
 	case checker.CallExpression:
 		if node.Operand == nil {
 			return "", unknownExpressionDiagnostic()

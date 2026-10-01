@@ -477,8 +477,9 @@ type Expression struct {
 	Right          *Expression
 	Object         *ObjectValue
 	Constant       *Operand
-	// Owner is the nominal object a MethodCallExpression's method belongs to.
-	Owner *compilerTypes.ObjectType
+	// Owner is the nominal struct or union a MethodCallExpression's method
+	// belongs to.
+	Owner compilerTypes.NominalOwner
 	// Arguments is in written order for every kind except
 	// AdtConstructExpression, whose payload fields may be written out of
 	// declaration order: there it is declaration order, matching the

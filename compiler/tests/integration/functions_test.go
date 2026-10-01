@@ -245,10 +245,10 @@ func TestMethodRulesAreEnforced(t *testing.T) {
 	assertRejectsAnyDiagnostic(t, pointType+"method Point.x(): Int32 do\n    return 0\nend\n",
 		"Point already has a member named x")
 	assertRejectsAnyDiagnostic(t, "method Int32.doubled(): Int32 do\n    return 0\nend\n",
-		"method receiver must be a struct type; got Int32")
+		"method receiver must be a struct or union type; got Int32")
 	assertRejectsAnyDiagnostic(t, "method Ptr<Point>.doubled(): Int32 do\n    return 0\nend\n"+
 		"type Point is struct mut x: Int32, mut y: Int32, end\n",
-		"method receiver must be a struct type; got Ptr<Point>")
+		"method receiver must be a struct or union type; got Ptr<Point>")
 	assertRejectsAnyDiagnostic(t, pointType+"let origin: Point = Point(x = 0, y = 0, )\nlet total: Int32 = origin.rotate()\n",
 		"Point has no method named rotate")
 }
@@ -263,10 +263,10 @@ func TestMethodSelfRecursionAndForwardCallsResolve(t *testing.T) {
 func TestPointerReceiversAreRejected(t *testing.T) {
 	assertRejectsAnyDiagnostic(t, pointType+
 		"method Ptr<Point>.is_origin(): Bool do\n    return true\nend\n",
-		"method receiver must be a struct type; got Ptr<Point>")
+		"method receiver must be a struct or union type; got Ptr<Point>")
 	assertRejectsAnyDiagnostic(t, pointType+
 		"method Ptr<mut Point>.translate(dx: Int32, dy: Int32) do\n    return\nend\n",
-		"method receiver must be a struct type; got Ptr<mut Point>")
+		"method receiver must be a struct or union type; got Ptr<mut Point>")
 }
 
 func TestFreeFunctionCollidesWithAMethodCName(t *testing.T) {
@@ -324,6 +324,66 @@ func TestGeneratedMethodDefinitionsAndCalls(t *testing.T) {
 	}
 	if strings.Contains(generated, "const hex_t_m3_app_Point hex_v_self") {
 		t.Fatalf("modules/app.c = %q, want no value-receiver definition", generated)
+	}
+}
+
+const shapeType = "type Shape is union | Circle as radius: Int32 end | Rect as width: Int32, height: Int32 end end\n"
+
+const shapeArea = "method Shape.area(): Int32 do\n    return match self is\n    | Shape.Circle then self.radius * self.radius\n    | Shape.Rect then self.width * self.height\n    end\nend\n"
+
+// A nominal union owns methods like a struct: self narrows by variant inside
+// match, and the method lowers to a pointer-receiver C function.
+func TestUnionMethodNarrowsSelf(t *testing.T) {
+	result := assertCompiles(t, shapeType+shapeArea+"let a: Int32 = Shape.Circle(radius = 2).area()\nlet b: Int32 = Shape.Rect(width = 3, height = 4).area()\nprint(a + b)\n")
+	generated := withoutLineDirectives(rootC(t, result))
+	for _, want := range []string{
+		"static int32_t hex_f_m3_app_Shape_area(const hex_t_m3_app_Shape *const hex_v_self) {",
+		"hex_f_m3_app_Shape_area((const hex_t_m3_app_Shape[1]){",
+	} {
+		if !strings.Contains(generated, want) {
+			t.Fatalf("modules/app.c = %q, want %q", generated, want)
+		}
+	}
+}
+
+func TestGenericUnionMethodSpecializesPerArgument(t *testing.T) {
+	result := assertCompiles(t, "type Maybe<T> is union | Some as value: T end | None end\n"+
+		"method Maybe<T>.is_some(): Bool do\n    return match self is\n    | Maybe.Some then true\n    | Maybe.None then false\n    end\nend\n"+
+		"let a: Maybe<Int32> = Maybe.Some(value = 1)\nlet b: Maybe<Bool> = Maybe.None()\nprint(a.is_some())\nprint(b.is_some())\n")
+	generated := withoutLineDirectives(rootC(t, result))
+	for _, want := range []string{"Maybe_Int32__is_some", "Maybe_Bool__is_some"} {
+		if !strings.Contains(generated, want) {
+			t.Fatalf("modules/app.c = %q, want a specialization containing %q", generated, want)
+		}
+	}
+}
+
+func TestUnionMethodReceiverRules(t *testing.T) {
+	assertRejects(t, "method Int32.f() do\nend\n", "method receiver must be a struct or union type; got Int32")
+	assertRejects(t, "method Bool | Int32.f() do\nend\n", "method receiver must be a struct or union type; got Bool | Int32")
+	assertRejects(t, shapeType+"method Shape.radius(): Int32 do\n    return 1\nend\n", "Shape already has a member named radius")
+	assertCompiles(t, shapeType+"method Shape.is_circle(): Bool do\n    return match self is\n    | Shape.Circle then true\n    | Shape.Rect then false\n    end\nend\n"+
+		"fun check(p: Ptr<Shape>): Bool do\n    return p.is_circle()\nend\nlet s: Shape = Shape.Circle(radius = 1)\nprint(check(@s))\n")
+	imports := map[string]string{
+		"app.hex": "import\n    Lib from \"./lib\"\nend\nmethod Lib.Shape.area(): Int32 do\n    return 1\nend\n",
+		"lib.hex": shapeType + "export\n    Shape\nend\n",
+	}
+	if result := compiler.Compile(imports, "app.hex", compiler.Project{}); result.ExitCode != compiler.ExitFailure || !strings.Contains(strings.Join(result.Stderr, "\n"), "cannot declare methods for imported type Lib.Shape") {
+		t.Fatalf("a method on an imported union must be rejected; stderr = %v", result.Stderr)
+	}
+}
+
+func TestExportedUnionMethodIsCallableFromImporter(t *testing.T) {
+	exported := map[string]string{
+		"app.hex": "import\n    Lib from \"./lib\"\nend\nlet s: Lib.Shape = Lib.Shape.Circle(radius = 3)\nprint(s.area())\n",
+		"lib.hex": shapeType + shapeArea + "export\n    Shape,\n    Shape.area\nend\n",
+	}
+	result := compiler.Compile(exported, "app.hex", compiler.Project{})
+	if result.ExitCode != compiler.ExitSuccess {
+		t.Fatalf("Compile stderr = %v, want success", result.Stderr)
+	}
+	if !strings.Contains(result.Files["modules/app.h"], "Shape_area(const hex_t_m3_lib_Shape *)") {
+		t.Fatalf("modules/app.h = %q, want the exported union method prototype", result.Files["modules/app.h"])
 	}
 }
 

@@ -189,10 +189,10 @@ func resolveExportEntries(program parser.Program, checked Program) (map[string]b
 		case FunctionDeclaration:
 			functionNames[declaration.Name] = true
 		case MethodDeclaration:
-			if methodOwners[declaration.Object.Name] == nil {
-				methodOwners[declaration.Object.Name] = make(map[string]bool)
+			if methodOwners[declaration.Object.NominalName()] == nil {
+				methodOwners[declaration.Object.NominalName()] = make(map[string]bool)
 			}
-			methodOwners[declaration.Object.Name][declaration.Name] = true
+			methodOwners[declaration.Object.NominalName()][declaration.Name] = true
 		}
 	}
 	// An open generic function or method template carries no canonical
@@ -305,7 +305,7 @@ func applyExportFlags(checked *Program, exports map[string]bool) {
 				checked.Statements[index] = declaration
 			}
 		case MethodDeclaration:
-			if exports[declaration.Object.Name+"."+declaration.Name] {
+			if exports[declaration.Object.NominalName()+"."+declaration.Name] {
 				declaration.Exported = true
 				checked.Statements[index] = declaration
 			}
@@ -378,8 +378,8 @@ func (registry *ModuleRegistry) registerExports(moduleID string, exports map[str
 				entry.functions[declaration.Name] = declaration
 			}
 		case MethodDeclaration:
-			if entry.exports[declaration.Object.Name+"."+declaration.Name] {
-				entry.methods[declaration.Object.Name] = append(entry.methods[declaration.Object.Name], declaration)
+			if entry.exports[declaration.Object.NominalName()+"."+declaration.Name] {
+				entry.methods[declaration.Object.NominalName()] = append(entry.methods[declaration.Object.NominalName()], declaration)
 			}
 		}
 	}
@@ -791,7 +791,7 @@ func (registry *ModuleRegistry) checkExportedClosure(moduleID string, checked Pr
 				diagnostics = append(diagnostics, messageAt(token, diagnosticsPkg.ExportedFunctionExposesPrivateType(declaration.Name, private)))
 			}
 		case MethodDeclaration:
-			if !entry.exports[declaration.Object.Name+"."+declaration.Name] {
+			if !entry.exports[declaration.Object.NominalName()+"."+declaration.Name] {
 				continue
 			}
 			private := registry.privateTypeInUse(declaration.SelfType, seenObjects, seenADTs)

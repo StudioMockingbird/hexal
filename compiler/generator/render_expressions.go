@@ -180,7 +180,7 @@ func renderExpressionUncheckedWithState(node checker.Expression, state *expressi
 			}
 			allArguments = append([]string{state.envPointer}, allArguments...)
 		}
-		return methodCName(node.Owner, node.Name, moduleOwner(node.Owner.ModuleID, state.owner)) + "(" + strings.Join(allArguments, ", ") + ")", nil
+		return methodCName(node.Owner, node.Name, moduleOwner(node.Owner.NominalModuleID(), state.owner)) + "(" + strings.Join(allArguments, ", ") + ")", nil
 	case checker.AddressOfExpression:
 		if node.Operand == nil {
 			return "", unknownExpressionDiagnostic()

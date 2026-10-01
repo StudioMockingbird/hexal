@@ -673,11 +673,14 @@ HeapAllocation
   must match their declarations; result-producing bodies cannot fall through.
 - Infallible commands with no payload return no value. Fallible commands with no success payload
   return `Nil | Error`.
-- `method T.name(...)` and `method mut T.name(...)` declare a method on exactly one nominal struct type
-  `T` (`type T is struct ... end`, or a transparent alias naming it, which creates no second method
-  owner). No other receiver form exists: `Ptr<T>`, `Ptr<mut T>`, a nullable type, a union, a primitive, a
-  builtin generic type, or a non-struct nominal type is rejected with `method receiver must be a struct
-  type; got <type>`. A struct containing `Atomic<T>` may declare methods.
+- `method T.name(...)` and `method mut T.name(...)` declare a method on exactly one nominal struct or
+  nominal union type `T` (`type T is struct ... end` or `type T is union ... end`, including a generic
+  one under the generic-receiver rules, or a transparent alias naming it, which creates no second method
+  owner). No other receiver form exists: `Ptr<T>`, `Ptr<mut T>`, a nullable type, an anonymous union, a
+  primitive, or a builtin generic type is rejected with `method receiver must be a struct or union type;
+  got <type>`. A struct containing `Atomic<T>` may declare methods. A union method's `self` narrows by
+  variant inside `match self is` like any binding, follows the same receiver and `mut` rules as a struct
+  method, and may not share a name with any variant payload field of its union.
 - `self` names the receiver's storage in every method: reading `self.m` reads the caller's member and
   writing `self.m = v` writes it. Only `mut` members are writable through `self`, and assigning to `self`
   itself is rejected. `@self` yields `Ptr<mut T>` and `@self.m` a pointer to the caller's member, under
@@ -707,9 +710,9 @@ HeapAllocation
   receiver place is captured at registration. A call on `Ptr<T>` or `Ptr<mut T>` autoderefs exactly one
   pointer layer and passes the pointee's storage, never a copy; a nullable pointer must be narrowed
   first, and more than one pointer layer is never implicitly dereferenced for method dispatch.
-- One method name exists at most once per struct. It cannot equal a member name or be extracted as
-  a function value. Only the struct's defining module may declare its methods; an imported struct
-  may call exported methods but cannot receive local ones.
+- One method name exists at most once per struct or union. It cannot equal a member name (a union's
+  payload field names included) or be extracted as a function value. Only the type's defining module
+  may declare its methods; an imported type may call exported methods but cannot receive local ones.
 - `receiver.name(arguments)` resolves to a method first. Only when no method named `name` exists,
   and the receiver's type has a member `name` of an exact or nullable `Fun<...>` type, does the
   call resolve to an indirect call through that member instead, with the member's signature

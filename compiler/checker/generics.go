@@ -206,3 +206,29 @@ func specializedMethodList(generics *genericTable) []MethodDeclaration {
 	}
 	return sortedMethodSpecializations(generics.methodSpecializations, nil)
 }
+
+// openOf returns the open generic type a specialized struct or union was
+// instantiated from.
+func (generics *genericTable) openOf(owner compilerTypes.NominalOwner) (*openGenericType, bool) {
+	switch concrete := owner.(type) {
+	case *compilerTypes.ObjectType:
+		open, ok := generics.objectOpen[concrete]
+		return open, ok
+	case *compilerTypes.AdtType:
+		open, ok := generics.adtOpen[concrete]
+		return open, ok
+	}
+	return nil, false
+}
+
+// argumentsOf returns the type arguments a specialized struct or union was
+// instantiated with.
+func (generics *genericTable) argumentsOf(owner compilerTypes.NominalOwner) []compilerTypes.Type {
+	switch concrete := owner.(type) {
+	case *compilerTypes.ObjectType:
+		return generics.objectArguments[concrete]
+	case *compilerTypes.AdtType:
+		return generics.adtArguments[concrete]
+	}
+	return nil
+}

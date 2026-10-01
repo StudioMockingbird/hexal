@@ -17,8 +17,8 @@ func MemberNotCallable(name string) Message {
 func MemberCallType(name, typ string) Message {
 	return message("type.member-call-type", CategoryType, StageChecker, fmt.Sprintf("member %s is not callable; its type is %s", name, typ))
 }
-func MethodReceiverMustBeStruct(actual string) Message {
-	return message("type.method-receiver-must-be-struct", CategoryType, StageChecker, "method receiver must be a struct type; got "+actual)
+func MethodReceiverMustBeNominal(actual string) Message {
+	return message("type.method-receiver-must-be-nominal", CategoryType, StageChecker, "method receiver must be a struct or union type; got "+actual)
 }
 func CannotDeclareMethodsForImportedType(name string) Message {
 	return message("type.method-on-imported-type", CategoryType, StageChecker, "cannot declare methods for imported type "+name)

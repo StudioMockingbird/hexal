@@ -1270,6 +1270,40 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{zeroExit: true, exactStdout: "6 7 8\n"},
 	},
 	{
+		name:       "union-method-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type Shape is union | Circle as radius: Int32 end | Rect as width: Int32, height: Int32 end end\n" +
+			"method Shape.area(): Int32 do\n    return match self is\n    | Shape.Circle then self.radius * self.radius\n    | Shape.Rect then self.width * self.height\n    end\nend\n" +
+			"let a: Int32 = Shape.Circle(radius = 3).area()\n" +
+			"let b: Int32 = Shape.Rect(width = 4, height = 5).area()\n" +
+			"print(a, \" \", b, \"\\n\")\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "9 20\n"},
+	},
+	{
+		name:       "exported-union-method-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{
+			"app.hex": "import\n    Lib from \"./lib\"\nend\n" +
+				"let circle: Lib.Shape = Lib.Shape.Circle(radius = 3)\n" +
+				"let rect: Lib.Shape = Lib.Shape.Rect(width = 4, height = 5)\n" +
+				"print(circle.area(), \" \", rect.area(), \"\\n\")\n",
+			"lib.hex": "type Shape is union | Circle as radius: Int32 end | Rect as width: Int32, height: Int32 end end\n" +
+				"method Shape.area(): Int32 do\n    return match self is\n    | Shape.Circle then self.radius * self.radius\n    | Shape.Rect then self.width * self.height\n    end\nend\n" +
+				"export\n    Shape,\n    Shape.area\nend\n",
+		},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "9 20\n"},
+	},
+	{
+		name:       "generic-union-method-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "type Maybe<T> is union | Some as value: T end | None end\n" +
+			"method Maybe<T>.is_some(): Bool do\n    return match self is\n    | Maybe.Some then true\n    | Maybe.None then false\n    end\nend\n" +
+			"let a: Maybe<Int32> = Maybe.Some(value = 1)\n" +
+			"let b: Maybe<Bool> = Maybe.None()\n" +
+			"print(a.is_some(), \" \", b.is_some(), \"\\n\")\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true false\n"},
+	},
+	{
 		name:        "sizes-run",
 		entrypoint:  "app.hex",
 		sources:     map[string]string{"app.hex": "print(size_of<String<31>>(), \" \", align_of<String<31>>(), \" \", size_of<Error>(), \" \", size_of<String>(), \"\\n\")\n"},

@@ -39,7 +39,7 @@ func TestImplOwnModuleTypeStillDeclaresMethods(t *testing.T) {
 		t.Fatalf("CheckModules rejected the defining module's own impl: %v", err)
 	}
 	declaration := checked["math.hex"].Statements[0].(MethodDeclaration)
-	if declaration.Object == nil || declaration.Object.Name != "Point" {
+	if declaration.Object == nil || declaration.Object.NominalName() != "Point" {
 		t.Fatalf("statement = %#v, want length_squared on Point", checked["math.hex"].Statements[0])
 	}
 }
@@ -58,7 +58,7 @@ func TestImportedMethodCallResolvesExportedMethod(t *testing.T) {
 		t.Fatalf("app statement = %#v, want an Int32 method call", checked["app.hex"].Statements[1])
 	}
 	node := declaration.Source.Node
-	if node.Name != "length_squared" || node.Owner == nil || node.Owner.Name != "Point" {
+	if node.Name != "length_squared" || node.Owner == nil || node.Owner.NominalName() != "Point" {
 		t.Fatalf("call node = %#v, want length_squared on Point", node)
 	}
 }

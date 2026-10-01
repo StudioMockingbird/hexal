@@ -106,7 +106,7 @@ func (summary *viewSummary) changesParam(index int) bool {
 // function by name, a method by its owner object and name.
 type callableKey struct {
 	name  string
-	owner *compilerTypes.ObjectType
+	owner compilerTypes.NominalOwner
 }
 
 // callable is one body the analysis walks.
@@ -424,8 +424,8 @@ func (registry *ModuleRegistry) viewSummaryOfFunction(moduleID, name string) (*v
 	return summary, ok
 }
 
-func (registry *ModuleRegistry) viewSummaryOfMethod(owner *compilerTypes.ObjectType, name string) (*viewSummary, bool) {
-	entry := registry.modules[owner.ModuleID]
+func (registry *ModuleRegistry) viewSummaryOfMethod(owner compilerTypes.NominalOwner, name string) (*viewSummary, bool) {
+	entry := registry.modules[owner.NominalModuleID()]
 	if entry == nil {
 		return nil, false
 	}

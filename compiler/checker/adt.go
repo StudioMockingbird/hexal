@@ -971,12 +971,20 @@ func checkScalarPattern(pattern parser.ScalarPattern, scrutineeType compilerType
 func checkMatchArm(scrutineeExpression parser.Expression, arm parser.MatchArm, scrutinee checkedExpression, variant *compilerTypes.AdtVariant, member *compilerTypes.Type, context expressionContext, ctx checkContext) initializerValue {
 	child := ctx.names.child()
 	if variable, isVariable := scrutineeExpression.(parser.VariableExpression); isVariable && ctx.names.flow != nil {
-		if bound, status := ctx.names.lookup(variable.Name.Lexeme); status == nameFound && bound.id != 0 {
+		// self is a keyword, not a name in scope, so a union method narrows its
+		// receiver through the receiver binding.
+		id := BindingID(0)
+		if variable.Name.Kind == lexer.Self {
+			id = ctx.names.selfID
+		} else if bound, status := ctx.names.lookup(variable.Name.Lexeme); status == nameFound {
+			id = bound.id
+		}
+		if id != 0 {
 			childFlow := ctx.names.flow.clone()
 			if variant != nil {
-				childFlow.narrowVariant(bound.id, variant)
+				childFlow.narrowVariant(id, variant)
 			} else if member != nil {
-				childFlow.narrow(bound.id, *member)
+				childFlow.narrow(id, *member)
 			}
 			child.flow = childFlow
 		}

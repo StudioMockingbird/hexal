@@ -282,7 +282,7 @@ func checkOpenGenericMethod(open *openGenericMethod, ctx checkContext) compilerT
 		return compilerTypes.Diagnostics{*receiverDiagnostic}
 	}
 	receiverType := receiverUse.Type
-	if receiverType.Object == nil {
+	if compilerTypes.NominalOwnerOf(receiverType) == nil {
 		diagnostic := unknownAt(open.Declaration.Name)
 		return compilerTypes.Diagnostics{diagnostic}
 	}
