@@ -51,6 +51,10 @@ const (
 // returns. The declaration lives in compiler/specdata.
 type Function = specdata.CoreFunction
 
+// Method is one core-library instance method, the registry record a lookup
+// returns. The declaration lives in compiler/specdata.
+type Method = specdata.CoreMethod
+
 // IsModule reports whether path names a known core-library module.
 func IsModule(path string) bool {
 	return specdata.CoreModuleKnown(specdata.CoreModuleID(path))
@@ -76,6 +80,18 @@ func LookupType(path, name string) (compilerTypes.Type, bool) {
 // Lookup resolves one exported function of a known core-library module.
 func Lookup(path, name string) (Function, bool) {
 	return specdata.CoreFunctionByModuleName(specdata.CoreModuleID(path), name)
+}
+
+// LookupMethod resolves name on a receiver of exactly type receiver. The
+// registry keys a method by receiver identifier, so each candidate's receiver
+// resolves to its canonical Type before the comparison.
+func LookupMethod(receiver compilerTypes.Type, name string) (Method, bool) {
+	for _, method := range specdata.CoreMethodsNamed(name) {
+		if typ, ok := resolveCoreType(method.Receiver); ok && compilerTypes.Equal(typ, receiver) {
+			return method, true
+		}
+	}
+	return Method{}, false
 }
 
 // FunctionByRuntime resolves one emitted C runtime entry point back to its

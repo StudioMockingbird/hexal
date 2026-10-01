@@ -11,7 +11,7 @@ import (
 // helpers (json_value.c: build and the visited-release traversal), and the
 // yyjson adapter (json_adapter.c, the only translation unit including
 // <yyjson.h>). Demand reads the CorelibCallExpression nodes the checker
-// resolved through the std/json module table: free alone selects the helper
+// resolved through the std/json registry: free alone selects the helper
 // unit and no yyjson payload; parse or stringify also select the adapter.
 
 // generatedJSONState records one program's std/json reachability.

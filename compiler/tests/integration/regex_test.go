@@ -16,15 +16,15 @@ func TestRegexSurfaceAndPrivateAdapterBoundary(t *testing.T) {
 		"    return left == right\nend\n" +
 		"fun inspect(h: Heap, pattern: String, subject: String): Bool | Error do\n" +
 		"    let compiled: Regex.Pattern = try Regex.compile(h, pattern)\n" +
-		"    let matched: Bool = try Regex.test(h, compiled, subject)\n" +
-		"    let location: Regex.Span | Nil = try Regex.find(h, compiled, subject)\n" +
-		"    let captured: Regex.Match | Nil = try Regex.capture(h, compiled, subject)\n" +
+		"    let matched: Bool = try compiled.test(h, subject)\n" +
+		"    let location: Regex.Span | Nil = try compiled.find(h, subject)\n" +
+		"    let captured: Regex.Match | Nil = try compiled.capture(h, subject)\n" +
 		"    if captured != nil then\n" +
 		"        let result: Regex.Match = captured\n" +
 		"        let first: Regex.Span | Nil = result.captures[0]\n" +
-		"        Regex.free_match(h, result)\n" +
+		"        result.free(h)\n" +
 		"    end\n" +
-		"    Regex.free(h, compiled)\n" +
+		"    compiled.free(h)\n" +
 		"    return matched\nend\n"
 	result := assertCompiles(t, source)
 	if !slices.Contains(result.Dependencies, compiler.RuntimePcre2) {
@@ -64,7 +64,7 @@ func TestRegexSurfaceAndPrivateAdapterBoundary(t *testing.T) {
 func TestRegexTypeOnlyAndFreeMatchDoNotSelectPCRE2(t *testing.T) {
 	for _, source := range []string{
 		"import\n    Regex from std.regex\nend\nfun inspect(value: Regex.Pattern) do\nend\n",
-		"import\n    Regex from std.regex\nend\nfun release(h: Heap, value: Regex.Match) do\n    Regex.free_match(h, value)\nend\n",
+		"import\n    Regex from std.regex\nend\nfun release(h: Heap, value: Regex.Match) do\n    value.free(h)\nend\n",
 	} {
 		result := assertCompiles(t, source)
 		if slices.Contains(result.Dependencies, compiler.RuntimePcre2) {
@@ -89,5 +89,27 @@ func TestRegexRejectsUnsupportedTypeOperations(t *testing.T) {
 		{"inline source", "import\n Regex from std.regex\nend\nfun short(): String<4> do\n return \"abc\"\nend\nfun f(h: Heap) do\n let source: String<4> = short()\n let p: Regex.Pattern | Error = Regex.compile(h, source)\nend\n", "copy(heap)"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) { assertRejects(t, testCase.source, testCase.want) })
+	}
+}
+
+func TestRegexTestMethodSelectsPCRE2(t *testing.T) {
+	result := assertCompiles(t, "import\n    Regex from std.regex\nend\n"+
+		"fun check(h: Heap, pattern: Regex.Pattern, subject: String): Bool | Error do\n    return pattern.test(h, subject)\nend\n")
+	if !slices.Contains(result.Dependencies, compiler.RuntimePcre2) {
+		t.Fatalf("pattern.test dependencies = %v, want pcre2", result.Dependencies)
+	}
+}
+
+func TestRegexModuleFunctionsMovedToMethodsAreRejected(t *testing.T) {
+	for _, call := range []string{
+		"Regex.test(h, pattern, \"a\")",
+		"Regex.find(h, pattern, \"a\")",
+		"Regex.capture(h, pattern, \"a\")",
+		"Regex.free(h, pattern)",
+		"Regex.free_match(h, found)",
+	} {
+		source := "import\n    Regex from std.regex\nend\n" +
+			"fun f(h: Heap, pattern: Regex.Pattern, found: Regex.Match) do\n    " + call + "\nend\n"
+		t.Run(call, func(t *testing.T) { assertRejects(t, source, "private to module") })
 	}
 }

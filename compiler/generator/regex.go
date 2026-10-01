@@ -10,8 +10,8 @@ import (
 // std/regex generation: the shared raw declarations (regex.h) and the PCRE2
 // adapter pair (regex.c, the only translation unit including <pcre2.h> and
 // defining PCRE2_CODE_UNIT_WIDTH 8). Demand reads the CorelibCallExpression
-// nodes the checker resolved through the std/regex module table: naming only
-// Span, Match, or Pattern, and free_match alone, selects no dependency,
+// nodes the checker resolved through the std/regex registry: naming only
+// Span, Match, or Pattern, and match.free alone, selects no dependency,
 // because it releases only Hexal's own capture List.
 
 type generatedRegexState struct {
@@ -76,7 +76,7 @@ func discoverGeneratedRegex(program checker.Program, logicalKey string, literals
 // regexComponents returns the std/regex component pair the reachable
 // operations demand. The adapter units are selected exactly when a compile,
 // test, find, capture, or free operation is reachable; Span/Match/Pattern
-// naming and free_match alone materialize nothing.
+// naming and match.free alone materialize nothing.
 func regexComponents(merged *programEmission) ([]componentArtifact, error) {
 	state := merged.regexState
 	if state == nil || !state.used {

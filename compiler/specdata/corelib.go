@@ -96,6 +96,21 @@ type CoreFunction struct {
 	Components    []ComponentID
 }
 
+// CoreMethod is one instance method of a core-library type. Its embedded
+// function record states the runtime call in C argument order, and the receiver
+// occupies Params[1], after the Heap every core-library method takes first;
+// the call site's own arguments fill the remaining slots in order.
+type CoreMethod struct {
+	Receiver CoreTypeID
+	CoreFunction
+}
+
+// CallParams lists the parameters a call site writes: Params without the
+// receiver slot.
+func (method CoreMethod) CallParams() []CoreParam {
+	return append(append([]CoreParam(nil), method.Params[:1]...), method.Params[2:]...)
+}
+
 // CoreTypeExport is one exported type name and the identifier of the canonical
 // type it names.
 type CoreTypeExport struct {
@@ -104,10 +119,13 @@ type CoreTypeExport struct {
 }
 
 // CoreModule is one core-library module: its canonical path and its exports.
+// Methods are keyed by the receiver type they extend, which the module must
+// export.
 type CoreModule struct {
 	ID        CoreModuleID
 	Types     []CoreTypeExport
 	Functions []CoreFunction
+	Methods   []CoreMethod
 }
 
 // The canonical type identifiers the export table references. Values name the
@@ -247,8 +265,10 @@ var coreModules = []CoreModule{
 		},
 		Functions: []CoreFunction{
 			{Name: "parse", Params: []CoreParam{CoreParamHeap, CoreParamString}, Result: CoreResultValue, ErrorBehavior: ErrorFallible, Runtime: "hex_json_parse", Components: []ComponentID{ComponentJSON}},
-			{Name: "stringify", Params: []CoreParam{CoreParamHeap, CoreParamValue}, Result: CoreResultString, ErrorBehavior: ErrorFallible, Runtime: "hex_json_stringify", Components: []ComponentID{ComponentJSON}},
-			{Name: "free", Params: []CoreParam{CoreParamHeap, CoreParamValue}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_json_free", Components: []ComponentID{ComponentJSON}},
+		},
+		Methods: []CoreMethod{
+			{CoreTypeJsonValue, CoreFunction{Name: "stringify", Params: []CoreParam{CoreParamHeap, CoreParamValue}, Result: CoreResultString, ErrorBehavior: ErrorFallible, Runtime: "hex_json_stringify", Components: []ComponentID{ComponentJSON}}},
+			{CoreTypeJsonValue, CoreFunction{Name: "free", Params: []CoreParam{CoreParamHeap, CoreParamValue}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_json_free", Components: []ComponentID{ComponentJSON}}},
 		},
 	},
 	{
@@ -260,11 +280,13 @@ var coreModules = []CoreModule{
 		},
 		Functions: []CoreFunction{
 			{Name: "compile", Params: []CoreParam{CoreParamHeap, CoreParamString}, Result: CoreResultPattern, ErrorBehavior: ErrorFallible, Runtime: "hex_regex_compile", Components: []ComponentID{ComponentRegex}},
-			{Name: "test", Params: []CoreParam{CoreParamHeap, CoreParamPattern, CoreParamString}, Result: CoreResultBool, ErrorBehavior: ErrorFallible, Runtime: "hex_regex_test", Components: []ComponentID{ComponentRegex}},
-			{Name: "find", Params: []CoreParam{CoreParamHeap, CoreParamPattern, CoreParamString}, Result: CoreResultSpanNil, ErrorBehavior: ErrorFallible, Runtime: "hex_regex_find", Components: []ComponentID{ComponentRegex}},
-			{Name: "capture", Params: []CoreParam{CoreParamHeap, CoreParamPattern, CoreParamString}, Result: CoreResultMatchNil, ErrorBehavior: ErrorFallible, Runtime: "hex_regex_capture", Components: []ComponentID{ComponentRegex}},
-			{Name: "free", Params: []CoreParam{CoreParamHeap, CoreParamPattern}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_regex_free", Components: []ComponentID{ComponentRegex}},
-			{Name: "free_match", Params: []CoreParam{CoreParamHeap, CoreParamMatch}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_regex_free_match", Components: []ComponentID{ComponentRegex}},
+		},
+		Methods: []CoreMethod{
+			{CoreTypeRegexPattern, CoreFunction{Name: "test", Params: []CoreParam{CoreParamHeap, CoreParamPattern, CoreParamString}, Result: CoreResultBool, ErrorBehavior: ErrorFallible, Runtime: "hex_regex_test", Components: []ComponentID{ComponentRegex}}},
+			{CoreTypeRegexPattern, CoreFunction{Name: "find", Params: []CoreParam{CoreParamHeap, CoreParamPattern, CoreParamString}, Result: CoreResultSpanNil, ErrorBehavior: ErrorFallible, Runtime: "hex_regex_find", Components: []ComponentID{ComponentRegex}}},
+			{CoreTypeRegexPattern, CoreFunction{Name: "capture", Params: []CoreParam{CoreParamHeap, CoreParamPattern, CoreParamString}, Result: CoreResultMatchNil, ErrorBehavior: ErrorFallible, Runtime: "hex_regex_capture", Components: []ComponentID{ComponentRegex}}},
+			{CoreTypeRegexPattern, CoreFunction{Name: "free", Params: []CoreParam{CoreParamHeap, CoreParamPattern}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_regex_free", Components: []ComponentID{ComponentRegex}}},
+			{CoreTypeRegexMatch, CoreFunction{Name: "free", Params: []CoreParam{CoreParamHeap, CoreParamMatch}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_regex_free_match", Components: []ComponentID{ComponentRegex}}},
 		},
 	},
 	{
@@ -331,15 +353,36 @@ func CoreFunctionByModuleName(id CoreModuleID, name string) (CoreFunction, bool)
 	return CoreFunction{}, false
 }
 
+// CoreMethodsNamed returns every core-library method called name, one per
+// receiver type that declares it, for the adapter to match against the call's
+// receiver.
+func CoreMethodsNamed(name string) []CoreMethod {
+	var found []CoreMethod
+	for _, module := range coreModules {
+		for _, method := range module.Methods {
+			if method.Name == name {
+				method.CoreFunction = cloneCoreFunction(method.CoreFunction)
+				found = append(found, method)
+			}
+		}
+	}
+	return found
+}
+
 // CoreFunctionByRuntime resolves one emitted C entry point back to its owning
-// module and declaration. validateCorelib enforces that runtime entry points
-// are unique across every core-library function, so the first match is the only
-// match.
+// module and declaration, methods included. validateCorelib enforces that
+// runtime entry points are unique across every core-library function and
+// method, so the first match is the only match.
 func CoreFunctionByRuntime(runtime string) (CoreModuleID, CoreFunction, bool) {
 	for _, module := range coreModules {
 		for _, function := range module.Functions {
 			if function.Runtime == runtime {
 				return module.ID, cloneCoreFunction(function), true
+			}
+		}
+		for _, method := range module.Methods {
+			if method.Runtime == runtime {
+				return module.ID, cloneCoreFunction(method.CoreFunction), true
 			}
 		}
 	}
@@ -350,9 +393,14 @@ func CoreFunctionByRuntime(runtime string) (CoreModuleID, CoreFunction, bool) {
 // shares no backing array with the registry.
 func cloneCoreModule(module CoreModule) CoreModule {
 	module.Types = append([]CoreTypeExport(nil), module.Types...)
-	module.Functions = make([]CoreFunction, len(module.Functions))
-	for index, function := range module.Functions {
+	functions, methods := module.Functions, module.Methods
+	module.Functions = make([]CoreFunction, len(functions))
+	for index, function := range functions {
 		module.Functions[index] = cloneCoreFunction(function)
+	}
+	module.Methods = make([]CoreMethod, len(methods))
+	for index, method := range methods {
+		module.Methods[index] = CoreMethod{method.Receiver, cloneCoreFunction(method.CoreFunction)}
 	}
 	return module
 }
@@ -367,8 +415,10 @@ func cloneCoreFunction(function CoreFunction) CoreFunction {
 
 // validateCorelib checks one core-library registry for internal consistency:
 // unique module paths; unique export names inside a module; exactly one of a
-// builtin and a runtime entry point per function; runtime entry points unique
-// across every module; and, for each runtime function, a valid error behavior
+// builtin and a runtime entry point per function; methods that extend an
+// exported type, once per receiver and name, and take a Heap then the
+// receiver; runtime entry points unique across every module; and, for each
+// runtime function or method, a valid error behavior
 // consistent with its result and at least one known component demand. It
 // cannot check that a type identifier resolves, because resolution crosses the
 // import boundary; the corelib adapter's own test covers that half. It takes
@@ -385,6 +435,7 @@ func validateCorelib(modules []CoreModule) error {
 			return fmt.Errorf("specdata/corelib: module %q is declared twice", module.ID)
 		}
 		moduleIDs[module.ID] = true
+		methodNames := make(map[string]bool, len(module.Methods))
 		exports := make(map[string]bool, len(module.Types)+len(module.Functions))
 		for _, export := range module.Types {
 			if export.Name == "" {
@@ -406,40 +457,80 @@ func validateCorelib(modules []CoreModule) error {
 				return fmt.Errorf("specdata/corelib: module %q exports %q twice", module.ID, function.Name)
 			}
 			exports[function.Name] = true
-			if function.ErrorBehavior != ErrorNever && function.ErrorBehavior != ErrorFallible {
-				return fmt.Errorf("specdata/corelib: function %q.%q has unknown error behavior", module.ID, function.Name)
-			}
-			if (function.Builtin == "") == (function.Runtime == "") {
-				return fmt.Errorf("specdata/corelib: function %q.%q must name exactly one of a builtin or a runtime entry point", module.ID, function.Name)
-			}
-			// A builtin routes to a checker operation that owns its error
-			// behavior and component demand; only a runtime function states
-			// both here.
-			if function.Builtin != "" {
-				continue
-			}
-			if owner, ok := runtimes[function.Runtime]; ok {
-				return fmt.Errorf("specdata/corelib: runtime %q is declared by %q and %q", function.Runtime, owner, module.ID)
-			}
-			runtimes[function.Runtime] = module.ID
-			fallible := function.Result != CoreResultSize && function.Result != CoreResultNoValue
-			if (function.ErrorBehavior == ErrorFallible) != fallible {
-				return fmt.Errorf("specdata/corelib: runtime %q.%q result and error behavior disagree", module.ID, function.Name)
-			}
-			if len(function.Components) == 0 {
-				return fmt.Errorf("specdata/corelib: runtime %q.%q names no component", module.ID, function.Name)
-			}
-			seenComponents := make(map[ComponentID]bool, len(function.Components))
-			for _, id := range function.Components {
-				if _, known := Component(id); !known {
-					return fmt.Errorf("specdata/corelib: runtime %q.%q names unknown component %q", module.ID, function.Name, id)
-				}
-				if seenComponents[id] {
-					return fmt.Errorf("specdata/corelib: runtime %q.%q repeats component %q", module.ID, function.Name, id)
-				}
-				seenComponents[id] = true
+			if err := validateCoreFunction(module.ID, function, runtimes); err != nil {
+				return err
 			}
 		}
+		for _, method := range module.Methods {
+			if method.Name == "" {
+				return fmt.Errorf("specdata/corelib: module %q declares a method with an empty name", module.ID)
+			}
+			if !moduleExportsType(module, method.Receiver) {
+				return fmt.Errorf("specdata/corelib: method %q.%q receiver %q is not an exported type", module.ID, method.Name, method.Receiver)
+			}
+			key := string(method.Receiver) + "." + method.Name
+			if methodNames[key] {
+				return fmt.Errorf("specdata/corelib: module %q declares method %q twice", module.ID, key)
+			}
+			methodNames[key] = true
+			if method.Runtime == "" || len(method.Params) < 2 || method.Params[0] != CoreParamHeap {
+				return fmt.Errorf("specdata/corelib: method %q.%q must name a runtime entry point taking Heap then its receiver", module.ID, method.Name)
+			}
+			if err := validateCoreFunction(module.ID, method.CoreFunction, runtimes); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// moduleExportsType reports whether module exports a type with identifier id.
+func moduleExportsType(module CoreModule, id CoreTypeID) bool {
+	for _, export := range module.Types {
+		if export.TypeID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// validateCoreFunction checks the facts shared by a module function and a
+// method: a valid error behavior, exactly one entry point kind, and, for a
+// runtime entry point, a unique symbol, an error behavior consistent with the
+// result, and known components.
+func validateCoreFunction(id CoreModuleID, function CoreFunction, runtimes map[string]CoreModuleID) error {
+	if function.ErrorBehavior != ErrorNever && function.ErrorBehavior != ErrorFallible {
+		return fmt.Errorf("specdata/corelib: function %q.%q has unknown error behavior", id, function.Name)
+	}
+	if (function.Builtin == "") == (function.Runtime == "") {
+		return fmt.Errorf("specdata/corelib: function %q.%q must name exactly one of a builtin or a runtime entry point", id, function.Name)
+	}
+	// A builtin routes to a checker operation that owns its error
+	// behavior and component demand; only a runtime function states
+	// both here.
+	if function.Builtin != "" {
+		return nil
+	}
+	if owner, ok := runtimes[function.Runtime]; ok {
+		return fmt.Errorf("specdata/corelib: runtime %q is declared by %q and %q", function.Runtime, owner, id)
+	}
+	runtimes[function.Runtime] = id
+	fallible := function.Result != CoreResultSize && function.Result != CoreResultNoValue
+	if (function.ErrorBehavior == ErrorFallible) != fallible {
+		return fmt.Errorf("specdata/corelib: runtime %q.%q result and error behavior disagree", id, function.Name)
+	}
+	if len(function.Components) == 0 {
+		return fmt.Errorf("specdata/corelib: runtime %q.%q names no component", id, function.Name)
+	}
+	seenComponents := make(map[ComponentID]bool, len(function.Components))
+	for _, component := range function.Components {
+		if _, known := Component(component); !known {
+			return fmt.Errorf("specdata/corelib: runtime %q.%q names unknown component %q", id, function.Name, component)
+		}
+		if seenComponents[component] {
+			return fmt.Errorf("specdata/corelib: runtime %q.%q repeats component %q", id, function.Name, component)
+		}
+		seenComponents[component] = true
 	}
 	return nil
 }

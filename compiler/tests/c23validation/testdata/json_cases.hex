@@ -41,14 +41,14 @@ fun parse_show(h: Heap, tag: String, text: String) do
     let r: Json.Value | Error = Json.parse(h, text)
     if r is Json.Value then
         show(h, tag, r)
-        Json.free(h, r)
+        r.free(h)
     else
         err_show(tag, r)
     end
 end
 
 fun stringify_show(h: Heap, tag: String, v: Json.Value) do
-    let out: String | Error = Json.stringify(h, v)
+    let out: String | Error = v.stringify(h)
     if out is String then
         print(tag, ": ", out, "\n")
         out.free(h)
@@ -61,7 +61,7 @@ fun roundtrip_show(h: Heap, tag: String, text: String) do
     let r: Json.Value | Error = Json.parse(h, text)
     if r is Json.Value then
         stringify_show(h, tag, r)
-        Json.free(h, r)
+        r.free(h)
     else
         err_show(tag, r)
     end
@@ -228,7 +228,7 @@ fun demo(h: Heap): Nil | Error do
     let nums: Json.Value | Error = Json.parse(h, "[-9223372036854775808, 18446744073709551615, 2.5]")
     if nums is Json.Value then
         stringify_show(h, "nums", nums)
-        Json.free(h, nums)
+        nums.free(h)
     else
         err_show("nums", nums)
     end
@@ -236,7 +236,7 @@ fun demo(h: Heap): Nil | Error do
     let roundtrip: Json.Value | Error = Json.parse(h, "[1, \"x\", {\"y\": null}]")
     if roundtrip is Json.Value then
         stringify_show(h, "roundtrip", roundtrip)
-        Json.free(h, roundtrip)
+        roundtrip.free(h)
     else
         err_show("roundtrip", roundtrip)
     end
@@ -245,9 +245,9 @@ fun demo(h: Heap): Nil | Error do
     let cyclic: Json.Value = Json.Value.Array(items = items)
     items.push(cyclic)
     stringify_show(h, "str_cycle", cyclic)
-    Json.free(h, cyclic)
-    Json.free(h, infval)
-    Json.free(h, nanval)
+    cyclic.free(h)
+    infval.free(h)
+    nanval.free(h)
     return nil
 end
 

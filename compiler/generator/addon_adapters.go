@@ -13,11 +13,12 @@ import (
 // prototypes; the adapters spell the module-owned result unions with the
 // module's own file literal and source site.
 //
-// std/json: parse -> Value|Error, stringify -> String|Error, free -> no value.
-// std/regex: compile -> Pattern|Error, test -> Bool|Error,
-// find -> Span|Nil|Error, capture -> Match|Nil|Error, free/free_match -> no
-// value. Per the dependency-demand table, free alone materializes no
-// component beyond the value helpers, and free_match alone selects nothing.
+// std/json: parse -> Value|Error, value.stringify -> String|Error, value.free
+// -> no value. std/regex: compile -> Pattern|Error, pattern.test -> Bool|Error,
+// pattern.find -> Span|Nil|Error, pattern.capture -> Match|Nil|Error,
+// pattern.free and match.free -> no value. Per the dependency-demand table,
+// free alone materializes no component beyond the value helpers, and
+// match.free alone selects nothing.
 
 // discoverModuleAddonAdapters walks one module's checked calls to the given
 // std module and collects the reachable unioned results. A no-value cleanup

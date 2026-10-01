@@ -12,8 +12,8 @@ func TestJSONSurfaceAndGeneratedAdapterBoundary(t *testing.T) {
 	source := "import\n    Json from std.json\nend\n" +
 		"fun inspect(h: Heap, text: String): String | Error do\n" +
 		"    let value: Json.Value = try Json.parse(h, text)\n" +
-		"    let encoded: String = try Json.stringify(h, value)\n" +
-		"    Json.free(h, value)\n" +
+		"    let encoded: String = try value.stringify(h)\n" +
+		"    value.free(h)\n" +
 		"    return encoded\nend\n"
 	result := assertCompiles(t, source)
 	if !slices.Contains(result.Dependencies, compiler.RuntimeYyjson) {
@@ -35,7 +35,7 @@ func TestJSONSurfaceAndGeneratedAdapterBoundary(t *testing.T) {
 
 func TestJSONFreeOnlyDoesNotSelectYyjson(t *testing.T) {
 	source := "import\n    Json from std.json\nend\n" +
-		"fun release(h: Heap, value: Json.Value) do\n    Json.free(h, value)\nend\n"
+		"fun release(h: Heap, value: Json.Value) do\n    value.free(h)\nend\n"
 	result := assertCompiles(t, source)
 	if slices.Contains(result.Dependencies, compiler.RuntimeYyjson) {
 		t.Fatalf("free-only program selected yyjson: %v", result.Dependencies)
@@ -50,7 +50,7 @@ func TestJSONFreeOnlyDoesNotSelectYyjson(t *testing.T) {
 func TestJSONParseAndStringifySelectYyjsonIndividually(t *testing.T) {
 	for _, source := range []string{
 		"import\n Json from std.json\nend\nfun parse_only(h: Heap, text: String): Json.Value | Error do\n return Json.parse(h, text)\nend\n",
-		"import\n Json from std.json\nend\nfun stringify_only(h: Heap, value: Json.Value): String | Error do\n return Json.stringify(h, value)\nend\n",
+		"import\n Json from std.json\nend\nfun stringify_only(h: Heap, value: Json.Value): String | Error do\n return value.stringify(h)\nend\n",
 	} {
 		result := assertCompiles(t, source)
 		if !slices.Contains(result.Dependencies, compiler.RuntimeYyjson) {
@@ -116,4 +116,12 @@ func TestJSONInlineStringRequiresExplicitCopy(t *testing.T) {
 		"fun text(): String<16> do\n return \"{}\"\nend\n" +
 		"fun f(h: Heap) do\n let input: String<16> = text()\n let result: Json.Value | Error = Json.parse(h, input)\nend\n"
 	assertRejects(t, source, "copy(heap)")
+}
+
+func TestJSONModuleFunctionsMovedToMethodsAreRejected(t *testing.T) {
+	for _, call := range []string{"Json.stringify(h, value)", "Json.free(h, value)"} {
+		source := "import\n    Json from std.json\nend\n" +
+			"fun f(h: Heap, value: Json.Value) do\n    " + call + "\nend\n"
+		t.Run(call, func(t *testing.T) { assertRejects(t, source, "private to module") })
+	}
 }

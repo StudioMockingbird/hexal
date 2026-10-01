@@ -148,7 +148,7 @@ func renderCorelibCallExpression(node checker.Expression, state *expressionValid
 		return node.Name + "()", nil
 	}
 	if function.Result == corelib.ResultNoValue {
-		// Json.free, Regex.free, and Regex.free_match produce no value: the
+		// value.free, pattern.free, and match.free produce no value: the
 		// raw entry point renders directly with exactly the checked
 		// arguments. The two addon families suffix every raw entry point
 		// with _raw so the registry name stays free for the adapter form.

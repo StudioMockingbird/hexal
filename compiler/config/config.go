@@ -45,7 +45,7 @@ const ForeignInspectionByteLimit = 64 << 20
 // otherwise exhaust the native C stack inside print helpers; ordinary
 // diagnostic output stays well below this. It is a conservative safety
 // ceiling chosen against that exhaustion mode, not a measured optimum, and
-// JSON serialization deliberately stays outside it: Json.stringify either
+// JSON serialization deliberately stays outside it: value.stringify either
 // emits complete output or fails.
 const MaxStructuralPrintDepth = 16
 

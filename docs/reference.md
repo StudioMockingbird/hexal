@@ -258,7 +258,7 @@ The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using 
   result, errors, and runtime behavior unchanged. Instance methods (`file.read`, `duration.as_seconds`,
   `signals.next`, ...) are unchanged and call for no alias.
 
-| Module | Exported types | Module functions |
+| Module | Exported types | Module functions and receiver methods |
 | --- | --- | --- |
 | `std/io` | `IO`, `Bytes`, `Seek` | `stdin()`, `stdout()`, `stderr()`, `bytes_over(buffer)` |
 | `std/fs` | `File`, `FileMode` | `open(path, mode)` |
@@ -267,8 +267,8 @@ The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using 
 | `std/process` | `Process`, `Pipe`, `ProcessOptions`, `StartedProcess`, `Environment`, `EnvironmentVariable`, `ProcessStream`, `ExitStatus` | `start(options)` |
 | `std/signal` | `Signal`, `Signals` | `subscribe(subscriptions)` |
 | `std/terminal` | `TerminalSize` | `is_attached(stream)`, `size(stream)` |
-| `std/json` | `Value`, `Member` | `parse(heap, text)`, `stringify(heap, value)`, `free(heap, value)` |
-| `std/regex` | `Pattern`, `Span`, `Match` | `compile(heap, source)`, `test(heap, pattern, subject)`, `find(heap, pattern, subject)`, `capture(heap, pattern, subject)`, `free(heap, pattern)`, `free_match(heap, match)` |
+| `std/json` | `Value`, `Member` | `parse(heap, text)`; `Value` methods `stringify(heap)`, `free(heap)` |
+| `std/regex` | `Pattern`, `Span`, `Match` | `compile(heap, source)`; `Pattern` methods `test(heap, subject)`, `find(heap, subject)`, `capture(heap, subject)`, `free(heap)`; `Match` method `free(heap)` |
 
 - An ADT variant of a type declared in another module (user or std) is written
   `Alias.Adt.Variant(...)` in construction and `| Alias.Adt.Variant then` in a match pattern. The
@@ -292,8 +292,8 @@ The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using 
 | Signature | Result |
 | --- | --- |
 | `Json.parse(heap: Heap, text: String)` | `Json.Value \| Error` |
-| `Json.stringify(heap: Heap, value: Json.Value)` | `String \| Error` |
-| `Json.free(heap: Heap, value: Json.Value)` | no value |
+| `value.stringify(heap: Heap)` | `String \| Error` |
+| `value.free(heap: Heap)` | no value |
 
 - `Member` is a constructible compiler-owned record. Its `name` is an owning heap String; its
   `value` follows `Json.Value` ownership. `Object` preserves List order.
@@ -309,11 +309,11 @@ The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using 
 - Stringify emits compact UTF-8 JSON without a trailing newline. Parsing/stringifying round-trips
   by JSON value, not by whitespace, duplicate members, numeric spelling, or `Int`/`UInt`/`Float`
   variant identity.
-- `parse` and `stringify` use the private pinned yyjson runtime adapter; `free` traverses only
+- `parse` and `value.stringify` use the private pinned yyjson runtime adapter; `value.free` traverses only
   Hexal-owned values and selects no yyjson dependency. No public generated header exposes yyjson.
   Reader, writer, translation, stringify, and cleanup use the compiler-owned depth limit
   `JSONMaxDepth = 256`.
-- `Value` has no equality, ordering, or print form; use type-mode matching and `Json.stringify`.
+- `Value` has no equality, ordering, or print form; use type-mode matching and `value.stringify`.
   `free` releases every distinct owned allocation once; aliases may not be freed twice. Cyclic
   user-built values terminate cleanup, while stringify rejects cycles. `free` traps before
   traversing beyond `JSONMaxDepth`. NaN and infinities fail stringify.
@@ -322,11 +322,11 @@ The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using 
 
 ```text
 Regex.compile(heap: Heap, source: String) -> Regex.Pattern | Error
-Regex.test(heap: Heap, pattern: Regex.Pattern, subject: String) -> Bool | Error
-Regex.find(heap: Heap, pattern: Regex.Pattern, subject: String) -> Regex.Span | Nil | Error
-Regex.capture(heap: Heap, pattern: Regex.Pattern, subject: String) -> Regex.Match | Nil | Error
-Regex.free(heap: Heap, pattern: Regex.Pattern) -> no value
-Regex.free_match(heap: Heap, match: Regex.Match) -> no value
+pattern.test(heap: Heap, subject: String) -> Bool | Error
+pattern.find(heap: Heap, subject: String) -> Regex.Span | Nil | Error
+pattern.capture(heap: Heap, subject: String) -> Regex.Match | Nil | Error
+pattern.free(heap: Heap) -> no value
+match.free(heap: Heap) -> no value
 ```
 
 | Type | Fields |
@@ -337,7 +337,7 @@ Regex.free_match(heap: Heap, match: Regex.Match) -> no value
 - `Pattern` is a compiler-owned type that owns a compiled UTF-8 pattern and requires one explicit
   `free`. `Span` has `start: Size` and `end: Size` fields and is a half-open byte range into the
   original subject. `capture` stores the whole span and one nullable
-  span per numbered group, excluding the whole match; it copies no subject bytes. `free_match`
+  span per numbered group, excluding the whole match; it copies no subject bytes. `Match.free`
   releases the capture List.
 - UTF and Unicode-property matching are always enabled. Pattern-embedded options are supported;
   there is no separate options argument. Invalid patterns return Hexal-owned errors with a
@@ -347,8 +347,8 @@ Regex.free_match(heap: Heap, match: Regex.Match) -> no value
   concurrently. Subjects have no independent length limit.
 - `Pattern` and `Match` have no equality, ordering, print form, or Dict-key eligibility. `Span` is
   an ordinary comparable value record.
-- PCRE2 is linked from the selected target pack only when `compile`, `test`, `find`, `capture`, or
-  `free` is reachable; naming types or calling `free_match` alone does not select it. PCRE2 types
+- PCRE2 is linked from the selected target pack only when `compile`, or `test`, `find`, `capture`,
+  or `free` on a `Pattern`, is reachable; naming types or calling `Match.free` alone does not select it. PCRE2 types
   appear only in one private generated adapter, never in a public header.
 - Compiler-owned policy: source and compiled-pattern limit 64 KiB each, compile nesting 250,
   match limit 10,000,000, match depth limit 10,000, and match heap limit 8,192 KiB. These values
@@ -1687,7 +1687,7 @@ print(first: Printable, rest: Printable...) -> no value
   members or elements. Scalars, pointers, Strings, and other leaves do not
   consume depth, separate top-level arguments have separate budgets, and
   `print` never fails merely because the display truncated. A String whose
-  value is literally `...` stays quoted. `Json.stringify` remains complete-or
+  value is literally `...` stays quoted. `Json.Value.stringify` remains complete-or
   -Error and never emits the truncation marker.
 - A print argument is the one position that admits standalone Nil, so a union narrowed to Nil and the
   bare `nil` literal are both printable. Nil prints `nil` directly and nested.

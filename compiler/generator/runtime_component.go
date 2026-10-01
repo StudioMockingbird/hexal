@@ -22,7 +22,7 @@ func runtimeComponents(merged *programEmission) ([]componentArtifact, error) {
 
 // jsonSelected reports whether any reachable operation calls the yyjson
 // adapter. The reader and writer are the only std/json operations that do;
-// Json.free walks Hexal-owned containers through the ordinary release
+// value.free walks Hexal-owned containers through the ordinary release
 // primitives, so a free-only program materializes no yyjson payload.
 func jsonSelected(merged *programEmission) bool {
 	if merged.jsonState == nil {

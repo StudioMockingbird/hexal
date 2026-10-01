@@ -10,6 +10,8 @@ package checker
 // tree and generated C are unchanged.
 
 import (
+	"slices"
+
 	"hexal/compiler/corelib"
 	diag "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
@@ -29,14 +31,6 @@ func corelibParamType(param corelib.Param, ctx checkContext) compilerTypes.Type 
 		return ctx.typeEnvironment.SliceType(compilerTypes.UInt8, true)
 	case corelib.ParamString:
 		return compilerTypes.StringType
-	case corelib.ParamValue:
-		return compilerTypes.JsonValueType()
-	case corelib.ParamPattern:
-		return compilerTypes.RegexPatternType()
-	case corelib.ParamSpan:
-		return compilerTypes.RegexSpanType()
-	case corelib.ParamMatch:
-		return compilerTypes.RegexMatchType()
 	default:
 		return compilerTypes.Type{}
 	}
@@ -85,12 +79,29 @@ func checkCorelibCall(target string, function corelib.Function, call parser.Call
 	if function.Runtime == "" {
 		return checkCorelibBuiltin(function.Builtin, call, alias, property, ctx)
 	}
-	if len(call.Arguments) != len(function.Params) {
-		diagnostic := messageAt(property, diag.CorelibFunctionArity(property.Lexeme, len(function.Params), len(call.Arguments)))
+	return checkCorelibRuntimeCall(function, function.Params, nil, call, property, ctx)
+}
+
+// checkCorelibMethodCall resolves receiver.name(args) for a registry method.
+// The call site writes the method's CallParams; the receiver operand is
+// spliced into the runtime argument list at the slot the row reserves for it,
+// so the checked node is the one a module function with the receiver as an
+// ordinary argument would have produced.
+func checkCorelibMethodCall(method corelib.Method, receiver Operand, call parser.CallExpression, property lexer.Token, ctx checkContext) checkedExpression {
+	return checkCorelibRuntimeCall(method.CoreFunction, method.CallParams(), &receiver, call, property, ctx)
+}
+
+// checkCorelibRuntimeCall checks the arguments a call site writes against
+// params and builds the CorelibCallExpression for function's runtime entry
+// point; a method's receiver, when present, becomes the argument after the
+// leading Heap.
+func checkCorelibRuntimeCall(function corelib.Function, params []corelib.Param, receiver *Operand, call parser.CallExpression, property lexer.Token, ctx checkContext) checkedExpression {
+	if len(call.Arguments) != len(params) {
+		diagnostic := messageAt(property, diag.CorelibFunctionArity(property.Lexeme, len(params), len(call.Arguments)))
 		return checkedExpression{token: property, diagnostic: &diagnostic}
 	}
-	arguments := make([]Operand, 0, len(function.Params))
-	for index, param := range function.Params {
+	arguments := make([]Operand, 0, len(params)+1)
+	for index, param := range params {
 		expected := corelibParamType(param, ctx)
 		if expected == (compilerTypes.Type{}) {
 			diagnostic := unknownAt(property)
@@ -104,6 +115,9 @@ func checkCorelibCall(target string, function corelib.Function, call parser.Call
 			return checkedExpression{token: checked.token, diagnostic: diagnosticAt(typeMismatchDiagnostic(expected, checked.typ, checked.token))}
 		}
 		arguments = append(arguments, checked.source)
+	}
+	if receiver != nil {
+		arguments = slices.Insert(arguments, 1, *receiver)
 	}
 	resultType := corelibResultType(function.Result, ctx)
 	if function.Result != corelib.ResultNoValue && resultType == (compilerTypes.Type{}) {

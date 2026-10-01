@@ -2771,7 +2771,7 @@ var fixtureCatalog = []fixture{
 			"        value = Json.Value.Array(items = items)\n" +
 			"        i = i + 1\n" +
 			"    end\n" +
-			"    Json.free(h, value)\nend\nrun(Heap())\n"},
+			"    value.free(h)\nend\nrun(Heap())\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] JSON value nests too deeply"},
 	},
 	{
@@ -2779,7 +2779,7 @@ var fixtureCatalog = []fixture{
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "import\n    Json from std.json\nend\n" +
 			"fun stringify_reports_cycle(h: Heap, value: Json.Value): Bool do\n" +
-			"    let result: String | Error = Json.stringify(h, value)\n" +
+			"    let result: String | Error = value.stringify(h)\n" +
 			"    if result is String then\n        result.free(h)\n        return false\n    end\n" +
 			"    return (result.kind == ErrorKind.InvalidInput()) and (result.message == \"JSON value contains a cycle\")\nend\n" +
 			"fun run(h: Heap): Bool do\n" +
@@ -2792,12 +2792,12 @@ var fixtureCatalog = []fixture{
 			"    roots.push(shared)\n" +
 			"    roots.push(Json.Value.Text(value = shared_text))\n" +
 			"    let shared_root: Json.Value = Json.Value.Array(items = roots)\n" +
-			"    Json.free(h, shared_root)\n" +
+			"    shared_root.free(h)\n" +
 			"    let direct_items: List<Json.Value> = List<Json.Value>(h)\n" +
 			"    let direct: Json.Value = Json.Value.Array(items = direct_items)\n" +
 			"    direct_items.push(direct)\n" +
 			"    let direct_rejected: Bool = stringify_reports_cycle(h, direct)\n" +
-			"    Json.free(h, direct)\n" +
+			"    direct.free(h)\n" +
 			"    let first_items: List<Json.Value> = List<Json.Value>(h)\n" +
 			"    let second_items: List<Json.Value> = List<Json.Value>(h)\n" +
 			"    let first: Json.Value = Json.Value.Array(items = first_items)\n" +
@@ -2805,7 +2805,7 @@ var fixtureCatalog = []fixture{
 			"    first_items.push(second)\n" +
 			"    second_items.push(first)\n" +
 			"    let indirect_rejected: Bool = stringify_reports_cycle(h, first)\n" +
-			"    Json.free(h, first)\n" +
+			"    first.free(h)\n" +
 			"    return direct_rejected and indirect_rejected\nend\nprint(run(Heap()))\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
@@ -2816,9 +2816,9 @@ var fixtureCatalog = []fixture{
 			"fun run(h: Heap): Bool | Error do\n" +
 			"    let pattern: Regex.Pattern = try Regex.compile(h, \"(?i)(é)(x)?\")\n" +
 			"    let subject: String = \"aÉz\"\n" +
-			"    let matched: Bool = try Regex.test(h, pattern, subject)\n" +
-			"    let span: Regex.Span | Nil = try Regex.find(h, pattern, subject)\n" +
-			"    let maybe: Regex.Match | Nil = try Regex.capture(h, pattern, subject)\n" +
+			"    let matched: Bool = try pattern.test(h, subject)\n" +
+			"    let span: Regex.Span | Nil = try pattern.find(h, subject)\n" +
+			"    let maybe: Regex.Match | Nil = try pattern.capture(h, subject)\n" +
 			"    let mut good: Bool = matched and (span != nil) and (maybe != nil)\n" +
 			"    if span != nil then\n" +
 			"        let whole: Regex.Span = span\n" +
@@ -2829,9 +2829,9 @@ var fixtureCatalog = []fixture{
 			"        let first: Regex.Span | Nil = capture.captures[0]\n" +
 			"        let second: Regex.Span | Nil = capture.captures[1]\n" +
 			"        good = good and (capture.whole.start == 1) and (capture.whole.end == 3) and (first != nil) and (second == nil)\n" +
-			"        Regex.free_match(h, capture)\n" +
+			"        capture.free(h)\n" +
 			"    end\n" +
-			"    Regex.free(h, pattern)\n" +
+			"    pattern.free(h)\n" +
 			"    return good\nend\n" +
 			"fun start(): Int32 do\n" +
 			"    let result: Bool | Error = run(Heap())\n" +
@@ -2846,8 +2846,8 @@ var fixtureCatalog = []fixture{
 			"fun run(h: Heap): Bool | Error do\n" +
 			"    let pattern: Regex.Pattern = try Regex.compile(h, \"z\")\n" +
 			"    let subject: String = \"" + strings.Repeat("x", 70000) + "z\"\n" +
-			"    let matched: Bool = try Regex.test(h, pattern, subject)\n" +
-			"    Regex.free(h, pattern)\n" +
+			"    let matched: Bool = try pattern.test(h, subject)\n" +
+			"    pattern.free(h)\n" +
 			"    return matched\nend\n" +
 			"fun start(): Int32 do\n    let result: Bool | Error = run(Heap())\n    if result is Bool then\n        print(result)\n    else\n        print(result.message)\n    end\n    return 0\nend\nlet status: Int32 = start()\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
@@ -2863,14 +2863,14 @@ var fixtureCatalog = []fixture{
 			"        print(invalid_result.message, \"\\n\")\n" +
 			"        invalid_kind = invalid_result.kind == ErrorKind.InvalidInput()\n" +
 			"    else\n" +
-			"        Regex.free(h, invalid_result)\n" +
+			"        invalid_result.free(h)\n" +
 			"        return false\n" +
 			"    end\n" +
 			"    let pattern: Regex.Pattern = try Regex.compile(h, \"z\")\n" +
-			"    let matched: Bool = try Regex.test(h, pattern, \"a\")\n" +
-			"    let span: Regex.Span | Nil = try Regex.find(h, pattern, \"a\")\n" +
-			"    let capture: Regex.Match | Nil = try Regex.capture(h, pattern, \"a\")\n" +
-			"    Regex.free(h, pattern)\n" +
+			"    let matched: Bool = try pattern.test(h, \"a\")\n" +
+			"    let span: Regex.Span | Nil = try pattern.find(h, \"a\")\n" +
+			"    let capture: Regex.Match | Nil = try pattern.capture(h, \"a\")\n" +
+			"    pattern.free(h)\n" +
 			"    return invalid_kind and !matched and (span == nil) and (capture == nil)\nend\n" +
 			"fun start(): Int32 do\n" +
 			"    let result: Bool | Error = run(Heap())\n" +
@@ -2883,16 +2883,16 @@ var fixtureCatalog = []fixture{
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "import\n    Regex from std.regex\nend\n" +
 			"fun check(h: Heap, pattern: Regex.Pattern, subject: String): Bool | Error do\n" +
-			"    let matched: Bool = try Regex.test(h, pattern, subject)\n    return matched\nend\n" +
+			"    let matched: Bool = try pattern.test(h, subject)\n    return matched\nend\n" +
 			"fun run(h: Heap): Bool | Error do\n" +
 			"    let pattern: Regex.Pattern = try Regex.compile(h, \"(?i)^hexal$\")\n" +
 			"    let upper: Task<Bool | Error> = try spawn check(h, pattern, \"HEXAL\")\n" +
 			"    let mixed: Task<Bool | Error> = try spawn check(h, pattern, \"HeXaL\")\n" +
 			"    let first: Bool | Error = upper.join()\n" +
-			"    if first is Error then\n        Regex.free(h, pattern)\n        return first\n    end\n" +
+			"    if first is Error then\n        pattern.free(h)\n        return first\n    end\n" +
 			"    let second: Bool | Error = mixed.join()\n" +
-			"    if second is Error then\n        Regex.free(h, pattern)\n        return second\n    end\n" +
-			"    Regex.free(h, pattern)\n" +
+			"    if second is Error then\n        pattern.free(h)\n        return second\n    end\n" +
+			"    pattern.free(h)\n" +
 			"    return first and second\nend\n" +
 			"fun start(): Int32 do\n    let result: Bool | Error = run(Heap())\n    if result is Bool then\n        print(result)\n    else\n        print(result.message)\n    end\n    return 0\nend\nlet status: Int32 = start()\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
@@ -2907,19 +2907,19 @@ func jsonNestedOwnershipFixture() fixture {
 		"    let parsed: Json.Value | Error = Json.parse(h, \"{\\\"nested\\\":[\\\"one\\\",{\\\"value\\\":\\\"two\\\"}],\\\"dup\\\":\\\"old\\\",\\\"dup\\\":\\\"new\\\"}\")\n" +
 		"    if parsed is Error then return false end\n" +
 		"    let value: Json.Value = parsed\n" +
-		"    let rendered: String | Error = Json.stringify(h, value)\n" +
+		"    let rendered: String | Error = value.stringify(h)\n" +
 		"    let mut output_ok: Bool = false\n" +
 		"    if rendered is String then\n        rendered.free(h)\n        output_ok = true\n    end\n" +
-		"    Json.free(h, value)\n" +
+		"    value.free(h)\n" +
 		"    let integer_failure: Json.Value | Error = Json.parse(h, \"[\\\"partial\\\",18446744073709551616]\")\n" +
 		"    let mut integer_rejected: Bool = false\n" +
-		"    if integer_failure is Error then\n        integer_rejected = integer_failure.kind == ErrorKind.InvalidInput()\n    else\n        Json.free(h, integer_failure)\n        return false\n    end\n" +
+		"    if integer_failure is Error then\n        integer_rejected = integer_failure.kind == ErrorKind.InvalidInput()\n    else\n        integer_failure.free(h)\n        return false\n    end\n" +
 		"    let float_failure: Json.Value | Error = Json.parse(h, \"[\\\"partial\\\",1e400]\")\n" +
 		"    let mut float_rejected: Bool = false\n" +
-		"    if float_failure is Error then\n        float_rejected = float_failure.kind == ErrorKind.InvalidInput()\n    else\n        Json.free(h, float_failure)\n        return false\n    end\n" +
+		"    if float_failure is Error then\n        float_rejected = float_failure.kind == ErrorKind.InvalidInput()\n    else\n        float_failure.free(h)\n        return false\n    end\n" +
 		"    let depth_failure: Json.Value | Error = Json.parse(h, \"" + deepDocument + "\")\n" +
 		"    let mut depth_rejected: Bool = false\n" +
-		"    if depth_failure is Error then\n        depth_rejected = depth_failure.kind == ErrorKind.InvalidInput()\n    else\n        Json.free(h, depth_failure)\n        return false\n    end\n" +
+		"    if depth_failure is Error then\n        depth_rejected = depth_failure.kind == ErrorKind.InvalidInput()\n    else\n        depth_failure.free(h)\n        return false\n    end\n" +
 		"    let text: String = \"partial\".copy(h)\n" +
 		"    let items: List<Json.Value> = List<Json.Value>(h)\n" +
 		"    items.push(Json.Value.Text(value = text))\n" +
@@ -2927,10 +2927,10 @@ func jsonNestedOwnershipFixture() fixture {
 		"    let infinity: Float64 = infinity_bits.bit_cast<Float64>()\n" +
 		"    items.push(Json.Value.Float(value = infinity))\n" +
 		"    let nonfinite_tree: Json.Value = Json.Value.Array(items = items)\n" +
-		"    let write_failure: String | Error = Json.stringify(h, nonfinite_tree)\n" +
+		"    let write_failure: String | Error = nonfinite_tree.stringify(h)\n" +
 		"    let mut nonfinite_rejected: Bool = false\n" +
 		"    if write_failure is Error then\n        nonfinite_rejected = (write_failure.kind == ErrorKind.InvalidInput()) and (write_failure.message == \"JSON cannot represent a non-finite number\")\n    else\n        write_failure.free(h)\n    end\n" +
-		"    Json.free(h, nonfinite_tree)\n" +
+		"    nonfinite_tree.free(h)\n" +
 		"    return output_ok and integer_rejected and float_rejected and depth_rejected and nonfinite_rejected\nend\nprint(run(Heap()))\n"
 	return fixture{
 		name:       "json-nested-ownership-and-partial-failure-leak-runs",
@@ -2962,18 +2962,18 @@ func regexResourceFixture() fixture {
 		"fun compile_limited(h: Heap, source: String): Bool do\n" +
 		"    let result: Regex.Pattern | Error = Regex.compile(h, source)\n" +
 		"    if result is Error then\n        if result.kind == ErrorKind.ResourceExhausted() then\n            return true\n        end\n        print(result.kind.header(), \":\", result.message, \";\")\n        return false\n    end\n" +
-		"    Regex.free(h, result)\n    print(\"compiled;\")\n    return false\nend\n" +
+		"    result.free(h)\n    print(\"compiled;\")\n    return false\nend\n" +
 		"fun match_limited(h: Heap, source: String, subject: String): Bool do\n" +
 		"    let compiled: Regex.Pattern | Error = Regex.compile(h, source)\n" +
 		"    if compiled is Error then\n        return false\n    end\n" +
-		"    let result: Bool | Error = Regex.test(h, compiled, subject)\n" +
-		"    Regex.free(h, compiled)\n" +
+		"    let result: Bool | Error = compiled.test(h, subject)\n" +
+		"    compiled.free(h)\n" +
 		"    if result is Error then\n        if result.kind == ErrorKind.ResourceExhausted() then\n            return true\n        end\n        print(result.kind.header(), \":\", result.message, \";\")\n        return false\n    end\n" +
 		"    print(\"no-limit;\")\n    return false\nend\n" +
 		"fun compile_allowed(h: Heap, source: String): Bool do\n" +
 		"    let result: Regex.Pattern | Error = Regex.compile(h, source)\n" +
 		"    if result is Error then\n        print(result.kind.header(), \":\", result.message, \";\")\n        return false\n    end\n" +
-		"    Regex.free(h, result)\n    return true\nend\n" +
+		"    result.free(h)\n    return true\nend\n" +
 		"fun run(h: Heap): Bool do\n" +
 		"    let source_boundary: Bool = compile_allowed(h, \"" + patternAtLimit + "\")\n" +
 		"    let source_limit: Bool = compile_limited(h, \"" + patternTooLong + "\")\n" +
