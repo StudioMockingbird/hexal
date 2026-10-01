@@ -20,6 +20,7 @@ gets deleted.
 
 | Work | Spec | Effort | ROI |
 | --- | --- | --- | --- |
+| Measure the web server's throughput ceiling and per-connection memory (Phase 0), then reduce loop-thread work, wake cost, and idle-connection memory as the evidence justifies | [0257](specs/0257-web-server-performance.md) | High | High |
 
 ## Deferred ideas
 
