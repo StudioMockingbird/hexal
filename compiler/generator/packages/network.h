@@ -133,6 +133,17 @@ int hex_tcp_listener_close(hex_tcp_listener listener);
 // active operation of its own kind at a time.
 hex_tcp_transfer hex_tcp_read(hex_tcp_connection connection, hex_list_UInt8 *into, size_t max);
 int hex_tcp_write(hex_tcp_connection connection, hex_slice_UInt8 from);
+// The deadline-bearing forms the server runtime uses. deadline is an absolute
+// hex_instant reading, or zero for none. A read that reaches its deadline
+// returns UV_ETIMEDOUT with no byte consumed and leaves the connection
+// usable. A write cannot be cancelled alone, so a write that reaches its
+// deadline closes the connection natively and returns UV_ETIMEDOUT; later
+// operations on it return HEX_NETWORK_CLOSED until it is closed explicitly.
+// Closing a connection or listener from another Task completes a parked
+// read, write, or accept with HEX_NETWORK_CLOSED. The read fills a raw
+// buffer the caller owns for the whole call.
+hex_tcp_transfer hex_tcp_read_until(hex_tcp_connection connection, uint8_t *into, size_t max, uint64_t deadline);
+int hex_tcp_write_until(hex_tcp_connection connection, hex_slice_UInt8 from, uint64_t deadline);
 int hex_tcp_shutdown(hex_tcp_connection connection);
 int hex_tcp_no_delay(hex_tcp_connection connection, bool enabled);
 int hex_tcp_close(hex_tcp_connection connection);

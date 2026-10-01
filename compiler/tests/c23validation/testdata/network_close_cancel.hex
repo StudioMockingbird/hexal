@@ -1,0 +1,88 @@
+import
+    Net from std.net,
+    Time from std.time
+end
+
+fun read_parked(connection: Net.TcpConnection): Bool do
+    let buffer: List<Byte> = List<Byte>(Heap())
+    let result: Size | EoS | Error = connection.read(buffer, 64)
+    if result is Error then
+        print("read: ", result.header(), "\n")
+        return true
+    end
+    print("read: completed\n")
+    return false
+end
+
+fun accept_parked(listener: Net.TcpListener): Bool do
+    let result = listener.accept()
+    if result is Error then
+        print("accept: ", result.header(), "\n")
+        return true
+    end
+    print("accept: completed\n")
+    return false
+end
+
+-- The peer never reads, so once the kernel send and receive buffers fill a
+-- write parks; the repeated writes reach that point on every qualified target
+-- without depending on one buffer size.
+fun write_parked(connection: Net.TcpConnection, payload: List<Byte>): Bool do
+    let mut round: Int32 = 0
+    while round < 128 do
+        let result = connection.write(payload.slice(0, payload.length()))
+        if result != nil then
+            print("write: ", result.header(), "\n")
+            return true
+        end
+        round = round + 1
+    end
+    print("write: completed\n")
+    return false
+end
+
+fun settle() do
+    Time.sleep(Time.milliseconds(300))
+end
+
+fun run(): Nil | Error do
+    let heap = Heap()
+    let address = try Net.parse_address("127.0.0.1", 18802)
+    let listener = try Net.listen(address, 4)
+    let client = try Net.connect(address)
+    let server_side = try listener.accept()
+
+    let reader = try spawn read_parked(server_side)
+    settle()
+    try server_side.close()
+    print("read cancelled: ", reader.join(), "\n")
+    try client.close()
+
+    let waiting = try spawn accept_parked(listener)
+    settle()
+    try listener.close()
+    print("accept cancelled: ", waiting.join(), "\n")
+
+    let second_listener = try Net.listen(address, 4)
+    defer second_listener.close()
+    let writer_client = try Net.connect(address)
+    let writer_server = try second_listener.accept()
+    let payload: List<Byte> = List<Byte>(heap)
+    let mut i: Size = 0
+    while i < 8388608 do
+        payload.push(0)
+        i = i + 1
+    end
+    let writer = try spawn write_parked(writer_client, payload)
+    settle()
+    try writer_client.close()
+    print("write cancelled: ", writer.join(), "\n")
+    try writer_server.close()
+    payload.free(heap)
+    return nil
+end
+
+let outcome = run()
+if outcome != nil then
+    print("failed: ", outcome.header(), ": ", outcome.message, "\n")
+end

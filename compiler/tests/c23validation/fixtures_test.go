@@ -18,6 +18,9 @@ var jsonCaseSource string
 //go:embed testdata/json_cases.stdout
 var jsonCaseStdout string
 
+//go:embed testdata/network_close_cancel.hex
+var networkCloseCancelSource string
+
 var fixtureCatalog = []fixture{
 	// Compile-only: representative programs across the constructs whose
 	// generated C has never been read by a compiler before this suite.
@@ -2089,6 +2092,19 @@ var fixtureCatalog = []fixture{
 			"end\n" +
 			"print(demo())\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "20"},
+	},
+	// Closing a connection or listener from another Task completes the one
+	// parked read, accept, or write with Closed instead of leaving it parked.
+	{
+		name:       "network-close-cancels-parked-operations-runs",
+		entrypoint: "app.hex",
+		sources:    map[string]string{"app.hex": networkCloseCancelSource},
+		expectation: &processExpectation{
+			zeroExit: true,
+			exactStdout: "read: closed\nread cancelled: true\n" +
+				"accept: closed\naccept cancelled: true\n" +
+				"write: closed\nwrite cancelled: true\n",
+		},
 	},
 	{
 		name:       "process-options-and-pipe-compiles",

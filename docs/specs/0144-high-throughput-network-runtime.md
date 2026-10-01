@@ -1,8 +1,10 @@
 # RFC 0144: High-Throughput Network Runtime
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Open Discussion; existing Task-aware TCP/timers are reused; owns remaining deadline and qualification work;
-  implementation not started
+- Status: Implementation in progress; Phases 0-2 landed (deadline-bearing read and
+  write, close-cancel of parked read/accept/write on the existing event bridge);
+  deadline orderings are validated through the RFC 0194 server fixtures, and
+  Phase 3 qualification and the Measurement contract baseline remain
 - Created: 2026-09-07
 - Updated: 2026-10-01
 - Scope: Task-aware socket and timer operations built on the libuv foundation
@@ -434,6 +436,88 @@ Re-run the baseline and record throughput, latency, allocations/copies, submissi
 mapping/idle memory and worker scaling. Scheduler sharding, assembly switching,
 stack caches and vectored I/O require separately bounded, measured follow-up work;
 they are not unfinished mandatory phases of this first implementation.
+
+## Pinned records
+
+### Implementation map (Phase 0)
+
+| Concern | Owner | Disposition |
+| --- | --- | --- |
+| accept/read/write/shutdown/close entry points, handle leases, busy flags | `packages/network.c`, `network.h`, `handle.c` | reused unchanged in shape |
+| submit, park, wake | `event.c` `hex_event_submit`, `concurrency.c` arm/suspend/wake | reused; no second wait protocol |
+| Task sleep timer | `event.c` | reused as the timer precedent; network deadlines use control-embedded timers |
+| per-socket native state and parked-operation pointers | `hex_tcp_control` | extended: state, `read_op`, `write_op`, `closer`, two lazily initialized timers |
+| deadline-bearing read and write | `hex_tcp_read_until`, `hex_tcp_write_until` | new; the public `hex_tcp_read`, `hex_tcp_write` call them with deadline 0 |
+| close of a parked operation | `hex_tcp_begin_close` | new; replaces a close that left a parked read or accept waiting forever |
+| accept deadline | none | not added: the server stops accepting by closing the listener, and no configured timeout bounds accept |
+
+Before this change a parked read or accept never woke when another Task closed its
+handle, because libuv delivers no read or connection callback after `uv_close`;
+the reference already specified Closed for that case.
+
+### Records and ownership (Phase 1)
+
+- Deadlines are absolute `hex_instant` (monotonic nanosecond) readings; zero means
+  none. A deadline already past at operation start settles immediately.
+- `hex_tcp_control` fields below the busy flags are loop-thread-owned.
+  `state` is `OPEN`, `CLOSING` (`uv_close` issued, close callbacks outstanding), or
+  `CLOSED`. `read_op`, `write_op`, and `accept_command` name a parked Task's
+  stack-resident request only between that request's start and the one decision
+  that wakes it. `closer` is the waiting explicit close request, if any.
+- Request outcome: `PENDING`, `DONE` (native completion or native failure, status in
+  the record), `DEADLINE`, `CLOSED`. Public statuses: `DEADLINE` returns
+  `UV_ETIMEDOUT`, `CLOSED` returns `HEX_NETWORK_CLOSED`.
+- Timers live in the control block (`read_timer`, `write_timer`), initialized on
+  first deadline use on the loop thread and closed with the socket. Stopping one is
+  synchronous, so a timer never has to outlive the Task stack and no stale timer
+  callback can reach a request record. `close_pending` counts the socket and
+  initialized timers; the last close callback sets `CLOSED` and wakes `closer`.
+- Early timer expiry, judged by `uv_hrtime`, re-arms instead of settling.
+  A timer init or start failure completes the operation with that libuv status.
+
+### Transitions
+
+Read (loop thread; each row wakes the Task exactly once):
+
+| Event while a read is parked | Winner | Action | Result |
+| --- | --- | --- | --- |
+| `uv_read_cb` with nread != 0 | completion | `uv_read_stop`, stop timer, wake | bytes, `EOS`, or native error |
+| read timer fires at or after the deadline | deadline | `uv_read_stop`, stop timer, wake | `UV_ETIMEDOUT`; connection stays usable |
+| another Task closes the connection | close | `uv_read_stop`, stop timer, wake; then `uv_close` | `Closed` |
+| start finds `state != OPEN` | close | wake | `Closed` |
+| start finds the deadline past | deadline | wake without reading | `UV_ETIMEDOUT` |
+
+A read that completes before the Task parks wakes through the same path: the
+start command runs on the loop thread after the Task has armed and suspended.
+
+Write (one `uv_write_t` per chunk; the deadline is shared by all chunks):
+
+| Event while a write is parked | Winner | Action | Result |
+| --- | --- | --- | --- |
+| `uv_write_cb` with status | completion | stop timer, wake | success or native error |
+| write timer fires at or after the deadline | deadline | mark `DEADLINE`, `uv_close` of the socket; libuv completes the write with `UV_ECANCELED` before the close callback, and that callback is the one wake | `UV_ETIMEDOUT`; connection closed natively |
+| another Task closes the connection | close | mark `CLOSED`, close timers and socket; the write callback is the one wake | `Closed` |
+| start finds `state != OPEN` | close | wake | `Closed` |
+| start finds the deadline past | deadline | `uv_close`, wake (no write in flight) | `UV_ETIMEDOUT`; connection closed natively |
+
+A later explicit close of a connection closed by a write deadline finds
+`CLOSING` (waits for the close callbacks) or `CLOSED` (returns at once).
+
+Accept: a close of the listener wakes the parked accept with no pending client,
+which returns `Closed`; accept start with `state != OPEN` does the same.
+
+Close: `CLOSED` wakes the closer immediately, `CLOSING` registers it, `OPEN`
+registers it and begins the close. The closer wakes only after every native handle
+of the control block has delivered its close callback, so the control block and
+every parked request record outlive all native access to them.
+
+### Validation mapping
+
+| Row | Fixture |
+| --- | --- |
+| close wakes a parked read, accept, and write with Closed | `network-close-cancels-parked-operations-runs` |
+| existing TCP and Task behavior unchanged | `network-tcp-loopback-runs`, `network-tcp-loopback-stress-runs`, `inline-address-*`, `task-*`, `channel-*`, `mutex-*` |
+| deadline winners | RFC 0194 server fixtures (header, body, idle read deadline; write deadline) |
 
 ## Follow-up ownership
 

@@ -227,10 +227,37 @@ hex_dns_result hex_dns_resolve(const hex_string *host, const hex_string *service
 // UINT32_MAX bytes, matching the File and IO clamp.
 constexpr size_t HEX_NETWORK_MAX_REQUEST = UINT32_MAX;
 
+// How one parked read or write ended. The loop thread decides it exactly once,
+// before the one wake, so the first winner among completion, deadline, and
+// close is the only outcome the resumed Task sees.
+enum {
+    HEX_TCP_OP_PENDING,
+    HEX_TCP_OP_DONE,
+    HEX_TCP_OP_DEADLINE,
+    HEX_TCP_OP_CLOSED,
+};
+
+// The native lifecycle of one socket. CLOSING spans uv_close until every
+// handle of the control block has delivered its close callback.
+enum {
+    HEX_TCP_OPEN,
+    HEX_TCP_CLOSING,
+    HEX_TCP_CLOSED,
+};
+
+typedef struct hex_tcp_read_request hex_tcp_read_request;
+typedef struct hex_tcp_write_request hex_tcp_write_request;
+
 // hex_tcp_control is the capability control block the handle registry pins
 // for the lifetime of one connection or listener. A listener leaves
 // busy_read/busy_write unused; a connection leaves pending_client and
 // accept_command unused.
+//
+// Everything below the busy flags is touched only on the loop thread. A
+// parked operation's request record lives on its Task's stack, so a control
+// block names it (read_op, write_op, accept_command) only between the
+// operation's start and the single decision that wakes its Task, and no
+// libuv callback reaches a record after that wake.
 typedef struct hex_tcp_control {
     uv_tcp_t socket;
     bool busy_read;
@@ -243,6 +270,22 @@ typedef struct hex_tcp_control {
     // callback) or under a park/resume boundary that never overlaps it.
     struct hex_tcp_control *pending_client;
     hex_event_command *accept_command;
+    int state;
+    hex_tcp_read_request *read_op;
+    hex_tcp_write_request *write_op;
+    // The waiting close request, woken once every handle has closed. A
+    // deadline-induced close has none; a later explicit close finds the state
+    // already CLOSING or CLOSED and only waits or returns.
+    hex_event_command *closer;
+    unsigned close_pending;
+    // One timer per direction, initialized on first deadline use and closed
+    // with the socket: embedded in this block rather than in a request
+    // record, so stopping a timer is synchronous and needs no close callback
+    // before the Task may resume.
+    uv_timer_t read_timer;
+    uv_timer_t write_timer;
+    bool read_timer_ready;
+    bool write_timer_ready;
 } hex_tcp_control;
 
 static hex_tcp_control *hex_tcp_control_new(void) {
@@ -265,30 +308,142 @@ static void hex_tcp_sockaddr(hex_t_Address address, struct sockaddr_storage *out
     memcpy(&v6->sin6_addr, address.payload.IPv6.hex_m_bytes.data, 16);
 }
 
-typedef struct hex_tcp_close_request {
+struct hex_tcp_read_request {
     hex_event_command command;
-    uv_tcp_t *socket;
-} hex_tcp_close_request;
+    hex_tcp_control *control;
+    uv_buf_t buffer;
+    // An absolute hex_instant reading; zero means no deadline.
+    uint64_t deadline;
+    ssize_t result;
+    int outcome;
+};
+
+struct hex_tcp_write_request {
+    hex_event_command command;
+    uv_write_t request;
+    uv_buf_t buffer;
+    hex_tcp_control *control;
+    uint64_t deadline;
+    int status;
+    int outcome;
+};
+
+// libuv timers count whole loop milliseconds, so an arm rounds the remaining
+// interval up and an early expiry, judged by the monotonic clock, re-arms
+// instead of settling.
+static uint64_t hex_tcp_millis_until(uint64_t deadline) {
+    uint64_t now = uv_hrtime();
+    if (now >= deadline) {
+        return 0;
+    }
+    uint64_t remaining = deadline - now;
+    return remaining / 1000000u + (remaining % 1000000u != 0 ? 1 : 0);
+}
+
+static int hex_tcp_timer_arm(hex_tcp_control *control, uv_timer_t *timer, bool *ready, uint64_t deadline, uv_timer_cb fired) {
+    if (!*ready) {
+        int status = uv_timer_init(control->socket.loop, timer);
+        if (status != 0) {
+            return status;
+        }
+        timer->data = control;
+        *ready = true;
+    }
+    return uv_timer_start(timer, fired, hex_tcp_millis_until(deadline), 0);
+}
+
+// hex_tcp_read_settle ends the parked read with outcome and wakes its Task.
+// uv_read_stop is synchronous, so no read or alloc callback can reach the
+// record after this returns; the record is not touched past the wake.
+static void hex_tcp_read_settle(hex_tcp_control *control, int outcome) {
+    hex_tcp_read_request *read_request = control->read_op;
+    control->read_op = nullptr;
+    read_request->outcome = outcome;
+    uv_read_stop((uv_stream_t *)&control->socket);
+    if (control->read_timer_ready) {
+        uv_timer_stop(&control->read_timer);
+    }
+    hex_task_event_wake(read_request->command.task);
+}
 
 static void hex_tcp_close_done(uv_handle_t *handle) {
-    hex_tcp_close_request *close_request = (hex_tcp_close_request *)handle->data;
-    hex_task_event_wake(close_request->command.task);
+    hex_tcp_control *control = (hex_tcp_control *)handle->data;
+    if (--control->close_pending != 0) {
+        return;
+    }
+    control->state = HEX_TCP_CLOSED;
+    hex_event_command *closer = control->closer;
+    control->closer = nullptr;
+    if (closer != nullptr) {
+        hex_task_event_wake(closer->task);
+    }
 }
+
+// hex_tcp_begin_close closes every native handle of an OPEN control block on
+// the loop thread. A parked read or accept ends here with Closed. A parked
+// write is left to libuv, which completes it with UV_ECANCELED before the
+// socket's close callback; marking it CLOSED first lets its completion report
+// Closed, and its own callback is the one wake.
+static void hex_tcp_begin_close(hex_tcp_control *control) {
+    control->state = HEX_TCP_CLOSING;
+    if (control->read_op != nullptr) {
+        hex_tcp_read_settle(control, HEX_TCP_OP_CLOSED);
+    }
+    if (control->accept_command != nullptr) {
+        hex_event_command *waiting = control->accept_command;
+        control->accept_command = nullptr;
+        hex_task_event_wake(waiting->task);
+    }
+    if (control->write_op != nullptr && control->write_op->outcome == HEX_TCP_OP_PENDING) {
+        control->write_op->outcome = HEX_TCP_OP_CLOSED;
+    }
+    control->close_pending = 1;
+    if (control->read_timer_ready) {
+        uv_timer_stop(&control->read_timer);
+        control->close_pending++;
+    }
+    if (control->write_timer_ready) {
+        uv_timer_stop(&control->write_timer);
+        control->close_pending++;
+    }
+    uv_close((uv_handle_t *)&control->socket, hex_tcp_close_done);
+    if (control->read_timer_ready) {
+        uv_close((uv_handle_t *)&control->read_timer, hex_tcp_close_done);
+    }
+    if (control->write_timer_ready) {
+        uv_close((uv_handle_t *)&control->write_timer, hex_tcp_close_done);
+    }
+}
+
+typedef struct hex_tcp_close_request {
+    hex_event_command command;
+    hex_tcp_control *control;
+} hex_tcp_close_request;
 
 static void hex_tcp_close_start(hex_event_command *command) {
-    hex_tcp_close_request *close_request = (hex_tcp_close_request *)command;
-    close_request->socket->data = close_request;
-    uv_close((uv_handle_t *)close_request->socket, hex_tcp_close_done);
+    hex_tcp_control *control = ((hex_tcp_close_request *)command)->control;
+    switch (control->state) {
+    case HEX_TCP_OPEN:
+        control->closer = command;
+        hex_tcp_begin_close(control);
+        break;
+    case HEX_TCP_CLOSING:
+        control->closer = command;
+        break;
+    default:
+        hex_task_event_wake(command->task);
+        break;
+    }
 }
 
-// hex_tcp_native_close marshals uv_close onto the loop thread and parks the
-// calling Task until libuv's close callback confirms the handle fully
+// hex_tcp_native_close marshals the close onto the loop thread and parks the
+// calling Task until every libuv handle of the control block is fully
 // released. It does not free control: the handle registry frees a
 // published control block itself, while an unpublished one (construction
 // failure, an unclaimed accepted connection) is the caller's own to free.
-static void hex_tcp_native_close(uv_tcp_t *socket) {
+static void hex_tcp_native_close(hex_tcp_control *control) {
     hex_task *task = hex_task_current();
-    hex_tcp_close_request close_request = {.command = {.task = task, .start = hex_tcp_close_start}, .socket = socket};
+    hex_tcp_close_request close_request = {.command = {.task = task, .start = hex_tcp_close_start}, .control = control};
     hex_event_submit(task, &close_request.command);
 }
 
@@ -314,6 +469,7 @@ static void hex_tcp_connect_start(hex_event_command *command) {
         return;
     }
     connect->initialized = true;
+    connect->control->socket.data = connect->control;
     connect->request.data = connect;
     int status = uv_tcp_connect(&connect->request, &connect->control->socket, (const struct sockaddr *)&connect->address, hex_tcp_connect_done);
     if (status < 0) {
@@ -342,7 +498,7 @@ hex_tcp_connect_result hex_tcp_connect(hex_t_Address address) {
     if (connect.status < 0) {
         hex_handle_abandon(handle);
         if (connect.initialized) {
-            hex_tcp_native_close(&control->socket);
+            hex_tcp_native_close(control);
         }
         hex_heap_free(control);
         return (hex_tcp_connect_result){.status = connect.status};
@@ -375,6 +531,7 @@ static void hex_tcp_connection_arrived(uv_stream_t *server, int status) {
         hex_heap_free(client_control);
         return;
     }
+    client_control->socket.data = client_control;
     listener->pending_client = client_control;
     if (listener->accept_command != nullptr) {
         hex_event_command *waiting = listener->accept_command;
@@ -420,7 +577,7 @@ hex_tcp_listen_result hex_tcp_listen(hex_t_Address address, size_t backlog) {
     if (listen_request.status < 0) {
         hex_handle_abandon(handle);
         if (listen_request.initialized) {
-            hex_tcp_native_close(&control->socket);
+            hex_tcp_native_close(control);
         }
         hex_heap_free(control);
         return (hex_tcp_listen_result){.status = listen_request.status};
@@ -436,6 +593,10 @@ typedef struct hex_tcp_accept_request {
 
 static void hex_tcp_accept_start(hex_event_command *command) {
     hex_tcp_accept_request *accept_request = (hex_tcp_accept_request *)command;
+    if (accept_request->listener->state != HEX_TCP_OPEN) {
+        hex_task_event_wake(accept_request->command.task);
+        return;
+    }
     // Both this callback and hex_tcp_connection_arrived run only on the
     // loop thread, so there is no race between checking pending_client here
     // and a connection that arrived first setting it.
@@ -476,7 +637,7 @@ hex_tcp_accept_result hex_tcp_accept(hex_tcp_listener listener) {
     }
     hex_handle client_handle = hex_handle_reserve(HEX_HANDLE_KIND_TCP_CONNECTION);
     if (client_handle.slot == nullptr) {
-        hex_tcp_native_close(&client_control->socket);
+        hex_tcp_native_close(client_control);
         hex_heap_free(client_control);
         return (hex_tcp_accept_result){.status = HEX_NETWORK_ALLOCATION_FAILED};
     }
@@ -491,50 +652,81 @@ int hex_tcp_listener_close(hex_tcp_listener listener) {
     }
     hex_tcp_control *control = (hex_tcp_control *)control_ptr;
     if (control->pending_client != nullptr) {
-        hex_tcp_native_close(&control->pending_client->socket);
+        hex_tcp_native_close(control->pending_client);
         hex_heap_free(control->pending_client);
         control->pending_client = nullptr;
     }
-    hex_tcp_native_close(&control->socket);
+    hex_tcp_native_close(control);
     hex_handle_close_finish(listener.handle);
     return 0;
 }
 
-typedef struct hex_tcp_read_request {
-    hex_event_command command;
-    hex_tcp_control *control;
-    uv_buf_t buffer;
-    ssize_t result;
-} hex_tcp_read_request;
-
 static void hex_tcp_read_alloc(uv_handle_t *handle, size_t suggested, uv_buf_t *buf) {
     (void)suggested;
-    hex_tcp_read_request *read_request = (hex_tcp_read_request *)handle->data;
-    *buf = read_request->buffer;
+    hex_tcp_control *control = (hex_tcp_control *)handle->data;
+    *buf = control->read_op != nullptr ? control->read_op->buffer : uv_buf_init(nullptr, 0);
 }
 
 static void hex_tcp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) {
     (void)buf;
-    hex_tcp_read_request *read_request = (hex_tcp_read_request *)stream->data;
-    if (nread == 0) {
+    hex_tcp_control *control = (hex_tcp_control *)stream->data;
+    if (nread == 0 || control->read_op == nullptr) {
         // Not completion: no byte and no error, keep the read armed.
         return;
     }
-    uv_read_stop(stream);
-    read_request->result = nread;
-    hex_task_event_wake(read_request->command.task);
+    control->read_op->result = nread;
+    hex_tcp_read_settle(control, HEX_TCP_OP_DONE);
+}
+
+static void hex_tcp_read_timer_fired(uv_timer_t *timer) {
+    hex_tcp_control *control = (hex_tcp_control *)timer->data;
+    hex_tcp_read_request *read_request = control->read_op;
+    if (read_request == nullptr) {
+        return;
+    }
+    if (uv_hrtime() < read_request->deadline && uv_timer_start(timer, hex_tcp_read_timer_fired, hex_tcp_millis_until(read_request->deadline), 0) == 0) {
+        return;
+    }
+    hex_tcp_read_settle(control, HEX_TCP_OP_DEADLINE);
 }
 
 static void hex_tcp_read_start(hex_event_command *command) {
     hex_tcp_read_request *read_request = (hex_tcp_read_request *)command;
-    read_request->control->socket.data = read_request;
-    if (uv_read_start((uv_stream_t *)&read_request->control->socket, hex_tcp_read_alloc, hex_tcp_read_cb) != 0) {
+    hex_tcp_control *control = read_request->control;
+    if (control->state != HEX_TCP_OPEN) {
+        read_request->outcome = HEX_TCP_OP_CLOSED;
+        hex_task_event_wake(command->task);
+        return;
+    }
+    read_request->outcome = HEX_TCP_OP_DONE;
+    if (read_request->deadline != 0) {
+        if (uv_hrtime() >= read_request->deadline) {
+            read_request->outcome = HEX_TCP_OP_DEADLINE;
+            hex_task_event_wake(command->task);
+            return;
+        }
+        int status = hex_tcp_timer_arm(control, &control->read_timer, &control->read_timer_ready, read_request->deadline, hex_tcp_read_timer_fired);
+        if (status != 0) {
+            read_request->result = status;
+            hex_task_event_wake(command->task);
+            return;
+        }
+    }
+    control->read_op = read_request;
+    if (uv_read_start((uv_stream_t *)&control->socket, hex_tcp_read_alloc, hex_tcp_read_cb) != 0) {
+        control->read_op = nullptr;
+        if (control->read_timer_ready) {
+            uv_timer_stop(&control->read_timer);
+        }
         read_request->result = UV_EINVAL;
-        hex_task_event_wake(read_request->command.task);
+        hex_task_event_wake(command->task);
     }
 }
 
-hex_tcp_transfer hex_tcp_read(hex_tcp_connection connection, hex_list_UInt8 *into, size_t max) {
+// hex_tcp_read_core reads into the list's spare capacity when list is set,
+// otherwise into the caller's raw buffer; the connection checks run before
+// any growth so a closed or busy connection never allocates.
+static hex_tcp_transfer hex_tcp_read_core(hex_tcp_connection connection, hex_list_UInt8 *list, uint8_t *raw, size_t max, uint64_t deadline) {
     hex_task *task = hex_task_current();
     if (task == nullptr) {
         hex_runtime_trap("[Runtime Error] network operation outside a Task\n");
@@ -554,54 +746,118 @@ hex_tcp_transfer hex_tcp_read(hex_tcp_connection connection, hex_list_UInt8 *int
     }
     control->busy_read = true;
     size_t count = max > HEX_NETWORK_MAX_REQUEST ? HEX_NETWORK_MAX_REQUEST : max;
-    size_t needed;
-    if (ckd_add(&needed, into->length, count)) {
-        hex_runtime_trap("[Runtime Error] list capacity is not representable\n");
+    if (list != nullptr) {
+        size_t needed;
+        if (ckd_add(&needed, list->length, count)) {
+            hex_runtime_trap("[Runtime Error] list capacity is not representable\n");
+        }
+        hex_list_reserve_at_least_UInt8(list, needed);
+        raw = list->data + list->length;
     }
-    hex_list_reserve_at_least_UInt8(into, needed);
     hex_tcp_read_request read_request = {
         .command = {.task = task, .start = hex_tcp_read_start},
         .control = control,
-        .buffer = uv_buf_init((char *)(into->data + into->length), (unsigned int)count),
+        .buffer = uv_buf_init((char *)raw, (unsigned int)count),
+        .deadline = deadline,
     };
     hex_event_submit(task, &read_request.command);
     control->busy_read = false;
     hex_handle_release(lease);
+    if (read_request.outcome == HEX_TCP_OP_CLOSED) {
+        return (hex_tcp_transfer){.status = HEX_NETWORK_CLOSED};
+    }
+    if (read_request.outcome == HEX_TCP_OP_DEADLINE) {
+        return (hex_tcp_transfer){.status = UV_ETIMEDOUT};
+    }
     if (read_request.result == UV_EOF) {
         return (hex_tcp_transfer){.status = HEX_NETWORK_EOS};
     }
     if (read_request.result < 0) {
         return (hex_tcp_transfer){.status = (int)read_request.result};
     }
-    into->length += (size_t)read_request.result;
+    if (list != nullptr) {
+        list->length += (size_t)read_request.result;
+    }
     return (hex_tcp_transfer){.status = 0, .count = (size_t)read_request.result};
 }
 
-typedef struct hex_tcp_write_request {
-    hex_event_command command;
-    uv_write_t request;
-    uv_buf_t buffer;
-    hex_tcp_control *control;
-    int status;
-} hex_tcp_write_request;
+hex_tcp_transfer hex_tcp_read_until(hex_tcp_connection connection, uint8_t *into, size_t max, uint64_t deadline) {
+    return hex_tcp_read_core(connection, nullptr, into, max, deadline);
+}
+
+hex_tcp_transfer hex_tcp_read(hex_tcp_connection connection, hex_list_UInt8 *into, size_t max) {
+    return hex_tcp_read_core(connection, into, nullptr, max, 0);
+}
 
 static void hex_tcp_write_done(uv_write_t *request, int status) {
     hex_tcp_write_request *write_request = (hex_tcp_write_request *)request->data;
+    hex_tcp_control *control = write_request->control;
+    control->write_op = nullptr;
+    if (control->state == HEX_TCP_OPEN && control->write_timer_ready) {
+        uv_timer_stop(&control->write_timer);
+    }
+    if (write_request->outcome == HEX_TCP_OP_DEADLINE) {
+        status = UV_ETIMEDOUT;
+    } else if (write_request->outcome == HEX_TCP_OP_CLOSED) {
+        status = HEX_NETWORK_CLOSED;
+    }
     write_request->status = status;
     hex_task_event_wake(write_request->command.task);
 }
 
+// A write cannot be cancelled on its own, and a timed-out response is an
+// unusable partial stream, so a write deadline closes the whole socket:
+// libuv then completes the in-flight write with UV_ECANCELED, and that
+// completion is the one wake.
+static void hex_tcp_write_timer_fired(uv_timer_t *timer) {
+    hex_tcp_control *control = (hex_tcp_control *)timer->data;
+    hex_tcp_write_request *write_request = control->write_op;
+    if (write_request == nullptr || write_request->outcome != HEX_TCP_OP_PENDING) {
+        return;
+    }
+    if (uv_hrtime() < write_request->deadline && uv_timer_start(timer, hex_tcp_write_timer_fired, hex_tcp_millis_until(write_request->deadline), 0) == 0) {
+        return;
+    }
+    write_request->outcome = HEX_TCP_OP_DEADLINE;
+    hex_tcp_begin_close(control);
+}
+
 static void hex_tcp_write_start(hex_event_command *command) {
     hex_tcp_write_request *write_request = (hex_tcp_write_request *)command;
+    hex_tcp_control *control = write_request->control;
+    if (control->state != HEX_TCP_OPEN) {
+        write_request->status = HEX_NETWORK_CLOSED;
+        hex_task_event_wake(command->task);
+        return;
+    }
+    if (write_request->deadline != 0) {
+        if (uv_hrtime() >= write_request->deadline) {
+            write_request->status = UV_ETIMEDOUT;
+            hex_tcp_begin_close(control);
+            hex_task_event_wake(command->task);
+            return;
+        }
+        int status = hex_tcp_timer_arm(control, &control->write_timer, &control->write_timer_ready, write_request->deadline, hex_tcp_write_timer_fired);
+        if (status != 0) {
+            write_request->status = status;
+            hex_task_event_wake(command->task);
+            return;
+        }
+    }
     write_request->request.data = write_request;
-    int status = uv_write(&write_request->request, (uv_stream_t *)&write_request->control->socket, &write_request->buffer, 1, hex_tcp_write_done);
+    control->write_op = write_request;
+    int status = uv_write(&write_request->request, (uv_stream_t *)&control->socket, &write_request->buffer, 1, hex_tcp_write_done);
     if (status < 0) {
+        control->write_op = nullptr;
+        if (control->write_timer_ready) {
+            uv_timer_stop(&control->write_timer);
+        }
         write_request->status = status;
-        hex_task_event_wake(write_request->command.task);
+        hex_task_event_wake(command->task);
     }
 }
 
-int hex_tcp_write(hex_tcp_connection connection, hex_slice_UInt8 from) {
+int hex_tcp_write_until(hex_tcp_connection connection, hex_slice_UInt8 from, uint64_t deadline) {
     hex_task *task = hex_task_current();
     if (task == nullptr) {
         hex_runtime_trap("[Runtime Error] network operation outside a Task\n");
@@ -624,9 +880,10 @@ int hex_tcp_write(hex_tcp_connection connection, hex_slice_UInt8 from) {
             .command = {.task = task, .start = hex_tcp_write_start},
             .control = control,
             .buffer = uv_buf_init((char *)(from.data + offset), (unsigned int)count),
+            .deadline = deadline,
         };
         hex_event_submit(task, &write_request.command);
-        if (write_request.status < 0) {
+        if (write_request.status < 0 || write_request.status == HEX_NETWORK_CLOSED) {
             status = write_request.status;
             break;
         }
@@ -635,6 +892,10 @@ int hex_tcp_write(hex_tcp_connection connection, hex_slice_UInt8 from) {
     control->busy_write = false;
     hex_handle_release(lease);
     return status;
+}
+
+int hex_tcp_write(hex_tcp_connection connection, hex_slice_UInt8 from) {
+    return hex_tcp_write_until(connection, from, 0);
 }
 
 typedef struct hex_tcp_shutdown_request {
@@ -652,6 +913,11 @@ static void hex_tcp_shutdown_done(uv_shutdown_t *request, int status) {
 
 static void hex_tcp_shutdown_start(hex_event_command *command) {
     hex_tcp_shutdown_request *shutdown_request = (hex_tcp_shutdown_request *)command;
+    if (shutdown_request->control->state != HEX_TCP_OPEN) {
+        shutdown_request->status = HEX_NETWORK_CLOSED;
+        hex_task_event_wake(shutdown_request->command.task);
+        return;
+    }
     shutdown_request->request.data = shutdown_request;
     int status = uv_shutdown(&shutdown_request->request, (uv_stream_t *)&shutdown_request->control->socket, hex_tcp_shutdown_done);
     if (status < 0) {
@@ -684,6 +950,11 @@ typedef struct hex_tcp_nodelay_request {
 
 static void hex_tcp_nodelay_start(hex_event_command *command) {
     hex_tcp_nodelay_request *nodelay_request = (hex_tcp_nodelay_request *)command;
+    if (nodelay_request->control->state != HEX_TCP_OPEN) {
+        nodelay_request->status = HEX_NETWORK_CLOSED;
+        hex_task_event_wake(nodelay_request->command.task);
+        return;
+    }
     nodelay_request->status = uv_tcp_nodelay(&nodelay_request->control->socket, nodelay_request->enabled ? 1 : 0);
     hex_task_event_wake(nodelay_request->command.task);
 }
@@ -709,7 +980,7 @@ int hex_tcp_close(hex_tcp_connection connection) {
         return HEX_NETWORK_CLOSED;
     }
     hex_tcp_control *control = (hex_tcp_control *)control_ptr;
-    hex_tcp_native_close(&control->socket);
+    hex_tcp_native_close(control);
     hex_handle_close_finish(connection.handle);
     return 0;
 }
