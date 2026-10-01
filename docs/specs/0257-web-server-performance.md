@@ -12,6 +12,7 @@
   baseline), archived RFC 0194 (HTTP backend and ownership tables), archived
   RFC 0200 (static files, the one user of the filesystem worker pool), and the
   implemented scheduler and event bridge
+- Coordinates with: RFC 0258 (the benchmark suite that is this record's harness)
 - Does not add: public syntax, standard-library API, a dependency, a new
   qualified target, or a change to any guarantee in `docs/reference.md`
 
@@ -189,22 +190,29 @@ Phase 1-3 evidence, whether a separate record is justified.
 
 ## Required constraints on measurement
 
-The harness is part of the deliverable and meets these requirements.
+The harness is the suite specified by RFC 0258, whose load client is bombardier, and
+meets these requirements.
 
 - It lives in the repository, runs only under an explicit tag or command, and never
   affects `go test ./...` or the ordinary suite, which stay free of external
   processes. It builds the server programs through the ordinary compile path and
   records the exact command, host, toolchain, and server cores.
+- Where the suite and this list differ, the suite governs how a workload is measured
+  and this record governs what the measurement must show. Bombardier has no
+  connection-per-request or idle-connection mode and does not document its latency
+  as coordinated-omission corrected; the suite's own harness drives the idle
+  workloads, a fixed offered rate uses bombardier's rate limit with its latency
+  reported as bombardier defines it, and connection churn (C7) needs a measurement
+  the suite does not provide, which Phase 3 must supply or record as not measured.
 - Server and client are pinned to disjoint cores; the client's own CPU is recorded
   so a saturated client is visible. Each run starts a fresh server. Runs of the
   compared builds are interleaved and repeated at least three times; results report
   the median and the range.
 - Workloads: closed-loop keep-alive at 1, 8, 64, 256, and 1,024 connections; scaling
-  over 1, 2, 4, and 8 server cores; open loop at fixed offered rates with latency
-  taken from the scheduled send time and without busy-waiting that starves the
-  client; connection per request with port reuse accounted for (Windows exhausts its
-  dynamic ports); idle connections at 1,000 and 10,000 recording working set and
-  committed memory; startup; idle CPU.
+  over 1, 2, 4, and 8 server cores; fixed offered rates; idle connections at 1,000
+  and 10,000 recording working set and committed memory; startup; idle CPU. These
+  are the suite's workloads W1 to W5; connection per request is added only if a
+  phase needs it, with port reuse accounted for (Windows exhausts its dynamic ports).
 - Per request it records latency percentiles, CPU time, allocations, loop-thread
   submissions, and libuv calls. Per-thread CPU (loop thread against workers) is
   recorded. A tagged C23 fixture asserts the count metrics (submissions, timer
@@ -229,9 +237,12 @@ The harness is part of the deliverable and meets these requirements.
 
 This section is exhaustive:
 
-- the harness exists in the repository, is excluded from the ordinary suite, records
-  its host, toolchain, command, and server cores, and reproduces the evidence table
-  above within run-to-run variation on the Windows target;
+- the harness (RFC 0258's suite) exists in the repository, is excluded from the
+  ordinary suite, records its host, toolchain, command, and server cores, and
+  reproduces the closed-loop, scaling, startup, and idle-memory rows of the evidence
+  table above within run-to-run variation on the Windows target; the open-loop and
+  connection-per-request rows came from a different client and are not expected to
+  match;
 - per-thread CPU at the plateau is recorded, and H1 is stated as confirmed or
   falsified with the figures; the memory breakdown for an idle connection (buffers,
   Task stack, control and registry records) is recorded and H5 is stated likewise;
@@ -260,8 +271,9 @@ This section is exhaustive:
 
 ### Phase 0: harness and evidence
 
-Build the harness under the requirements above, recreate the evidence table, and
-add the per-thread CPU and idle-connection memory breakdown. Add the count fixture
+Implement RFC 0258's suite (its own phases) and use it to recreate the evidence
+table's closed-loop, scaling, startup, and idle-memory rows, and add the per-thread
+CPU and idle-connection memory breakdown. Add the count fixture
 with the current counts as its first assertion. Record H1 and H5 as confirmed or
 falsified. Exit: the baseline is reproducible from the repository and every
 hypothesis in the table has a stated status.

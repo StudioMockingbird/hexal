@@ -21,6 +21,7 @@ gets deleted.
 | Work | Spec | Effort | ROI |
 | --- | --- | --- | --- |
 | Measure the web server's throughput ceiling and per-connection memory (Phase 0), then reduce loop-thread work, wake cost, and idle-connection memory as the evidence justifies | [0257](specs/0257-web-server-performance.md) | High | High |
+| Add a tagged web server benchmark suite driven by bombardier, with its results checked in per machine (Phase 0 needs authorization to obtain the tool) | [0258](specs/0258-web-server-benchmark-suite.md) | Medium | High |
 
 ## Deferred ideas
 
