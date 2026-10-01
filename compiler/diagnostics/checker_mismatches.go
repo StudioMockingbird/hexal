@@ -34,7 +34,7 @@ func InitializerTypeMismatch(target, source string, kind AssignabilityMismatchKi
 		case WidenInlineText:
 			text += fmt.Sprintf("; use widen<%d>()", hint.Capacity)
 		case ConvertTextFromBytes:
-			text += "; use " + hint.Destination + ".from_bytes(...) for a checked conversion"
+			text += "; use bytes().to<" + hint.Destination + ">() for a checked conversion"
 		}
 		return message("type.initializer-type-mismatch", CategoryType, StageChecker, text)
 	}
@@ -53,7 +53,7 @@ func FunctionReturnTypeMismatch(function, expected, actual string, hint TextMism
 	case WidenInlineText:
 		text += fmt.Sprintf("; use widen<%d>()", hint.Capacity)
 	case ConvertTextFromBytes:
-		text += "; use " + hint.Destination + ".from_bytes(...) for a checked conversion"
+		text += "; use bytes().to<" + hint.Destination + ">() for a checked conversion"
 	}
 	return message("type.function-return-type-mismatch", CategoryType, StageChecker, text)
 }

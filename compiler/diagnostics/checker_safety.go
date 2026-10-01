@@ -3,7 +3,7 @@ package diagnostics
 type UnsafeOperation uint8
 
 const (
-	UnsafeSliceFromPointer UnsafeOperation = iota + 1
+	UnsafePointerToSlice UnsafeOperation = iota + 1
 	UnsafePointerOffset
 	UnsafePointerCast
 	UnsafePointerIndex
@@ -37,8 +37,8 @@ func GraphemeMethodNoTypeArguments(name string) Message {
 func UnsafeOperationRequiresBlock(operation UnsafeOperation, subject string) Message {
 	var name string
 	switch operation {
-	case UnsafeSliceFromPointer:
-		name = "Slice.from_pointer"
+	case UnsafePointerToSlice:
+		name = "Ptr.to_slice"
 	case UnsafePointerOffset:
 		name = "Ptr.offset"
 	case UnsafePointerCast:

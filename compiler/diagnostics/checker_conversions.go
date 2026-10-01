@@ -6,13 +6,17 @@ func NumericConversionTypeArgumentCount() Message {
 	return message("type.numeric-conversion-type-argument-count", CategoryType, StageChecker, "to requires exactly 1 explicit type argument")
 }
 
-func NumericConversionValueArgumentCount() Message {
-	return message("type.numeric-conversion-value-argument-count", CategoryType, StageChecker, "to accepts no value arguments")
+func ConversionValueArgumentCount() Message {
+	return message("type.conversion-value-argument-count", CategoryType, StageChecker,
+		"to accepts one Heap argument when converting to String, and no value arguments otherwise")
 }
 
-func UnsupportedNumericConversion(source, target string) Message {
-	return message("type.numeric-conversion-unsupported", CategoryType, StageChecker,
-		"numeric conversion requires a supported scalar source and destination; got "+source+" and "+target)
+func UnsupportedConversion(source, target string) Message {
+	return message("type.conversion-unsupported", CategoryType, StageChecker, "cannot convert "+source+" to "+target)
+}
+
+func ConversionValueNotScalar(value string) Message {
+	return message("type.conversion-value-not-scalar", CategoryType, StageChecker, "value "+value+" is not a Unicode scalar value")
 }
 
 func ConversionValueUnrepresentable(target string) Message {

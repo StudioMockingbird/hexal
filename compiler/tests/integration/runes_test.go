@@ -65,26 +65,35 @@ func TestRuneProperties(t *testing.T) {
 	assertRejects(t, "let r: Rune = 'a'\nlet b: Bool = r.is_lower(1)\n", "is_lower expects no arguments")
 }
 
-// String.from_runes encodes a Slice<Rune> into owned text and rejects an
+// runes.to<String>(heap) encodes a Slice<Rune> into owned text and rejects an
 // invalid scalar as an Error rather than trapping.
-func TestStringFromRunes(t *testing.T) {
-	result := assertCompiles(t, "fun demo(h: Heap): String | Error do\n    let values: List<Rune, 2> = ['a', '\\u{1F600}']\n    let view: Slice<Rune> = values.slice(0, 2)\n    return String.from_runes(h, view)\nend\n")
+func TestRunesToString(t *testing.T) {
+	result := assertCompiles(t, "fun demo(h: Heap): String | Error do\n    let values: List<Rune, 2> = ['a', '\\u{1F600}']\n    let view: Slice<Rune> = values.slice(0, 2)\n    return view.to<String>(h)\nend\n")
 	if !strings.Contains(rootC(t, result), "hex_string_from_runes_") {
-		t.Fatalf("String.from_runes did not emit its adapter:\n%s", rootC(t, result))
+		t.Fatalf("runes.to<String> did not emit its adapter:\n%s", rootC(t, result))
 	}
-	assertRejects(t, "fun demo(h: Heap): String | Error do\n    return String.from_runes(h, 1)\nend\n", "String.from_runes requires Slice<Rune>")
-	assertRejects(t, "fun demo(h: Heap): String | Error do\n    let bytes: Slice<Byte> = \"x\".bytes()\n    return String.from_runes(h, bytes)\nend\n", "String.from_runes requires Slice<Rune>")
+	assertRejects(t, "fun demo(h: Heap): String | Error do\n    let values: List<Int32, 1> = [1]\n    let view: Slice<Int32> = values.slice(0, 1)\n    return view.to<String>(h)\nend\n", "cannot convert Slice<Int32> to String")
+	assertRejects(t, "fun demo(): String<64> | Error do\n    let values: List<Rune, 1> = ['a']\n    let view: Slice<Rune> = values.slice(0, 1)\n    return view.to<String<64>>()\nend\n", "cannot convert Slice<Rune> to String<64>")
 }
 
-// Rune.from turns a UInt32 into a checked scalar and yields Rune | Error.
-func TestRuneFrom(t *testing.T) {
-	result := assertCompiles(t, "fun demo(): Rune | Error do\n    return Rune.from(0x1F600)\nend\n")
+// integer.to<Rune>() turns an integer into a checked scalar and yields
+// Rune | Error; a constant outside the scalar domain fails compilation.
+func TestIntegerToRune(t *testing.T) {
+	result := assertCompiles(t, "fun demo(c: UInt32): Rune | Error do\n    return c.to<Rune>()\nend\nfun narrow(c: Int64): Rune | Error do\n    return c.to<Rune>()\nend\n")
 	if !strings.Contains(rootC(t, result), "hex_rune_from_") {
-		t.Fatalf("Rune.from did not emit its adapter:\n%s", rootC(t, result))
+		t.Fatalf("integer.to<Rune> did not emit its adapter:\n%s", rootC(t, result))
 	}
-	assertRejects(t, "let r: Rune | Error = Rune.from(1, 2)\n", "Rune.from expects 1 argument")
-	assertRejects(t, "let r: Rune | Error = Rune.from(\"x\")\n", "Rune.from requires a UInt32")
-	assertRejects(t, "let r: Rune | Error = Rune.nope(1)\n", "Rune has no such operation")
+	assertCompiles(t, "fun demo(c: UInt32): Int32 do\n    return c.to<Int32>()\nend\n")
+	for _, testCase := range []struct{ source, want string }{
+		{"let value: Float64 = 1.5\nlet r: Rune | Error = value.to<Rune>()\n", "cannot convert Float64 to Rune"},
+		{"let r: Rune | Error = (0xD000 + 0x800).to<Rune>()\n", "is not a Unicode scalar value"},
+		{"let r: Rune | Error = (0x100000 + 0x10000).to<Rune>()\n", "is not a Unicode scalar value"},
+		{"let c: UInt32 = 1\nlet r: Rune | Error = c.to<Rune>(1)\n", "to accepts one Heap argument"},
+		{"let r: Rune | Error = Rune.from(1)\n", "Rune has no such operation"},
+		{"let r: Rune | Error = Rune.nope(1)\n", "Rune has no such operation"},
+	} {
+		assertRejects(t, testCase.source, testCase.want)
+	}
 }
 
 // Rune.utf8_length reports the encoded width 1 through 4, and the module emits

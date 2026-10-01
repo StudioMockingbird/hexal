@@ -191,7 +191,7 @@ func TestEntropyFillDirectAndTask(t *testing.T) {
 		"let h: Heap = Heap()\n" +
 		"let p: Ptr<mut Byte> = h.allocate<Byte>(8)\n" +
 		"unsafe do\n" +
-		"    let view: Slice<mut Byte> = Slice<mut Byte>.from_pointer(p, 8)\n" +
+		"    let view: Slice<mut Byte> = p.to_slice(8)\n" +
 		"    let result = Ent.fill(view)\n" +
 		"end\n"
 

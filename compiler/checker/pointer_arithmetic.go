@@ -7,19 +7,23 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// isCompilerOwnedPointerOperation reports whether name is one of the two
+// isCompilerOwnedPointerOperation reports whether name is one of the
 // compiler-owned Ptr surfaces. It is the single recognition point: a pointer
 // receiver reaches these operations and nothing else claims the spellings.
 func isCompilerOwnedPointerOperation(name string) bool {
-	return name == "offset" || name == "cast"
+	return name == "offset" || name == "cast" || name == "to_slice"
 }
 
-// checkPointerArithmeticCall resolves p.offset(count) and p.cast<U>() on a
-// non-nullable pointer receiver. Both preserve the receiver's access mode:
-// a read-only pointer can never produce a writable one.
+// checkPointerArithmeticCall resolves p.offset(count), p.cast<U>(), and
+// p.to_slice(length) on a non-nullable pointer receiver. Each preserves the
+// receiver's access mode: a read-only pointer can never produce a writable
+// one.
 func checkPointerArithmeticCall(call methodCall) checkedExpression {
-	if call.callee.Property.Lexeme == "cast" {
+	switch call.callee.Property.Lexeme {
+	case "cast":
 		return checkPointerCastCall(call)
+	case "to_slice":
+		return checkPointerToSliceCall(call)
 	}
 	return checkPointerOffsetCall(call)
 }

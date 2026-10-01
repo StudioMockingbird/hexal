@@ -33,16 +33,16 @@ func EndianConversionInvalidReceiver(operation, receiver string) Message {
 		operation+" requires a fixed-width integer receiver; got "+receiver)
 }
 
-func EndianFromBytesInvalidType(owner string) Message {
-	return message("type.endian-from-bytes-invalid-type", CategoryType, StageChecker,
-		owner+" has no such operation; from_le_bytes and from_be_bytes require a fixed-width integer type")
+func EndianDecodeInvalidType(operation, target string) Message {
+	return message("type.endian-decode-invalid-type", CategoryType, StageChecker,
+		operation+" requires a fixed-width integer type argument; got "+target)
 }
 
-func EndianFromBytesArgumentCount(operation string) Message {
-	return message("type.endian-from-bytes-argument-count", CategoryType, StageChecker, operation+" expects exactly 1 argument")
+func EndianDecodeArgumentCount(operation string) Message {
+	return message("type.endian-decode-argument-count", CategoryType, StageChecker, operation+" expects exactly 1 type argument and no value arguments")
 }
 
-func EndianFromBytesTypeMismatch(owner, order string, width int, actual string) Message {
-	return message("type.endian-from-bytes-type-mismatch", CategoryType, StageChecker,
-		fmt.Sprintf("%s.from_%s expects List<Byte, %d>; got %s", owner, order, width, actual))
+func EndianDecodeTypeMismatch(operation, target string, width int, actual string) Message {
+	return message("type.endian-decode-type-mismatch", CategoryType, StageChecker,
+		fmt.Sprintf("%s<%s> requires a List<Byte, %d> receiver; got %s", operation, target, width, actual))
 }

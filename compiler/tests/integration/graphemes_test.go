@@ -54,7 +54,7 @@ func TestEveryTierOnBothTextForms(t *testing.T) {
 func TestNoGeneratedHeaderNamesTheLibrary(t *testing.T) {
 	result := assertCompiles(t, "fun demo(h: Heap): Bool do\n"+
 		"    let raw: Slice<Byte> = \"abc\".bytes()\n"+
-		"    let built: String | Error = String.from_bytes(h, raw)\n"+
+		"    let built: String | Error = raw.to<String>(h)\n"+
 		"    let text: String = \"e\\u{301}x\".copy(h)\n"+
 		"    defer text.free(h)\n"+
 		"    let runes: Size = text.rune_length()\n"+
@@ -67,7 +67,7 @@ func TestNoGeneratedHeaderNamesTheLibrary(t *testing.T) {
 		"    let folded: String | Error = text.casefold(h)\n"+
 		"    let normalized: String | Error = text.normalize(h, NormalizationForm.NFC())\n"+
 		"    let values: List<Rune, 2> = ['a', 'b']\n"+
-		"    let encoded: String | Error = String.from_runes(h, values.slice(0, 2))\n"+
+		"    let encoded: String | Error = values.slice(0, 2).to<String>(h)\n"+
 		"    return true\n"+
 		"end\n")
 	for key, body := range result.Files {

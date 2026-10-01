@@ -56,7 +56,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "bitwise-compiles",
 		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "fun demo() do\n    let mut flags: UInt32 = 0xFFFF0000\n    let masked: UInt32 = flags & 0x00FF\n    let combined: UInt32 = masked | 0xF0\n    let xor: UInt32 = combined ^ 0x0F0F\n    let complement: UInt8 = ~0x0F\n    let shifted: UInt32 = flags << 4\n    let back: UInt32 = shifted >> 8\n    let mut signed: Int8 = 64\n    let wrapped: Int8 = signed << 1\n    let mut negative: Int8 = -4\n    let halved: Int8 = negative >> 1\n    let floating: Float64 = 1.5\n    let bits: UInt64 = floating.bit_cast<UInt64>()\n    let again: Float64 = bits.bit_cast<Float64>()\n    let value: UInt32 = 0x01020304\n    let little: List<UInt8, 4> = value.to_le_bytes()\n    let big: List<UInt8, 4> = value.to_be_bytes()\n    let from_little: UInt32 = UInt32.from_le_bytes(little)\n    let from_big: UInt32 = UInt32.from_be_bytes(big)\n    let mut signed16: Int16 = -2\n    let signed_little: List<UInt8, 2> = signed16.to_le_bytes()\n    let signed_back: Int16 = Int16.from_le_bytes(signed_little)\nend"},
+		sources:    map[string]string{"app.hex": "fun demo() do\n    let mut flags: UInt32 = 0xFFFF0000\n    let masked: UInt32 = flags & 0x00FF\n    let combined: UInt32 = masked | 0xF0\n    let xor: UInt32 = combined ^ 0x0F0F\n    let complement: UInt8 = ~0x0F\n    let shifted: UInt32 = flags << 4\n    let back: UInt32 = shifted >> 8\n    let mut signed: Int8 = 64\n    let wrapped: Int8 = signed << 1\n    let mut negative: Int8 = -4\n    let halved: Int8 = negative >> 1\n    let floating: Float64 = 1.5\n    let bits: UInt64 = floating.bit_cast<UInt64>()\n    let again: Float64 = bits.bit_cast<Float64>()\n    let value: UInt32 = 0x01020304\n    let little: List<UInt8, 4> = value.to_le_bytes()\n    let big: List<UInt8, 4> = value.to_be_bytes()\n    let from_little: UInt32 = little.decode_le<UInt32>()\n    let from_big: UInt32 = big.decode_be<UInt32>()\n    let mut signed16: Int16 = -2\n    let signed_little: List<UInt8, 2> = signed16.to_le_bytes()\n    let signed_back: Int16 = signed_little.decode_le<Int16>()\nend"},
 	},
 	{
 		name:       "numeric-iteration-compiles",
@@ -89,7 +89,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "text-construction-validates-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun check(h: Heap, bytes: Slice<Byte>): Bool do\n    let result: String | Error = String.from_bytes(h, bytes)\n    if result is String then\n        result.free(h)\n        return true\n    end\n    return false\nend\nfun run(h: Heap): Bool do\n    let two: List<Byte, 2> = [b'\\xC2', b'\\xA2']\n    let overlong: List<Byte, 2> = [b'\\xC0', b'\\x80']\n    let surrogate: List<Byte, 3> = [b'\\xED', b'\\xA0', b'\\x80']\n    let truncated: List<Byte, 1> = [b'\\xE2']\n    let astral: List<Byte, 4> = [b'\\xF0', b'\\x9F', b'\\x98', b'\\x80']\n    return check(h, two.slice(0, 2)) and !check(h, overlong.slice(0, 2)) and !check(h, surrogate.slice(0, 3)) and !check(h, truncated.slice(0, 1)) and check(h, astral.slice(0, 4))\nend\nprint(run(Heap()))\n"},
+		sources:     map[string]string{"app.hex": "fun check(h: Heap, bytes: Slice<Byte>): Bool do\n    let result: String | Error = bytes.to<String>(h)\n    if result is String then\n        result.free(h)\n        return true\n    end\n    return false\nend\nfun run(h: Heap): Bool do\n    let two: List<Byte, 2> = [b'\\xC2', b'\\xA2']\n    let overlong: List<Byte, 2> = [b'\\xC0', b'\\x80']\n    let surrogate: List<Byte, 3> = [b'\\xED', b'\\xA0', b'\\x80']\n    let truncated: List<Byte, 1> = [b'\\xE2']\n    let astral: List<Byte, 4> = [b'\\xF0', b'\\x9F', b'\\x98', b'\\x80']\n    return check(h, two.slice(0, 2)) and !check(h, overlong.slice(0, 2)) and !check(h, surrogate.slice(0, 3)) and !check(h, truncated.slice(0, 1)) and check(h, astral.slice(0, 4))\nend\nprint(run(Heap()))\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
@@ -403,7 +403,7 @@ var fixtureCatalog = []fixture{
 			"    let h: Heap = Heap()\n" +
 			"    let p: Ptr<mut Byte> = h.allocate<Byte>(8)\n" +
 			"    unsafe do\n" +
-			"        let view: Slice<mut Byte> = Slice<mut Byte>.from_pointer(p, 8)\n" +
+			"        let view: Slice<mut Byte> = p.to_slice(8)\n" +
 			"        try Ent.fill(view)\n" +
 			"    end\n" +
 			"    return true\n" +
@@ -763,7 +763,7 @@ var fixtureCatalog = []fixture{
 		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
 			"    let values: List<Rune, 3> = ['a', '\\u{20AC}', '\\u{1F600}']\n" +
 			"    let view: Slice<Rune> = values.slice(0, 3)\n" +
-			"    let built: String | Error = String.from_runes(h, view)\n" +
+			"    let built: String | Error = view.to<String>(h)\n" +
 			"    if built is Error then\n" +
 			"        return false\n" +
 			"    end\n" +
@@ -771,7 +771,7 @@ var fixtureCatalog = []fixture{
 			"    defer text.free(h)\n" +
 			"    let bad: List<Rune, 1> = [0xD800]\n" +
 			"    let bad_view: Slice<Rune> = bad.slice(0, 1)\n" +
-			"    let rejected: String | Error = String.from_runes(h, bad_view)\n" +
+			"    let rejected: String | Error = bad_view.to<String>(h)\n" +
 			"    return (text.rune_length() == 3) and (text.length() == 8) and (rejected is Error)\n" +
 			"end\n" +
 			"print(demo(Heap()))\n"},
@@ -824,20 +824,48 @@ var fixtureCatalog = []fixture{
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
-		name:       "rune-from-runs",
+		name:       "integer-to-rune-runs",
 		entrypoint: "app.hex",
-		sources: map[string]string{"app.hex": "fun demo(): Bool do\n" +
-			"    let ok: Rune | Error = Rune.from(0x1F600)\n" +
-			"    let edge: Rune | Error = Rune.from(0x10FFFF)\n" +
-			"    let surrogate: Rune | Error = Rune.from(0xD800)\n" +
-			"    let high: Rune | Error = Rune.from(0x110000)\n" +
+		sources: map[string]string{"app.hex": "fun convert(c: UInt32): Rune | Error do\n" +
+			"    return c.to<Rune>()\n" +
+			"end\n" +
+			"fun convert_wide(c: Int64): Rune | Error do\n" +
+			"    return c.to<Rune>()\n" +
+			"end\n" +
+			"fun invalid_input(result: Rune | Error): Bool do\n" +
+			"    if result is Error then\n" +
+			"        return result.kind == ErrorKind.InvalidInput()\n" +
+			"    end\n" +
+			"    return false\n" +
+			"end\n" +
+			"fun demo(): Bool do\n" +
+			"    let ok: Rune | Error = convert(0x1F600)\n" +
+			"    let edge: Rune | Error = convert(0x10FFFF)\n" +
+			"    let surrogate: Rune | Error = convert(0xD800)\n" +
+			"    let high: Rune | Error = convert(0x110000)\n" +
+			"    let negative: Rune | Error = convert_wide(-1)\n" +
+			"    let wrapped: Rune | Error = convert_wide(0x100000041)\n" +
 			"    if ok is Error then\n" +
 			"        return false\n" +
 			"    end\n" +
 			"    if edge is Error then\n" +
 			"        return false\n" +
 			"    end\n" +
-			"    return (ok.value() == 0x1F600) and (surrogate is Error) and (high is Error)\n" +
+			"    return (ok.value() == 0x1F600) and invalid_input(surrogate) and invalid_input(high) and invalid_input(negative) and invalid_input(wrapped)\n" +
+			"end\n" +
+			"print(demo())\n"},
+		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
+	},
+	{
+		name:       "byte-order-decode-round-trips",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "fun demo(): Bool do\n" +
+			"    let value: Int32 = -123456\n" +
+			"    let little: List<Byte, 4> = value.to_le_bytes()\n" +
+			"    let big: List<Byte, 4> = value.to_be_bytes()\n" +
+			"    let wide: UInt64 = 0x0102030405060708\n" +
+			"    let wide_little: List<Byte, 8> = wide.to_le_bytes()\n" +
+			"    return (little.decode_le<Int32>() == value) and (big.decode_be<Int32>() == value) and (wide_little.decode_le<UInt64>() == wide)\n" +
 			"end\n" +
 			"print(demo())\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
@@ -895,14 +923,14 @@ var fixtureCatalog = []fixture{
 			"    let both: List<Byte, 5> = [0xFF, 97, 97, 97, 97]\n" +
 			"    let lead: List<Byte, 1> = [0xC3]\n" +
 			"    let tail: List<Byte, 1> = [0xA9]\n" +
-			"    classify(String<4>.from_bytes(exact.slice(0, 4)))\n" +
-			"    classify(String<4>.from_bytes(over.slice(0, 5)))\n" +
-			"    classify(String<4>.from_bytes(bad.slice(0, 2)))\n" +
-			"    classify(String<4>.from_bytes(both.slice(0, 5)))\n" +
+			"    classify(exact.slice(0, 4).to<String<4>>())\n" +
+			"    classify(over.slice(0, 5).to<String<4>>())\n" +
+			"    classify(bad.slice(0, 2).to<String<4>>())\n" +
+			"    classify(both.slice(0, 5).to<String<4>>())\n" +
 			"    classify(String<4>.concat(lead.slice(0, 1), tail.slice(0, 1)))\n" +
 			"    classify(String<4>.concat(exact.slice(0, 4), tail.slice(0, 1)))\n" +
-			"    classify_heap(String.from_bytes(h, bad.slice(0, 2)))\n" +
-			"    classify_heap(String.from_bytes(h, exact.slice(0, 4)))\n" +
+			"    classify_heap(bad.slice(0, 2).to<String>(h))\n" +
+			"    classify_heap(exact.slice(0, 4).to<String>(h))\n" +
 			"    let base: String = \"ab\".copy(h)\n" +
 			"    classify_heap(base.concat(h, bad.slice(0, 2)))\n" +
 			"    classify_heap(base.concat(h, tail.slice(0, 1)))\n" +
@@ -1007,7 +1035,7 @@ var fixtureCatalog = []fixture{
 			"    let base: String = \"abc\".copy(h)\n" +
 			"    defer base.free(h)\n" +
 			"    let piece: List<Byte, 3> = [97, 98, 99]\n" +
-			"    let built: String | Error = String.from_bytes(h, piece.slice(0, 3))\n" +
+			"    let built: String | Error = piece.slice(0, 3).to<String>(h)\n" +
 			"    if built is Error then\n" +
 			"        return false\n" +
 			"    end\n" +
@@ -1507,7 +1535,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "byte-list-width-traps",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun run() do\n    let bytes: List<Byte, 4> = [b'1', b'2']\n    let value: UInt32 = UInt32.from_le_bytes(bytes)\n    print(value)\nend\nrun()\n"},
+		sources:     map[string]string{"app.hex": "fun run() do\n    let bytes: List<Byte, 4> = [b'1', b'2']\n    let value: UInt32 = bytes.decode_le<UInt32>()\n    print(value)\nend\nrun()\n"},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] byte list length does not match numeric width"},
 	},
 	{
@@ -2357,7 +2385,7 @@ var fixtureCatalog = []fixture{
 		sources: map[string]string{"app.hex": "fun total(p: Ptr<mut Int32>, count: Size): Int32 do\n" +
 			"    let mut sum: Int32 = 0\n" +
 			"    unsafe do\n" +
-			"        let values: Slice<Int32> = Slice<Int32>.from_pointer(p, count)\n" +
+			"        let values: Slice<Int32> = p.to_slice(count)\n" +
 			"        for value in values do\n" +
 			"            sum = sum + value\n" +
 			"        end\n" +

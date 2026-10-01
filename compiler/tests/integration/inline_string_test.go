@@ -84,7 +84,7 @@ func TestInlineStringWiden(t *testing.T) {
 func TestInlineStringPositionsRequireExactType(t *testing.T) {
 	rejectedWith(t, []struct{ source, want string }{
 		{"fun take(v: String<32>) do\nend\nfun demo() do\n    let a: String<16> = \"x\"\n    take(a)\nend\n", "take argument 1 requires String<32>; got String<16>; use widen<32>()"},
-		{"fun take(v: String<16>) do\nend\nfun demo() do\n    let a: String = \"x\"\n    take(a)\nend\n", "take argument 1 requires String<16>; got String; use String<16>.from_bytes(...) for a checked conversion"},
+		{"fun take(v: String<16>) do\nend\nfun demo() do\n    let a: String = \"x\"\n    take(a)\nend\n", "take argument 1 requires String<16>; got String; use bytes().to<String<16>>() for a checked conversion"},
 		{"fun take(v: String) do\nend\nfun demo() do\n    let a: String<16> = \"x\"\n    take(a)\nend\n", "take argument 1 requires String; got String<16>; use copy(heap)"},
 		{"fun give(): String<32> do\n    let a: String<16> = \"x\"\n    return a\nend\n", "give returns String<32>; got String<16>; use widen<32>()"},
 		{"type Box is struct name: String<32> end\nfun demo() do\n    let a: String<16> = \"x\"\n    let box: Box = Box(name = a)\nend\n", "; use widen<32>()"},
@@ -148,7 +148,7 @@ func TestInlineStringUnionInjection(t *testing.T) {
 // No function is generic over a capacity, but a capacity type substitutes
 // like any other and specializations stay distinct.
 func TestInlineStringGenericsAndInference(t *testing.T) {
-	result := assertCompiles(t, "fun same<T>(a: T, b: T): Bool do\n    return a == b\nend\nfun demo() do\n    let a: String<16> = \"x\"\n    let r: Bool = same(a, a)\n    let s = String<16>.from_bytes(\"x\".bytes())\nend\n")
+	result := assertCompiles(t, "fun same<T>(a: T, b: T): Bool do\n    return a == b\nend\nfun demo() do\n    let a: String<16> = \"x\"\n    let r: Bool = same(a, a)\n    let s = \"x\".bytes().to<String<16>>()\nend\n")
 	if !strings.Contains(rootC(t, result), "hex_f_m3_app_same_String_16_") {
 		t.Fatalf("the generic specialization lost its capacity:\n%s", rootC(t, result))
 	}
@@ -203,22 +203,22 @@ func TestInlineStringLayoutPointersAndForeign(t *testing.T) {
 func TestTextProducingOperationResults(t *testing.T) {
 	assertCompiles(t, "fun demo(h: Heap): Int32 | Error do\n"+
 		"    let small: String<16> = \"hi\"\n"+
-		"    let a: String<16> | Error = String<16>.from_bytes(small.bytes())\n"+
+		"    let a: String<16> | Error = small.bytes().to<String<16>>()\n"+
 		"    let b: String<48> | Error = String<48>.concat(small.bytes(), small.bytes())\n"+
 		"    let c: String<48> | Error = String<48>.interpolate(\"n={{ 1 }}\")\n"+
-		"    let d: String | Error = String.from_bytes(h, small.bytes())\n"+
+		"    let d: String | Error = small.bytes().to<String>(h)\n"+
 		"    let e: String | Error = small.concat(h, small.bytes())\n"+
 		"    let f: String = String.interpolate(h, \"n={{ 1 }}\")\n"+
 		"    let g: String = small.copy(h)\n"+
-		"    let widened: String<32> | Error = String<32>.from_bytes(g.bytes())\n"+
+		"    let widened: String<32> | Error = g.bytes().to<String<32>>()\n"+
 		"    return 0\nend\n")
 	rejectedWith(t, []struct{ source, want string }{
 		{"fun demo(h: Heap): Int32 | Error do\n    let f: String = try String.interpolate(h, \"n={{ 1 }}\")\n    return 0\nend\n", "try requires a union containing Error and a success member; got String"},
-		{"fun demo(h: Heap) do\n    let d: String = String.from_bytes(h, \"x\".bytes())\nend\n", "expected String initializer; got Error | String"},
+		{"fun demo(h: Heap) do\n    let d: String = \"x\".bytes().to<String>(h)\nend\n", "expected String initializer; got Error | String"},
 		{"fun demo(h: Heap) do\n    let s: String = \"x\".to_string(h)\nend\n", "String has no method to_string"},
 		{"fun demo() do\n    let a: String<4> | Error = String<4>.interpolate(\"plain\")\nend\n", "String<4>.interpolate requires at least one interpolation"},
-		{"fun demo(h: Heap) do\n    let a = String<4>.from_bytes(h, \"x\".bytes())\nend\n", "String<4>.from_bytes expects 1 arguments; got 2"},
-		{"fun demo() do\n    let a = String<4>.from_runes(1)\nend\n", "String<4> has no such operation; use String<4>.from_bytes(view), String<4>.concat(left, right), or String<4>.interpolate(template)"},
+		{"fun demo(h: Heap) do\n    let text: String = \"x\"\n    let a = text.bytes().to<String<4>>(h)\nend\n", "to accepts one Heap argument when converting to String, and no value arguments otherwise"},
+		{"fun demo() do\n    let a = String<4>.from_runes(1)\nend\n", "String<4> has no such operation; use view.to<String<4>>(), String<4>.concat(left, right), or String<4>.interpolate(template)"},
 	})
 }
 
@@ -246,7 +246,6 @@ func TestInterpolationTemplateOnlyInsideInterpolateCalls(t *testing.T) {
 		{"let a: String<16> = \"n={{ 1 }}\"\n", want},
 		{"let a: String = \"n={{ 1 }}\"\n", want},
 		{"print(\"n={{ 1 }}\")\n", want},
-		{"fun demo(h: Heap) do\n    let a = String<16>.from_bytes(\"n={{ 1 }}\")\nend\n", want},
 	})
 	assertCompiles(t, "fun demo(): String<16> | Error do\n    return String<16>.interpolate(\"n={{ 1 }}\")\nend\n")
 }

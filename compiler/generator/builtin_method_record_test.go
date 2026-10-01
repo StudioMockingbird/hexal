@@ -406,7 +406,7 @@ func TestSharedTextFillSitesReadTheWidenRecord(t *testing.T) {
 		"    let header: String<128> = a.header()\n"+
 		"    let message: String<256> = b.message\n"+
 		"    let raw: Slice<UInt8> = heap.bytes()\n"+
-		"    let copied: String<16> | Error = String<16>.from_bytes(raw)\n"+
+		"    let copied: String<16> | Error = raw.to<String<16>>()\n"+
 		"end\n")
 	baseline := generateOne(t, program)
 	baseText := baseline["modules/app.c"] + baseline["modules/app.h"]

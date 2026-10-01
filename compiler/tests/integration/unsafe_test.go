@@ -18,7 +18,7 @@ func TestUnsafeBlockIsALexicalScope(t *testing.T) {
 
 func TestUnsafeBlockNests(t *testing.T) {
 	assertCompiles(t,
-		"fun demo(p: Ptr<Int32>, n: Size): Size do\n    unsafe do\n        unsafe do\n            let view: Slice<Int32> = Slice<Int32>.from_pointer(p, n)\n            return view.length()\n        end\n    end\nend\n")
+		"fun demo(p: Ptr<Int32>, n: Size): Size do\n    unsafe do\n        unsafe do\n            let view: Slice<Int32> = p.to_slice(n)\n            return view.length()\n        end\n    end\nend\n")
 }
 
 // An empty or capability-free region is valid and warns about nothing.
@@ -55,10 +55,10 @@ func TestSafeOperationsDoNotRequireUnsafe(t *testing.T) {
 // action later runs.
 func TestDeferredUnsafeOperationFollowsItsWrittenPosition(t *testing.T) {
 	assertCompiles(t,
-		"fun consume(view: Slice<Int32>) do\nend\nfun demo(p: Ptr<Int32>, n: Size) do\n    unsafe do\n        defer consume(Slice<Int32>.from_pointer(p, n))\n    end\nend\n")
+		"fun consume(view: Slice<Int32>) do\nend\nfun demo(p: Ptr<Int32>, n: Size) do\n    unsafe do\n        defer consume(p.to_slice(n))\n    end\nend\n")
 	assertRejects(t,
-		"fun consume(view: Slice<Int32>) do\nend\nfun demo(p: Ptr<Int32>, n: Size) do\n    defer consume(Slice<Int32>.from_pointer(p, n))\nend\n",
-		"Slice.from_pointer requires an unsafe do ... end block")
+		"fun consume(view: Slice<Int32>) do\nend\nfun demo(p: Ptr<Int32>, n: Size) do\n    defer consume(p.to_slice(n))\nend\n",
+		"Ptr.to_slice requires an unsafe do ... end block")
 }
 
 // The region emits no runtime artifact: the enclosed statements lower exactly

@@ -25,29 +25,41 @@ func truncateTowardZero(value constant.Value) constant.Value {
 	return constant.BinaryOp(numerator, gotoken.QUO_ASSIGN, constant.Denom(value))
 }
 
-// The one explicit scalar conversion spelling is `source.to<Dest>()`. Every
+// The one explicit conversion spelling is `source.to<Dest>()`. Every scalar
 // conversion is checked: a known-invalid constant fails compilation, and an
-// invalid runtime value traps before any unsafe C conversion.
+// invalid runtime value traps before any unsafe C conversion. The String and
+// Rune destinations validate their input instead and return `Dest | Error`.
 
 // checkConversionCall resolves the compiler-owned `to<Dest>()` method on an
-// eligible scalar receiver. The receiver-scoped builtin resolves before
-// ordinary method lookup; an unrelated nominal object may declare its own
-// method named `to`.
+// eligible scalar or Slice receiver. The receiver-scoped builtin resolves
+// before ordinary method lookup; an unrelated nominal object may declare its
+// own method named `to`.
 func checkConversionCall(call methodCall) checkedExpression {
 	source := call.receiver.typ
 	if len(call.call.TypeArguments) != 1 {
 		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.NumericConversionTypeArgumentCount()))}
-	}
-	if len(call.call.Arguments) != 0 {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.NumericConversionValueArgumentCount()))}
 	}
 	targetUse, diagnostic := resolveTypeUse(call.call.TypeArguments[0], call.call.OpenParen, call.ctx.typeEnvironment, call.ctx.names.generics)
 	if diagnostic != nil {
 		return checkedExpression{token: call.callee.Property, diagnostic: diagnostic}
 	}
 	target := targetUse.Type
+	// A dependent conversion keeps the scalar path until its closed
+	// specialization names both endpoints; only then is the text or Rune
+	// destination decidable.
+	if !compilerTypes.ContainsTypeParameter(source) && !compilerTypes.ContainsTypeParameter(target) {
+		switch {
+		case compilerTypes.IsText(target):
+			return checkTextConversion(call, target)
+		case compilerTypes.IsRune(target):
+			return checkRuneConversion(call)
+		}
+	}
+	if len(call.call.Arguments) != 0 {
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.ConversionValueArgumentCount()))}
+	}
 	if !conversionPairValid(source, target) {
-		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.UnsupportedNumericConversion(source.Name, target.Name)))}
+		return checkedExpression{token: call.callee.Property, diagnostic: diagnosticAt(messageAt(call.callee.Property, diag.UnsupportedConversion(source.Name, target.Name)))}
 	}
 
 	// A known-invalid constant conversion is a compile-time error; valid
@@ -106,6 +118,120 @@ func checkConversionCall(call methodCall) checkedExpression {
 	}
 	sourceOperand := Operand{Kind: ExpressionOperand, Type: target, Name: "to", Node: node}
 	return checkedExpression{source: sourceOperand, typ: target, token: call.callee.Property}
+}
+
+// checkTextConversion resolves `bytes.to<String>(heap)`, `runes.to<String>(heap)`,
+// and `bytes.to<String<N>>()`. The Heap argument belongs to the heap String
+// alone, which allocates; the inline form copies into its own storage. Both
+// are fallible: invalid UTF-8, a surrogate, or a source too long for N is
+// input-validation failure, answered with Error.
+func checkTextConversion(call methodCall, target compilerTypes.Type) checkedExpression {
+	property := call.callee.Property
+	source := call.receiver.typ
+	unsupported := func() checkedExpression {
+		diagnostic := messageAt(property, diag.UnsupportedConversion(source.Name, target.Name))
+		return checkedExpression{token: property, diagnostic: &diagnostic}
+	}
+	sliceOf := func(element compilerTypes.Type) bool {
+		return source.Slice != nil && compilerTypes.Equal(source.Slice.Element, element)
+	}
+	wantArguments := 0
+	if !compilerTypes.IsInlineString(target) {
+		wantArguments = 1
+	}
+	supported := sliceOf(compilerTypes.UInt8) || (wantArguments == 1 && sliceOf(compilerTypes.Rune))
+	if !supported {
+		return unsupported()
+	}
+	if len(call.call.Arguments) != wantArguments {
+		diagnostic := messageAt(property, diag.ConversionValueArgumentCount())
+		return checkedExpression{token: property, diagnostic: &diagnostic}
+	}
+	union, failure := textFailureUnion(target, property, call.ctx)
+	if failure != nil {
+		return *failure
+	}
+	if wantArguments == 0 {
+		node := Expression{
+			Kind:        InlineStringConstructExpression,
+			Name:        "from_bytes",
+			Arguments:   []Operand{call.receiver.source},
+			OperandType: target,
+			ResultType:  union,
+			Span:        property.Span,
+		}
+		result := Operand{Kind: ExpressionOperand, Type: union, Name: "from_bytes", Node: node}
+		return checkedExpression{source: result, typ: union, token: property}
+	}
+	heap := checkValue(call.call.Arguments[0], call.ctx)
+	if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
+		return heap
+	}
+	if !compilerTypes.IsHeap(heap.typ) {
+		diagnostic := messageAt(heap.token, diag.StringConstructorRequiresHeap("to<String>", heap.typ.Name))
+		return checkedExpression{token: heap.token, diagnostic: &diagnostic}
+	}
+	kind, name := StringFromBytesExpression, "from_bytes"
+	if sliceOf(compilerTypes.Rune) {
+		kind, name = StringFromRunesExpression, "from_runes"
+	}
+	node := Expression{
+		Kind:        kind,
+		Operand:     &heap.source.Node,
+		Arguments:   []Operand{call.receiver.source},
+		OperandType: compilerTypes.Heap,
+		ResultType:  union,
+		Span:        property.Span,
+	}
+	result := Operand{Kind: ExpressionOperand, Type: union, Name: name, Node: node}
+	return checkedExpression{source: result, typ: union, token: property}
+}
+
+// checkRuneConversion resolves `integer.to<Rune>()`. A dynamic value that is a
+// surrogate or above U+10FFFF returns an Error at run time, while a constant
+// that is not a scalar value fails compilation like every other
+// out-of-domain constant. The result is `Rune | Error` either way.
+func checkRuneConversion(call methodCall) checkedExpression {
+	property := call.callee.Property
+	source := call.receiver.typ
+	if !compilerTypes.IsInteger(source) {
+		diagnostic := messageAt(property, diag.UnsupportedConversion(source.Name, compilerTypes.Rune.Name))
+		return checkedExpression{token: property, diagnostic: &diagnostic}
+	}
+	if len(call.call.Arguments) != 0 {
+		diagnostic := messageAt(property, diag.ConversionValueArgumentCount())
+		return checkedExpression{token: property, diagnostic: &diagnostic}
+	}
+	if value := staticConstantValue(call.receiver); value != nil {
+		integer := constant.ToInt(value)
+		if integer.Kind() == constant.Unknown || !validScalarConstant(integer) {
+			diagnostic := messageAt(property, diag.ConversionValueNotScalar(value.String()))
+			return checkedExpression{token: property, diagnostic: &diagnostic}
+		}
+	}
+	union, failure := textFailureUnion(compilerTypes.Rune, property, call.ctx)
+	if failure != nil {
+		return *failure
+	}
+	node := Expression{
+		Kind:        RuneMethodCallExpression,
+		Name:        "from",
+		Arguments:   []Operand{call.receiver.source},
+		OperandType: compilerTypes.Rune,
+		ResultType:  union,
+		Span:        property.Span,
+	}
+	result := Operand{Kind: ExpressionOperand, Type: union, Name: "from", Node: node}
+	return checkedExpression{source: result, typ: union, token: property}
+}
+
+// validScalarConstant reports whether value is a Unicode scalar value: in
+// [0, 0x10FFFF] and not a UTF-16 surrogate.
+func validScalarConstant(value constant.Value) bool {
+	if constant.Sign(value) < 0 || constant.Compare(value, gotoken.GTR, constant.MakeInt64(0x10FFFF)) {
+		return false
+	}
+	return !(constant.Compare(value, gotoken.GEQ, constant.MakeInt64(0xD800)) && constant.Compare(value, gotoken.LEQ, constant.MakeInt64(0xDFFF)))
 }
 
 // conversionPairValid applies the source/destination conversion matrix from

@@ -7,13 +7,49 @@ import (
 	compilerTypes "hexal/compiler/types"
 )
 
-// checkSliceBridgeCall resolves the explicit pointer-plus-length Slice
-// constructors and the empty Slice in both access modes. The single
-// call-site type argument selects the mode: Slice<T> accepts Ptr<T> or
-// Ptr<mut T> and stays read-only, while Slice<mut T> requires Ptr<mut T>.
-// The length must be a Size under ordinary lossless conversion rules. No
-// provenance, lifetime, or validity analysis constrains construction: the
-// programmer owns the backing storage contract.
+// checkPointerToSliceCall resolves ptr.to_slice(length): the explicit
+// pointer-plus-length Slice constructor. The pointer's access mode decides the
+// result, Ptr<T> to Slice<T> and Ptr<mut T> to Slice<mut T>, except that a
+// context expecting Slice<T> gets the read-only view directly: the writable
+// and read-only descriptors are distinct C structs, so the weakened view is
+// built here instead of converted after the fact. The length must be a Size
+// under ordinary lossless conversion rules. No provenance, lifetime, or validity analysis
+// constrains construction: the programmer owns the backing storage contract.
+func checkPointerToSliceCall(call methodCall) checkedExpression {
+	property := call.callee.Property
+	if len(call.call.TypeArguments) != 0 || len(call.call.Arguments) != 1 {
+		return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.PointerToSliceArgumentCount()))}
+	}
+	element := *call.receiver.typ.Element
+	writable := call.receiver.typ.PointeeWritable
+	if want := call.expected.Slice; writable && want != nil && !want.Writable && compilerTypes.Equal(want.Element, element) {
+		writable = false
+	}
+	slice := call.ctx.typeEnvironment.SliceType(element, writable)
+	if slice == (compilerTypes.Type{}) {
+		return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.InvalidSliceElementType(element.Name)))}
+	}
+	length := checkInitializer(call.call.Arguments[0], compilerTypes.NewTypeUse(compilerTypes.SizeType), tokenOf(call.call.Arguments[0]), call.ctx)
+	if diagnostics := initializerDiagnostics(length); len(diagnostics) > 0 {
+		return checkedExpression{token: tokenOf(call.call.Arguments[0]), diagnostics: diagnostics}
+	}
+	if !assignable(compilerTypes.SizeType, length.typ) {
+		return checkedExpression{token: length.token, diagnostic: diagnosticAt(messageAt(length.token, diag.SliceLengthNotRepresentableAsSize()))}
+	}
+	// The region's length, lifetime, alignment, initialization, and
+	// provenance are the caller's assertion; every check above is the part
+	// the compiler can still prove and runs first.
+	if diagnostic := requireUnsafe(call.ctx, property, unsafePointerToSlice, ""); diagnostic != nil {
+		return checkedExpression{token: property, diagnostic: diagnostic}
+	}
+	node := Expression{Kind: SliceBridgeExpression, Name: "from_pointer", Arguments: []Operand{call.receiver.source, length.source}, OperandType: slice, ResultType: slice, Element: element}
+	source := Operand{Kind: ExpressionOperand, Type: slice, Name: "from_pointer", Node: node}
+	return checkedExpression{source: source, typ: slice, token: property}
+}
+
+// checkSliceBridgeCall resolves the empty Slice in both access modes. The
+// single call-site type argument selects the mode: Slice<T> is read-only and
+// Slice<mut T> writable.
 func checkSliceBridgeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	property := call.Callee.(parser.PropertyExpression).Property
 	if len(call.TypeArguments) != 1 {
@@ -35,39 +71,6 @@ func checkSliceBridgeCall(call parser.CallExpression, callee lexer.Token, ctx ch
 	}
 	element := elementUse.Type
 	switch property.Lexeme {
-	case "from_pointer":
-		if len(call.Arguments) != 2 {
-			return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.SliceFromPointerArgumentCount(writable)))}
-		}
-		pointer := checkValue(call.Arguments[0], ctx)
-		if diagnostics := initializerDiagnostics(pointer); len(diagnostics) > 0 {
-			return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
-		}
-		if pointer.typ.Element == nil || compilerTypes.IsNullable(pointer.typ) {
-			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(messageAt(pointer.token, diag.SlicePointerMustBeNarrowed()))}
-		}
-		if !compilerTypes.Equal(*pointer.typ.Element, element) {
-			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(messageAt(pointer.token, diag.SliceFromPointerTypeMismatch(writable, element.Name, pointer.typ.Name)))}
-		}
-		if writable && !pointer.typ.PointeeWritable {
-			return checkedExpression{token: pointer.token, diagnostic: diagnosticAt(messageAt(pointer.token, diag.SliceFromPointerTypeMismatch(writable, element.Name, pointer.typ.Name)))}
-		}
-		length := checkInitializer(call.Arguments[1], compilerTypes.NewTypeUse(compilerTypes.SizeType), tokenOf(call.Arguments[1]), ctx)
-		if diagnostics := initializerDiagnostics(length); len(diagnostics) > 0 {
-			return checkedExpression{token: tokenOf(call.Arguments[1]), diagnostics: diagnostics}
-		}
-		if !assignable(compilerTypes.SizeType, length.typ) {
-			return checkedExpression{token: length.token, diagnostic: diagnosticAt(messageAt(length.token, diag.SliceLengthNotRepresentableAsSize()))}
-		}
-		// The region's length, lifetime, alignment, initialization, and
-		// provenance are the caller's assertion; every check above is the part
-		// the compiler can still prove and runs first.
-		if diagnostic := requireUnsafe(ctx, property, unsafeSliceFromPointer, ""); diagnostic != nil {
-			return checkedExpression{token: property, diagnostic: diagnostic}
-		}
-		node := Expression{Kind: SliceBridgeExpression, Name: "from_pointer", Arguments: []Operand{pointer.source, length.source}, OperandType: slice, ResultType: slice, Element: element}
-		source := Operand{Kind: ExpressionOperand, Type: slice, Name: "from_pointer", Node: node}
-		return checkedExpression{source: source, typ: slice, token: property}
 	case "empty":
 		if len(call.Arguments) != 0 {
 			return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.SliceEmptyArguments(writable)))}

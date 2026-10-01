@@ -97,7 +97,7 @@ func TestUTF8BoundaryTable(t *testing.T) {
 // carry the hand-rolled lead/continuation logic, so template drift fails the
 // suite rather than passing as a stale mirror.
 func TestGeneratedUTF8ValidationGuards(t *testing.T) {
-	program := checkedGeneratorSource(t, "fun demo(h: Heap): String | Error do\n    return String.from_bytes(h, \"hi\".bytes())\nend\n")
+	program := checkedGeneratorSource(t, "fun demo(h: Heap): String | Error do\n    return \"hi\".bytes().to<String>(h)\nend\n")
 	files := generateOne(t, program)
 	source := files["hexal/string.c"]
 	for _, want := range []string{

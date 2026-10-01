@@ -29,28 +29,8 @@ func SliceTypeArgumentCount() Message {
 	return message("type.slice-type-argument-count", CategoryType, StageChecker, "Slice requires exactly one element type")
 }
 
-func SliceFromPointerArgumentCount(writable bool) Message {
-	constructor := "Slice"
-	if writable {
-		constructor = "Slice<mut T>"
-	}
-	return message("type.slice-from-pointer-argument-count", CategoryType, StageChecker,
-		constructor+".from_pointer expects 2 arguments (pointer, length)")
-}
-
-func SlicePointerMustBeNarrowed() Message {
-	return message("type.slice-pointer-must-be-narrowed", CategoryType, StageChecker, "nullable pointer must be narrowed before Slice construction")
-}
-
-func SliceFromPointerTypeMismatch(writable bool, element, actual string) Message {
-	constructor := "Slice"
-	required := "Ptr<" + element + "> or Ptr<mut " + element + ">"
-	if writable {
-		constructor = "Slice<mut T>"
-		required = "Ptr<mut " + element + ">"
-	}
-	return message("type.slice-from-pointer-type-mismatch", CategoryType, StageChecker,
-		fmt.Sprintf("%s.from_pointer requires %s; got %s", constructor, required, actual))
+func PointerToSliceArgumentCount() Message {
+	return message("type.pointer-to-slice-argument-count", CategoryType, StageChecker, "to_slice expects 1 argument (length)")
 }
 
 func SliceLengthNotRepresentableAsSize() Message {
@@ -71,7 +51,7 @@ func SliceBridgeOperationNotFound(writable bool) Message {
 		constructor = "Slice<mut T>"
 	}
 	return message("type.slice-bridge-operation-not-found", CategoryType, StageChecker,
-		constructor+" has no such operation; use from_pointer or empty")
+		constructor+" has no such operation; use empty")
 }
 
 func SlicePointerMethodNotFound(receiver string) Message {

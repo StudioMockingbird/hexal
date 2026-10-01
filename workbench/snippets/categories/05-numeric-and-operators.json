@@ -154,8 +154,8 @@
         "    let value: UInt32= 0x01020304",
         "    let little: List\u003cUInt8, 4\u003e = value.to_le_bytes()",
         "    let big: List\u003cUInt8, 4\u003e = value.to_be_bytes()",
-        "    let back: UInt32= UInt32.from_le_bytes(little)",
-        "    let swapped: UInt32= UInt32.from_be_bytes(big)",
+        "    let back: UInt32= little.decode_le<UInt32>()",
+        "    let swapped: UInt32= big.decode_be<UInt32>()",
         "    return (back == value) and (swapped == value)",
         "end"
       ]},

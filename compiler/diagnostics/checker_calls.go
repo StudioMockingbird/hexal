@@ -67,7 +67,7 @@ func FunctionArgumentTypeMismatch(callee string, index int, expected, actual str
 	case WidenInlineText:
 		text += fmt.Sprintf("; use widen<%d>()", hint.Capacity)
 	case ConvertTextFromBytes:
-		text += "; use " + hint.Destination + ".from_bytes(...) for a checked conversion"
+		text += "; use bytes().to<" + hint.Destination + ">() for a checked conversion"
 	}
 	return message("type.function-argument-mismatch", CategoryType, StageChecker, text)
 }

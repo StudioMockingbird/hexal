@@ -58,8 +58,8 @@ func TestStringSurfaceCompiles(t *testing.T) {
 	}
 }
 
-func TestStringFromBytesCompiles(t *testing.T) {
-	source := "fun demo(h: Heap): Bool | Error do\n    let bytes: List<UInt8, 3> = [97, 98, 99]\n    let view: Slice<UInt8> = bytes.slice(0, 3)\n    let made: String = try String.from_bytes(h, view)\n    made.free(h)\n    return true\nend\n"
+func TestBytesToStringCompiles(t *testing.T) {
+	source := "fun demo(h: Heap): Bool | Error do\n    let bytes: List<UInt8, 3> = [97, 98, 99]\n    let view: Slice<UInt8> = bytes.slice(0, 3)\n    let made: String = try view.to<String>(h)\n    made.free(h)\n    return true\nend\n"
 	result := compileSource(source)
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
@@ -69,11 +69,11 @@ func TestStringFromBytesCompiles(t *testing.T) {
 	}
 }
 
-func TestStringFromBytesRejectsWrongView(t *testing.T) {
-	source := "fun demo(h: Heap) do\n    let words: List<Int32, 1> = [1]\n    let view: Slice<Int32> = words.slice(0, 1)\n    let made = String.from_bytes(h, view)\nend\n"
+func TestSliceToStringRejectsWrongElement(t *testing.T) {
+	source := "fun demo(h: Heap) do\n    let words: List<Int32, 1> = [1]\n    let view: Slice<Int32> = words.slice(0, 1)\n    let made = view.to<String>(h)\nend\n"
 	result := compileSource(source)
-	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "requires Slice<Byte>") {
-		t.Fatalf("want from_bytes view diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
+	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "cannot convert Slice<Int32> to String") {
+		t.Fatalf("want unsupported-conversion diagnostic; got exit=%d stderr=%v", result.ExitCode, result.Stderr)
 	}
 }
 

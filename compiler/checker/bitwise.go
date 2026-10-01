@@ -2,8 +2,6 @@ package checker
 
 import (
 	diag "hexal/compiler/diagnostics"
-	"hexal/compiler/lexer"
-	"hexal/compiler/parser"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -80,44 +78,35 @@ func checkEndianToBytesCall(call methodCall) checkedExpression {
 	return checkedExpression{source: source, typ: array, token: call.callee.Property}
 }
 
-// checkEndianFromBytesCall resolves the type-qualified
-// `Int32.from_le_bytes(bytes)` and `Int32.from_be_bytes(bytes)` intrinsics.
-// The argument must be exactly List<Byte, width / 8>.
-func checkEndianFromBytesCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
-	property := call.Callee.(parser.PropertyExpression).Property
-	integerType, ok := ctx.typeEnvironment.Lookup(callee.Lexeme)
-	if !ok || !endianEligibleType(integerType) {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.EndianFromBytesInvalidType(callee.Lexeme)))}
+// checkEndianDecodeCall resolves `bytes.decode_le<Int32>()` and
+// `bytes.decode_be<Int32>()` on an inline List<Byte, N>. N must equal the
+// integer's width in bytes, so a wrong-sized receiver fails at the call
+// rather than reading a partial value.
+func checkEndianDecodeCall(call methodCall) checkedExpression {
+	property := call.callee.Property
+	if len(call.call.TypeArguments) != 1 || len(call.call.Arguments) != 0 {
+		return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.EndianDecodeArgumentCount(property.Lexeme)))}
 	}
-	if len(call.Arguments) != 1 || len(call.TypeArguments) != 0 {
-		return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.EndianFromBytesArgumentCount(property.Lexeme)))}
+	targetUse, diagnostic := resolveTypeUse(call.call.TypeArguments[0], call.call.OpenParen, call.ctx.typeEnvironment, call.ctx.names.generics)
+	if diagnostic != nil {
+		return checkedExpression{token: property, diagnostic: diagnostic}
 	}
-	array := ctx.typeEnvironment.InlineListType(compilerTypes.UInt8, uint64(integerType.Bits/8))
+	integerType := targetUse.Type
+	if !endianEligibleType(integerType) {
+		return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.EndianDecodeInvalidType(property.Lexeme, integerType.Name)))}
+	}
+	array := call.ctx.typeEnvironment.InlineListType(compilerTypes.UInt8, uint64(integerType.Bits/8))
 	if array == (compilerTypes.Type{}) {
 		return checkedExpression{token: property, diagnostic: diagnosticAt(unknownAt(property))}
 	}
-	if literal, ok := call.Arguments[0].(parser.InlineListLiteralExpression); ok && len(literal.Elements) != integerType.Bits/8 {
-		return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostic: diagnosticAt(messageAt(tokenOf(call.Arguments[0]), diag.EndianFromBytesTypeMismatch(callee.Lexeme, endianOrderName(property.Lexeme), integerType.Bits/8, array.Name)))}
-	}
-	bytes := checkInitializer(call.Arguments[0], compilerTypes.NewTypeUse(array), tokenOf(call.Arguments[0]), ctx)
-	if diagnostics := initializerDiagnostics(bytes); len(diagnostics) > 0 {
-		return checkedExpression{token: tokenOf(call.Arguments[0]), diagnostics: diagnostics}
-	}
-	if !compilerTypes.Equal(bytes.typ, array) {
-		return checkedExpression{token: bytes.token, diagnostic: diagnosticAt(messageAt(bytes.token, diag.EndianFromBytesTypeMismatch(callee.Lexeme, endianOrderName(property.Lexeme), integerType.Bits/8, bytes.typ.Name)))}
+	if !compilerTypes.Equal(call.receiver.typ, array) {
+		return checkedExpression{token: property, diagnostic: diagnosticAt(messageAt(property, diag.EndianDecodeTypeMismatch(property.Lexeme, integerType.Name, integerType.Bits/8, call.receiver.typ.Name)))}
 	}
 	memberIndex := 0
-	if property.Lexeme == "from_be_bytes" {
+	if property.Lexeme == "decode_be" {
 		memberIndex = 1
 	}
-	node := Expression{Kind: EndianConversionExpression, Name: "from", Operand: &bytes.source.Node, Arguments: []Operand{bytes.source}, OperandType: array, ResultType: integerType, Element: integerType, MemberIndex: memberIndex}
+	node := Expression{Kind: EndianConversionExpression, Name: "from", Operand: &call.receiver.source.Node, Arguments: []Operand{call.receiver.source}, OperandType: array, ResultType: integerType, Element: integerType, MemberIndex: memberIndex}
 	source := Operand{Kind: ExpressionOperand, Type: integerType, Name: property.Lexeme, Node: node}
 	return checkedExpression{source: source, typ: integerType, token: property}
-}
-
-func endianOrderName(name string) string {
-	if name == "from_be_bytes" || name == "to_be_bytes" {
-		return "be"
-	}
-	return "le"
 }

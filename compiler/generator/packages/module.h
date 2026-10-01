@@ -293,9 +293,11 @@ static inline size_t hex_rune_utf8_length(uint32_t value) {
     return 4;
 }
 {{end}}{{define "rune_from_adapter"}}
-// hex_rune_from_{{.Suffix}} turns a UInt32 into a checked Unicode scalar. It
-// rejects surrogates and values above U+10FFFF and reports, never traps.
-static inline {{.CName}} hex_rune_from_{{.Suffix}}(uint32_t value, size_t line, size_t column) {
+// hex_rune_from_{{.Suffix}} turns any integer into a checked Unicode scalar. It
+// rejects surrogates and values above U+10FFFF and reports, never traps. The
+// uint64_t parameter keeps every source width exact: a negative value wraps to
+// a magnitude above U+10FFFF instead of truncating into the valid range.
+static inline {{.CName}} hex_rune_from_{{.Suffix}}(uint64_t value, size_t line, size_t column) {
     if (value <= 0x10FFFF && !(value >= 0xD800 && value <= 0xDFFF)) {
         return ({{.CName}}){ .tag = {{.Success}}, .payload.{{.Field}} = value };
     }

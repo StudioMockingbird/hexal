@@ -496,29 +496,23 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	if diagnostic := rejectNamedArguments(call); diagnostic != nil {
 		return checkedExpression{token: callee.Property, diagnostic: diagnostic}
 	}
-	// String.from_bytes() names the built-in type, not a String value
+	// String.interpolate() names the built-in type, not a String value
 	// binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "String" {
 		return checkStringTypeCall(call, variable.Name, ctx)
 	}
-	// Rune.from() names the built-in scalar type, not a Rune value binding.
+	// Rune.<name>() names the built-in scalar type, not a Rune value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Rune" {
-		return checkRuneTypeCall(call, variable.Name, ctx)
+		return rejectRuneTypeCall(variable.Name)
 	}
-	// Slice<T>.from_pointer() and Slice<T>.empty() name the built-in generic
-	// type, not a Slice value binding.
+	// Slice<T>.empty() names the built-in generic type, not a Slice value
+	// binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Slice" {
 		return checkSliceBridgeCall(call, variable.Name, ctx)
 	}
 	// Task.yield() names the built-in Task type, not a Task value binding.
 	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable && variable.Name.Lexeme == "Task" {
 		return checkTaskTypeCall(call, variable.Name, ctx)
-	}
-	// Int32.from_le_bytes(...) names a fixed-width integer type, not an
-	// integer value binding.
-	if variable, isVariable := callee.Receiver.(parser.VariableExpression); isVariable &&
-		(callee.Property.Lexeme == "from_le_bytes" || callee.Property.Lexeme == "from_be_bytes") {
-		return checkEndianFromBytesCall(call, variable.Name, ctx)
 	}
 	// Protected type members named `new` are rejected here after ordinary
 	// method resolution fails; canonical constructors are handled by bare-call
@@ -546,8 +540,10 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	default:
 		// A call or literal receiver has no addressable storage of its own;
 		// check it as a value so collection methods can reject temporary
-		// roots with their own diagnostics.
-		receiver = checkValue(callee.Receiver, ctx)
+		// roots with their own diagnostics. A conversion source folds its
+		// constant operators, so an out-of-domain constant expression fails
+		// compilation instead of trapping or returning an Error at run time.
+		receiver = checkValueIn(callee.Receiver, expressionContext{foldConstants: name == "to"}, ctx)
 	}
 	if receiverDiagnostics := initializerDiagnostics(receiver); len(receiverDiagnostics) > 0 {
 		return receiver
@@ -556,13 +552,13 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	// Every builtin receiver dispatch below receives the same four values, so
 	// they travel as one bundle; the written call and callee are already in
 	// scope here.
-	dispatch := methodCall{call: call, callee: callee, receiver: receiver, ctx: ctx}
+	dispatch := methodCall{call: call, callee: callee, receiver: receiver, expected: expectedType, ctx: ctx}
 	// The compiler-owned `to<Dest>()` conversion resolves on eligible scalar
-	// receivers before user method lookup. A receiver depending on a generic
-	// parameter defers to specialization.
+	// and Slice receivers before user method lookup. A receiver depending on a
+	// generic parameter defers to specialization.
 	if name == "to" &&
 		(compilerTypes.IsInteger(receiver.typ) || compilerTypes.IsFloat(receiver.typ) ||
-			compilerTypes.ContainsTypeParameter(receiver.typ)) {
+			receiver.typ.Slice != nil || compilerTypes.ContainsTypeParameter(receiver.typ)) {
 		return checkConversionCall(dispatch)
 	}
 	// The compiler-owned `bit_cast<T>()` reinterprets same-width
@@ -574,6 +570,11 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	// integer receivers.
 	if (name == "to_le_bytes" || name == "to_be_bytes") && (compilerTypes.IsInteger(receiver.typ) || compilerTypes.ContainsTypeParameter(receiver.typ)) {
 		return checkEndianToBytesCall(dispatch)
+	}
+	// Byte-order readers on an inline List<Byte, N> mirror to_le_bytes and
+	// to_be_bytes.
+	if (name == "decode_le" || name == "decode_be") && receiver.typ.InlineList != nil {
+		return checkEndianDecodeCall(dispatch)
 	}
 	// Rune value methods dispatch on the Rune scalar receiver. Rune lowers to
 	// the uint32_t scalar, so these are pure reads with no allocation.

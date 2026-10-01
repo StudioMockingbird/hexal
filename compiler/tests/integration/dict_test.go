@@ -448,7 +448,7 @@ func TestDictKeyDiagnostics(t *testing.T) {
 	for _, call := range []string{"insert(key, 1)", "get(key)", "find(key)", "contains(key)", "remove(key)"} {
 		assertKey("fun demo(h: Heap) do\n    let d: Dict<String<128>, Int32> = Dict<String<128>, Int32>(h)\n    let key: String<16> = \"x\"\n    d."+call+"\nend", "dictionary key requires String<128>; got String<16>; use widen<128>()")
 	}
-	assertKey("fun demo(h: Heap) do\n    let d: Dict<String<16>, Int32> = Dict<String<16>, Int32>(h)\n    let key: String<128> = \"x\"\n    d.insert(key, 1)\nend", "dictionary key requires String<16>; got String<128>; use String<16>.from_bytes(...) for a checked conversion")
+	assertKey("fun demo(h: Heap) do\n    let d: Dict<String<16>, Int32> = Dict<String<16>, Int32>(h)\n    let key: String<128> = \"x\"\n    d.insert(key, 1)\nend", "dictionary key requires String<16>; got String<128>; use bytes().to<String<16>>() for a checked conversion")
 	// The exact-capacity literal and the widened key are accepted.
 	if result := compileSource("fun demo(h: Heap) do\n    let d: Dict<String<128>, Int32> = Dict<String<128>, Int32>(h)\n    defer d.free(h)\n    d.insert(\"" + long128 + "\", 1)\n    let key: String<16> = \"x\"\n    d.insert(key.widen<128>(), 2)\nend"); result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)

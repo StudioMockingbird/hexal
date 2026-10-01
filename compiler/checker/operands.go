@@ -137,7 +137,7 @@ const (
 	// Element is the byte slice element type for bytes and slice. concat
 	// yields String | Error and carries its source site.
 	StringMethodCallExpression
-	// StringFromBytesExpression is String.from_bytes(heap, bytes): a fresh
+	// StringFromBytesExpression is bytes.to<String>(heap): a fresh
 	// owning String copied from a Slice<Byte> once validated as UTF-8. The
 	// result is String | Error and carries its source site.
 	StringFromBytesExpression
@@ -146,7 +146,7 @@ const (
 	// formatted-value segments. Operand is the checked Heap expression;
 	// InterpolationSegments holds the segments in source order.
 	StringInterpolateExpression
-	// InlineStringConstructExpression is String<N>.from_bytes, .concat, or
+	// InlineStringConstructExpression is bytes.to<String<N>>() (Name from_bytes), .concat, or
 	// .interpolate. Name selects the operation; OperandType is String<N>;
 	// ResultType is String<N> | Error; Arguments holds the byte operands and
 	// InterpolationSegments the template. It carries its source site.
@@ -206,7 +206,7 @@ const (
 	// the receiver and OperandType its Rune type; ResultType is the checked
 	// result. Both are pure reads with no allocation.
 	RuneMethodCallExpression
-	// StringFromRunesExpression is String.from_runes(heap, runes): it encodes a
+	// StringFromRunesExpression is runes.to<String>(heap): it encodes a
 	// scalar sequence into one owned heap String and yields String | Error.
 	// Operand is the Heap and Arguments holds the Slice<Rune>.
 	StringFromRunesExpression
@@ -300,7 +300,7 @@ const (
 	// destination pointer type, which preserves the source's access mode;
 	// Element is the destination pointee.
 	PointerCastExpression
-	// SliceBridgeExpression is Slice<T>.from_pointer(pointer, length) or
+	// SliceBridgeExpression is pointer.to_slice(length) (Name from_pointer) or
 	// Slice<T>.empty(). Name selects the form; Arguments holds the
 	// pointer and length for from_pointer; OperandType is the Slice type;
 	// Element is T.

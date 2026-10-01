@@ -757,7 +757,7 @@ func renderTextMethod(node checker.Expression, state *expressionValidation) (str
 	return "", unknownExpressionDiagnostic()
 }
 
-// renderInlineStringConstruct renders String<N>.from_bytes and .concat through
+// renderInlineStringConstruct renders bytes.to<String<N>>() and String<N>.concat through
 // their per-module adapters; interpolate was hoisted before its statement.
 func renderInlineStringConstruct(node checker.Expression, state *expressionValidation) (string, error) {
 	switch node.Name {
@@ -811,10 +811,10 @@ type generatedTextState struct {
 	// runeCursor is true when the module scans text with a RuneCursor, which
 	// steps the shared utf8proc decode helper.
 	runeCursor bool
-	// runeFrom collects the result unions of Rune.from calls, each needing a
+	// runeFrom collects the result unions of integer.to<Rune>() calls, each needing a
 	// module-local adapter that builds the Error arm.
 	runeFrom []compilerTypes.Type
-	// heapFromRunes collects the result unions of String.from_runes calls, each
+	// heapFromRunes collects the result unions of runes.to<String>(heap) calls, each
 	// needing a module-local adapter that builds the Error arm.
 	heapFromRunes []compilerTypes.Type
 	// casefold collects the result unions of String.casefold calls, each needing

@@ -113,7 +113,7 @@ type LiteralTypeArgument struct {
 func (LiteralTypeArgument) typeExpressionNode() {}
 
 // MutTypeArgument marks one `mut T` call-site type argument, as in
-// Slice<mut T>.from_pointer(...). Only the Slice bridge consumes the
+// Slice<mut T>.empty(). Only the Slice bridge consumes the
 // marking; every other generic consumer rejects it through type resolution.
 type MutTypeArgument struct {
 	Mut  lexer.Token

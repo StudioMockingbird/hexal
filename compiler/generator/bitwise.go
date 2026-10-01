@@ -297,7 +297,7 @@ func writeEndianHelper(result *strings.Builder, spec endianSpec) error {
 			DesignatedInit: "{0}",
 		})
 	}
-	// from_le_bytes / from_be_bytes: assemble the unsigned pattern.
+	// decode_le / decode_be: assemble the unsigned pattern.
 	returnLine := "return value;"
 	if compilerTypes.IsSignedInteger(typ) {
 		// Direct modular cast: same-width unsigned-to-signed conversion is

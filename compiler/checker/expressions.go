@@ -336,7 +336,12 @@ func checkQualifiedTypeConstructorCall(call parser.CallExpression, property lexe
 // checkValue resolves an expression in value context. Assignment and
 // address-taking call checkPlace instead to retain place mode.
 func checkValue(expression parser.Expression, ctx checkContext) checkedExpression {
-	checked := checkExpression(expression, expressionContext{}, ctx)
+	return checkValueIn(expression, expressionContext{}, ctx)
+}
+
+// checkValueIn is checkValue under an explicit expression context.
+func checkValueIn(expression parser.Expression, context expressionContext, ctx checkContext) checkedExpression {
+	checked := checkExpression(expression, context, ctx)
 	if checked.pipeline != nil {
 		diagnostic := messageAt(checked.token, diag.LazyPipelineMustBeConsumed())
 		return checkedExpression{token: checked.token, diagnostic: &diagnostic}
@@ -369,6 +374,8 @@ type methodCall struct {
 	call     parser.CallExpression
 	callee   parser.PropertyExpression
 	receiver checkedExpression
+	// expected is the type the call's context requires, zero when none.
+	expected compilerTypes.Type
 	ctx      checkContext
 }
 

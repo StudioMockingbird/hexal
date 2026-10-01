@@ -112,9 +112,9 @@ func checkBoundedText(expression parser.Expression, destination compilerTypes.Ty
 }
 
 // checkStringTypeCall resolves a call written as String.<name>(...) or
-// String<N>.<name>(...): the built-in constructors from_bytes, concat, and
-// interpolate. The heap form takes a Heap first; the inline form names its
-// capacity and takes none.
+// String<N>.<name>(...): the built-in constructors concat and interpolate,
+// which have no source value to act on. The heap form takes a Heap first; the
+// inline form names its capacity and takes none.
 func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
 	name := call.Callee.(parser.PropertyExpression).Property.Lexeme
 	if len(call.TypeArguments) != 0 {
@@ -127,13 +127,8 @@ func checkStringTypeCall(call parser.CallExpression, callee lexer.Token, ctx che
 		}
 		return checkInlineStringTypeCall(call, callee, name, ctx.typeEnvironment.InlineStringType(capacity), ctx)
 	}
-	switch name {
-	case "interpolate":
+	if name == "interpolate" {
 		return checkStringInterpolate(call, callee, ctx)
-	case "from_bytes":
-		return checkHeapFromBytes(call, callee, ctx)
-	case "from_runes":
-		return checkHeapFromRunes(call, callee, ctx)
 	}
 	return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diagnosticsPkg.UnknownStringConstructor()))}
 }
@@ -163,80 +158,8 @@ func checkByteView(argument parser.Expression, label string, ctx checkContext) (
 	return view, nil
 }
 
-// checkHeapFromBytes resolves String.from_bytes(heap, bytes).
-func checkHeapFromBytes(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
-	if len(call.Arguments) != 2 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diagnosticsPkg.UnknownStringConstructor()))}
-	}
-	heap := checkValue(call.Arguments[0], ctx)
-	if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
-		return heap
-	}
-	if !compilerTypes.IsHeap(heap.typ) {
-		diagnostic := messageAt(heap.token, diagnosticsPkg.StringConstructorRequiresHeap("String.from_bytes", heap.typ.Name))
-		return checkedExpression{token: heap.token, diagnostic: &diagnostic}
-	}
-	view, failure := checkByteView(call.Arguments[1], "String.from_bytes", ctx)
-	if failure != nil {
-		return *failure
-	}
-	union, failure := textFailureUnion(compilerTypes.StringType, callee, ctx)
-	if failure != nil {
-		return *failure
-	}
-	node := Expression{
-		Kind:        StringFromBytesExpression,
-		Operand:     &heap.source.Node,
-		Arguments:   []Operand{view.source},
-		OperandType: compilerTypes.Heap,
-		ResultType:  union,
-		Span:        callee.Span,
-	}
-	source := Operand{Kind: ExpressionOperand, Type: union, Name: "from_bytes", Node: node}
-	return checkedExpression{source: source, typ: union, token: callee}
-}
-
-// checkHeapFromRunes resolves String.from_runes(heap, runes): it encodes a
-// scalar sequence into one owned heap String, rejecting surrogates and values
-// above U+10FFFF as InvalidInput.
-func checkHeapFromRunes(call parser.CallExpression, callee lexer.Token, ctx checkContext) checkedExpression {
-	if len(call.Arguments) != 2 {
-		return checkedExpression{token: callee, diagnostic: diagnosticAt(messageAt(callee, diagnosticsPkg.UnknownStringConstructor()))}
-	}
-	heap := checkValue(call.Arguments[0], ctx)
-	if diagnostics := initializerDiagnostics(heap); len(diagnostics) > 0 {
-		return heap
-	}
-	if !compilerTypes.IsHeap(heap.typ) {
-		diagnostic := messageAt(heap.token, diagnosticsPkg.StringConstructorRequiresHeap("String.from_runes", heap.typ.Name))
-		return checkedExpression{token: heap.token, diagnostic: &diagnostic}
-	}
-	runes := checkValue(call.Arguments[1], ctx)
-	if diagnostics := initializerDiagnostics(runes); len(diagnostics) > 0 {
-		return runes
-	}
-	if runes.typ.Slice == nil || !compilerTypes.Equal(runes.typ.Slice.Element, compilerTypes.Rune) {
-		diagnostic := messageAt(runes.token, diagnosticsPkg.StringFromRunesRequiresRuneSlice(runes.typ.Name))
-		return checkedExpression{token: runes.token, diagnostic: &diagnostic}
-	}
-	union, failure := textFailureUnion(compilerTypes.StringType, callee, ctx)
-	if failure != nil {
-		return *failure
-	}
-	node := Expression{
-		Kind:        StringFromRunesExpression,
-		Operand:     &heap.source.Node,
-		Arguments:   []Operand{runes.source},
-		OperandType: compilerTypes.Heap,
-		ResultType:  union,
-		Span:        callee.Span,
-	}
-	source := Operand{Kind: ExpressionOperand, Type: union, Name: "from_runes", Node: node}
-	return checkedExpression{source: source, typ: union, token: callee}
-}
-
-// checkInlineStringTypeCall resolves String<N>.from_bytes(bytes),
-// String<N>.concat(left, right), and String<N>.interpolate(template). Each
+// checkInlineStringTypeCall resolves String<N>.concat(left, right) and
+// String<N>.interpolate(template). Each
 // yields String<N> | Error, since the operands may not fit or may not be
 // well-formed. None takes a Heap: no allocation happens.
 func checkInlineStringTypeCall(call parser.CallExpression, callee lexer.Token, name string, destination compilerTypes.Type, ctx checkContext) checkedExpression {
@@ -244,13 +167,9 @@ func checkInlineStringTypeCall(call parser.CallExpression, callee lexer.Token, n
 	var arguments []Operand
 	var segments []InterpolationSegment
 	switch name {
-	case "from_bytes", "concat":
-		want := 1
-		if name == "concat" {
-			want = 2
-		}
-		if len(call.Arguments) != want {
-			diagnostic := messageAt(callee, diagnosticsPkg.InlineStringConstructorArity(label, want, len(call.Arguments)))
+	case "concat":
+		if len(call.Arguments) != 2 {
+			diagnostic := messageAt(callee, diagnosticsPkg.InlineStringConstructorArity(label, 2, len(call.Arguments)))
 			return checkedExpression{token: callee, diagnostic: &diagnostic}
 		}
 		for _, argument := range call.Arguments {

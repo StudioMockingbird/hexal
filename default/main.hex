@@ -8,8 +8,8 @@ unsafe do
     let pointer: Ptr<Byte> | Nil = Hello.hello_world()
     if pointer != nil then
         let length: Size = Hello.hello_world_length()
-        let bytes: Slice<Byte> = Slice<Byte>.from_pointer(pointer, length)
-        let message: String = String.from_bytes(heap, bytes)
+        let bytes: Slice<Byte> = pointer.to_slice(length)
+        let message: String = bytes.to<String>(heap)
         print(message)
         message.free(heap)
     end

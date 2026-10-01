@@ -39,11 +39,11 @@ func TestConversionMatrixRejections(t *testing.T) {
 		want   string
 	}{
 		{"fun demo() do\n    let flag: Bool = true\n    let bad: Int32 = flag.to<Int32>()\nend", "Bool has no method named to"},
-		{"fun demo() do\n    let value: Int32 = 1\n    let bad: Bool = value.to<Bool>()\nend", "supported scalar source and destination"},
+		{"fun demo() do\n    let value: Int32 = 1\n    let bad: Bool = value.to<Bool>()\nend", "cannot convert Int32 to Bool"},
 		{"fun demo() do\n    let value: Int32 = 1\n    let pointer: Ptr<Int32> = @value\n    let bad: UInt64 = pointer.to<UInt64>()\nend", "Ptr<Int32> has no method named to"},
 		{"fun demo() do\n    let value: Int32 = 1\n    let bad: Int32 = value.to()\nend", "to requires exactly 1 explicit type argument"},
 		{"fun demo() do\n    let value: Int32 = 1\n    let bad: Int32 = value.to(1)\nend", "to requires exactly 1 explicit type argument"},
-		{"fun demo() do\n    let value: Int32 = 1\n    let bad: Int32 = value.to<Int32>(1)\nend", "to accepts no value arguments"},
+		{"fun demo() do\n    let value: Int32 = 1\n    let bad: Int32 = value.to<Int32>(1)\nend", "to accepts one Heap argument when converting to String, and no value arguments otherwise"},
 		{"fun demo() do\n    let value: Int32 = 1\n    let bad: Int32 = value.to_int32()\nend", "Int32 has no method named to_int32"},
 	} {
 		result := compileSource(testCase.source)
@@ -323,5 +323,45 @@ func TestConversionTrapSelection(t *testing.T) {
 		if !strings.Contains(header, want) {
 			t.Fatalf("hexal.h = %q, want %q", header, want)
 		}
+	}
+}
+
+func TestSourceConversionsToText(t *testing.T) {
+	assertCompiles(t, "fun demo(h: Heap): Int32 | Error do\n"+
+		"    let text: String = \"ab\"\n"+
+		"    let bytes: Slice<Byte> = text.bytes()\n"+
+		"    let letters: List<Rune, 1> = ['a']\n"+
+		"    let runes: Slice<Rune> = letters.slice(0, 1)\n"+
+		"    let heap_text: String | Error = bytes.to<String>(h)\n"+
+		"    let rune_text: String | Error = runes.to<String>(h)\n"+
+		"    let inline_text: String<64> | Error = bytes.to<String<64>>()\n"+
+		"    let interpolated: String = String.interpolate(h, \"n={{ 1 }}\")\n"+
+		"    let small: String<16> | Error = String<16>.interpolate(\"n={{ 1 }}\")\n"+
+		"    return 0\nend\n")
+	prelude := "fun demo(h: Heap) do\n    let text: String = \"ab\"\n    let bytes: Slice<Byte> = text.bytes()\n"
+	for _, testCase := range []struct{ body, want string }{
+		{"    let bad: String = bytes.to<String>(h)\n", "expected String initializer; got Error | String"},
+		{"    let bad = bytes.to<String>()\n", "to accepts one Heap argument when converting to String, and no value arguments otherwise"},
+		{"    let bad = bytes.to<String<64>>(h)\n", "to accepts one Heap argument when converting to String, and no value arguments otherwise"},
+		{"    let bad = bytes.to<String>(1)\n", "requires a Heap"},
+	} {
+		assertRejects(t, prelude+testCase.body+"end\n", testCase.want)
+	}
+}
+
+func TestRemovedConversionSpellingsAreRejected(t *testing.T) {
+	prelude := "fun demo(h: Heap, p: Ptr<Int32>, bytes: List<Byte, 4>, view: Slice<Byte>, runes: Slice<Rune>) do\n    unsafe do\n"
+	for _, testCase := range []struct{ call, want string }{
+		{"String.from_bytes(h, view)", "String has no such operation"},
+		{"String.from_runes(h, runes)", "String has no such operation"},
+		{"String<16>.from_bytes(view)", "String<16> has no such operation"},
+		{"Slice<Int32>.from_pointer(p, 1)", "Slice has no such operation"},
+		{"Rune.from(1)", "Rune has no such operation"},
+		{"Int32.from_le_bytes(bytes)", "unknown variable Int32"},
+		{"Int32.from_be_bytes(bytes)", "unknown variable Int32"},
+	} {
+		t.Run(testCase.call, func(t *testing.T) {
+			assertRejects(t, prelude+"        let unused = "+testCase.call+"\n    end\nend\n", testCase.want)
+		})
 	}
 }

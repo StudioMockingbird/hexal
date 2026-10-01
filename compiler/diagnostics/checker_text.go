@@ -6,7 +6,7 @@ func InlineStringCapacityArity() Message {
 	return message("type.inline-string-capacity-arity", CategoryType, StageChecker, "String takes at most one capacity argument")
 }
 func UnknownStringConstructor() Message {
-	return message("type.unknown-string-constructor", CategoryType, StageChecker, "String has no such operation; use String.from_bytes(heap, view), String.from_runes(heap, runes), or String.interpolate(heap, template)")
+	return message("type.unknown-string-constructor", CategoryType, StageChecker, "String has no such operation; use view.to<String>(heap) or String.interpolate(heap, template)")
 }
 func TextResultUnionUnavailable(name string) Message {
 	return message("type.text-result-union-unavailable", CategoryType, StageChecker, name+" has no result union with Error")
@@ -17,9 +17,6 @@ func ByteViewRequired(operation, actual string) Message {
 func StringConstructorRequiresHeap(operation, actual string) Message {
 	return message("type.string-constructor-requires-heap", CategoryType, StageChecker, operation+" requires a Heap; got "+actual)
 }
-func StringFromRunesRequiresRuneSlice(actual string) Message {
-	return message("type.string-from-runes-requires-rune-slice", CategoryType, StageChecker, "String.from_runes requires Slice<Rune>; got "+actual)
-}
 func InlineStringConstructorArity(operation string, want, got int) Message {
 	return message("type.inline-string-constructor-arity", CategoryType, StageChecker, fmt.Sprintf("%s expects %d arguments; got %d", operation, want, got))
 }
@@ -27,7 +24,7 @@ func InlineInterpolationConstructorArity(operation string, got int) Message {
 	return message("type.inline-interpolation-arity", CategoryType, StageChecker, fmt.Sprintf("%s expects 1 argument; got %d", operation, got))
 }
 func UnknownInlineStringOperation(name string) Message {
-	return message("type.unknown-inline-string-operation", CategoryType, StageChecker, name+" has no such operation; use "+name+".from_bytes(view), "+name+".concat(left, right), or "+name+".interpolate(template)")
+	return message("type.unknown-inline-string-operation", CategoryType, StageChecker, name+" has no such operation; use view.to<"+name+">(), "+name+".concat(left, right), or "+name+".interpolate(template)")
 }
 func InterpolationNeedsEmbeddedValue(operation string) Message {
 	return message("type.interpolation-needs-value", CategoryType, StageChecker, operation+" requires at least one interpolation")

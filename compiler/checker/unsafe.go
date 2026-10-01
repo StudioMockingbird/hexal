@@ -35,14 +35,14 @@ type unsafeOperation = diag.UnsafeOperation
 // The classified unsafe-capable operations. Each string is the operation
 // spelling its diagnostic names.
 const (
-	unsafeSliceFromPointer unsafeOperation = diag.UnsafeSliceFromPointer
-	unsafePointerOffset    unsafeOperation = diag.UnsafePointerOffset
-	unsafePointerCast      unsafeOperation = diag.UnsafePointerCast
-	unsafePointerIndex     unsafeOperation = diag.UnsafePointerIndex
-	unsafeSlicePointer     unsafeOperation = diag.UnsafeSlicePointer
-	unsafeStringCPointer   unsafeOperation = diag.UnsafeStringCPointer
-	unsafeForeignCall      unsafeOperation = diag.UnsafeForeignCall
-	unsafeForeignGlobal    unsafeOperation = diag.UnsafeForeignGlobal
+	unsafePointerToSlice unsafeOperation = diag.UnsafePointerToSlice
+	unsafePointerOffset  unsafeOperation = diag.UnsafePointerOffset
+	unsafePointerCast    unsafeOperation = diag.UnsafePointerCast
+	unsafePointerIndex   unsafeOperation = diag.UnsafePointerIndex
+	unsafeSlicePointer   unsafeOperation = diag.UnsafeSlicePointer
+	unsafeStringCPointer unsafeOperation = diag.UnsafeStringCPointer
+	unsafeForeignCall    unsafeOperation = diag.UnsafeForeignCall
+	unsafeForeignGlobal  unsafeOperation = diag.UnsafeForeignGlobal
 )
 
 // requireUnsafe reports the permission diagnostic when operation is written

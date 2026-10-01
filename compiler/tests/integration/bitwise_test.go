@@ -167,7 +167,7 @@ func TestBitCastDiagnostics(t *testing.T) {
 }
 
 func TestEndianByteConversion(t *testing.T) {
-	result := compileSource("fun demo() do\n    let value: UInt32 = 0x01020304\n    let little: List<UInt8, 4> = value.to_le_bytes()\n    let big: List<UInt8, 4> = value.to_be_bytes()\n    let from_little: UInt32 = UInt32.from_le_bytes(little)\n    let from_big: UInt32 = UInt32.from_be_bytes(big)\n    let signed: Int16 = -2\n    let signed_little: List<UInt8, 2> = signed.to_le_bytes()\n    let signed_back: Int16 = Int16.from_le_bytes(signed_little)\nend")
+	result := compileSource("fun demo() do\n    let value: UInt32 = 0x01020304\n    let little: List<UInt8, 4> = value.to_le_bytes()\n    let big: List<UInt8, 4> = value.to_be_bytes()\n    let from_little: UInt32 = little.decode_le<UInt32>()\n    let from_big: UInt32 = big.decode_be<UInt32>()\n    let signed: Int16 = -2\n    let signed_little: List<UInt8, 2> = signed.to_le_bytes()\n    let signed_back: Int16 = signed_little.decode_le<Int16>()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -193,8 +193,9 @@ func TestEndianDiagnostics(t *testing.T) {
 		want   string
 	}{
 		{"fun demo() do\n    let count: Size = 1\n    let bad: List<UInt8, 8> = count.to_le_bytes()\nend", "to_le_bytes requires a fixed-width integer receiver; got Size"},
-		{"fun demo() do\n    let count: Size = 1\n    let bad: Size = Size.from_le_bytes([1, 2, 3, 4, 5, 6, 7, 8])\nend", "from_le_bytes and from_be_bytes require a fixed-width integer type"},
-		{"fun demo() do\n    let value: UInt32 = 1\n    let bad: UInt32 = UInt32.from_le_bytes([1, 2, 3])\nend", "expects List<Byte, 4>"},
+		{"fun demo() do\n    let bytes: List<UInt8, 8> = [1, 2, 3, 4, 5, 6, 7, 8]\n    let bad: Size = bytes.decode_le<Size>()\nend", "decode_le requires a fixed-width integer type argument; got Size"},
+		{"fun demo() do\n    let bytes: List<UInt8, 3> = [1, 2, 3]\n    let bad: UInt32 = bytes.decode_le<UInt32>()\nend", "decode_le<UInt32> requires a List<Byte, 4> receiver; got List<UInt8, 3>"},
+		{"fun demo() do\n    let bytes: List<UInt8, 4> = [1, 2, 3, 4]\n    let bad: UInt32 = bytes.decode_le()\nend", "decode_le expects exactly 1 type argument and no value arguments"},
 	} {
 		result := compileSource(testCase.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], testCase.want) {

@@ -57,7 +57,7 @@
         "fun demo(h: Heap): Int32 do",
         "    let p: Ptr\u003cmut Int32\u003e = h.allocate\u003cInt32\u003e(7)",
         "    unsafe do",
-        "        let view: Slice\u003cInt32\u003e = Slice\u003cInt32\u003e.from_pointer(p, 1)",
+        "        let view: Slice\u003cInt32\u003e = p.to_slice(1)",
         "        return view[0]",
         "    end",
         "end"
@@ -74,7 +74,7 @@
         "fun total(p: Ptr<mut Int32>, count: Size): Int32 do",
         "    let mut sum: Int32= 0",
         "    unsafe do",
-        "        let bytes: Slice\u003cInt32\u003e = Slice\u003cInt32\u003e.from_pointer(p, count)",
+        "        let bytes: Slice\u003cInt32\u003e = p.to_slice(count)",
         "        for value in bytes do",
         "            sum = sum + value",
         "        end",

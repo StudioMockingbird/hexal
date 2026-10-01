@@ -52,7 +52,7 @@ func DictKeyTypeMismatch(expected, actual string, hint TextMismatch) Message {
 	case WidenInlineText:
 		text += fmt.Sprintf("; use widen<%d>()", hint.Capacity)
 	case ConvertTextFromBytes:
-		text += "; use " + hint.Destination + ".from_bytes(...) for a checked conversion"
+		text += "; use bytes().to<" + hint.Destination + ">() for a checked conversion"
 	}
 	return message("type.dict-key-type-mismatch", CategoryType, StageChecker, text)
 }

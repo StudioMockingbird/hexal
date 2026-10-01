@@ -12,7 +12,7 @@ bytes and length come from C code.
 - A foreign function call and pointer-to-slice conversion are placed inside
   `unsafe do ... end`, because Hexal cannot prove the lifetime and bounds of
   memory owned by C.
-- `Slice<Byte>.from_pointer` views the C bytes without copying. The sample
+- `pointer.to_slice(length)` views the C bytes without copying. The sample
   then creates an owned Hexal `String`, prints it, and frees it through the
   manually managed `Heap`.
 

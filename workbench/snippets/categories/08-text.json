@@ -246,7 +246,7 @@
         "fun demo(h: Heap): Size | Error do",
         "    let bytes: List\u003cByte, 3\u003e = [b'H', b'i', b'!']",
         "    let view: Slice\u003cByte\u003e = bytes.slice(0, 3)",
-        "    let text: String= try String.from_bytes(h, view)",
+        "    let text: String= try view.to<String>(h)",
         "    defer text.free(h)",
         "    return text.length()",
         "end"

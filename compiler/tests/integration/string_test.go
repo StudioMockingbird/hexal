@@ -89,12 +89,12 @@ func TestStringOwningLifecycle(t *testing.T) {
 	}
 }
 
-func TestStringFromBytes(t *testing.T) {
-	result := compileSource("fun demo(h: Heap): Int32 | Error do\n    let text: String = \"abc\"\n    let raw: Slice<UInt8> = text.bytes()\n    let copy: String = try String.from_bytes(h, raw)\n    copy.free(h)\n    return 0\nend")
+func TestBytesToString(t *testing.T) {
+	result := compileSource("fun demo(h: Heap): Int32 | Error do\n    let text: String = \"abc\"\n    let raw: Slice<UInt8> = text.bytes()\n    let copy: String = try raw.to<String>(h)\n    copy.free(h)\n    return 0\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
-	if !strings.Contains(rootC(t, result), "hex_string_from_bytes_Error_String(hex_v_h, hex_v_raw, 4, 28)") {
+	if !strings.Contains(rootC(t, result), "hex_string_from_bytes_Error_String(hex_v_h, hex_v_raw, 4, 32)") {
 		t.Fatalf("modules/app.c = %q, want from_bytes adapter call", rootC(t, result))
 	}
 	if !strings.Contains(rootH(t, result), "hex_utf8_valid(bytes.data, bytes.length)") {
@@ -106,7 +106,7 @@ func TestStringFromBytes(t *testing.T) {
 // payload + terminator chain with ckd_add before the raw allocator sees any
 // sum, and the one shared join owns the overflow message.
 func TestStringAllocationSizeArithmetic(t *testing.T) {
-	result := compileSource("fun demo(h: Heap): Int32 | Error do\n    let text: String = \"abc\"\n    let raw: Slice<UInt8> = text.bytes()\n    let copy: String = try String.from_bytes(h, raw)\n    copy.free(h)\n    let loud: String = try text.concat(h, \"!\".bytes())\n    loud.free(h)\n    return 0\nend")
+	result := compileSource("fun demo(h: Heap): Int32 | Error do\n    let text: String = \"abc\"\n    let raw: Slice<UInt8> = text.bytes()\n    let copy: String = try raw.to<String>(h)\n    copy.free(h)\n    let loud: String = try text.concat(h, \"!\".bytes())\n    loud.free(h)\n    return 0\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -207,7 +207,7 @@ func TestStringLiteralFreeRejected(t *testing.T) {
 		"fun demo(h: Heap, source: String) do\n    source.free(h)\nend",
 		"fun make_text(): String do\n    return \"ready\"\nend\nfun demo(h: Heap) do\n    let text: String = make_text()\n    text.free(h)\nend",
 		"fun demo(h: Heap) do\n    let values: List<String> = List<String>(h)\n    values.push(\"lit\")\n    let first: String = values[0]\n    first.free(h)\nend",
-		"fun demo(h: Heap): Int32 | Error do\n    let raw: Slice<Byte> = \"hi\".bytes()\n    let text: String = try String.from_bytes(h, raw)\n    text.free(h)\n    return 0\nend",
+		"fun demo(h: Heap): Int32 | Error do\n    let raw: Slice<Byte> = \"hi\".bytes()\n    let text: String = try raw.to<String>(h)\n    text.free(h)\n    return 0\nend",
 		"fun demo(h: Heap) do\n    let text: String = String.interpolate(h, \"n={{ 1 }}\")\n    text.free(h)\nend",
 	}
 	for _, source := range accepted {
