@@ -1,8 +1,11 @@
 # RFC 0210: Web Server — Syntax and Semantics
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Design decisions approved; API and runtime qualification work remains;
-  implementation not started
+- Status: Closed. The approved public surface is implemented and recorded in
+  `docs/reference.md`: opaque Request, Writer, Router<App>, Server<App>, ordinary
+  Header and ServerConfig, `default_config`, `listen`, and the Router mount form
+  owned by RFC 0200; every Validation bullet maps to the evidence under Closure
+  record
 - Created: 2026-09-15
 - Updated: 2026-10-01
 - Depends on: RFC 0144 (Task-aware socket runtime contract) and RFC 0198 (HTTP
@@ -178,8 +181,8 @@ Timeouts use the existing Duration type, monotonic time and round-up conversion.
 | tcp_nodelay | true |
 
 Header/body deadlines bound the whole corresponding phase, not sliding per-byte
-timeouts. write_timeout bounds each response from first commitment; idle_timeout
-applies between requests. Shutdown timeout bounds grace, not forced Task destruction.
+timeouts. write_timeout bounds each write of the response, so a reader that makes
+progress is never cut off; idle_timeout applies between requests. Shutdown timeout bounds grace, not forced Task destruction.
 At the active-connection ceiling pause accepting until a slot returns; the kernel
 backlog remains bounded. Body limits count decoded payload; trailer/head bounds
 also bound chunk-extension/framing storage with incremental processing.
@@ -254,6 +257,12 @@ existing `ErrorKind` contract:
 | Broken pipe | `BrokenPipe` | `broken pipe` |
 | Address in use | `AddressInUse` | `address already in use` |
 | Permission denied | `PermissionDenied` | `permission denied` |
+
+The exact messages and the conditions a handler can observe are in `docs/reference.md`
+(`std/http`, Errors). A malformed request line, an oversized head, and a header timeout are
+answered on the wire (`400`, `431`, `408`) before any handler runs, so they are not Error
+values; the Error rows that reach a handler or a `run` caller are the body, write, reset,
+broken-pipe, address, and permission conditions.
 
 ## C23 lowering
 
@@ -419,14 +428,53 @@ changes; review artifacts by family. Run ordinary test/vet/build, focused C23 th
 short C23. Preserve exhaustive-consent policy. Record common-path cost with 0194,
 close only after Validation, rebuild hexal and restart hexal play at handoff.
 
-## Remaining readiness work
+## Pinned records
 
-No author design choices remain from the review. Before claiming implementation
-readiness, pin the private C records and deadline-cleanup protocol in 0144/0194,
-the parser snapshot/build record in 0198, and qualify required target primitives.
-The signatures, borrowed resource rules and config table above are settled.
+### Implementation map (Phase 0)
+
+| Concern | Owner |
+| --- | --- |
+| opaque handles, Header record, ServerConfig record, generic `Router<App>`/`Server<App>` interning (one C pointer type per App) | `compiler/types/http.go`, `canonical.go`, `specid.go` |
+| every default | `compiler/config/http.go`; `hex_http_default_config_raw` renders them once in `server.c` |
+| function and method signatures, selection of the server, parser, and file-server components | rows `hex_http_*` in `compiler/specdata/corelib.go`; components `ComponentHTTP`, `ComponentServer`, `ComponentFileServer` in `specdata/components.go`; parameter and result kinds in `compiler/corelib/corelib.go`; call checking in `compiler/checker/corelib.go` and `generic_templates.go` |
+| lowering of each call | `compiler/generator/corelib.go` and `corelib_results.go` (result-record adapters, `routeApplication`), `addon_adapters.go`, module templates in `generator/packages/module.h`; the handler is erased to one pointer plus a per-module invoke thunk `hex_http_router_route_invoke_<Module>` |
+| component demand | `generator/http.go` (state flags `used`, `calls`, `config`, `router`, `route`, `free`, `runtime`, `files`, `parser`; `mergeServerInto`; `moduleServerComponent`); `generator/components.go` |
+| native owner of every operation | `compiler/corelib/runtime/server.c` and `server.h`; parsing in `http.c`; static files in `fileserver.c` |
+| declaration order | `Header` follows the byte slice it holds (`generator/slices.go`, `packages/slice.h`); every module header includes `hexal/server.h` before use |
+
+Router and server lifetimes: a server attaches its router at `listen` and detaches at
+`server.free`; the router refuses `route` and `mount` with `Busy` and traps in `free`
+while attached. `Request` and `Writer` are two views of one exchange record embedded in
+the connection and reset per request, so a copied `Writer` shares one response and neither
+outlives the handler call.
+
+One grammar consequence: `method` is a keyword, so the member name `method` is admitted
+after `.` (`GRAMMAR.ebnf`, `compiler/parser/expressions.go`) for `request.method()`, without
+making `method` a valid identifier elsewhere.
+
+## Closure record
+
+| Validation bullet | Evidence |
+| --- | --- |
+| entry-module example compiles and runs; `run` returns `Nil` on stop and `Error` on failure without leaks | ordinary `TestHttpEntryModuleServerCompiles` (the example above, verbatim); workbench snippet `networking-http-server`; `http-server-lifecycle-and-state-runs`, `http-server-shutdown-and-admission-runs` |
+| opaque Request, Writer, Server, Router | ordinary `TestHttpRejectsInvalidServerUse` ("opaque request cannot be built"), `TestHttpTypeOnlyUseSelectsNoServerRuntime` |
+| case-insensitive first-field lookup; ordered duplicates; Set-Cookie separate | wire cases "pipelined" and "cookies" in `http-server-routing-and-framing-runs` |
+| byte-oriented single-consumption body; multiple bounded writes finalized by return | wire cases "content-length body", "chunked body", "expect continue" (reads); "chunked streaming", "declared length streaming" (writes) |
+| every default equals the constant; overrides reach the backend | `TestHttpConfigDefaultsComeFromConfiguration`; overrides exercised by `http-server-phase-deadlines-run` and `http-server-shutdown-and-admission-runs`; `tcp_nodelay` reaches the backend as a generated-text assertion only, no fixture observes the socket option |
+| method set, case, duplicates, mutation while attached | `http-router-registration-runs`; lifecycle case "route while attached" |
+| exact match; 404; 405 with sorted `Allow` | wire cases "simple", "unknown path", "method not allowed" |
+| only the default backend is selected; no `serve_with` or Response form | `TestHttpRejectsInvalidServerUse` ("a handler returns Nil | Error"); reference lists no such API |
+| handler error details absent from the 500 | wire case "handler error" |
+| context-bearing handler reaches initialized state; shared mutation follows synchronization rules | lifecycle case "hits seen by the application"; `TestAggregatesHoldingAnAtomicAreNotConst` |
+| exact acceptance and rejection tests; working stateful example | `compiler/tests/integration/http_test.go` and `http_files_test.go`; the snippet above |
+| ownership table; no unproven lifetime claimed | reference ("Request and Writer are valid for one handler call"); RFC 0194 pinned records |
+| no second status line after commitment | wire cases "handler error" after a write, "length shortfall", "length overrun", "writer misuse" |
+| raw paths, method case, duplicate routes, mount precedence, limits, stream close | routing fixture; mounts in `TestFileServerServesAndContains` |
+| existing TCP, IO, Task, Channel behavior unchanged | `network-*`, `task-*`, `channel-*` fixtures in the focused and short runs |
+| ordinary gates, focused C23, short C23 | recorded in the implementing change |
 
 ## Reference synchronization
 
-Implementation updates `docs/reference.md` after HTTP behavior stabilizes and
-before this RFC is marked implemented or closed.
+Implementation updated `docs/reference.md` (`std/http`: signatures, handles, configuration
+table, routing, lifecycle, deadlines, request rejection, request body, response, errors,
+static files, components) after behavior stabilized; the closed decisions above agree with it.

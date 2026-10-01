@@ -1,10 +1,12 @@
 # RFC 0144: High-Throughput Network Runtime
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Implementation in progress; Phases 0-2 landed (deadline-bearing read and
-  write, close-cancel of parked read/accept/write on the existing event bridge);
-  deadline orderings are validated through the RFC 0194 server fixtures, and
-  Phase 3 qualification and the Measurement contract baseline remain
+- Status: Closed. Phases 0-5 landed: deadline-bearing read and write and
+  close-cancel of parked read, accept, and write on the existing event bridge;
+  an accept defect that stalled every connection after a burst, found by the
+  baseline and fixed; qualification on `x86_64-windows-gnu-ucrt` and
+  `x86_64-linux-gnu`; and the named baseline recorded below. Scheduler,
+  context, and stack-allocation changes were not needed and are not made
 - Created: 2026-09-07
 - Updated: 2026-10-01
 - Scope: Task-aware socket and timer operations built on the libuv foundation
@@ -450,6 +452,7 @@ they are not unfinished mandatory phases of this first implementation.
 | deadline-bearing read and write | `hex_tcp_read_until`, `hex_tcp_write_until` | new; the public `hex_tcp_read`, `hex_tcp_write` call them with deadline 0 |
 | close of a parked operation | `hex_tcp_begin_close` | new; replaces a close that left a parked read or accept waiting forever |
 | accept deadline | none | not added: the server stops accepting by closing the listener, and no configured timeout bounds accept |
+| accept | `hex_tcp_accept` | changed: accept is a loop-thread command that returns the connection in its request record; the listener holds `pending_client`, `accept_declined`, and `spare_client` (see Transitions) |
 
 Before this change a parked read or accept never woke when another Task closed its
 handle, because libuv delivers no read or connection callback after `uv_close`;
@@ -503,8 +506,26 @@ Write (one `uv_write_t` per chunk; the deadline is shared by all chunks):
 A later explicit close of a connection closed by a write deadline finds
 `CLOSING` (waits for the close callbacks) or `CLOSED` (returns at once).
 
-Accept: a close of the listener wakes the parked accept with no pending client,
-which returns `Closed`; accept start with `state != OPEN` does the same.
+Accept (loop thread; every accept is a command, so the Task never reads listener
+state): the request record carries the accepted connection, `client`, set before the
+one wake. The listener holds at most one unclaimed connection, `pending_client`.
+
+| Event | Action | Result |
+| --- | --- | --- |
+| connection arrives, an accept is parked | `uv_accept` into the spare or a new socket, store it in the parked record, wake | the connection |
+| connection arrives, no accept parked, slot free | `uv_accept`, store in `pending_client` | held for the next accept |
+| connection arrives, slot occupied | leave it in libuv, set `accept_declined` | held by libuv: the Linux backend stops watching the listener, the Windows backend queues it |
+| accept starts, `pending_client` set | hand it to the record, then try `uv_accept` again if `accept_declined`, wake | the connection |
+| accept starts, nothing pending | park | woken by an arrival |
+| a retry finds nothing | clear `accept_declined`, keep the unconnected spare socket for the next attempt | no allocation per probe |
+| listener closes | wake the parked accept with no connection; close the spare and any unclaimed pending connection, all on the loop thread | `Closed` |
+
+A start with `state != OPEN` wakes with no connection and returns `Closed`. The retry on
+every accept that frees the slot is what keeps a burst of connections moving: before it,
+a second connection arriving while the first was unclaimed was never accepted, because
+libuv delivers no further callback until the held connection is taken. Fixture
+`network-accept-burst-completes-every-accept-runs` connects four clients before the first
+accept and requires four accepts.
 
 Close: `CLOSED` wakes the closer immediately, `CLOSING` registers it, `OPEN`
 registers it and begins the close. The closer wakes only after every native handle
@@ -516,6 +537,7 @@ every parked request record outlive all native access to them.
 | Row | Fixture |
 | --- | --- |
 | close wakes a parked read, accept, and write with Closed | `network-close-cancels-parked-operations-runs` |
+| a burst of connections before the first accept: every accept completes | `network-accept-burst-completes-every-accept-runs` |
 | existing TCP and Task behavior unchanged | `network-tcp-loopback-runs`, `network-tcp-loopback-stress-runs`, `inline-address-*`, `task-*`, `channel-*`, `mutex-*` |
 | deadline winners | RFC 0194 server fixtures (header, body, idle read deadline; write deadline) |
 
@@ -552,7 +574,7 @@ fixtures; this draft does not authorize inventing those contracts mid-implementa
 - Ordinary gates and bounded focused plus short C23 gates pass; exhaustive C23
   execution requires separate user consent.
 
-## Approved direction and remaining readiness work
+## Approved direction
 
 Use the existing single reactor, ordinary M:N Tasks and current scheduler as the
 measured baseline. No thread-per-core rewrite, custom assembly, smaller stack class
@@ -567,20 +589,138 @@ The loop thread owns timer arm/disarm and terminal native-operation cleanup.
 No raw worker-thread libuv operations. Protocol timeout values belong to 0210.
 
 The benchmark contract names echo, keep-alive plaintext, streaming/slow clients
-and churn; host/load/variance are recorded before interpreting results. Pin concrete
-deadline request records and target cleanup transitions before implementation.
-These are remaining engineering/qualification gates, not reopened author choices.
+and churn; host/load/variance are recorded before interpreting results. The deadline
+request records and cleanup transitions are pinned under Pinned records, and the
+engineering and qualification gates are closed under Closure record.
 
-## Implementation readiness
+## Closure record
 
-This umbrella RFC is not implementation-ready. It records the target
-architecture, constraints, risks, staging, and measurement discipline. The
-first HTTP server milestone is gated by this RFC's Task-aware runtime contract
-and adapter, plus the contracts in RFCs 0198, 0210, and 0194. RFC 0145 is
-the required libuv foundation. Scheduler optimizations are not prerequisites
-unless measurement or target qualification establishes a need.
+| Validation bullet | Evidence |
+| --- | --- |
+| existing TCP and timer behavior reused, no second loop or wait protocol | Implementation map: the event bridge, `hex_event_submit`, and the shared arm and wake protocol are unchanged in shape |
+| networking selected only on network demand | ordinary tests `TestHttpTypeOnlyAndRegistrationDoNotSelectTheServerRuntime` and the demand rules of the HTTP surface |
+| completion-before-park and park-before-completion resume once; close and deadline races keep native-accessible buffers and wait records alive to the final acknowledgment | the transition tables above (each row wakes exactly once; the Task resumes only after the last close callback); fixtures `network-close-cancels-parked-operations-runs`, `http-server-phase-deadlines-run`, `http-server-shutdown-and-admission-runs`, and the repeated qualification below |
+| each allowed first-winner ordering: no duplicate ready publication, no stale callback on a resumed frame | read: completion, deadline, close; write: completion, deadline, close; accept: arrival, close. The orderings are forced by the fixtures above. A completion landing within the same loop iteration as a deadline cannot be scheduled from a test; the table fixes the winner by loop-thread order, and the repeated runs below sampled the interleavings |
+| reactor callbacks never run handlers; socket waiting uses no blocking-pool job | handlers run on connection Tasks; ordinary test `TestHttpServerSocketWaitsUseNoWorkerPoolJob`; the thread count in the baseline is constant from zero to 10,000 parked connections |
+| qualified context backends keep stack guards and root affinity; migration qualified or restricted | the existing scheduler contract is unchanged; both qualified hosts run the focused set below |
+| the named baseline recorded without unsupported syscall or speed claims | Qualification and measurement record |
+| ordinary gates, focused and short C23 | recorded in the implementing change |
+
+## Qualification and measurement record
+
+### Qualification (Phase 3)
+
+Qualified: `x86_64-windows-gnu-ucrt` (Windows 11 Home, Clang) and `x86_64-linux-gnu` (WSL2
+Linux 6.18, glibc, Clang 23.1.1). No other target profile was run: AArch64, musl, RISC-V and
+macOS are unqualified, not implied.
+
+Repeated first-winner and park/wake orderings: the focused HTTP and network fixtures
+(`-run '^(TestC23Suite)$/^(http-.*|network-.*)$'`, which includes the close-cancel, deadline,
+shutdown, and accept-burst fixtures) were run five times in one invocation on each host
+(`-count=5`; Windows with `-parallel=8`), and the two file-server tests three times on each,
+all passing. A park or close that raced its completion would have to surface as a hang past
+the ten-second process bound or as wrong output; none did. This samples interleavings; it
+does not enumerate them.
+
+### Baseline (Phase 5)
+
+Method. Release builds (`hexal build -mode release`, `-O2`), the default server
+configuration unless noted, and a Go closed-loop load generator on the same host, so client and
+server share the cores and the client's CPU is not measured. Each workload: one 1 s warm-up,
+then five runs of 5 s with 64 connections; the tables give the median and the range of the five.
+Latency is per request (per 16-request write for the pipelined workload). CPU is the server
+process's user plus system time over the measured window. The load generator and the server
+programs were scratch programs and are not part of the repository: the servers are one route
+returning `hello` (fixed), one route reading the `User-Agent` header and formatting a body with
+`String.interpolate` (dynamic), a TCP echo over `std/net`, and a mount of a directory
+(static); the generator speaks plain HTTP/1.1 over TCP. The numbers describe these hosts and
+this client; they are a baseline for later change, not a ranking, and no other server was
+measured.
+
+Hosts. Linux: WSL2 (kernel 6.18, x86_64), glibc, Clang 23.1.1. Windows: Windows 11 Home build
+26300, Clang 23.1.2, target `x86_64-windows-gnu-ucrt`. Both on one AMD Ryzen 5 7530U (12
+logical CPUs), Linux guest limited to 7.4 GiB, Windows host 15.4 GiB.
+
+Linux (WSL2), 64 connections, median (range) of five runs. CPU is for the 5 s window; a value
+of 10 s is two cores busy. Threads include the scheduler workers and the loop thread (13), plus
+four filesystem workers once a file is served (17).
+
+| Workload | Requests/s | p50 | p95 | p99 | Max | Server CPU | RSS | Failures |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| HTTP/1.1 keep-alive, fixed response | 7,571 (6,394-8,090) | 8.2 ms | 13.0 ms | 16.5 ms | 140-264 ms | 10.2 s | 35-39 MiB | 0 |
+| keep-alive, dynamic route (header read, formatted body) | 7,662 (7,159-8,082) | 8.1 ms | 13.1 ms | 17.3 ms | 141-285 ms | 10.3 s | 37 MiB | 0 |
+| pipelined, 16 requests per write (latency per write) | 12,508 (11,136-13,090) | 79.8 ms | 103.0 ms | 112.2 ms | 233-322 ms | 10.3 s | 34-38 MiB | 0 |
+| one request per connection | 2,135 (2,105-2,272) | 28.9 ms | 35.5 ms | 39.2 ms | 38-52 ms | 8.5 s | 32 MiB | 0 |
+| TCP echo, 64-byte payload | 8,817 (8,504-9,936) | 7.1 ms | 10.1 ms | 13.5 ms | 105-146 ms | 9.2 s | 13 MiB | 0 |
+| TCP echo, 1 KiB payload | 9,446 (8,783-9,711) | 6.7 ms | 9.1 ms | 11.2 ms | 91-117 ms | 9.3 s | 13 MiB | 0 |
+
+Windows 11, 64 connections, median (range) of five runs unless noted. Latencies below about
+0.5 ms are quantized by the Go client's clock on Windows and are not reported. Threads: 19.
+
+| Workload | Requests/s | p50 | p95 | p99 | Max | Server CPU | RSS | Failures |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| HTTP/1.1 keep-alive, fixed response | 26,197 (25,358-26,755) | 2.3 ms | 3.6 ms | 4.6 ms | 40-45 ms | 10.6 s | 15-16 MiB | 0 |
+| keep-alive, dynamic route | 26,184 (24,198-27,025) | 2.4 ms | 3.4 ms | 4.4 ms | 36-41 ms | 10.8 s | 15 MiB | 0 |
+| pipelined, 16 requests per write | 29,286 (24,279-33,484) | 35.4 ms | 52.6 ms | 65.3 ms | 70-98 ms | 9.7 s | 15 MiB | 0 |
+| one request per connection (one 3 s run) | 3,868 | 8.0 ms | 11.3 ms | 14.0 ms | 3.0 s | 3.7 s | 11 MiB | 0 |
+| TCP echo, 64-byte payload | 28,816 (22,753-29,520) | 1.9 ms | 3.3 ms | 4.8 ms | 60-94 ms | 8.5 s | 10-11 MiB | 0 |
+| TCP echo, 1 KiB payload | 26,880 (16,805-33,894) | - | - | 0.6 ms | 21-410 ms | 7.1 s | 10-11 MiB | 0 |
+
+The one-request-per-connection row is a single run: that workload opens thousands of
+connections a second, and repeated runs exhausted the host's 16,384 dynamic TCP ports
+(TIME_WAIT sockets), after which the client's own connects failed. Its 3.0 s maximum is one
+connect retried by the host. The Linux client and server share the WSL2 guest's CPUs and
+the figures are not comparable with Windows': both are baselines for later change.
+
+An idle server (no connections) used about 0.2% of a core over 10 s (20 ms of CPU, Linux).
+
+Per-request cost, Linux, steady state (20,000 requests on one keep-alive connection after 500
+warm-up requests; counted by compiling the generated runtime with the allocator and libuv
+entry points renamed to counting shims, so libuv's own allocations are included):
+
+| Workload | Allocations | Loop-thread submissions | `uv_write` | `uv_read_start` / `stop` | `uv_timer_start` |
+| --- | --- | --- | --- | --- | --- |
+| keep-alive, fixed route | 0.00 | 2.00 | 1.00 | 1.00 / 1.00 | 2.00 |
+| keep-alive, dynamic route | 1.00 (53.5 B, the handler's own `String.interpolate`) | 2.00 | 1.00 | 1.00 / 1.00 | 2.00 |
+| pipelined, 16 per write, fixed | 0.00 | 1.06 | 1.00 | 0.06 / 0.06 | 1.06 |
+| one request per connection, fixed | 11.00 (156,274 B, all freed) | 6.00 | 1.00 | 1.00 / 1.00 | 2.00 |
+
+A loop-thread submission is one `uv_async_send` by `hex_event_submit`. The two per keep-alive
+request are the read and the write; each response is one `uv_write` (no gathering), so
+pipelining shares only the reads. The zero is a measurement of this route, not a claim about
+other handlers or other configurations. Copies, from reading `server.c` rather than from a
+counter: the parser packs the request head once into head storage; a decoded body is copied
+once into the caller's list; a response's header lines are copied into the output buffer's head
+region and moved once more when the final head is assembled right-aligned, and the body is
+copied once into the body region; the output buffer is then written in one call.
+
+Parked connections (one request each, then idle; resident growth over the empty server):
+
+| Host | 1,000 | 10,000 | Threads |
+| --- | --- | --- | --- |
+| Linux (resident set) | +176-180 MiB (180-184 KiB each) | +1,707 MiB (175 KiB each) | 13, unchanged |
+| Windows (working set) | +36 MiB (37 KiB each) | +352 MiB (36 KiB each) | 19, unchanged |
+
+The two hosts report different counters (resident set, working set) and the figures were not
+reconciled; the configured storage per connection is about 150 KiB (RFC 0194). The server was
+configured for 20,000 connections for this row (the default ceiling is 4,096). 100,000
+connections were not attempted.
+
+Slow clients, 1,000 connections holding half a request head beside 64 fast connections: Linux
+7,828 req/s (p99 17.3 ms) against 8,319 (13.7 ms) alone; Windows 21,569 req/s (p99 5.1 ms)
+against 31,259 (3.4 ms) alone. Every slow connection was answered `408` and closed by the
+header deadline; resident memory did not shrink afterward (Linux 193 to 201 MiB, Windows 39 to
+63 MiB) within the observation.
+
+Not measured: the runtime microbenchmarks (Task spawn and join, context switch, park and wake
+latency, queue throughput), worker scaling, and any comparison with other servers; none is
+claimed. Cost per request on this baseline is 260 to 270 microseconds of server CPU on Linux
+(WSL2) at one connection (97% of a core at 3,671 req/s) and at 64 (10.2 s for about 37,900
+requests); the follow-ups the Follow-up ownership section names
+(batching, vectored writes, scheduler changes) remain conditional on a measurement that
+shows a bottleneck, and this record does not select one.
 
 ## Reference synchronization
 
-This architecture RFC defines no public source syntax. Implemented follow-ups
-update `docs/reference.md` for their stabilized public contracts before closure.
+This architecture RFC defines no public source syntax. The public contracts of its
+follow-ups are in `docs/reference.md` (`std/net`, `std/http`).

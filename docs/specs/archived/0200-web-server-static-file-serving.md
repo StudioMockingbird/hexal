@@ -1,8 +1,12 @@
 # RFC 0200: Web Server — Static File Serving
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Design approved; subsequent safe buffered-file milestone;
-  containment qualification remains before implementation
+- Status: Closed. `Http.FileServer`, `serve_file`, `serve_directory`, and
+  `Router.mount` are implemented with handle-relative no-follow containment on
+  the two qualified profiles (`x86_64-linux-gnu`, `x86_64-windows-gnu-ucrt`),
+  bounded buffered transfer, and the single-range and conditional policy below;
+  every Validation bullet maps to the evidence under Closure record. Other
+  profiles are unqualified, not implied
 - Created: 2026-09-15
 - Updated: 2026-10-01
 - Depends on: RFC 0144 (Task-aware socket runtime), RFC 0194 (web server
@@ -79,7 +83,8 @@ paths -> 403; missing files -> 404. No physical path enters the response.
 fun mime_type(path: String) -> String
 ```
 
-- Returns the MIME type based on file extension.
+- Returns the MIME type based on file extension. This is the native lookup behind
+  `Content-Type`; it is not exported as std/http API.
 - Default: `application/octet-stream`.
 - Common types:
 
@@ -309,15 +314,120 @@ manifest movement, sync reference once, close only after Validation and target
 qualification, then rebuild hexal/restart hexal play. Glob/cache/watch extensions
 and zero-copy cannot be smuggled into this phase.
 
-## Remaining readiness work
+## Pinned records
 
-No author scope choices remain. Pin/qualify handle-relative no-symlink traversal
-for each supported target before implementation; path canonicalization followed
-by open is not an acceptable substitute. Optimized transfer and cache extensions
-are deferred and do not gate buffered serving.
+### Containment record (Phase 0)
+
+Owner: `compiler/corelib/runtime/fileserver.c` and `fileserver.h`.
+
+- The FileServer record holds the retained root handle, copied `index` and
+  `cache_control` bytes, the dotfile flag, and `mounted`, an atomic count of routers
+  that mount it. `free` traps while `mounted` is nonzero; `Router.free` detaches.
+- Root: POSIX `lstat` rejects a symbolic link, then `open(O_RDONLY | O_DIRECTORY |
+  O_NOFOLLOW | O_CLOEXEC)` retains the descriptor (the flag closes the gap between the
+  two calls). Windows opens the directory with `CreateFileW(FILE_FLAG_BACKUP_SEMANTICS |
+  FILE_FLAG_OPEN_REPARSE_POINT)` and share mode read, write, and delete, and rejects a
+  handle whose attributes carry the reparse-point bit. The share mode lets the root be
+  renamed while retained.
+- Lookup: the path is decoded once into slash-separated components. On a filesystem worker
+  (`hex_event_work_call`; the Task parks, no scheduler worker blocks) each component is
+  opened beneath the previous handle. POSIX `openat(parent, name, O_RDONLY | O_NOFOLLOW |
+  O_CLOEXEC | O_NONBLOCK)`, never `O_DIRECTORY`, so a link fails with `ELOOP` (`403`) and a
+  FIFO cannot block the open; `fstat` on the opened descriptor then accepts directories
+  (continue) and regular files (end of walk) and refuses other types. Windows `NtCreateFile`
+  with `RootDirectory` set to the parent handle and `FILE_OPEN_REPARSE_POINT`, then
+  `GetFileInformationByHandle`: a reparse point is `403`; a component containing `:` is
+  refused before any open. A directory result opens the index file the same way.
+- Metadata (size, modification seconds) comes from the opened handle, and the transfer
+  reads that handle with explicit offsets (`pread`, `ReadFile` with an `OVERLAPPED`
+  offset) in `HEX_FILES_CHUNK`-sized pieces on the worker pool. The handle is closed once,
+  on every path out of `hex_files_serve`.
+- No `realpath`, canonicalization, or prefix comparison exists. An unavailable primitive is
+  a build failure of the target, not a fallback: each platform branch is the handle-relative
+  one.
+
+### Policies the design left to the implementation
+
+- `400`: malformed or truncated `%` escape, encoded `/`, `\`, or NUL, raw `\` or NUL, query
+  or fragment byte. `403`: `.` or `..` component, hidden component, link or reparse point,
+  Windows `:`. `404`: missing, directory without index, `serve_file` on a directory.
+  `405` with `Allow: GET, HEAD`.
+- Ranges: one `bytes=first-last`, `first-`, or `-suffix`; a number too large for the size
+  saturates, so a start that large is unsatisfiable (`416`) and a suffix that large selects
+  the whole file (`206`). `HEAD` ignores `Range`. The `416` response carries `Content-Range:
+  bytes */size` and a short `text/plain` body.
+- `If-None-Match` matches `*` and compares weakly; `If-Modified-Since` accepts only the exact
+  IMF-fixdate (the date parser formats its result back and compares), so a wrong weekday
+  or a day past the month's end is ignored.
+- `Content-Type` follows the opened file's name, the index file's name for a directory
+  result. An empty `index` disables index files.
+
+### Qualification
+
+`TestFileServerServesAndContains` and `TestFileServerBoundedTransfer` pass on
+`x86_64-windows-gnu-ucrt` (Windows 11, Clang) and `x86_64-linux-gnu` (WSL2 Linux 6.18,
+glibc, Clang 23.1.1). Host-specific cases: a directory junction (Windows) or symlink (Linux)
+escaping the root is `403`; a colon in a component is `403` on Windows and an ordinary name on
+Linux; the Linux transfer test lists `/proc/<pid>/fd` after every transfer and requires no
+descriptor on a served file and exactly the retained root. An unprivileged Windows file
+symlink cannot be created, so only the directory form is exercised there; the reparse
+attribute check applies to both. No other target is qualified.
+
+Two properties are demonstrated indirectly because a test cannot force them. A component
+swapped for a link between the walk's `openat` calls cannot be scheduled from outside; the
+design removes the window instead (each component is opened relative to the previous handle,
+so nothing is looked up by name twice), and the root-rename handshake shows the retained
+handle serves the original directory after its pathname is replaced by a link elsewhere. A
+Windows handle leak is not enumerated; the single close in `hex_files_serve` is read by
+inspection, and the same test removes and truncates files while a transfer holds them open.
+
+## Closure record
+
+| Validation bullet | Evidence (`http_files.stdout` unless named) |
+| --- | --- |
+| valid root succeeds; missing root errors | "valid root: ok", "missing root: not found" (and file, link, index, cache-control inputs) |
+| `Content-Type` for the listed extensions, `octet-stream` for unknown | the `mime` cases: every listed extension, an uppercase extension, an unknown extension, no extension, an extension only in a directory name |
+| `Content-Length` equals the file size; zero-length files | "full response", "digits", "zero-length file", "head zero-length file" |
+| `404` for a missing file; `403` for a hidden file with `dotfiles = false`; hidden directory | "missing file", "dotfile refused", "dotfile directory refused"; enabled: "dotfile served when enabled" |
+| `serve_directory` serves `index.html`, `404` without one | "serve_directory", "mount root", "serve_directory without index", "mount directory without index" |
+| `206` with `Content-Range`; `416` with `bytes */size`; malformed, unknown-unit, multi-range ignored | the `range` cases |
+| `If-Modified-Since` and `If-None-Match` `304`; non-matching `200`; weak comparison; precedence; weak ETag spelling | the `none-match` and `modified-since` cases |
+| `..` traversal and symlink or junction escape `403` | "dot dot segment", "encoded dot dot", "mixed dot dot", "dot segment", "directory link escape", "directory link itself" |
+| sibling path with the root's textual prefix; NUL, alternate stream, escaping separators | "dot dot to the sibling with the root prefix", "encoded NUL", "alternate data stream" (Windows `403`, Linux ordinary name), "encoded slash", "encoded backslash", "raw backslash in a handler path" |
+| containment valid after the pathname or symlink state changes | "root retained after the pathname changed", "swapped tree is not reachable", "swapped link is not followed" |
+| bounded buffered transfer, partial progress, cleanup; no `sendfile` or `TransmitFile` selected | `http_files_transfer.stdout` ("whole file", "middle of the file") and the descriptor check; ordinary `TestHttpFileServerSurfaceCompilesAndSelectsOnlyBufferedTransfer` |
+| disappearance, truncation, slow reader, close or deadline during transfer | "removed while transferring" (completes), "truncated while transferring" (ends short), "stalled reader" (closed by the write deadline), "early reader" (departs), each followed by "served after every reader" |
+| mount boundaries, nested and exact precedence, cache-control selection | "sibling prefix is not a mount", "prefix extension is not a mount", "nested mount longest prefix", "outer mount keeps its own directory", "exact route over mount", the `cache control` cases; mount rejections and `Busy` after listen |
+| metadata comes from the transmitted handle | one `fstat` or `GetFileInformationByHandle` on the opened handle fills size and time; the same handle is read |
+| existing Task, Channel, IO, TCP behavior unchanged | `task-*`, `channel-*`, `network-*` fixtures in the focused and short runs |
+| ordinary gates, focused C23, short C23 | recorded in the implementing change |
+
+## Measurement record
+
+Method and hosts are in RFC 0144's baseline (release build, default configuration, a Go
+closed-loop client on the same host, five runs of 5 s, median and range). The mount serves a
+directory with `Cache-Control` set and no conditional headers.
+
+| Host | Workload | Requests/s | p50 | p95 | p99 | Max | Server CPU (5 s) | RSS | Threads |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Linux | 1 KiB file, 64 connections | 3,753 (3,588-3,943) | 16.8 ms | 22.5 ms | 25.9 ms | 166-287 ms | 10.0 s | 37 MiB | 17 |
+| Linux | 1 MiB file, 16 connections | 295 (269-307), about 295 MiB/s | 53.2 ms | 63.9 ms | 74.8 ms | 77-123 ms | 9.1 s | 33-35 MiB | 17 |
+| Windows | 1 KiB file, 64 connections | 10,567 (9,874-11,887) | 5.4 ms | 9.7 ms | 12.6 ms | 28-38 ms | 19.9 s | 15-16 MiB | 23 |
+| Windows | 1 MiB file, 16 connections | 937 (666-951), about 937 MiB/s | 17.8 ms | 21.3 ms | 24.6 ms | 27-81 ms | 13.1 s | 17-18 MiB | 23 |
+
+For comparison on the same hosts the fixed route served 7,571 req/s (Linux) and 26,197 req/s
+(Windows) at 64 connections.
+
+Memory stayed flat while serving: a 1 MiB body moves through one 64 KiB buffer per active
+transfer, so 16 concurrent 1 MiB transfers added a few MiB of resident memory over the fixed
+route's figures, and four more threads appeared (the filesystem worker pool: 17 against 13).
+The slow-reader results are the transfer fixture's, not rates: a reader that stops reading a 32
+MiB file is closed by the 300 ms write deadline having received only the bytes the socket
+buffers could hold, and the server serves the next request. No comparison with another server
+or with an optimized transfer path was made, and none is claimed.
 
 ## Reference synchronization
 
-This draft changes no canonical reference contract. Implementation updates
-`docs/reference.md` after approved behavior stabilizes and before closure,
-under the repository's normal implementation authorization.
+Implementation added the static-file rules to `docs/reference.md` (`std/http`: Static files,
+Mounts, Serving, Containment, Representation, Conditional and range requests, Transfer,
+Components). The rules above agree with it.

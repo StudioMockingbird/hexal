@@ -191,6 +191,27 @@ func TestHttpServerSocketWaitsUseNoWorkerPoolJob(t *testing.T) {
 	}
 }
 
+// The entry-module server: no source main, root-level try and defer, an
+// application context reached through Ptr.
+func TestHttpEntryModuleServerCompiles(t *testing.T) {
+	source := "import\n    Http from std.http\nend\n\n" +
+		"type App is struct\n    greeting: String<32>\nend\n\n" +
+		"fun home(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do\n" +
+		"    try response.content_length((^app).greeting.bytes().length())\n" +
+		"    try response.write((^app).greeting.bytes())\n" +
+		"    return nil\nend\n\n" +
+		"let heap = Heap()\n" +
+		"let app = App(greeting = \"Hello, world!\")\n" +
+		"let mut router = Http.Router<App>(heap)\n" +
+		"defer router.free(heap)\n" +
+		"try router.route(\"GET\", \"/\", home)\n" +
+		"let config = Http.default_config(\"127.0.0.1\", 8080)\n" +
+		"let server = try Http.listen<App>(heap, config, router, @app)\n" +
+		"defer server.free(heap)\n" +
+		"try server.run()\n"
+	assertCompiles(t, source)
+}
+
 func TestHttpRequestAndWriterOperationsAcceptTheApprovedSignatures(t *testing.T) {
 	source := "import\n    Http from std.http\nend\n" +
 		"type App is struct\n    hits: Int32\nend\n" +

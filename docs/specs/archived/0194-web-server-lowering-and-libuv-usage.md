@@ -1,8 +1,10 @@
 # RFC 0194: Web Server — Lowering over the Task-Aware Network Runtime
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion; active design for the default HTTP backend;
-  implementation not started
+- Status: Closed. The default HTTP backend is implemented over the Task-aware TCP
+  runtime: one Task per connection, bounded storage, absolute phase deadlines,
+  graceful stop, and the baseline recorded below; every Validation bullet maps to
+  the evidence under Closure record
 - Created: 2026-09-15
 - Updated: 2026-10-01
 - Depends on: RFC 0144 (Task-aware socket runtime contract and adapter), RFC
@@ -86,7 +88,7 @@ superseded by RFC 0198 and must not be implemented.
 ### Request body streams
 
 The request body is not accumulated into one `String`. The backend exposes a
-one-shot byte stream on `Request.body`:
+one-shot byte stream through `Request.read` (the public form in `docs/reference.md`):
 
 - `Content-Length` bounds the stream to exactly the declared number of octets.
 - `Transfer-Encoding: chunked` is decoded incrementally; trailer fields are
@@ -335,14 +337,127 @@ then short C23 with repository platform parallelism. Update the stabilized publi
 reference once with 0210; remove status work only when Validation is satisfied.
 No exhaustive C23 run without consent. Rebuild hexal and restart hexal play.
 
-## Remaining readiness work
+## Pinned records
 
-Design choices are settled by 0210. Pin concrete connection/C record layout,
-state transitions, deadline integration and resource owners before implementation.
-Start with one explicit Task.yield after each reusable response; batching is a
-measured follow-up, not an assumed optimum. The fairness baseline is conservative.
+Owner: `compiler/corelib/runtime/server.c` (connection and server), consuming the
+deadline operations of `packages/network.c` and the parser ABI of `http.h`.
+
+### Ownership (Phase 0)
+
+| Record | Allocated by | Used by | Released by |
+| --- | --- | --- | --- |
+| server state: configuration copy (host dropped), router and application pointers, listener handle, `lock`, `done` channel, `phase`, `stopping`, `listener_closed`, `active`, connection list, first failure | `listen` | `run`, `stop`, `wait`, connection Tasks, all under `lock` except the `stopping` atomic | `server.free`, which traps while `phase` is running |
+| router attachment (`attached` count) | `listen` increments | the router refuses `route`, `mount`, and `free` while nonzero | `server.free` decrements |
+| listener handle | `listen` | the accept loop | closed once by whichever of `stop`, the end of `run`, or `free` reaches it first (`listener_closed`) |
+| connection record: receive buffer, output buffer, head bytes, head fields, Header view, parser state, exchange | the accept loop (`hex_http_connection_new`), all sized from the validated configuration, so no request path allocates | its connection Task only | that Task, after unlinking the record from the list and before returning the `active` slot, so `run` finishing means no connection memory remains |
+| connection TCP handle | `accept` | its Task | closed once by the Task (`hex_http_close`) or earlier by shutdown; a second close sees a stale handle and returns `Closed` |
+| exchange (the `Request` and `Writer` views) | embedded in the connection | one handler call | reset before each request |
+| `active` slot | incremented by the accept loop before the Task is spawned | the limit check | decremented last by the Task |
+
+### State machine (Phase 0)
+
+One connection Task moves through: **accepted** (storage built, registered, `TCP_NODELAY`
+set, Task spawned and detached) -> **reading-head** (`idle` set until the first byte;
+`idle_timeout` then `header_timeout` from the first byte) -> **dispatching** (the parser
+is paused at head completion; exact route, then mount, then `404` or `405`) ->
+**reading-body** (only if the handler reads; `body_timeout` from the first read,
+`100 Continue` on that first read) -> **writing** (the first flush commits the response;
+each write carries `write_timeout`) -> **reusable** (response complete, keep-alive, body
+fully consumed: `parser_next`, one `Task.yield`, back to reading-head) or **closing**
+(shutdown, a bounded drain read when a body was left unread and no write failed, close) ->
+**quiescent** (unlink, free, return the slot, complete the Task).
+
+Every error exit: end of stream, an idle timeout, or `stop` while idle closes without a
+response; a header deadline answers `408`; a parser error answers its status with
+`Connection: close`, then drains briefly and closes; a handler `Error` before the first
+write answers a generic `500` and closes, after it only closes; a native write failure marks
+the exchange failed and closes without draining; a body left unread closes; failed
+connection storage closes the accepted socket and keeps accepting; a failed Task spawn
+unlinks, closes, and frees; an accept failure is recorded, ends the loop, and `run` returns it.
+
+### Receive, head, and output storage
+
+- One receive buffer with `recv_start` and `recv_end`. The parser consumes every byte of an
+  incomplete message, so only a pipelined remainder is ever retained; the buffer resets when
+  empty and is compacted by `memmove` only when it is full and `recv_start` is nonzero.
+- Head bytes (request-line limit plus header limit) and field offsets are separate storage
+  owned by the parser, valid from head completion until `parser_next`; the Header view is
+  built lazily for `request.headers()`.
+- The output buffer is `[head region][chunk prefix][body region][slack]`; the final head is
+  assembled right-aligned so head, chunk header, and body leave in one contiguous write. A
+  write that fills the buffer flushes with the write deadline and parks until the socket
+  accepts it; there is no second queue.
+- Admission: `run` accepts only while `active` is below `max_connections`, polling the slot
+  once per `HEX_HTTP_POLL_NANOSECONDS`; the kernel backlog holds arrivals meanwhile. `stop`
+  closes the listener, closes idle connections at once, lets in-flight requests finish until
+  `shutdown_timeout`, then closes the rest, and `run` returns after `active` reaches zero.
+
+## Closure record
+
+| Validation bullet | Evidence |
+| --- | --- |
+| `listen` and `run` select the server and parser adapter and the TCP runtime; unrelated programs do not | `TestHttpServerSurfaceCompilesAndSelectsTheRuntime`, `TestHttpTypeOnlyAndRegistrationDoNotSelectTheServerRuntime`, `TestHttpServerWithoutFileServerSelectsNoFileComponent` |
+| one ordinary Task per connection with isolated parser and buffers | the ownership table; `http-server-shutdown-and-admission-runs` (many connections), the concurrent runs in the baseline below |
+| socket reads and writes park the Task, no scheduler worker or worker-pool job | `TestHttpServerSocketWaitsUseNoWorkerPoolJob`; the thread count in the baseline stays constant from zero to 10,000 idle connections |
+| incremental parsing; callback data valid for every consumer | RFC 0198 closure; wire cases "pipelined" and "simple" |
+| RFC 9112 framing; ambiguous framing rejected, connection not reused | wire cases "duplicate content length", "length and transfer coding" |
+| `431` for the header limit, `413` for the body limit, a filled I/O chunk alone neither | wire cases "header bytes over limit", "header count over limit", "body over limit", "chunked body over limit"; "content-length body" with a small receive buffer |
+| a full write parks its producer until progress, cancellation, or deadline | `http-server-phase-deadlines-run` (stalled download closed by the write deadline); the stalled and early readers of the file-transfer fixture |
+| response framing: method, body-forbidden statuses, known versus streaming length, never both `Content-Length` and `Transfer-Encoding` | wire cases "head route", "no content", "chunked streaming", "declared length streaming", "unknown length over http 1.0" |
+| listener and connection shutdown without stale wakeups; stop admits no more, finishes in-flight work to its deadline, then closes | `http-server-shutdown-and-admission-runs`; RFC 0144 close-cancel fixture |
+| demand rules select no unrelated components | the ordinary tests above |
+| parsing has no libuv dependency and no parser-owned allocation | RFC 0198 closure |
+| two pipelined requests, partial heads and bodies, compaction, no unbounded queue, no Task per request | wire case "pipelined"; `hex_http_fill`; allocation counts in the baseline |
+| unread body, Expect, HTTP/1.0 persistence | wire cases "expect continue", "unsupported expectation", "unknown length over http 1.0" |
+| separate deadlines for slow headers, uploads, stalled writes, idle keep-alive | `http-server-phase-deadlines-run` |
+| connection and buffer bounds follow the admission policy | `http-server-shutdown-and-admission-runs` |
+| after commitment a length mismatch or native failure closes without a replacement `500` | wire cases "length shortfall", "length overrun", "handler error" |
+| a protocol error isolates one connection; a later valid one is served | wire case "served after errors" |
+| the benchmark record: allocations, copies, and submissions per plaintext request, memory per idle connection, no invented zero-allocation claim | Measurement record below |
+| existing Task, Channel, Mutex, IO, and print behavior unchanged | the focused and short runs |
+| ordinary gates, focused C23, short C23 | recorded in the implementing change |
+
+## Measurement record
+
+Method, hosts, and the throughput and latency tables are in RFC 0144's baseline; this record
+carries the figures this RFC's Validation names. The counters ran on `x86_64-linux-gnu`
+(WSL2, Clang 23.1.1, `-O2`) over 20,000 requests after 500 warm-up requests, with the
+allocator and libuv entry points renamed to counting shims in the generated runtime.
+
+- Per keep-alive plaintext request (one fixed route): 0.00 allocations, 2.00 loop-thread
+  submissions (the read and the write), 1.00 `uv_write`, 1.00 `uv_read_start` and `stop`,
+  2.00 `uv_timer_start`. A dynamic route that formats its body with `String.interpolate` adds
+  exactly its own allocation (1.00, 53.5 B). Pipelining 16 requests per write cuts reads and
+  submissions to 0.06 and 1.06 per request and leaves one `uv_write` per response. A request per
+  connection costs 11.00 allocations (156,274 B, all freed) for the connection's storage and
+  6.00 submissions. The zero is measured for this route and this configuration; it is not a
+  claim about handlers, which allocate as they choose.
+- Copies, by reading `server.c`: the request head is packed once into head storage; a decoded
+  body is copied once into the caller's list; response header lines are copied into the output
+  buffer's head region and moved once when the final head is assembled right-aligned, and the
+  body is copied once into the body region; the buffer leaves in one write.
+- Memory per idle keep-alive connection, Linux, resident growth after one request each:
+  +176 to +180 MiB for 1,000 connections (180 to 184 KiB each) and +1,707 MiB for 10,000 (175
+  KiB each) with the server configured for 20,000 connections; thread count unchanged (13)
+  from zero to 10,000 connections. The configured
+  storage per connection at the defaults is about 150 KiB (32 KiB receive buffer, 72 KiB
+  output buffer, 40 KiB head storage, 6 KiB of field and Header tables); the remainder
+  of the measured figure was not broken down. Memory is not returned to the system after the
+  connections close within the observation window.
+- Windows, working set after one request each: +36 MiB for 1,000 connections (37 KiB each)
+  and +352 MiB for 10,000 (36 KiB each); threads unchanged (19). The two hosts report different
+  counters and the figures were not reconciled.
+- Slow clients: with 1,000 connections holding half a request head, 64 fast connections kept
+  7,828 req/s (p99 17.3 ms) on Linux against 8,319 req/s (p99 13.7 ms) alone, and 21,569 req/s
+  (p99 5.1 ms) on Windows against 31,259 req/s (p99 3.4 ms) alone; all 1,000 slow connections
+  were answered `408` and closed by the header deadline.
+- A defect found by this baseline: a second connection arriving before the first was accepted
+  was never served (RFC 0144, accept transitions). The server fixtures had connected
+  sequentially and never saw it; fixed with a regression fixture before the figures above were
+  taken.
 
 ## Reference synchronization
 
-Implementation updates `docs/reference.md` after backend behavior stabilizes
-and before this RFC is marked implemented or closed.
+Implementation added the HTTP behavior to `docs/reference.md` (`std/http`: Routing,
+Lifecycle, Shutdown, Connections, Deadlines, Request rejection, Request body, Response,
+Errors, Components). The rules above agree with it.

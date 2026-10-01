@@ -1,9 +1,10 @@
 # RFC 0198: Web Server — HTTP/1 Parser Integration
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation in progress; Phases 0-3 complete (llhttp v9.4.3 pinned
-  and packed, adapter ABI written, adapter implemented and validated natively);
-  Phase 4 integration with RFC 0194 remains
+- Status: Closed. All five phases landed: llhttp v9.4.3 pinned and packed for
+  the two qualified profiles, the adapter ABI written and implemented, validated
+  natively, and integrated in the default HTTP server; every Validation bullet
+  maps to the evidence under Closure record
 - Created: 2026-09-15
 - Updated: 2026-10-01
 - Depends on: implemented RFC 0039 (C interoperability) and RFC 0052 (C
@@ -308,14 +309,41 @@ adapter against a header that poisons `malloc`, `calloc`, `realloc`, `free`,
 `llhttp_alloc`, and `llhttp_free`, and `nm -u` on the Linux object lists no
 allocator import.
 
-## Remaining readiness work
+### Integration record (Phase 4)
 
-Phase 4: hand the ABI above to RFC 0194 and exercise head and body pause
-integration there. The approved method set is the pinned llhttp HTTP method set;
-all duplicate Content-Length is rejected, trailers discarded, and HTTP/1.0 closes.
+The server in `compiler/corelib/runtime/server.c` is the one consumer of the ABI.
+Every parser call runs on the connection's own Task: `hex_http_parser_init` and
+`hex_http_parser_next` in the connection loop, `hex_http_parser_feed` while
+reading the head and in `Request.read`, `hex_http_parser_continue` when the body
+is first read or the request has none. No libuv callback and no worker-pool job
+references a parser (`server.c` and `network.c` contain no `hex_event_work_call`,
+`http.c` no `uv_` call). The adapter pauses at head completion before dispatch and
+at message completion; a pipelined remainder stays in the receive buffer and is fed
+after `next`, and the receive buffer is compacted only between feeds.
+
+## Closure record
+
+| Validation bullet | Evidence |
+| --- | --- |
+| pinned source builds per qualified target without Node.js, npm, or a fetch | Dependency pin: archives for `x86_64-linux-gnu` and `x86_64-windows-gnu-ucrt`, built from the submodule's shipped C; `hexal doctor` links the archive and runs `llhttp_execute`. Other profiles have no pack and are not claimed |
+| complete, incomplete, malformed HTTP/1.0 and 1.1 across read boundaries | native cases (2160 checks, every-byte splits) and the wire fixtures `http-server-routing-and-framing-runs` ("simple", "pipelined", "unsupported version") |
+| parser state never touched by a libuv callback and its Task | Integration record above; ordinary test `TestHttpServerSocketWaitsUseNoWorkerPoolJob` |
+| malformed lines, headers, limits, lengths, codings, ambiguous framing rejected before dispatch | native cases; wire cases "malformed request", "request line over limit", "header bytes over limit", "header count over limit", "body over limit", "chunked body over limit", "length and transfer coding", "tunnel request", "upgrade request", "unsupported expectation" |
+| duplicate Content-Length, identical or not, and TE with CL: 400 and close | wire cases "duplicate content length" (equal values) and "length and transfer coding" |
+| callback data copied before the input range is recycled; every-byte reconstruction; overwritten or compacted input | native cases (overwritten and compacted input, every-byte splits) |
+| pause at head and at message completion; pipelined pair with a split second head | native cases; wire case "pipelined" |
+| EOF before head, fixed body, or chunk terminator | native EOF-at-every-position cases; the server answers a body that ends early with `ConnectionReset` and closes (`Request.read` rule in the reference) |
+| smuggling and chunk-size forms, whitespace before colon, obs-fold, CR/LF | native cases |
+| HTTP/1.1 Host rules, request-target forms, Expect, upgrade | native cases; wire cases "unsupported expectation", "tunnel request", "upgrade request" |
+| chunk extension and trailer limits; trailers discarded | native cases; reference rule "Request rejection" |
+| pinned method set and duplicate-equal-CL on the wire | `http-router-registration-runs` (method tokens) and wire case "duplicate content length" |
+| exact fixed-length and chunked bodies; trailers not merged | native cases; wire cases "chunked body over limit" and the echo route in `http-server-routing-and-framing-runs` |
+| caller-owned parser state; no parser-owned allocation; no libuv call | `TestHTTPParserAdapterAllocatesNothing`, `nm -u` on the Linux object, ordinary test above |
+| no public client parsing or request serialization API | `TestHttpRouterSurfaceAndPrivateParserBoundary` |
+| ordinary gates, focused C23, short C23 | recorded in the implementing change |
 
 ## Reference synchronization
 
-This RFC adds no public parser API. Update `docs/reference.md` only if
-implementation changes a public HTTP contract owned by RFC 0210; update it
-after behavior stabilizes and before this RFC is marked implemented or closed.
+This RFC adds no public parser API. The public HTTP contract is owned by RFC 0210
+and recorded in `docs/reference.md`; the request-rejection rules there match the
+policy enforced in the adapter.

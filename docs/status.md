@@ -13,11 +13,6 @@ gets deleted.
 
 | Work | Spec | Effort | ROI |
 | --- | --- | --- | --- |
-| Qualify existing networking and specify deadline/terminal cleanup plus performance baselines | [0144](specs/0144-high-throughput-network-runtime.md) | High | High |
-| Define bounded HTTP connection processing and response lifecycle | [0194](specs/0194-web-server-lowering-and-libuv-usage.md) | High | High |
-| Pin and integrate llhttp with exact buffer, framing and pause contracts | [0198](specs/0198-web-server-parsing-request-and-response.md) | Medium | High |
-| Define secure static-file containment and qualified transfer paths | [0200](specs/0200-web-server-static-file-serving.md) | High | Medium |
-| Implement approved stateful HTTP writer API and pin native resource records | [0210](specs/0210-web-server-syntax-and-semantics.md) | High | High |
 | Select a layered compile-time and runtime memory-diagnostic strategy without adding ownership semantics | [0247](specs/0247-compile-time-and-runtime-memory-diagnostics.md) | High | High |
 | Audit Float edge semantics and decide whether classification, total ordering, or collection eligibility needs more surface | [0248](specs/0248-float-semantics-and-collection-eligibility.md) | Medium | Medium |
 
@@ -249,3 +244,18 @@ Not bugs — deliberate limits worth remembering when reading a green test run.
   completion, and root shutdown -- these remain structural-assertion-only
   claims pending either finer black-box fixtures or internal
   instrumentation neither of which this pass added.
+- **The `std/http` server and static file server
+  ([0144](specs/archived/0144-high-throughput-network-runtime.md),
+  [0194](specs/archived/0194-web-server-lowering-and-libuv-usage.md),
+  [0198](specs/archived/0198-web-server-parsing-request-and-response.md),
+  [0200](specs/archived/0200-web-server-static-file-serving.md),
+  [0210](specs/archived/0210-web-server-syntax-and-semantics.md))** are exercised
+  on `x86_64-windows-gnu-ucrt` and `x86_64-linux-gnu` only; AArch64, musl,
+  RISC-V, and macOS are unqualified. A completion landing in the same loop
+  iteration as a deadline, and a symbolic link swapped between two component
+  opens, cannot be scheduled from a test; repeated runs and the handle-relative
+  design stand in. `tcp_nodelay` is asserted as generated text, not observed on
+  the socket. Windows file-handle release is read from the code, not enumerated
+  (Linux lists `/proc/<pid>/fd`). The recorded baseline is a Go client sharing
+  the host with the server; no other server was compared, and the runtime
+  microbenchmarks, worker scaling, and 100,000 parked connections were not run.
