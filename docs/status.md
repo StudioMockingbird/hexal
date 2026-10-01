@@ -20,7 +20,6 @@ gets deleted.
 
 | Work | Spec | Effort | ROI |
 | --- | --- | --- | --- |
-| One call-shape guideline: union methods, std/regex and std/json methods, and `.to<T>()` conversions on the source value | [0251](specs/0251-call-shape-rule.md) | High | Medium |
 
 ## Deferred ideas
 
@@ -36,6 +35,7 @@ A bug is real whether or not its owning spec is scheduled.
 
 | Bug | Owning spec | Effort | ROI |
 | --- | --- | --- | --- |
+| An implicit `Slice<mut T>` to `Slice<T>` weakening (`let v: Slice<Int32> = m` with `m: Slice<mut Int32>`, or `list.mut_slice(...)` passed or bound where a read-only Slice is expected) is accepted by the checker, but the generator emits `const hex_slice_Int32 v = m;` between two distinct C structs, which gcc rejects. Probed 2026-10-01 with `gcc -std=c2x`: `app.hex:5:37: error: invalid initializer`. No ordinary test compiles the output, and no tagged fixture covers the weakening. | unassigned (needs a Slice weakening lowering spec) | Medium | Medium |
 | `try String<N>.interpolate(...)` fails at generation with `[Unknown Error] String<N>.interpolate expression reached generation without hoisting`; the same call as a plain `let x: String<N> \| Error = ...` assignment hoists and compiles. Fail-closed, no miscompile. | unassigned (needs a hoisting-order spec) | Medium | High |
 
 ## Known coverage gaps

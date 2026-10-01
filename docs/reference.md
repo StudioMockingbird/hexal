@@ -721,7 +721,27 @@ HeapAllocation
   namespace, so a type cannot declare both under the same name. A member matching the name but not
   `Fun<...>` is rejected with `member <name> is not callable; its type is <type>`, distinct from
   `<type> has no method named <name>` when the name is neither a method nor a member.
-- There is no overloading, default/named/variadic argument syntax, static method, or closure.
+- Call shapes. Every operation has one owner: a module (user or std) or a compiler-owned type, each
+  type its own owner. (1) An operation on an existing value, its primary operand, is an instance
+  method `value.f(rest...)`; an allocator argument follows the receiver, and a conversion acts on
+  its source value, a conversion to a named type being `.to<T>()`. (2) An operation with no value
+  to act on, a constructor from outside input or a value-less operation, is an owner call
+  `Owner.f(args...)`, where `Owner` is a module alias or a compiler-owned type name. (3)
+  Construction by fields is `Type(...)` or `Owner.Type(...)`, and compiler-owned canonical
+  constructors are `Type(...)`. (4) The builtins `print`, `size_of<T>()`, and `align_of<T>()` are
+  bare. A user type has no type-level function. The allocator direction follows (1): `heap.free(ptr)`
+  acts on the heap because a `Ptr` does not record its allocator, while `list.free(heap)` and
+  `string.free(heap)` act on the collection, which owns its storage. The one recorded exception is
+  std/io's `read`, `write`, and `seek`, which are methods on `Ptr<mut Bytes>`. The checker enforces
+  the receiver rules in this section; the rest is the placement policy for std and compiler-owned
+  operations.
+- A method call's receiver is never a literal: an integer, float, string, raw string, Bool, `nil`,
+  or array literal, parenthesized or not, is rejected at parse time with `syntax.method-call-on-literal`
+  (`a method cannot be called on a literal; bind it with let first`). Bindings, members, elements,
+  `self`, dereferences, call results, and parenthesized non-literal expressions remain valid
+  receivers.
+- There is no overloading, default/named/variadic argument syntax, user-declared type-level
+  function, or closure.
 
 #### Anonymous function literals and local literal bindings
 
@@ -914,10 +934,21 @@ destinations only. `none` means no fixed-width destination.
 
 ### Explicit conversion
 
-- `value.to<T>()` is the only explicit scalar conversion; T is mandatory and the call has no value
-  arguments. Identity conversions are no-ops and Byte canonicalizes to UInt8.
-- Constants outside the destination domain fail compilation. Dynamic invalid values trap before an
-  unsafe C conversion.
+- `source.to<T>()` is the only explicit conversion spelling; T is mandatory. A scalar destination
+  takes no value arguments. `Slice<Byte>` and `Slice<Rune>` convert to `String` with one `Heap`
+  argument, `Slice<Byte>` converts to `String<N>` with none, and any integer converts to `Rune`;
+  `Slice<Rune>` does not convert to `String<N>`, and a List converts through its Slice. `to`
+  accepts one Heap argument exactly when T is `String`, and none otherwise
+  (`type.conversion-value-argument-count`). Any other source/destination pair is rejected with
+  `cannot convert <source> to <T>` (`type.conversion-unsupported`). Identity conversions are no-ops
+  and Byte canonicalizes to UInt8.
+- The `String`, `String<N>`, and `Rune` destinations are fallible, with results `String | Error`,
+  `String<N> | Error`, and `Rune | Error`; the text conversions follow the Text rules, and a dynamic
+  integer that is a surrogate, above U+10FFFF, or negative returns `InvalidInput` instead of
+  trapping. User types add no destinations.
+- Constants outside the destination domain fail compilation, including a constant that is not a
+  Unicode scalar value converted to `Rune`; a conversion source folds its constant operators.
+  Dynamic invalid values trap before an unsafe C conversion, except the fallible destinations above.
 - Integer conversion preserves the mathematical value. Integer/float and float/float round nearest,
   ties-to-even; finite overflow traps. Float/integer truncates toward zero then checks range; NaN and
   infinities are invalid.
@@ -937,8 +968,9 @@ destinations only. `none` means no fixed-width destination.
   Bool, pointers, aggregates, and managed values. Shift counts must be `0..width-1`; bad constants
   fail and bad dynamic counts trap. Signed right shift is arithmetic, unsigned zero-filling.
 - `bit_cast<T>()` supports equal-width fixed integers and Float32/64, excluding pointers, Size,
-  and aggregates. Fixed integers provide `to_le_bytes()`/`to_be_bytes()` and
-  `T.from_le_bytes(bytes)`/`T.from_be_bytes(bytes)` through exact `List<Byte, N>`.
+  and aggregates. Fixed integers provide `to_le_bytes()`/`to_be_bytes()`, and an inline
+  `List<Byte, N>` provides `decode_le<T>()`/`decode_be<T>()` for a fixed-width integer `T` with
+  `N = size_of<T>()`; any other `N` or `T` is rejected.
 
 ### Equality, ordering, and truthiness
 
@@ -1308,8 +1340,8 @@ List<T, N>.mut_slice(start: Integer, end: Integer) -> Slice<mut T>
 ### `Slice<T>` and `Slice<mut T>`
 
 ```text
-Slice<T>.from_pointer(pointer: Ptr<T> | Ptr<mut T>, length: Size) -> Slice<T>
-Slice<mut T>.from_pointer(pointer: Ptr<mut T>, length: Size) -> Slice<mut T>
+Ptr<T>.to_slice(length: Size) -> Slice<T>                     unsafe
+Ptr<mut T>.to_slice(length: Size) -> Slice<mut T>             unsafe
 Slice<T>.empty() -> Slice<T>
 Slice<mut T>.empty() -> Slice<mut T>
 Slice<T>.length() -> Size
@@ -1328,8 +1360,10 @@ Slice<mut T>.slice(start: Integer, end: Integer) -> Slice<mut T>
   programmer's responsibility.
 - `Slice<mut T>` weakens implicitly to `Slice<T>` at the outermost layer only. There is no
   upgrade and no nested weakening.
-- `from_pointer` accepts only the exact non-null pointer types listed and does not validate the
-  allocation's length, alignment, initialization, lifetime, provenance, or future validity.
+- `to_slice` requires `unsafe do ... end`, accepts only a non-null `Ptr<T>` or `Ptr<mut T>` receiver
+  and a length convertible to Size, and does not validate the allocation's length, alignment,
+  initialization, lifetime, provenance, or future validity. The pointer's access mode selects the
+  result, except that a context expecting `Slice<T>` receives the read-only view directly.
   `empty()` and an empty slice of an empty List use null data plus zero length; no valid
   operation dereferences it.
 - Slicing a temporary inline List is rejected because no source place exists. A Slice over an
@@ -1515,8 +1549,8 @@ String.slice(start: Integer, end: Integer) -> Slice<Byte>     O(1), byte bounds
 String.copy(heap: Heap) -> String
 String.concat(heap: Heap, other: Slice<Byte>) -> String | Error
 String.free(heap: Heap) -> no value
-String.from_bytes(heap: Heap, bytes: Slice<Byte>) -> String | Error
-String.from_runes(heap: Heap, runes: Slice<Rune>) -> String | Error
+Slice<Byte>.to<String>(heap: Heap) -> String | Error
+Slice<Rune>.to<String>(heap: Heap) -> String | Error
 String.interpolate(heap: Heap, template: InterpolationTemplate) -> String
 String.c_pointer() -> Ptr<Byte>                               unsafe
 
@@ -1532,13 +1566,14 @@ String<N>.rune_cursor() -> RuneCursor
 String<N>.slice(start: Integer, end: Integer) -> Slice<Byte>
 String<N>.copy(heap: Heap) -> String
 String<N>.widen<M>() -> String<M>                             M >= N; infallible
-String<N>.from_bytes(bytes: Slice<Byte>) -> String<N> | Error
+Slice<Byte>.to<String<N>>() -> String<N> | Error
 String<N>.concat(left: Slice<Byte>, right: Slice<Byte>) -> String<N> | Error
 String<N>.interpolate(template: InterpolationTemplate) -> String<N> | Error
 ```
 
-`String<N>` has no `free` and no `c_pointer`. `to_string` does not exist, and `from_runes` is
-heap-only: an inline destination converts through `String<N>.from_bytes`.
+`String<N>` has no `free` and no `c_pointer`. `to_string` does not exist, and a `Slice<Rune>`
+converts to heap `String` only: an inline destination converts from `Slice<Byte>` through
+`.to<String<N>>()`.
 
 - `ByteCursor`, `RuneCursor`, and `GraphemeCursor` are copyable positions over one text:
   `has_next() -> Bool`, `next()` and `peek()` yielding the cursor's element (`Byte`, `Rune`, or
@@ -1576,8 +1611,9 @@ heap-only: an inline destination converts through `String<N>.from_bytes`.
   scalar, a surrogate, or a value above U+10FFFF is rejected. `Rune.value() -> UInt32` yields the
   underlying scalar and `Rune.utf8_length() -> Size` its encoded byte length (1..4); `Rune` is
   equality-comparable, ordered by scalar value, and valid as a match scrutinee, in `print`, and in
-  interpolation. `Rune.from(value: UInt32) -> Rune | Error` is the type-level constructor that
-  rejects surrogates and values above U+10FFFF at runtime with `InvalidInput`.
+  interpolation. `integer.to<Rune>() -> Rune | Error` converts any integer and returns `InvalidInput`
+  for a surrogate, a value above U+10FFFF, or a negative value; a constant that is not a scalar
+  value fails compilation.
 - The Tier 2 Rune surface reads utf8proc's tables: `is_lower()`, `is_upper()`, `is_alphabetic()`,
   `is_numeric()`, and `is_whitespace() -> Bool`; `to_lower()`, `to_upper()`, and `to_title() ->
   Rune` (simple one-scalar case mappings, not case folding); `display_width() -> Int32`; and
@@ -1590,21 +1626,21 @@ heap-only: an inline destination converts through `String<N>.from_bytes`.
   is exhaustive without a final `else`. Unit variants are constructed call-shaped
   (`UnicodeCategory.Lu()`) and matched without parens (`| UnicodeCategory.Lu then`).
 - Text is validated UTF-8 bytes: `length()` and `slice` count and bound by bytes on every form, so
-  `"héllo".length()` is 6, `slice` is O(1) and legal on a byte that splits a sequence, and text
+  the text `héllo` has `length()` 6, `slice` is O(1) and legal on a byte that splits a sequence, and text
   storage never carries a character count. `rune_length()` and `grapheme_length()` decode: each is
-  O(n) and counts Unicode scalars or extended grapheme clusters, so `"héllo".rune_length()` is 5 and
+  O(n) and counts Unicode scalars or extended grapheme clusters, so the same text has `rune_length()` 5 and
   a base letter plus a combining mark is one grapheme. Segmentation uses
   `utf8proc_grapheme_break_stateful`, which must see every adjacent scalar pair in order. Text is not
   indexable; `bytes`
   gives indexed byte access, `for b: Byte in text` iterates bytes, and `for r: Rune in text` decodes
   scalars. A slice is bytes, not text:
-  feeding one back through `from_bytes` or `concat` validates it again.
+  feeding one back through `to<String>`, `to<String<N>>`, or `concat` validates it again.
 - `String` is immutable UTF-8 behind a non-null pointer-sized handle holding the data pointer, the
   byte length, and the storage kind. Runtime values use one allocation with one trailing NUL that
   the length does not count, so `c_pointer()` yields a NUL-terminated string; literals use static
   storage. `String<N>` is a value of `byte_length` plus `N` bytes of storage (`size_of<String<31>>()`
   is 40 on `x86_64-linux-gnu`); it owns nothing, copies with its bytes, and needs no cleanup.
-- `from_bytes` and `concat` are the validating boundaries: bytes become text only there, and
+- `to<String>` and `to<String<N>>` from bytes, and `concat`, are the validating boundaries: bytes become text only there, and
   validation covers the joined result, so a multi-byte sequence split across the two operands of
   `String<N>.concat` is accepted. Both forms return `| Error`. Capacity is checked before content,
   so input that is both too long and malformed reports the capacity failure. Malformed input is
@@ -1622,7 +1658,7 @@ heap-only: an inline destination converts through `String<N>.from_bytes`.
   `String<M>`.
 - No implicit conversion exists between text forms in any position (binding, argument, return,
   member, payload, element). A mismatch names the explicit route: `; use widen<M>()` when the
-  source fits, `; use String<N>.from_bytes(...) for a checked conversion` from `String`, and
+  source fits, `; use bytes().to<String<N>>() for a checked conversion` from `String`, and
   `; use copy(heap)` to `String`. The one exception is the bounded Error text described under
   Errors.
 - `bytes()` and `slice()` on a `String<N>` need an addressable place (a binding, a member, a `mut`

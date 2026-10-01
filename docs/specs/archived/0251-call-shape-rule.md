@@ -1,11 +1,10 @@
 # RFC 0251: One Call-Shape Rule for Methods, Type Functions, and Module Functions
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Implementation-ready; implementation not started. Decided: value
-  types carry instance methods, including nominal unions (A+); std/regex and
-  std/json move to methods; conversions move onto the source value through
-  `.to<T>()` or source methods (E); methods are never called on literals.
-  The decisions are recorded below.
+- Status: Closed. Implemented and verified 2026-10-01: value types carry
+  instance methods, including nominal unions (A+); std/regex and std/json are
+  methods; conversions are `.to<T>()` or source methods on the source value
+  (E); methods are never called on literals. See Implementation state
 - Sequencing: Phase 1 (union methods) lands after RFC 0254 (reference `self`,
   explicit `method mut`) and extends that receiver contract to unions.
 
@@ -503,3 +502,59 @@ No literal receivers (`compiler/tests/integration/functions_test.go`):
 - **E3:** `decode_le<T>()` / `decode_be<T>()`.
 - **std/ascii** stays module functions: it operates on `Byte`, which it does
   not own.
+
+## Implementation state
+
+- Union methods: `compilerTypes.NominalOwner` is one interface over a struct's
+  object and a union's ADT, so the method tables, the receiver check, the
+  exported-method registry, and the generic-method table key every nominal owner
+  the same way. `match self is` narrows `self` like any binding, and a union method
+  may not share a name with a variant payload field. The struct-only comments and
+  the object-specific names in the receiver path were removed.
+- std/regex and std/json: `CoreModule.Methods` holds receiver-keyed rows. A row keeps
+  its parameters in runtime call order with the receiver at `Params[1]` after the
+  leading Heap, and `CallParams` drops that slot for the call site, so the checked
+  node is the one the former module function produced and the generator, the
+  demand rules, and every generated artifact are unchanged. The registry
+  validator checks a method's receiver against the module's exported types. A
+  registry query returned zeroed function records from `cloneCoreModule`; it now
+  copies the originals.
+- Conversions produce the same checked nodes as the spellings they replace, so
+  the generator is unchanged except the Rune adapter, whose parameter is
+  `uint64_t` so that a negative or 64-bit source cannot truncate into the valid
+  scalar range. `to` dispatches on Slice receivers beside scalar ones; the String
+  and Rune destinations resolve before the scalar matrix, and a conversion that
+  still depends on a type parameter keeps the scalar path until its
+  specialization. A float source for `Rune` is rejected, as is any non-integer.
+- The removed spellings fail with the existing unknown-operation diagnostics
+  (String, `String<N>`, Slice, Rune) or, for `T.from_le_bytes`, as an unknown
+  variable `T`. `Rune.from` keeps a dedicated rejection that names `value.to<Rune>()`.
+  The unused diagnostics were deleted and the conversion, endian, and
+  pointer-to-slice keys were renamed: `type.conversion-unsupported`,
+  `type.conversion-value-argument-count`, `type.conversion-value-not-scalar`,
+  `type.endian-decode-*`, `type.pointer-to-slice-argument-count`.
+- `ptr.to_slice(n)` takes the access mode of the pointer, except that a context
+  expecting `Slice<T>` receives the read-only view directly. The implicit
+  `Slice<mut T>` weakening the design relies on has no generator lowering
+  (probed with `gcc -std=c2x`: `invalid initializer`), so building the weakened view
+  at the call keeps `Ptr<mut T>` to `Slice<T>` bindings valid C. The general gap is
+  recorded in `docs/status.md`.
+- A conversion source folds its constant operators, so `(0xD000 + 0x800).to<Rune>()`
+  and `(100 + 100).to<Int8>()` fail compilation. A read of a named immutable
+  binding stays dynamic for a scalar destination and is diagnosed for the Rune
+  destination, whose invalid constants are a compile-time error.
+- The literal rule lives in `callArguments`: parentheses leave no syntax node, so a
+  parenthesized literal is the literal itself. Byte, Rune, and `eos` literals and
+  interpolation templates are not covered, and a negated numeric literal is.
+  `GRAMMAR.ebnf` splits literal and non-literal primaries; it also drops call
+  suffixes on a literal that the parser still accepts and the checker rejects.
+- Migration: roughly 120 test sites were bound by a transformation program and
+  checked by hand, the checker's constant-fold unit tests moved to constant
+  expression receivers, and 13 literal receivers across 10 workbench snippets
+  gained a typed `let` (the specification estimated 11). The snippet manifest moved
+  only `text/text-from-bytes` for the conversion rewrite (the call site's `#line`
+  column is now the `to` token) and the `modules/app.c` of the ten rebound snippets.
+- Tagged lane: the migrated regex, json, text, rune, slice, and byte-order
+  fixtures pass in focused runs; `integer-to-rune-runs` and
+  `byte-order-decode-round-trips` cover validations 22 and 23. The exhaustive
+  gate was not run.
