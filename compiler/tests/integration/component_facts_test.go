@@ -139,7 +139,7 @@ func TestNativeDependencyDemandFollowsComponentRecords(t *testing.T) {
 		t.Fatalf("literal-only hexal/string.c emitted the utf8proc adapter:\n%s", source)
 	}
 
-	validator := assertCompiles(t, "fun demo(h: Heap): String | Error do\n    let s: String = try \"hi\".bytes().to<String>(h)\n    return s\nend\n")
+	validator := assertCompiles(t, "fun demo(h: Heap): String | Error do\n    let literal_1: String = \"hi\"\n    let s: String = try literal_1.bytes().to<String>(h)\n    return s\nend\n")
 	if !hasDependency(validator, string(specdata.DependencyUtf8proc)) {
 		t.Fatalf("runtime construction must select %s: %v", specdata.DependencyUtf8proc, dependencyNames(validator))
 	}

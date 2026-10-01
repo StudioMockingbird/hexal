@@ -162,7 +162,7 @@ func TestUTF8ValidatorAgreesWithLegacyRules(t *testing.T) {
 // carries the hand-rolled lead/continuation logic. The public header never
 // names utf8proc.
 func TestGeneratedValidatorUsesUtf8proc(t *testing.T) {
-	result := assertCompiles(t, "fun demo(h: Heap): String | Error do\n    let s: String = try \"hi\".bytes().to<String>(h)\n    return s\nend\n")
+	result := assertCompiles(t, "fun demo(h: Heap): String | Error do\n    let literal_1: String = \"hi\"\n    let s: String = try literal_1.bytes().to<String>(h)\n    return s\nend\n")
 	source := moduleFile(t, result, "hexal/string.c")
 	if !strings.Contains(source, "#include <utf8proc.h>") || !strings.Contains(source, "utf8proc_iterate(data + index, available, &codepoint)") {
 		t.Fatalf("hexal/string.c does not validate through utf8proc:\n%s", source)
@@ -190,7 +190,7 @@ func TestValidatorDemandSelection(t *testing.T) {
 			t.Fatalf("literal-only program selected utf8proc: %v", literalOnly.Dependencies)
 		}
 	}
-	construction := assertCompiles(t, "fun demo(h: Heap): String | Error do\n    let s: String = try \"hi\".bytes().to<String>(h)\n    return s\nend\n")
+	construction := assertCompiles(t, "fun demo(h: Heap): String | Error do\n    let literal_2: String = \"hi\"\n    let s: String = try literal_2.bytes().to<String>(h)\n    return s\nend\n")
 	selected := false
 	for _, dependency := range construction.Dependencies {
 		if dependency == "utf8proc" {

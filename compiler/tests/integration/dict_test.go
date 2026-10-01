@@ -241,7 +241,8 @@ func TestDictClearRetainsStorageAndInvalidatesTraversal(t *testing.T) {
 	stringValues := compileSource(`fun demo(h: Heap) do
     let d: Dict<Int32, String> = Dict<Int32, String>(h)
     defer d.free(h)
-    let value: String = "owned".copy(h)
+    let literal_1: String = "owned"
+    let value: String = literal_1.copy(h)
     defer value.free(h)
     d.insert(1, value)
     d.clear()
@@ -475,7 +476,7 @@ func TestDictTextKeyIteration(t *testing.T) {
 func TestDictStringValues(t *testing.T) {
 	// A stored literal is never freed by the collection or by a remove; a
 	// runtime String removed from the dict is freed explicitly.
-	result := compileSource("fun demo(h: Heap) do\n    let people: Dict<Int32, String> = Dict<Int32, String>(h)\n    defer people.free(h)\n    people.insert(1, \"alice\")\n    let runtime: String = \"bob\".copy(h)\n    people.insert(2, runtime)\n    let removed: String = people.remove(2)\n    removed.free(h)\n    people.insert(1, \"carol\")\n    let name: String = people.get(1)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    let people: Dict<Int32, String> = Dict<Int32, String>(h)\n    defer people.free(h)\n    people.insert(1, \"alice\")\n    let literal_2: String = \"bob\"\n    let runtime: String = literal_2.copy(h)\n    people.insert(2, runtime)\n    let removed: String = people.remove(2)\n    removed.free(h)\n    people.insert(1, \"carol\")\n    let name: String = people.get(1)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}

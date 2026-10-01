@@ -31,7 +31,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "list-compiles",
 		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values[0] = 9\n    let first: Int32 = values[0]\n    values[1] = 5\n    let last: Int32 = values.pop()\n    values.clear()\n    values.push(7)\n    let view: Slice<Int32> = values.slice(0, 1)\n    let total: Int32 = view[0]\n    let names: List<String> = List<String>(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    let runtime: String = \"bob\".copy(h)\n    names.push(runtime)\n    let popped: String = names.pop()\n    popped.free(h)\n    let name: String = names[0]\nend"},
+		sources:    map[string]string{"app.hex": "fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values[0] = 9\n    let first: Int32 = values[0]\n    values[1] = 5\n    let last: Int32 = values.pop()\n    values.clear()\n    values.push(7)\n    let view: Slice<Int32> = values.slice(0, 1)\n    let total: Int32 = view[0]\n    let names: List<String> = List<String>(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    let literal_1: String = \"bob\"\n    let runtime: String = literal_1.copy(h)\n    names.push(runtime)\n    let popped: String = names.pop()\n    popped.free(h)\n    let name: String = names[0]\nend"},
 	},
 	{
 		name:       "dict-compiles",
@@ -46,7 +46,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "string-compiles",
 		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "fun make_text(h: Heap): String do\n    return \"ready\".copy(h)\nend\nfun demo(h: Heap): Int32 | Error do\n    let text: String = make_text(h)\n    defer text.free(h)\n    let loud: String = try text.concat(h, \"!\".bytes())\n    let raw: Slice<UInt8> = text.bytes()\n    let first: UInt8 = raw[0]\n    let part: Slice<UInt8> = text.slice(0, 2)\n    let second: UInt8 = part[1]\n    loud.free(h)\n    return 0\nend"},
+		sources:    map[string]string{"app.hex": "fun make_text(h: Heap): String do\n    let literal_2: String = \"ready\"\n    return literal_2.copy(h)\nend\nfun demo(h: Heap): Int32 | Error do\n    let text: String = make_text(h)\n    defer text.free(h)\n    let literal_3: String = \"!\"\n    let loud: String = try text.concat(h, literal_3.bytes())\n    let raw: Slice<UInt8> = text.bytes()\n    let first: UInt8 = raw[0]\n    let part: Slice<UInt8> = text.slice(0, 2)\n    let second: UInt8 = part[1]\n    loud.free(h)\n    return 0\nend"},
 	},
 	{
 		name:       "error-try-compiles",
@@ -61,14 +61,14 @@ var fixtureCatalog = []fixture{
 	{
 		name:       "numeric-iteration-compiles",
 		entrypoint: "app.hex",
-		sources:    map[string]string{"app.hex": "fun demo(h: Heap) do\n    let wide: Int64 = 9_000_000_000\n    let narrowed: Int8 = wide.to<Int8>()\n    let wrapped: UInt8 = (200).to<UInt8>()\n    let whole: Int32 = 3.75.to<Int32>()\n    let mut left: Int32 = 7\n    let mut right: Int32 = 3\n    let quotient: Int32 = left / right\n    let remainder: Int32 = left % right\n    let fixed: List<Int32, 3> = [10, 20, 30]\n    let mut total: Int32 = 0\n    for value in fixed do\n        total = total + value\n    end\n    for i, value in fixed do\n        total = total + value + i.to<Int32>()\n    end\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    for value in view do\n        total = total + value\n    end\n    let text: String = \"cafe\"\n    let mut runes: Int32 = 0\n    for rune: Byte in text do\n        runes = runes + 1\n    end\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    for value in values do\n        total = total + value\n    end\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    for key, value in scores do\n        total = total + key + value\n    end\n    let size: Size = values.length()\nend"},
+		sources:    map[string]string{"app.hex": "fun demo(h: Heap) do\n    let wide: Int64 = 9_000_000_000\n    let narrowed: Int8 = wide.to<Int8>()\n    let literal_4: Int32 = 200\n    let wrapped: UInt8 = literal_4.to<UInt8>()\n    let literal_5: Float64 = 3.75\n    let whole: Int32 = literal_5.to<Int32>()\n    let mut left: Int32 = 7\n    let mut right: Int32 = 3\n    let quotient: Int32 = left / right\n    let remainder: Int32 = left % right\n    let fixed: List<Int32, 3> = [10, 20, 30]\n    let mut total: Int32 = 0\n    for value in fixed do\n        total = total + value\n    end\n    for i, value in fixed do\n        total = total + value + i.to<Int32>()\n    end\n    let view: Slice<Int32> = fixed.slice(0, 2)\n    for value in view do\n        total = total + value\n    end\n    let text: String = \"cafe\"\n    let mut runes: Int32 = 0\n    for rune: Byte in text do\n        runes = runes + 1\n    end\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    for value in values do\n        total = total + value\n    end\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    for key, value in scores do\n        total = total + key + value\n    end\n    let size: Size = values.length()\nend"},
 	},
 
 	// Tier 2: exact runtime output.
 	{
 		name:        "list-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values[0] = 9\n    let first: Int32 = values[0]\n    values[1] = 5\n    let last: Int32 = values.pop()\n    values.clear()\n    values.push(7)\n    let view: Slice<Int32> = values.slice(0, 1)\n    let total: Int32 = view[0]\n    let names: List<String> = List<String>(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    let runtime: String = \"bob\".copy(h)\n    names.push(runtime)\n    let popped: String = names.pop()\n    popped.free(h)\n    let name: String = names[0]\n    return (first == 9) and (last == 5) and (total == 7) and (name.length() == 5)\nend\nprint(demo(Heap()))\n"},
+		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    values[0] = 9\n    let first: Int32 = values[0]\n    values[1] = 5\n    let last: Int32 = values.pop()\n    values.clear()\n    values.push(7)\n    let view: Slice<Int32> = values.slice(0, 1)\n    let total: Int32 = view[0]\n    let names: List<String> = List<String>(h)\n    defer names.free(h)\n    names.push(\"alice\")\n    let literal_6: String = \"bob\"\n    let runtime: String = literal_6.copy(h)\n    names.push(runtime)\n    let popped: String = names.pop()\n    popped.free(h)\n    let name: String = names[0]\n    return (first == 9) and (last == 5) and (total == 7) and (name.length() == 5)\nend\nprint(demo(Heap()))\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
@@ -496,7 +496,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "string-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    let text: String = \"ready\".copy(h)\n    defer text.free(h)\n    let joined: String | Error = text.concat(h, \"!\".bytes())\n    if joined is Error then\n        return false\n    end\n    let loud: String = joined\n    defer loud.free(h)\n    let ok: Bool = loud.length() == 6\n    let part: Slice<UInt8> = text.slice(0, 2)\n    let second: UInt8 = part[1]\n    return ok and (second == 101)\nend\nprint(demo(Heap()))\n"},
+		sources:     map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n    let literal_7: String = \"ready\"\n    let text: String = literal_7.copy(h)\n    defer text.free(h)\n    let literal_8: String = \"!\"\n    let joined: String | Error = text.concat(h, literal_8.bytes())\n    if joined is Error then\n        return false\n    end\n    let loud: String = joined\n    defer loud.free(h)\n    let ok: Bool = loud.length() == 6\n    let part: Slice<UInt8> = text.slice(0, 2)\n    let second: UInt8 = part[1]\n    return ok and (second == 101)\nend\nprint(demo(Heap()))\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
@@ -513,7 +513,7 @@ var fixtureCatalog = []fixture{
 			"    let wide: String<64> = small.widen<64>()\n" +
 			"    let heap: String = small.copy(h)\n" +
 			"    defer heap.free(h)\n" +
-			"    let joined: String<48> | Error = String<48>.concat(small.bytes(), \" world\".bytes())\n" +
+			"    let literal_9: String = \" world\"\n    let joined: String<48> | Error = String<48>.concat(small.bytes(), literal_9.bytes())\n" +
 			"    if joined is Error then\n" +
 			"        return false\n" +
 			"    end\n" +
@@ -553,7 +553,7 @@ var fixtureCatalog = []fixture{
 		name:       "cursor-alignment-runs",
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
-			"    let text: String = \"e\\u{301}x\\u{1F1FA}\\u{1F1F8}\".copy(h)\n" +
+			"    let literal_10: String = \"e\\u{301}x\\u{1F1FA}\\u{1F1F8}\"\n    let text: String = literal_10.copy(h)\n" +
 			"    defer text.free(h)\n" +
 			"    let mut bytes_cursor: Size = 0\n" +
 			"    let mut b: ByteCursor = text.byte_cursor()\n" +
@@ -605,9 +605,9 @@ var fixtureCatalog = []fixture{
 		name:       "normalize-runs",
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
-			"    let composed: String = \"\\u{e9}\".copy(h)\n" +
+			"    let literal_11: String = \"\\u{e9}\"\n    let composed: String = literal_11.copy(h)\n" +
 			"    defer composed.free(h)\n" +
-			"    let decomposed: String = \"e\\u{301}\".copy(h)\n" +
+			"    let literal_12: String = \"e\\u{301}\"\n    let decomposed: String = literal_12.copy(h)\n" +
 			"    defer decomposed.free(h)\n" +
 			"    if composed == decomposed then\n" +
 			"        return false\n" +
@@ -639,7 +639,7 @@ var fixtureCatalog = []fixture{
 		name:       "casefold-runs",
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
-			"    let sharp: String = \"\\u{df}\".copy(h)\n" +
+			"    let literal_13: String = \"\\u{df}\"\n    let sharp: String = literal_13.copy(h)\n" +
 			"    defer sharp.free(h)\n" +
 			"    let folded: String | Error = sharp.casefold(h)\n" +
 			"    if folded is Error then\n" +
@@ -657,7 +657,7 @@ var fixtureCatalog = []fixture{
 		name:       "grapheme-iteration-runs",
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
-			"    let text: String = \"e\\u{301}x\\u{1F468}\\u{200D}\\u{1F469}\".copy(h)\n" +
+			"    let literal_14: String = \"e\\u{301}x\\u{1F468}\\u{200D}\\u{1F469}\"\n    let text: String = literal_14.copy(h)\n" +
 			"    defer text.free(h)\n" +
 			"    let mut clusters: Size = 0\n" +
 			"    let mut scalars: Size = 0\n" +
@@ -685,7 +685,7 @@ var fixtureCatalog = []fixture{
 		name:       "grapheme-cursor-runs",
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
-			"    let text: String = \"e\\u{301}x\\u{1F1FA}\\u{1F1F8}\".copy(h)\n" +
+			"    let literal_15: String = \"e\\u{301}x\\u{1F1FA}\\u{1F1F8}\"\n    let text: String = literal_15.copy(h)\n" +
 			"    defer text.free(h)\n" +
 			"    let mut clusters: Size = 0\n" +
 			"    let mut peek_ok: Bool = true\n" +
@@ -714,13 +714,13 @@ var fixtureCatalog = []fixture{
 		name:       "grapheme-length-runs",
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
-			"    let combining: String = \"e\\u{301}\".copy(h)\n" +
+			"    let literal_16: String = \"e\\u{301}\"\n    let combining: String = literal_16.copy(h)\n" +
 			"    defer combining.free(h)\n" +
-			"    let zwj: String = \"\\u{1F468}\\u{200D}\\u{1F469}\\u{200D}\\u{1F467}\".copy(h)\n" +
+			"    let literal_17: String = \"\\u{1F468}\\u{200D}\\u{1F469}\\u{200D}\\u{1F467}\"\n    let zwj: String = literal_17.copy(h)\n" +
 			"    defer zwj.free(h)\n" +
-			"    let flags: String = \"\\u{1F1FA}\\u{1F1F8}\".copy(h)\n" +
+			"    let literal_18: String = \"\\u{1F1FA}\\u{1F1F8}\"\n    let flags: String = literal_18.copy(h)\n" +
 			"    defer flags.free(h)\n" +
-			"    let plain: String = \"abc\".copy(h)\n" +
+			"    let literal_19: String = \"abc\"\n    let plain: String = literal_19.copy(h)\n" +
 			"    defer plain.free(h)\n" +
 			"    return (combining.grapheme_length() == 1) and (zwj.grapheme_length() == 1) and (flags.grapheme_length() == 1) and (plain.grapheme_length() == 3) and (combining.rune_length() == 2)\n" +
 			"end\n" +
@@ -887,11 +887,11 @@ var fixtureCatalog = []fixture{
 		name:       "rune-length-runs",
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "fun demo(h: Heap): Bool do\n" +
-			"    let ascii: String = \"hello\".copy(h)\n" +
+			"    let literal_20: String = \"hello\"\n    let ascii: String = literal_20.copy(h)\n" +
 			"    defer ascii.free(h)\n" +
-			"    let multibyte: String = \"h\\u{e9}llo\".copy(h)\n" +
+			"    let literal_21: String = \"h\\u{e9}llo\"\n    let multibyte: String = literal_21.copy(h)\n" +
 			"    defer multibyte.free(h)\n" +
-			"    let astral: String = \"\\u{1F600}\\u{1F600}\".copy(h)\n" +
+			"    let literal_22: String = \"\\u{1F600}\\u{1F600}\"\n    let astral: String = literal_22.copy(h)\n" +
 			"    defer astral.free(h)\n" +
 			"    let inline: String<16> = \"h\\u{e9}llo\"\n" +
 			"    return (ascii.rune_length() == 5) and (multibyte.rune_length() == 5) and (astral.rune_length() == 2) and (inline.rune_length() == 5)\n" +
@@ -931,7 +931,7 @@ var fixtureCatalog = []fixture{
 			"    classify(String<4>.concat(exact.slice(0, 4), tail.slice(0, 1)))\n" +
 			"    classify_heap(bad.slice(0, 2).to<String>(h))\n" +
 			"    classify_heap(exact.slice(0, 4).to<String>(h))\n" +
-			"    let base: String = \"ab\".copy(h)\n" +
+			"    let literal_23: String = \"ab\"\n    let base: String = literal_23.copy(h)\n" +
 			"    classify_heap(base.concat(h, bad.slice(0, 2)))\n" +
 			"    classify_heap(base.concat(h, tail.slice(0, 1)))\n" +
 			"end\n" +
@@ -1032,7 +1032,7 @@ var fixtureCatalog = []fixture{
 			"    let nul_ok: Bool = (nul.length() == 3) and (nul_heap.length() == 3) and (nul_bytes[1] == 0)\n" +
 			"    let split: Slice<Byte> = accented.slice(1, 2)\n" +
 			"    let split_ok: Bool = split.length() == 1\n" +
-			"    let base: String = \"abc\".copy(h)\n" +
+			"    let literal_24: String = \"abc\"\n    let base: String = literal_24.copy(h)\n" +
 			"    defer base.free(h)\n" +
 			"    let piece: List<Byte, 3> = [97, 98, 99]\n" +
 			"    let built: String | Error = piece.slice(0, 3).to<String>(h)\n" +
@@ -1174,7 +1174,7 @@ var fixtureCatalog = []fixture{
 			"        let wide: String<200> = \"wide message\"\n" +
 			"        let widened: Error = Error(ErrorKind.InvalidInput(), wide)\n" +
 			"        print(widened.message, \"\\n\")\n" +
-			"        let heap_text: String = \"from heap\".copy(h)\n" +
+			"        let literal_25: String = \"from heap\"\n        let heap_text: String = literal_25.copy(h)\n" +
 			"        defer heap_text.free(h)\n" +
 			"        let owned: Error = Error(ErrorKind.Other(header = heap_text), heap_text)\n" +
 			"        print(owned.header(), \"/\", owned.message, \"\\n\")\n" +
@@ -1369,7 +1369,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "cursor-next-sibling-order-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun pick(a: Int32, b: Int32): Int32 do\n    return (a * 10) + b\nend\nlet mut c: ByteCursor = \"ab\".byte_cursor()\nprint(pick(c.next().to<Int32>(), c.next().to<Int32>()), \"\\n\")\n"},
+		sources:     map[string]string{"app.hex": "fun pick(a: Int32, b: Int32): Int32 do\n    return (a * 10) + b\nend\nlet literal_26: String = \"ab\"\nlet mut c: ByteCursor = literal_26.byte_cursor()\nprint(pick(c.next().to<Int32>(), c.next().to<Int32>()), \"\\n\")\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "1068\n"},
 	},
 	{
@@ -1407,7 +1407,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "print-collections-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    print(values)\n    let text: String = \"hi\".copy(h)\n    defer text.free(h)\n    print(text)\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    print(scores)\nend\ndemo(Heap())\n"},
+		sources:     map[string]string{"app.hex": "fun demo(h: Heap) do\n    let values: List<Int32> = List<Int32>(h)\n    defer values.free(h)\n    values.push(1)\n    values.push(2)\n    print(values)\n    let literal_27: String = \"hi\"\n    let text: String = literal_27.copy(h)\n    defer text.free(h)\n    print(text)\n    let scores: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer scores.free(h)\n    scores.insert(1, 10)\n    print(scores)\nend\ndemo(Heap())\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "[1, 2]hi{1: 10}"},
 	},
 	{
@@ -1425,7 +1425,7 @@ var fixtureCatalog = []fixture{
 	{
 		name:        "float-to-integer-truncation-runs",
 		entrypoint:  "app.hex",
-		sources:     map[string]string{"app.hex": "fun demo(): Bool do\n    let a: Int32 = 2.5.to<Int32>()\n    let b: Int32 = 3.5.to<Int32>()\n    let c: Int32 = 0.5.to<Int32>()\n    let d: Int32 = 1.5.to<Int32>()\n    let e: Int32 = (-0.5).to<Int32>()\n    let f: Int32 = (-2.5).to<Int32>()\n    return (a == 2) and (b == 3) and (c == 0) and (d == 1) and (e == 0) and (f == -2)\nend\nprint(demo())\n"},
+		sources:     map[string]string{"app.hex": "fun demo(): Bool do\n    let literal_28: Float64 = 2.5\n    let a: Int32 = literal_28.to<Int32>()\n    let literal_29: Float64 = 3.5\n    let b: Int32 = literal_29.to<Int32>()\n    let literal_30: Float64 = 0.5\n    let c: Int32 = literal_30.to<Int32>()\n    let literal_31: Float64 = 1.5\n    let d: Int32 = literal_31.to<Int32>()\n    let literal_32: Float64 = -0.5\n    let e: Int32 = literal_32.to<Int32>()\n    let literal_33: Float64 = -2.5\n    let f: Int32 = literal_33.to<Int32>()\n    return (a == 2) and (b == 3) and (c == 0) and (d == 1) and (e == 0) and (f == -2)\nend\nprint(demo())\n"},
 		expectation: &processExpectation{zeroExit: true, exactStdout: "true"},
 	},
 	{
@@ -1999,7 +1999,7 @@ var fixtureCatalog = []fixture{
 			"fun client(address: Net.Address): Bool | Error do\n" +
 			"    let connection = try Net.connect(address)\n" +
 			"    defer connection.close()\n" +
-			"    try connection.write(\"ping\".bytes())\n" +
+			"    let literal_34: String = \"ping\"\n    try connection.write(literal_34.bytes())\n" +
 			"    let buffer: List<Byte> = List<Byte>(Heap())\n" +
 			"    defer buffer.free(Heap())\n" +
 			"    let received = try connection.read(buffer, 64)\n" +
@@ -2056,7 +2056,7 @@ var fixtureCatalog = []fixture{
 			"    let mut i: Int32 = 0\n" +
 			"    while i < count do\n" +
 			"        let connection = try Net.connect(address)\n" +
-			"        try connection.write(\"ping\".bytes())\n" +
+			"        let literal_35: String = \"ping\"\n        try connection.write(literal_35.bytes())\n" +
 			"        let buffer: List<Byte> = List<Byte>(Heap())\n" +
 			"        defer buffer.free(Heap())\n" +
 			"        let received = try connection.read(buffer, 64)\n" +
@@ -2116,7 +2116,7 @@ var fixtureCatalog = []fixture{
 			"    end\n" +
 			"    let input = started.input\n" +
 			"    if input != nil then\n" +
-			"        try input.write(\"hi\".bytes())\n" +
+			"        let literal_36: String = \"hi\"\n        try input.write(literal_36.bytes())\n" +
 			"        try input.shutdown()\n" +
 			"        try input.close()\n" +
 			"    end\n" +
@@ -2126,7 +2126,7 @@ var fixtureCatalog = []fixture{
 			"        defer buffer.free(h)\n" +
 			"        let received = try output.read(buffer, 64)\n" +
 			"        if received is Size then\n" +
-			"            try output.write(\"ping\".bytes())\n" +
+			"            let literal_37: String = \"ping\"\n            try output.write(literal_37.bytes())\n" +
 			"        end\n" +
 			"        try output.shutdown()\n" +
 			"        try output.close()\n" +
@@ -2491,7 +2491,7 @@ var fixtureCatalog = []fixture{
 			"fun writer(out: Io.IO): Bool do\n" +
 			"    let mut i: Int32 = 0\n" +
 			"    while i < 4 do\n" +
-			"        let wrote: Size | Error = out.write(\"Point { x = 1, y = 2 }\".bytes())\n" +
+			"        let literal_38: String = \"Point { x = 1, y = 2 }\"\n        let wrote: Size | Error = out.write(literal_38.bytes())\n" +
 			"        Task.yield()\n" +
 			"        i = i + 1\n" +
 			"    end\n" +
@@ -2725,9 +2725,9 @@ var fixtureCatalog = []fixture{
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "import\n  Io from std.io\nend\n" +
 			"fun emit(h: Heap): String | Error do\n" +
-			"    let base: String = \"hexal\".copy(h)\n" +
+			"    let literal_39: String = \"hexal\"\n    let base: String = literal_39.copy(h)\n" +
 			"    defer base.free(h)\n" +
-			"    return base.concat(h, \"-ok\".bytes())\n" +
+			"    let literal_40: String = \"-ok\"\n    return base.concat(h, literal_40.bytes())\n" +
 			"end\n" +
 			"fun run(): Nil | Error do\n" +
 			"    let h: Heap = Heap()\n" +
@@ -2740,7 +2740,7 @@ var fixtureCatalog = []fixture{
 			"    let text: String = message\n" +
 			"    defer text.free(h)\n" +
 			"    try stream.write(text.bytes())\n" +
-			"    try stream.write(\"\\n\".bytes())\n" +
+			"    let literal_41: String = \"\\n\"\n    try stream.write(literal_41.bytes())\n" +
 			"    return nil\n" +
 			"end\n" +
 			"run()\n"},
@@ -2811,7 +2811,7 @@ var fixtureCatalog = []fixture{
 			"    if result is String then\n        result.free(h)\n        return false\n    end\n" +
 			"    return (result.kind == ErrorKind.InvalidInput()) and (result.message == \"JSON value contains a cycle\")\nend\n" +
 			"fun run(h: Heap): Bool do\n" +
-			"    let shared_text: String = \"shared\".copy(h)\n" +
+			"    let literal_42: String = \"shared\"\n    let shared_text: String = literal_42.copy(h)\n" +
 			"    let shared_items: List<Json.Value> = List<Json.Value>(h)\n" +
 			"    shared_items.push(Json.Value.Text(value = shared_text))\n" +
 			"    let shared: Json.Value = Json.Value.Array(items = shared_items)\n" +
@@ -2948,7 +2948,7 @@ func jsonNestedOwnershipFixture() fixture {
 		"    let depth_failure: Json.Value | Error = Json.parse(h, \"" + deepDocument + "\")\n" +
 		"    let mut depth_rejected: Bool = false\n" +
 		"    if depth_failure is Error then\n        depth_rejected = depth_failure.kind == ErrorKind.InvalidInput()\n    else\n        depth_failure.free(h)\n        return false\n    end\n" +
-		"    let text: String = \"partial\".copy(h)\n" +
+		"    let literal_43: String = \"partial\"\n    let text: String = literal_43.copy(h)\n" +
 		"    let items: List<Json.Value> = List<Json.Value>(h)\n" +
 		"    items.push(Json.Value.Text(value = text))\n" +
 		"    let infinity_bits: UInt64 = 0x7FF0000000000000\n" +

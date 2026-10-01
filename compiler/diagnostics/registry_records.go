@@ -125,6 +125,7 @@ var declaredRecords = map[ID]record{
 	"syntax.mut-right-hand-side":                        {category: CategorySyntax, stage: StageParser},
 	"syntax.named-constructor-arguments":                {category: CategorySyntax, stage: StageParser},
 	"syntax.named-function-scope":                       {category: CategorySyntax, stage: StageParser},
+	"syntax.method-call-on-literal":                     {category: CategorySyntax, stage: StageParser},
 	"syntax.negative-number":                            {category: CategorySyntax, stage: StageParser},
 	"syntax.parameter-annotation":                       {category: CategorySyntax, stage: StageParser},
 	"syntax.parser-nesting-limit":                       {category: CategorySyntax, stage: StageParser},

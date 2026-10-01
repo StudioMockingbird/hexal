@@ -71,6 +71,9 @@ func ParserNamedConstructorArguments() Message {
 func ParserSpreadArguments() Message {
 	return message("syntax.spread-arguments", CategorySyntax, StageParser, "spread arguments are not supported; pass explicit values")
 }
+func ParserMethodCallOnLiteral() Message {
+	return message("syntax.method-call-on-literal", CategorySyntax, StageParser, "a method cannot be called on a literal; bind it with let first")
+}
 func ParserNegativeNumber() Message {
 	return message("syntax.negative-number", CategorySyntax, StageParser, "expected an integer or decimal floating literal after '-'")
 }

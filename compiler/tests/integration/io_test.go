@@ -18,7 +18,7 @@ func streamFacetSource() string {
 		"    defer data.free(h)\n" +
 		"    let mut live: Io.Bytes = Io.bytes_over(data)\n" +
 		"    let out: Io.IO = try Io.stdout()\n" +
-		"    let w: Size | Error = out.write(\"hexal\\n\".bytes())\n" +
+		"    let literal_1: String = \"hexal\\n\"\n    let w: Size | Error = out.write(literal_1.bytes())\n" +
 		"    let r: Size | EoS | Error = live.read(dst, 4)\n" +
 		"    let s: Size | Error = live.seek(Io.Seek.Start(position = 0))\n" +
 		"    let closed: Nil | Error = out.close()\n" +
@@ -127,7 +127,7 @@ func TestStreamCapabilityTiersEndToEnd(t *testing.T) {
 	assertRejects(t,
 		"import\n  Io from std.io\nend\nfun demo(): Nil | Error do\n"+
 			"    let input: Io.IO = try Io.stdin()\n"+
-			"    input.write(\"x\".bytes())\n"+
+			"    let literal_2: String = \"x\"\n    input.write(literal_2.bytes())\n"+
 			"    return nil\nend\n",
 		"stream is not writable")
 	source := "import\n  Io from std.io\nend\nfun opened(): Io.IO | Error do\n" +
@@ -135,7 +135,7 @@ func TestStreamCapabilityTiersEndToEnd(t *testing.T) {
 		"end\n" +
 		"fun demo(): Nil | Error do\n" +
 		"    let handle: Io.IO = try opened()\n" +
-		"    let w: Size | Error = handle.write(\"x\".bytes())\n" +
+		"    let literal_3: String = \"x\"\n    let w: Size | Error = handle.write(literal_3.bytes())\n" +
 		"    return nil\n" +
 		"end\n" +
 		"let done: Nil | Error = demo()\n"

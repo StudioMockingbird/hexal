@@ -299,7 +299,7 @@ func TestForInBinderAnnotationsAgree(t *testing.T) {
 		"    let list: List<Int32> = List<Int32>(h)\n    defer list.free(h)\n" +
 		"    let fixed: List<Int32, 2> = [1, 2]\n" +
 		"    let view: Slice<Int32> = fixed.slice(0, 2)\n" +
-		"    let bytes: Slice<Byte> = \"ab\".bytes()\n" +
+		"    let literal_1: String = \"ab\"\n    let bytes: Slice<Byte> = literal_1.bytes()\n" +
 		"    let table: Dict<Int32, Int32> = Dict<Int32, Int32>(h)\n    defer table.free(h)\n" +
 		"    for x: Int32 in list do\n    end\n" +
 		"    for i: Size, x: Int32 in list do\n    end\n" +

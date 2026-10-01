@@ -19,15 +19,19 @@ fun float_desc(h: Heap, value: Float64): String do
 end
 
 fun show(h: Heap, tag: String, v: Json.Value) do
+    let null_label: String = "null"
+    let text_label: String = "text"
+    let array_label: String = "array"
+    let object_label: String = "object"
     let body: String = match v is
-    | Json.Value.Null then "null".copy(h)
+    | Json.Value.Null then null_label.copy(h)
     | Json.Value.Bool then bool_desc(h, v.value)
     | Json.Value.Int then int_desc(h, v.value)
     | Json.Value.UInt then uint_desc(h, v.value)
     | Json.Value.Float then float_desc(h, v.value)
-    | Json.Value.Text then "text".copy(h)
-    | Json.Value.Array then "array".copy(h)
-    | Json.Value.Object then "object".copy(h)
+    | Json.Value.Text then text_label.copy(h)
+    | Json.Value.Array then array_label.copy(h)
+    | Json.Value.Object then object_label.copy(h)
     end
     print(tag, ": ", body, "\n")
     body.free(h)
@@ -68,14 +72,17 @@ fun roundtrip_show(h: Heap, tag: String, text: String) do
 end
 
 fun nest_text(h: Heap, depth: Int32): String | Error do
-    let mut text: String = "0".copy(h)
+    let literal_1: String = "0"
+    let mut text: String = literal_1.copy(h)
     let mut i: Int32 = 0
     while i < depth do
-        let open: String = "[".copy(h)
+        let literal_2: String = "["
+        let open: String = literal_2.copy(h)
         let step1: String = try open.concat(h, text.bytes())
         open.free(h)
         text.free(h)
-        let step2: String = try step1.concat(h, "]".bytes())
+        let literal_3: String = "]"
+        let step2: String = try step1.concat(h, literal_3.bytes())
         step1.free(h)
         text = step2
         i = i + 1
@@ -96,10 +103,12 @@ fun nest_value(h: Heap, depth: Int32): Json.Value do
 end
 
 fun repeat_key(h: Heap, count: Int32): String | Error do
-    let mut text: String = "".copy(h)
+    let literal_4: String = ""
+    let mut text: String = literal_4.copy(h)
     let mut i: Int32 = 0
     while i < count do
-        let next: String = try text.concat(h, "k".bytes())
+        let literal_5: String = "k"
+        let next: String = try text.concat(h, literal_5.bytes())
         text.free(h)
         text = next
         i = i + 1
@@ -108,14 +117,17 @@ fun repeat_key(h: Heap, count: Int32): String | Error do
 end
 
 fun object_text(h: Heap, key: String): String | Error do
-    let open: String = "{\"".copy(h)
+    let literal_6: String = "{\""
+    let open: String = literal_6.copy(h)
     let head: String = try open.concat(h, key.bytes())
     open.free(h)
-    let tail: String = "\":".copy(h)
+    let literal_7: String = "\":"
+    let tail: String = literal_7.copy(h)
     let mid: String = try head.concat(h, tail.bytes())
     head.free(h)
     tail.free(h)
-    let body: String = try mid.concat(h, "1}".bytes())
+    let literal_8: String = "1}"
+    let body: String = try mid.concat(h, literal_8.bytes())
     mid.free(h)
     return body
 end

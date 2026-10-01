@@ -94,7 +94,7 @@ func TestByteLiteralDiagnostics(t *testing.T) {
 func TestRemovedTextFormsReportDiagnostics(t *testing.T) {
 	for _, tc := range []struct{ source, want string }{
 		{"let s: Strand = \"x\"", "unknown type Strand; use String<N> (String<31> keeps the former capacity)"},
-		{"fun f(h: Heap) do\n    let s: String = \"x\".to_string(h)\nend", "String has no method to_string"},
+		{"fun f(h: Heap) do\n    let literal_1: String = \"x\"\n    let s: String = literal_1.to_string(h)\nend", "String has no method to_string"},
 	} {
 		result := compileSource(tc.source)
 		if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(strings.Join(result.Stderr, "\n"), tc.want) {

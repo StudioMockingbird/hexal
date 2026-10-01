@@ -154,8 +154,14 @@ AddressOperand = { "^" }  PlaceExpression .
 PlaceExpression = PlacePrimary  { PlaceSuffix } .
 PlacePrimary = identifier | "self" .
 PlaceSuffix = "."  MemberName | IndexSuffix .
-PostfixExpression = PostfixBase  { PostfixSuffix } .
-PostfixBase = PrimaryExpression .
+// A literal primary takes no call suffix: a method cannot be called on a
+// literal (syntax.method-call-on-literal). Parentheses leave no syntax node, so
+// "(" LiteralPrimary ")" is the literal itself, and "(" Expression ")" is a
+// PostfixBase only when the parenthesized expression is not a literal.
+PostfixExpression = LiteralPrimary  { LiteralPostfixSuffix }
+                     | PostfixBase  { PostfixSuffix } .
+PostfixBase = NonLiteralPrimary .
+LiteralPostfixSuffix = IndexSuffix | MemberSuffix .
 PostfixSuffix = GenericOwnerCall | MemberSuffix | GenericCall
                  | IndexSuffix | CallSuffix .
 MemberSuffix = "."  MemberName .
@@ -169,13 +175,14 @@ ArgumentList = Argument  { ","  Argument }  [ "," ] .
 Argument = [ identifier  "=" ]  Expression .
 IndexSuffix = "["  Expression  "]" .
 
-PrimaryExpression = identifier | "self"
-                     | InlineListLiteral | MatchExpression
-                     | AnonymousFunctionLiteral
-                     | integer_literal | decimal_floating_literal
-                     | byte_literal | string_literal
-                     | raw_string_literal | InterpolationTemplate
-                     | "true" | "false" | "nil" | "eos"
+LiteralPrimary = InlineListLiteral
+                  | integer_literal | decimal_floating_literal
+                  | string_literal | raw_string_literal
+                  | "true" | "false" | "nil"
+                  | "("  LiteralPrimary  ")" .
+NonLiteralPrimary = identifier | "self"
+                     | MatchExpression | AnonymousFunctionLiteral
+                     | byte_literal | InterpolationTemplate | "eos"
                      | "("  Expression  ")" .
 // An interpolation template is a double-quoted literal whose characters exclude
 // an unescaped "{{"; a string_literal contains no "{{". This notation cannot

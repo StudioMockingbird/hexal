@@ -382,7 +382,7 @@ func TestSliceStaleAfterStructuralChange(t *testing.T) {
 }
 
 func TestStringViewsStaleAfterFree(t *testing.T) {
-	const prelude = "let h = Heap()\nlet s: String = \"abc\".copy(h)\n"
+	const prelude = "let h = Heap()\nlet literal_1: String = \"abc\"\nlet s: String = literal_1.copy(h)\n"
 	const staleString = "points into s's storage, which was structurally changed at"
 	assertRejects(t, prelude+"let b = s.bytes()\ns.free(h)\nprint(b[0])\n", "this slice "+staleString)
 	assertRejects(t, prelude+"let t = s\nlet b = s.bytes()\nt.free(h)\nprint(b[0])\n", "this slice "+staleString)

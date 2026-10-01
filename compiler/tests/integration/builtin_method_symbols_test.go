@@ -148,7 +148,7 @@ const mutexMethodsProgram = "fun run(): Int32 | Error do\n" +
 	"end"
 
 const stringMethodsProgram = "fun demo(h: Heap) do\n" +
-	"    let text: String = \"hello\".copy(h)\n" +
+	"    let literal_1: String = \"hello\"\n    let text: String = literal_1.copy(h)\n" +
 	"    defer text.free(h)\n" +
 	"    let length: Size = text.length()\n" +
 	"    let runes: Size = text.rune_length()\n" +

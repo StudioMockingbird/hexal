@@ -53,7 +53,7 @@ func TestErrorInlineConstructionAndBounds(t *testing.T) {
 	message256 := strings.Repeat("m", 256)
 	header128 := strings.Repeat("h", 128)
 	accepted := "fun demo(h: Heap) do\n" +
-		"    let heap: String = \"x\".copy(h)\n    defer heap.free(h)\n" +
+		"    let literal_1: String = \"x\"\n    let heap: String = literal_1.copy(h)\n    defer heap.free(h)\n" +
 		"    let small: String<16> = \"x\"\n    let large: String<512> = \"y\"\n" +
 		"    let a: Error = Error(ErrorKind.Other(header = \"" + header128 + "\"), \"" + message256 + "\")\n" +
 		"    let b: Error = Error(ErrorKind.Other(header = heap), heap)\n" +
@@ -67,7 +67,7 @@ func TestErrorInlineConstructionAndBounds(t *testing.T) {
 	for _, tc := range []struct{ source, want string }{
 		{"let e: Error = Error(ErrorKind.Other(header = \"h\"), \"" + message256 + "m\")\n", "Error message literal exceeds 256 UTF-8 bytes"},
 		{"let e: Error = Error(ErrorKind.Other(header = \"" + header128 + "h\"), \"m\")\n", "ErrorKind.Other header literal exceeds 128 UTF-8 bytes"},
-		{"fun f(h: Heap) do\n    let long: String = \"x\".copy(h)\n    let bounded: String<16> = long\nend", "expected String<16> initializer; got String"},
+		{"fun f(h: Heap) do\n    let literal_2: String = \"x\"\n    let long: String = literal_2.copy(h)\n    let bounded: String<16> = long\nend", "expected String<16> initializer; got String"},
 		{"fun f(h: Heap) do\n    let e: Error = Error(ErrorKind.Other(header = \"h\"), 1)\nend", "Error message requires text; got Int32"},
 		{"fun f(h: Heap) do\n    let e: Error = Error(ErrorKind.Other(header = \"h\"), \"m\")\n    e.free(h)\nend", "Error has no method named free"},
 	} {
@@ -81,7 +81,7 @@ func TestErrorInlineConstructionAndBounds(t *testing.T) {
 // A computed message or header is measured where it is copied into the Error,
 // and the trap names the bound; nothing truncates.
 func TestErrorComputedTextChecksItsBound(t *testing.T) {
-	result := compileSource("fun demo(h: Heap) do\n    let long: String = \"x\".copy(h)\n    let e: Error = Error(ErrorKind.Other(header = long), long)\nend")
+	result := compileSource("fun demo(h: Heap) do\n    let literal_3: String = \"x\"\n    let long: String = literal_3.copy(h)\n    let e: Error = Error(ErrorKind.Other(header = long), long)\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile failed: %v", result.Stderr)
 	}

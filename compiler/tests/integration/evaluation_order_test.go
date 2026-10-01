@@ -235,7 +235,7 @@ func TestCorelibCallSiblingsEvaluateLeftToRight(t *testing.T) {
 // be captured into a temporary before a pure sibling reads the cursor.
 func TestCursorNextEvaluatesBeforePureSibling(t *testing.T) {
 	result := assertCompiles(t, "fun pick(a: Byte, b: Byte): Int32 do\n    return 0\nend\n"+
-		"fun run(): Int32 do\n    let mut c: ByteCursor = \"ab\".byte_cursor()\n    return pick(c.next(), c.peek())\nend\n")
+		"fun run(): Int32 do\n    let literal_1: String = \"ab\"\n    let mut c: ByteCursor = literal_1.byte_cursor()\n    return pick(c.next(), c.peek())\nend\n")
 	body := rootC(t, result)
 	positions := order(t, body,
 		"hex_byte_cursor_next(&(hex_v_c))",

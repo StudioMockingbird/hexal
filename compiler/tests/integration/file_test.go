@@ -13,7 +13,7 @@ func fileFacetSource() string {
 	return "import\n  Fs from std.fs,\n  Io from std.io\nend\nfun run(h: Heap): Nil | Error do\n" +
 		"    let out = try Fs.open(\"notes.txt\", Fs.FileMode.Write())\n" +
 		"    defer out.close()\n" +
-		"    let wrote = try out.write(\"hexal\\n\".bytes())\n" +
+		"    let literal_1: String = \"hexal\\n\"\n    let wrote = try out.write(literal_1.bytes())\n" +
 		"    try out.flush()\n" +
 		"    let input = try Fs.open(\"notes.txt\", Fs.FileMode.ReadWrite())\n" +
 		"    let buffer: List<Byte> = List<Byte>(h)\n" +
@@ -69,7 +69,7 @@ func TestFileSurfaceRejectsUnlistedOperations(t *testing.T) {
 		{"import\n  Fs from std.fs\nend\nfun f(): Nil | Error do\n    let x = try Fs.open(5, Fs.FileMode.Write())\n    return nil\nend", "expected String"},
 		{"import\n  Fs from std.fs\nend\nfun f(): Nil | Error do\n    let x = try Fs.create(\"a\")\n    return nil\nend", "declaration create is private to module std/fs"},
 		{"import\n  Fs from std.fs\nend\nfun f(h: Heap): Nil | Error do\n    let x = try Fs.open(\"a\", Fs.FileMode.Write())\n    let b: List<Byte> = List<Byte>(h)\n    let r = x.read(b, 1)\n    return nil\nend", "stream is not readable"},
-		{"import\n  Fs from std.fs\nend\nfun f(): Nil | Error do\n    let x = try Fs.open(\"a\", Fs.FileMode.Read())\n    let r = x.write(\"x\".bytes())\n    return nil\nend", "stream is not writable"},
+		{"import\n  Fs from std.fs\nend\nfun f(): Nil | Error do\n    let x = try Fs.open(\"a\", Fs.FileMode.Read())\n    let literal_2: String = \"x\"\n    let r = x.write(literal_2.bytes())\n    return nil\nend", "stream is not writable"},
 		{"import\n  Fs from std.fs\nend\nfun f(): Nil | Error do\n    let x = try Fs.open(\"a\", Fs.FileMode.Read())\n    let r = x.flush()\n    return nil\nend", "stream is not writable"},
 		{"import\n  Fs from std.fs\nend\nfun f(): Nil | Error do\n    let x = try Fs.open(\"a\", Fs.FileMode.Read())\n    try x.close()\n    try x.close()\n    return nil\nend", "this stream was closed on every path"},
 		{"import\n  Fs from std.fs\nend\nfun f(): Nil | Error do\n    let x = try Fs.open(\"a\", Fs.FileMode.Write())\n    defer x.flush()\n    return nil\nend", "only File.close() may be deferred"},

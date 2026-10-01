@@ -837,3 +837,36 @@ func TestNamedFunctionDeclarationRejectedWhenNested(t *testing.T) {
 		}
 	}
 }
+
+func TestMethodCallOnLiteralIsRejected(t *testing.T) {
+	prelude := "fun demo(h: Heap) do\n"
+	for _, call := range []string{
+		"let text: String = \"carol\".copy(h)",
+		"let text: String = r\"carol\".copy(h)",
+		"let wide: Int64 = (3).to<Int64>()",
+		"let wide: Float64 = (3.5).to<Float64>()",
+		"let flag: Int32 = true.to<Int32>()",
+		"let count: Size = [1, 2, 3].length()",
+		"let wide: Int64 = (-3).to<Int64>()",
+	} {
+		t.Run(call, func(t *testing.T) {
+			assertRejectsAnyDiagnostic(t, prelude+"    "+call+"\nend\n", "syntax.method-call-on-literal")
+		})
+	}
+	assertRejectsAnyDiagnostic(t, "fun demo(h: Heap) do\n    let text: String = \"carol\".copy(h)\nend\n", "a method cannot be called on a literal; bind it with let first")
+}
+
+func TestMethodCallOnNonLiteralReceiversStaysValid(t *testing.T) {
+	assertCompiles(t, "fun keep(value: Int32): Bool do\n    return value > 1\nend\n"+
+		"fun double(value: Int32): Int32 do\n    return value * 2\nend\n"+
+		"fun make(h: Heap): String do\n    let name: String = \"carol\"\n    return name.copy(h)\nend\n"+
+		"fun demo(h: Heap) do\n"+
+		"    let name: String = \"carol\"\n"+
+		"    let copy: String = name.copy(h)\n"+
+		"    let a: Int32 = 1\n"+
+		"    let wide: Int64 = (a + 1).to<Int64>()\n"+
+		"    let again: String = make(h).copy(h)\n"+
+		"    let xs: List<Int32, 3> = [1, 2, 3]\n"+
+		"    let kept = xs.filter(keep).map(double).to_list(h)\n"+
+		"end\n")
+}

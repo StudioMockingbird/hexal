@@ -148,7 +148,7 @@ func TestInlineStringUnionInjection(t *testing.T) {
 // No function is generic over a capacity, but a capacity type substitutes
 // like any other and specializations stay distinct.
 func TestInlineStringGenericsAndInference(t *testing.T) {
-	result := assertCompiles(t, "fun same<T>(a: T, b: T): Bool do\n    return a == b\nend\nfun demo() do\n    let a: String<16> = \"x\"\n    let r: Bool = same(a, a)\n    let s = \"x\".bytes().to<String<16>>()\nend\n")
+	result := assertCompiles(t, "fun same<T>(a: T, b: T): Bool do\n    return a == b\nend\nfun demo() do\n    let a: String<16> = \"x\"\n    let r: Bool = same(a, a)\n    let literal_1: String = \"x\"\n    let s = literal_1.bytes().to<String<16>>()\nend\n")
 	if !strings.Contains(rootC(t, result), "hex_f_m3_app_same_String_16_") {
 		t.Fatalf("the generic specialization lost its capacity:\n%s", rootC(t, result))
 	}
@@ -214,8 +214,8 @@ func TestTextProducingOperationResults(t *testing.T) {
 		"    return 0\nend\n")
 	rejectedWith(t, []struct{ source, want string }{
 		{"fun demo(h: Heap): Int32 | Error do\n    let f: String = try String.interpolate(h, \"n={{ 1 }}\")\n    return 0\nend\n", "try requires a union containing Error and a success member; got String"},
-		{"fun demo(h: Heap) do\n    let d: String = \"x\".bytes().to<String>(h)\nend\n", "expected String initializer; got Error | String"},
-		{"fun demo(h: Heap) do\n    let s: String = \"x\".to_string(h)\nend\n", "String has no method to_string"},
+		{"fun demo(h: Heap) do\n    let literal_2: String = \"x\"\n    let d: String = literal_2.bytes().to<String>(h)\nend\n", "expected String initializer; got Error | String"},
+		{"fun demo(h: Heap) do\n    let literal_3: String = \"x\"\n    let s: String = literal_3.to_string(h)\nend\n", "String has no method to_string"},
 		{"fun demo() do\n    let a: String<4> | Error = String<4>.interpolate(\"plain\")\nend\n", "String<4>.interpolate requires at least one interpolation"},
 		{"fun demo(h: Heap) do\n    let text: String = \"x\"\n    let a = text.bytes().to<String<4>>(h)\nend\n", "to accepts one Heap argument when converting to String, and no value arguments otherwise"},
 		{"fun demo() do\n    let a = String<4>.from_runes(1)\nend\n", "String<4> has no such operation; use view.to<String<4>>(), String<4>.concat(left, right), or String<4>.interpolate(template)"},
@@ -253,7 +253,7 @@ func TestInterpolationTemplateOnlyInsideInterpolateCalls(t *testing.T) {
 // Comparing text of different forms compiles wherever the operands are calls,
 // and each call is evaluated once, left before right.
 func TestMixedTextComparisonsSequenceCalls(t *testing.T) {
-	prelude := "fun small(): String<16> do\n    return \"ab\"\nend\nfun large(): String<64> do\n    return \"ab\"\nend\nfun heap(h: Heap): String do\n    return \"ab\".copy(h)\nend\n"
+	prelude := "fun small(): String<16> do\n    return \"ab\"\nend\nfun large(): String<64> do\n    return \"ab\"\nend\nfun heap(h: Heap): String do\n    let literal_4: String = \"ab\"\n    return literal_4.copy(h)\nend\n"
 	for _, expression := range []string{
 		"small() == large()", "large() != small()", "small() < large()", "large() >= small()",
 		"small() == heap(h)", "heap(h) <= large()", "heap(h) > small()",

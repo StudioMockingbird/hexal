@@ -610,7 +610,7 @@ func TestConcurrencyEventSelectionMatrix(t *testing.T) {
 	}{
 		{
 			"io only",
-			"import\n  Io from std.io\nend\nfun run(): Nil | Error do\n    let out: Io.IO = try Io.stdout()\n    let w: Size | Error = out.write(\"hi\".bytes())\n    let closed: Nil | Error = out.close()\n    return nil\nend\n",
+			"import\n  Io from std.io\nend\nfun run(): Nil | Error do\n    let out: Io.IO = try Io.stdout()\n    let literal_1: String = \"hi\"\n    let w: Size | Error = out.write(literal_1.bytes())\n    let closed: Nil | Error = out.close()\n    return nil\nend\n",
 			false,
 		},
 		{
@@ -625,7 +625,7 @@ func TestConcurrencyEventSelectionMatrix(t *testing.T) {
 		},
 		{
 			"atomic plus io",
-			"import\n  Io from std.io\nend\nfun run(): Nil | Error do\n    let counter: Atomic<Int32> = Atomic<Int32>(0)\n    counter.store(1)\n    let out: Io.IO = try Io.stdout()\n    let w: Size | Error = out.write(\"hi\".bytes())\n    let closed: Nil | Error = out.close()\n    return nil\nend\n",
+			"import\n  Io from std.io\nend\nfun run(): Nil | Error do\n    let counter: Atomic<Int32> = Atomic<Int32>(0)\n    counter.store(1)\n    let out: Io.IO = try Io.stdout()\n    let literal_2: String = \"hi\"\n    let w: Size | Error = out.write(literal_2.bytes())\n    let closed: Nil | Error = out.close()\n    return nil\nend\n",
 			false,
 		},
 		{
@@ -635,7 +635,7 @@ func TestConcurrencyEventSelectionMatrix(t *testing.T) {
 		},
 		{
 			"task plus io",
-			"import\n  Io from std.io\nend\n" + spawnJoin + "fun run(): Int32 | Error do\n    let out: Io.IO = try Io.stdout()\n    let w: Size | Error = out.write(\"hi\".bytes())\n    let closed: Nil | Error = out.close()\n    let task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n",
+			"import\n  Io from std.io\nend\n" + spawnJoin + "fun run(): Int32 | Error do\n    let out: Io.IO = try Io.stdout()\n    let literal_3: String = \"hi\"\n    let w: Size | Error = out.write(literal_3.bytes())\n    let closed: Nil | Error = out.close()\n    let task: Task<Int32> = try spawn square(6)\n    return task.join()\nend\n",
 			true,
 		},
 		{

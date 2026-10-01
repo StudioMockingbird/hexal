@@ -590,6 +590,18 @@ func (parser *Parser) primaryExpression() (Expression, error) {
 	return parser.postfix(expression)
 }
 
+// isLiteralReceiver reports whether a method receiver is a literal: a number,
+// string, Bool, nil, or array literal. Parentheses leave no node, so a
+// parenthesized literal is caught too, while a parenthesized expression such as
+// (a + 1) and every call result stay valid receivers.
+func isLiteralReceiver(expression Expression) bool {
+	switch expression.(type) {
+	case IntegerLiteral, DecimalLiteral, NegatedNumericLiteral, StringLiteral, RawStringLiteral, BooleanLiteral, NilLiteral, InlineListLiteralExpression:
+		return true
+	}
+	return false
+}
+
 // postfix parses dotted member selections and calls, which alternate freely:
 // point.translate(5, 5) is a member selection followed by a call. The checker
 // resolves whether a selected name is an object member, a built-in pointer
@@ -966,6 +978,9 @@ func (parser *Parser) peekAt(offset int) lexer.Token {
 // last argument. Whether labels are required, forbidden, or matched against
 // declared fields is the checker's decision once the callee resolves.
 func (parser *Parser) callArguments(callee Expression) (CallExpression, error) {
+	if property, ok := callee.(PropertyExpression); ok && isLiteralReceiver(property.Receiver) {
+		return CallExpression{}, parser.errorAt(property.Property, diag.ParserMethodCallOnLiteral())
+	}
 	openParen := parser.advance()
 	arguments := make([]Expression, 0)
 	var labels []*lexer.Token

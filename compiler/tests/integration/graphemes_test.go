@@ -53,9 +53,9 @@ func TestEveryTierOnBothTextForms(t *testing.T) {
 // selects the entire Unicode surface -- not only the validator.
 func TestNoGeneratedHeaderNamesTheLibrary(t *testing.T) {
 	result := assertCompiles(t, "fun demo(h: Heap): Bool do\n"+
-		"    let raw: Slice<Byte> = \"abc\".bytes()\n"+
+		"    let literal_1: String = \"abc\"\n    let raw: Slice<Byte> = literal_1.bytes()\n"+
 		"    let built: String | Error = raw.to<String>(h)\n"+
-		"    let text: String = \"e\\u{301}x\".copy(h)\n"+
+		"    let literal_2: String = \"e\\u{301}x\"\n    let text: String = literal_2.copy(h)\n"+
 		"    defer text.free(h)\n"+
 		"    let runes: Size = text.rune_length()\n"+
 		"    let clusters: Size = text.grapheme_length()\n"+

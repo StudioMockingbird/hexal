@@ -190,7 +190,7 @@ const migratedSymbolProgram = "fun demo(h: Heap) do\n" +
 	"    defer pool.allocate(2)\n" +
 	"    defer pool.free(pool_node)\n" +
 	"    defer pool.destroy()\n" +
-	"    let text: String = \"hello\".copy(h)\n" +
+	"    let literal_1: String = \"hello\"\n    let text: String = literal_1.copy(h)\n" +
 	"    defer text.free(h)\n" +
 	"    let heap_runes: Size = text.rune_length()\n" +
 	"    let heap_graphemes: Size = text.grapheme_length()\n" +
@@ -398,7 +398,7 @@ func TestMigratedRuntimeSymbolsReadTheRegistry(t *testing.T) {
 // helper has exactly one owner.
 func TestSharedTextFillSitesReadTheWidenRecord(t *testing.T) {
 	program := checkedGeneratorSource(t, "fun demo(h: Heap) do\n"+
-		"    let heap: String = \"x\".copy(h)\n"+
+		"    let literal_2: String = \"x\"\n    let heap: String = literal_2.copy(h)\n"+
 		"    defer heap.free(h)\n"+
 		"    let small: String<16> = \"x\"\n"+
 		"    let a: Error = Error(ErrorKind.Other(header = small), small)\n"+

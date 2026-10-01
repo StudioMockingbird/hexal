@@ -9,7 +9,7 @@ import (
 )
 
 func TestConversionMethods(t *testing.T) {
-	result := compileSource("fun demo() do\n    let wide: Int64 = 9_000_000_000\n    let small: Int8 = 12\n    let narrowed: Int8 = wide.to<Int8>()\n    let whole: Int32 = 3.75.to<Int32>()\n    let size: Size = small.to<Size>()\n    let count: UInt32 = size.to<UInt32>()\nend")
+	result := compileSource("fun demo() do\n    let wide: Int64 = 9_000_000_000\n    let small: Int8 = 12\n    let narrowed: Int8 = wide.to<Int8>()\n    let whole: Int32 = (1.75 + 2.0).to<Int32>()\n    let size: Size = small.to<Size>()\n    let count: UInt32 = size.to<UInt32>()\nend")
 	if result.ExitCode != compiler.ExitSuccess {
 		t.Fatalf("Compile exit code = %d (%v), want %d", result.ExitCode, result.Stderr, compiler.ExitSuccess)
 	}
@@ -27,7 +27,7 @@ func TestConversionMethods(t *testing.T) {
 }
 
 func TestCheckedConstantConversionDiagnostics(t *testing.T) {
-	result := compileSource("let bad: Int8 = (200).to<Int8>()")
+	result := compileSource("let bad: Int8 = (100 + 100).to<Int8>()")
 	if result.ExitCode != compiler.ExitFailure || len(result.Stderr) == 0 || !strings.Contains(result.Stderr[0], "outside the range of Int8") {
 		t.Fatalf("Compile stderr = %#v, want checked-conversion range diagnostic", result.Stderr)
 	}
