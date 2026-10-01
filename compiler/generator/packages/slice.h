@@ -73,5 +73,10 @@ static_assert(offsetof({{.CName}}, data) == sizeof(size_t), "inline text layout"
 
 #include "hexal.h"
 {{if .NeedsHeapString}}typedef struct hex_string hex_string;
-{{end}}{{range .InlineTexts}}{{template "slicetext" .}}{{end}}{{template "slicebody" .}}
+{{end}}{{range .InlineTexts}}{{template "slicetext" .}}{{end}}{{template "slicebody" .}}{{if .HeaderBody.Slices}}
+typedef struct hex_t_Header {
+    hex_slice_UInt8 hex_m_name;
+    hex_slice_UInt8 hex_m_value;
+} hex_t_Header;
+{{template "slicebody" .HeaderBody}}{{end}}
 #endif

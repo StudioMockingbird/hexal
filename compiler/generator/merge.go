@@ -120,6 +120,7 @@ type programEmission struct {
 	corelibState *generatedCorelibState
 	jsonState    *generatedJSONState
 	regexState   *generatedRegexState
+	serverState  *generatedServerState
 	// seekUsed is true when any module's stream state reaches Bytes.seek or
 	// IO.seek, selecting hexal/seek.h once program-wide. It is tracked
 	// separately from ioState's own four merged flags, which exist only for
@@ -186,6 +187,7 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		corelibState:  &generatedCorelibState{},
 		jsonState:     &generatedJSONState{},
 		regexState:    &generatedRegexState{},
+		serverState:   &generatedServerState{},
 		adapterSites:  make(map[string][]spawnSite),
 	}
 	viewOrders := make([][]compilerTypes.Type, 0, len(modules))
@@ -255,6 +257,7 @@ func mergeProgramEmission(modules []*moduleEmission, literals *literalRegistry) 
 		mergeCorelibInto(merged.corelibState, module.corelibState)
 		mergeJSONInto(merged.jsonState, module.jsonState)
 		mergeRegexInto(merged.regexState, module.regexState)
+		mergeServerInto(merged.serverState, module.serverState)
 		merged.seekUsed = merged.seekUsed || module.fileState != nil && module.fileState.seek
 		mergeHeapInto(merged.heapState, module.heapState)
 		mergeConcurrencyInto(merged.concurrencyState, module.concurrencyState, spawnedSites)

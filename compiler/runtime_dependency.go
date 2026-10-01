@@ -20,6 +20,7 @@ const (
 	RuntimeUtf8proc RuntimeDependency = RuntimeDependency(specdata.DependencyUtf8proc)
 	RuntimeYyjson   RuntimeDependency = RuntimeDependency(specdata.DependencyYyjson)
 	RuntimePcre2    RuntimeDependency = RuntimeDependency(specdata.DependencyPcre2)
+	RuntimeLlhttp   RuntimeDependency = RuntimeDependency(specdata.DependencyLlhttp)
 )
 
 // runtimeDependencies validates the generator's dependency names against the

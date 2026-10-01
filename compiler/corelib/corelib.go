@@ -27,6 +27,16 @@ const (
 	ParamPattern      Param = specdata.CoreParamPattern
 	ParamSpan         Param = specdata.CoreParamSpan
 	ParamMatch        Param = specdata.CoreParamMatch
+	ParamUInt16       Param = specdata.CoreParamUInt16
+	ParamBytes        Param = specdata.CoreParamBytes
+	ParamConfig       Param = specdata.CoreParamConfig
+	ParamRouter       Param = specdata.CoreParamRouter
+	ParamServer       Param = specdata.CoreParamServer
+	ParamRequest      Param = specdata.CoreParamRequest
+	ParamWriter       Param = specdata.CoreParamWriter
+	ParamAppPtr       Param = specdata.CoreParamAppPtr
+	ParamHandler      Param = specdata.CoreParamHandler
+	ParamSize         Param = specdata.CoreParamSize
 )
 
 // Result is one runtime function's success shape. Every Result except
@@ -45,6 +55,13 @@ const (
 	ResultBool        Result = specdata.CoreResultBool
 	ResultSpanNil     Result = specdata.CoreResultSpanNil
 	ResultMatchNil    Result = specdata.CoreResultMatchNil
+	ResultRouter      Result = specdata.CoreResultRouter
+	ResultServer      Result = specdata.CoreResultServer
+	ResultConfig      Result = specdata.CoreResultConfig
+	ResultReadBody    Result = specdata.CoreResultReadBody
+	ResultBytes       Result = specdata.CoreResultBytes
+	ResultBytesNil    Result = specdata.CoreResultBytesNil
+	ResultHeaders     Result = specdata.CoreResultHeaders
 )
 
 // Function is one exported module function, the registry record a lookup
@@ -82,11 +99,35 @@ func Lookup(path, name string) (Function, bool) {
 	return specdata.CoreFunctionByModuleName(specdata.CoreModuleID(path), name)
 }
 
+// LookupGenericType resolves one generic export of a known core-library
+// module to its family identifier and argument count. A generic export names
+// no single Type, so the checker builds the specialization from its arguments.
+func LookupGenericType(path, name string) (specdata.TypeID, int, bool) {
+	module, ok := specdata.CoreModuleByID(specdata.CoreModuleID(path))
+	if !ok {
+		return "", 0, false
+	}
+	for _, export := range module.Generics {
+		if export.Name == name {
+			return specdata.TypeID(export.TypeID), export.Arity, true
+		}
+	}
+	return "", 0, false
+}
+
 // LookupMethod resolves name on a receiver of exactly type receiver. The
-// registry keys a method by receiver identifier, so each candidate's receiver
-// resolves to its canonical Type before the comparison.
+// registry keys a method by receiver identifier: a concrete receiver resolves
+// to its canonical Type before the comparison, and a generic std/http handle
+// matches by its family, whatever its application type.
 func LookupMethod(receiver compilerTypes.Type, name string) (Method, bool) {
+	family, generic := compilerTypes.HttpGenericFamily(receiver)
 	for _, method := range specdata.CoreMethodsNamed(name) {
+		if generic {
+			if specdata.CoreTypeID(family) == method.Receiver {
+				return method, true
+			}
+			continue
+		}
 		if typ, ok := resolveCoreType(method.Receiver); ok && compilerTypes.Equal(typ, receiver) {
 			return method, true
 		}

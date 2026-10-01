@@ -89,7 +89,7 @@ func discoverGeneratedCorelib(program checker.Program, logicalKey string, litera
 			// through the dedicated json/regex discovery states and their
 			// raw adapters; the program/entropy adapters never spell them.
 			switch path {
-			case "std/json", "std/regex":
+			case "std/json", "std/regex", "std/http":
 				return nil
 			}
 			state.used = true
@@ -138,6 +138,7 @@ func discoverGeneratedCorelib(program checker.Program, logicalKey string, litera
 
 // renderCorelibCallExpression renders one core-library module call: a direct
 // core call for a bare Size result, a raw cleanup call for a no-value result,
+// a raw call for a std/http value the call builds without a failure path,
 // otherwise a call to the module's own adapter carrying its source site.
 func renderCorelibCallExpression(node checker.Expression, state *expressionValidation) (string, error) {
 	path, function, ok := corelib.FunctionByRuntime(node.Name)
@@ -147,36 +148,49 @@ func renderCorelibCallExpression(node checker.Expression, state *expressionValid
 	if function.Result == corelib.ResultSize {
 		return node.Name + "()", nil
 	}
-	if function.Result == corelib.ResultNoValue {
-		// value.free, pattern.free, and match.free produce no value: the
-		// raw entry point renders directly with exactly the checked
-		// arguments. The two addon families suffix every raw entry point
-		// with _raw so the registry name stays free for the adapter form.
-		raw := node.Name
-		switch path {
-		case "std/json", "std/regex":
-			raw += "_raw"
-		}
-		arguments := make([]string, 0, len(node.Arguments))
-		for index := range node.Arguments {
-			rendered, err := renderHoistedOperand(&node.Arguments[index].Node, node.Arguments[index], state)
-			if err != nil {
-				return "", err
-			}
-			arguments = append(arguments, rendered)
-		}
-		return raw + "(" + strings.Join(arguments, ", ") + ")", nil
-	}
 	arguments := make([]string, 0, len(node.Arguments)+1)
 	for index := range node.Arguments {
 		rendered, err := renderHoistedOperand(&node.Arguments[index].Node, node.Arguments[index], state)
 		if err != nil {
 			return "", err
 		}
+		if index < len(function.Params) && function.Params[index] == corelib.ParamHandler {
+			// A handler's C function type is the application's own; the
+			// runtime stores it behind one erased function pointer and the
+			// application's invoke thunk restores it.
+			rendered = "(hex_http_handler)(" + rendered + ")"
+		}
 		arguments = append(arguments, rendered)
+	}
+	if function.Result == corelib.ResultNoValue || corelibDirectResult(path, function.Result) {
+		// value.free, pattern.free, match.free, and the std/http cleanup and
+		// builder entries produce a value with no failure arm: the raw entry
+		// point renders directly with exactly the checked arguments. The
+		// addon families suffix every raw entry point with _raw so the
+		// registry name stays free for the adapter form.
+		raw := node.Name
+		switch path {
+		case "std/json", "std/regex", "std/http":
+			raw += "_raw"
+		}
+		return raw + "(" + strings.Join(arguments, ", ") + ")", nil
 	}
 	arguments = append(arguments, fmt.Sprintf("%d, %d", state.line(node.Span), state.column(node.Span)))
 	return fmt.Sprintf("%s_%s(%s)", node.Name, streamAdapterSuffix(node.ResultType), strings.Join(arguments, ", ")), nil
+}
+
+// corelibDirectResult reports whether a std/http result shape is produced
+// directly: the router, the config record, and the borrowed byte and header
+// views, none of which can fail.
+func corelibDirectResult(path string, result corelib.Result) bool {
+	if path != "std/http" {
+		return false
+	}
+	switch result {
+	case corelib.ResultRouter, corelib.ResultConfig, corelib.ResultBytes, corelib.ResultHeaders:
+		return true
+	}
+	return false
 }
 
 // validateCorelibCallExpression checks one core-library module call
@@ -238,56 +252,105 @@ func corelibAdapterCall(runtime string, event bool) string {
 	return runtime
 }
 
-// corelibAdapterParameters spells the rendered adapter parameter list.
-func corelibAdapterParameters(params []corelib.Param) (string, error) {
-	rendered := make([]string, 0, len(params))
+// corelibParamSpelling is one adapter parameter's C declaration and the name
+// its raw call argument uses. The name is unique within the list: a second
+// parameter of one shape takes a numeric suffix, so a two-String signature
+// declares distinct names while a single-parameter signature keeps the plain
+// name every other family already generates.
+type corelibParamSpelling struct {
+	declaration string
+	name        string
+	argument    string
+}
+
+// corelibParamSpellings spells every parameter of one adapter signature.
+func corelibParamSpellings(params []corelib.Param) ([]corelibParamSpelling, error) {
+	spellings := make([]corelibParamSpelling, 0, len(params))
+	seen := make(map[string]int)
 	for _, param := range params {
+		var spelling corelibParamSpelling
+		var declaration, base string
+		argument := ""
 		switch param {
 		case corelib.ParamHeap:
-			rendered = append(rendered, "hex_heap heap")
+			declaration, base = "hex_heap %s", "heap"
 		case corelib.ParamMutByteSlice:
-			rendered = append(rendered, "hex_mut_slice_UInt8 into")
+			// The raw entry takes the slice's data and length separately.
+			declaration, base, argument = "hex_mut_slice_UInt8 %s", "into", "%s.data, %[1]s.length"
 		case corelib.ParamString:
 			// A String value is a pointer in generated C; the raw entries
 			// and every wrapper argument agree on that spelling.
-			rendered = append(rendered, "const hex_string *text")
+			declaration, base = "const hex_string *%s", "text"
 		case corelib.ParamValue:
-			rendered = append(rendered, "hex_t_JsonValue value")
+			declaration, base = "hex_t_JsonValue %s", "value"
 		case corelib.ParamPattern:
-			rendered = append(rendered, "hex_regex_pattern pattern")
+			declaration, base = "hex_regex_pattern %s", "pattern"
 		case corelib.ParamSpan:
-			rendered = append(rendered, "hex_t_Span span")
+			declaration, base = "hex_t_Span %s", "span"
 		case corelib.ParamMatch:
-			rendered = append(rendered, "hex_t_Match match")
+			declaration, base = "hex_t_Match %s", "match"
+		case corelib.ParamUInt16:
+			declaration, base = "uint16_t %s", "port"
+		case corelib.ParamSize:
+			declaration, base = "size_t %s", "count"
+		case corelib.ParamBytes:
+			declaration, base = "hex_slice_UInt8 %s", "bytes"
+		case corelib.ParamConfig:
+			declaration, base = "hex_t_ServerConfig %s", "config"
+		case corelib.ParamRouter:
+			declaration, base = "hex_http_router %s", "router"
+		case corelib.ParamServer:
+			declaration, base = "hex_http_server %s", "server"
+		case corelib.ParamRequest:
+			declaration, base = "hex_http_request %s", "request"
+		case corelib.ParamWriter:
+			declaration, base = "hex_http_writer %s", "writer"
+		case corelib.ParamAppPtr:
+			declaration, base = "void *%s", "app"
+		case corelib.ParamHandler:
+			declaration, base = "hex_http_handler %s", "handler"
 		default:
-			return "", unknownExpressionDiagnostic()
+			return nil, unknownExpressionDiagnostic()
 		}
+		seen[base]++
+		name := base
+		if seen[base] > 1 {
+			name = fmt.Sprintf("%s%d", base, seen[base])
+		}
+		spelling.name = name
+		spelling.declaration = fmt.Sprintf(declaration, name)
+		if argument == "" {
+			spelling.argument = name
+		} else {
+			spelling.argument = fmt.Sprintf(argument, name)
+		}
+		spellings = append(spellings, spelling)
+	}
+	return spellings, nil
+}
+
+// corelibAdapterParameters spells the rendered adapter parameter list.
+func corelibAdapterParameters(params []corelib.Param) (string, error) {
+	spellings, err := corelibParamSpellings(params)
+	if err != nil {
+		return "", err
+	}
+	rendered := make([]string, 0, len(spellings))
+	for _, spelling := range spellings {
+		rendered = append(rendered, spelling.declaration)
 	}
 	return strings.Join(rendered, ", "), nil
 }
 
 // corelibAdapterArguments spells the raw call's argument expressions.
 func corelibAdapterArguments(params []corelib.Param) (string, error) {
-	rendered := make([]string, 0, len(params))
-	for _, param := range params {
-		switch param {
-		case corelib.ParamHeap:
-			rendered = append(rendered, "heap")
-		case corelib.ParamMutByteSlice:
-			rendered = append(rendered, "into.data, into.length")
-		case corelib.ParamString:
-			rendered = append(rendered, "text")
-		case corelib.ParamValue:
-			rendered = append(rendered, "value")
-		case corelib.ParamPattern:
-			rendered = append(rendered, "pattern")
-		case corelib.ParamSpan:
-			rendered = append(rendered, "span")
-		case corelib.ParamMatch:
-			rendered = append(rendered, "match")
-		default:
-			return "", unknownExpressionDiagnostic()
-		}
+	spellings, err := corelibParamSpellings(params)
+	if err != nil {
+		return "", err
+	}
+	rendered := make([]string, 0, len(spellings))
+	for _, spelling := range spellings {
+		rendered = append(rendered, spelling.argument)
 	}
 	return strings.Join(rendered, ", "), nil
 }

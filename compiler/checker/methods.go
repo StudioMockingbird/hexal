@@ -723,7 +723,7 @@ func checkMethodCall(call parser.CallExpression, callee parser.PropertyExpressio
 	// A core-library type (Pattern, Match, Json.Value) owns its methods in the
 	// registry rather than in a user method table.
 	if method, ok := corelib.LookupMethod(receiver.typ, name); ok {
-		return checkCorelibMethodCall(method, receiver.source, call, callee.Property, ctx)
+		return checkCorelibMethodCall(method, receiver, call, callee.Property, ctx)
 	}
 	// Rule 2: one nominal struct or union owns the method, reached through T,
 	// Ptr<T>, or Ptr<mut T>. Deeper pointers have no owner at this layer and

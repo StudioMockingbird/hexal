@@ -55,6 +55,8 @@ const (
 	ComponentEntropy     ComponentID = "entropy"
 	ComponentJSON        ComponentID = "json"
 	ComponentRegex       ComponentID = "regex"
+	ComponentHTTP        ComponentID = "http"
+	ComponentServer      ComponentID = "server"
 )
 
 // Dependency identities. These are the sole declarations of the native input
@@ -66,6 +68,7 @@ const (
 	DependencyUtf8proc DependencyID = "utf8proc"
 	DependencyYyjson   DependencyID = "yyjson"
 	DependencyPcre2    DependencyID = "pcre2"
+	DependencyLlhttp   DependencyID = "llhttp"
 )
 
 // DependencySpec is one native runtime input identity.
@@ -136,6 +139,7 @@ var dependencyRegistry = []DependencySpec{
 	{ID: DependencyUtf8proc},
 	{ID: DependencyYyjson},
 	{ID: DependencyPcre2},
+	{ID: DependencyLlhttp},
 }
 
 // componentRegistry declares every runtime component exactly once, in the
@@ -329,6 +333,21 @@ var componentRegistry = []ComponentSpec{
 		Files:               []string{"hexal/regex.h", "hexal/regex.c"},
 		RuntimeDependencies: []DependencyID{DependencyPcre2},
 		RequiredCHeaders:    []string{"stddef.h", "stdint.h"},
+	},
+	{
+		// The private HTTP/1 request parser adapter: the only generated
+		// translation unit that includes <llhttp.h>. It has no libuv, Task, or
+		// Hexal dependency and no public header exposes llhttp.
+		ID:                  ComponentHTTP,
+		Files:               []string{"hexal/http.h", "hexal/http.c"},
+		RuntimeDependencies: []DependencyID{DependencyLlhttp},
+	},
+	{
+		// The std/http server runtime: the config record, the router, and the
+		// connection state machine over the Task-aware network component.
+		ID:               ComponentServer,
+		Files:            []string{"hexal/server.h", "hexal/server.c"},
+		RequiredCHeaders: []string{"stddef.h", "stdint.h"},
 	},
 }
 

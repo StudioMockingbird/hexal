@@ -41,6 +41,27 @@ const (
 	CoreParamSpan
 	// CoreParamMatch is an owning Match value parameter.
 	CoreParamMatch
+	// CoreParamUInt16 is a port number.
+	CoreParamUInt16
+	// CoreParamBytes is a read-only Slice<Byte> parameter.
+	CoreParamBytes
+	// CoreParamConfig is a ServerConfig record value parameter.
+	CoreParamConfig
+	// CoreParamRouter is a Router<App> parameter; App comes from the call's
+	// type argument or its receiver.
+	CoreParamRouter
+	// CoreParamServer is a Server<App> parameter.
+	CoreParamServer
+	// CoreParamRequest is the handler-scoped Request handle.
+	CoreParamRequest
+	// CoreParamWriter is the handler-scoped Writer handle.
+	CoreParamWriter
+	// CoreParamAppPtr is a Ptr<App> parameter.
+	CoreParamAppPtr
+	// CoreParamHandler is Fun<(Ptr<App>, Request, Writer): Nil | Error>.
+	CoreParamHandler
+	// CoreParamSize is a Size parameter.
+	CoreParamSize
 )
 
 // CoreResult is one function's success shape. The Error union a fallible
@@ -64,7 +85,32 @@ const (
 	CoreResultSpanNil
 	// CoreResultMatchNil is Match | Nil | Error.
 	CoreResultMatchNil
+	// CoreResultRouter is Router<App>, produced directly.
+	CoreResultRouter
+	// CoreResultServer is Server<App> | Error.
+	CoreResultServer
+	// CoreResultConfig is a ServerConfig record, produced directly.
+	CoreResultConfig
+	// CoreResultReadBody is Size | EoS | Error.
+	CoreResultReadBody
+	// CoreResultBytes is a read-only Slice<Byte>, produced directly.
+	CoreResultBytes
+	// CoreResultBytesNil is Slice<Byte> | Nil; it never fails.
+	CoreResultBytesNil
+	// CoreResultHeaders is a Slice<Header>, produced directly.
+	CoreResultHeaders
 )
+
+// coreResultFallible reports whether a result shape unions with Error. The
+// direct shapes -- a bare Size, nothing, and the std/http values a call builds
+// without a failure path -- never do.
+func coreResultFallible(result CoreResult) bool {
+	switch result {
+	case CoreResultSize, CoreResultNoValue, CoreResultRouter, CoreResultConfig, CoreResultBytes, CoreResultBytesNil, CoreResultHeaders:
+		return false
+	}
+	return true
+}
 
 // ErrorBehavior classifies whether a function's result unions with the built-in
 // Error type at the call site. It restates the error half of CoreResult as its
@@ -86,6 +132,10 @@ const (
 // (the RuntimeSymbol fact), and its Params and Result. Exactly one
 // of Builtin and Runtime is set. The runtime template owns the function's
 // stable ErrorKind and fixed message, so neither crosses this boundary.
+//
+// TypeParams is the number of explicit type arguments a generic function
+// takes; Constructs names the exported type a constructor-shaped function
+// builds, in which case Name is that type's own export name.
 type CoreFunction struct {
 	Name          string
 	Builtin       string
@@ -94,21 +144,26 @@ type CoreFunction struct {
 	ErrorBehavior ErrorBehavior
 	Runtime       string
 	Components    []ComponentID
+	TypeParams    int
+	Constructs    CoreTypeID
 }
 
 // CoreMethod is one instance method of a core-library type. Its embedded
-// function record states the runtime call in C argument order, and the receiver
-// occupies Params[1], after the Heap every core-library method takes first;
-// the call site's own arguments fill the remaining slots in order.
+// function record states the runtime call in C argument order, and the
+// receiver occupies Params[ReceiverIndex]; the call site's own arguments fill
+// the remaining slots in order.
 type CoreMethod struct {
-	Receiver CoreTypeID
+	Receiver      CoreTypeID
+	ReceiverIndex int
 	CoreFunction
 }
 
 // CallParams lists the parameters a call site writes: Params without the
 // receiver slot.
 func (method CoreMethod) CallParams() []CoreParam {
-	return append(append([]CoreParam(nil), method.Params[:1]...), method.Params[2:]...)
+	params := make([]CoreParam, 0, len(method.Params)-1)
+	params = append(params, method.Params[:method.ReceiverIndex]...)
+	return append(params, method.Params[method.ReceiverIndex+1:]...)
 }
 
 // CoreTypeExport is one exported type name and the identifier of the canonical
@@ -118,12 +173,22 @@ type CoreTypeExport struct {
 	TypeID CoreTypeID
 }
 
+// CoreGenericExport is one generic type a module exports. It resolves only
+// through its type arguments, never to one Type, so it stays outside the
+// concrete type graph; Arity is its argument count.
+type CoreGenericExport struct {
+	Name   string
+	TypeID CoreTypeID
+	Arity  int
+}
+
 // CoreModule is one core-library module: its canonical path and its exports.
 // Methods are keyed by the receiver type they extend, which the module must
 // export.
 type CoreModule struct {
 	ID        CoreModuleID
 	Types     []CoreTypeExport
+	Generics  []CoreGenericExport
 	Functions []CoreFunction
 	Methods   []CoreMethod
 }
@@ -156,10 +221,18 @@ const (
 	// CoreTypeJsonValue is std/json's exported union Value.
 	CoreTypeJsonValue CoreTypeID = "JsonValue"
 	// CoreTypeJsonMember is std/json's ordered object member record.
-	CoreTypeJsonMember   CoreTypeID = "JsonMember"
-	CoreTypeRegexPattern CoreTypeID = "Pattern"
-	CoreTypeRegexSpan    CoreTypeID = "Span"
-	CoreTypeRegexMatch   CoreTypeID = "Match"
+	CoreTypeJsonMember CoreTypeID = "JsonMember"
+	// The std/http handles and records. Router and Server are generic
+	// families: a Router<App> is identified by its App argument.
+	CoreTypeHttpRequest      CoreTypeID = "HttpRequest"
+	CoreTypeHttpWriter       CoreTypeID = "HttpWriter"
+	CoreTypeHttpHeader       CoreTypeID = "HttpHeader"
+	CoreTypeHttpServerConfig CoreTypeID = "HttpServerConfig"
+	CoreTypeHttpRouter       CoreTypeID = "HttpRouter"
+	CoreTypeHttpServer       CoreTypeID = "HttpServer"
+	CoreTypeRegexPattern     CoreTypeID = "Pattern"
+	CoreTypeRegexSpan        CoreTypeID = "Span"
+	CoreTypeRegexMatch       CoreTypeID = "Match"
 )
 
 // coreModules is the registry. It is unexported so no importer can rewrite a
@@ -267,8 +340,8 @@ var coreModules = []CoreModule{
 			{Name: "parse", Params: []CoreParam{CoreParamHeap, CoreParamString}, Result: CoreResultValue, ErrorBehavior: ErrorFallible, Runtime: "hex_json_parse", Components: []ComponentID{ComponentJSON}},
 		},
 		Methods: []CoreMethod{
-			{CoreTypeJsonValue, CoreFunction{Name: "stringify", Params: []CoreParam{CoreParamHeap, CoreParamValue}, Result: CoreResultString, ErrorBehavior: ErrorFallible, Runtime: "hex_json_stringify", Components: []ComponentID{ComponentJSON}}},
-			{CoreTypeJsonValue, CoreFunction{Name: "free", Params: []CoreParam{CoreParamHeap, CoreParamValue}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_json_free", Components: []ComponentID{ComponentJSON}}},
+			{CoreTypeJsonValue, 1, CoreFunction{Name: "stringify", Params: []CoreParam{CoreParamHeap, CoreParamValue}, Result: CoreResultString, ErrorBehavior: ErrorFallible, Runtime: "hex_json_stringify", Components: []ComponentID{ComponentJSON}}},
+			{CoreTypeJsonValue, 1, CoreFunction{Name: "free", Params: []CoreParam{CoreParamHeap, CoreParamValue}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_json_free", Components: []ComponentID{ComponentJSON}}},
 		},
 	},
 	{
@@ -282,11 +355,32 @@ var coreModules = []CoreModule{
 			{Name: "compile", Params: []CoreParam{CoreParamHeap, CoreParamString}, Result: CoreResultPattern, ErrorBehavior: ErrorFallible, Runtime: "hex_regex_compile", Components: []ComponentID{ComponentRegex}},
 		},
 		Methods: []CoreMethod{
-			{CoreTypeRegexPattern, CoreFunction{Name: "test", Params: []CoreParam{CoreParamHeap, CoreParamPattern, CoreParamString}, Result: CoreResultBool, ErrorBehavior: ErrorFallible, Runtime: "hex_regex_test", Components: []ComponentID{ComponentRegex}}},
-			{CoreTypeRegexPattern, CoreFunction{Name: "find", Params: []CoreParam{CoreParamHeap, CoreParamPattern, CoreParamString}, Result: CoreResultSpanNil, ErrorBehavior: ErrorFallible, Runtime: "hex_regex_find", Components: []ComponentID{ComponentRegex}}},
-			{CoreTypeRegexPattern, CoreFunction{Name: "capture", Params: []CoreParam{CoreParamHeap, CoreParamPattern, CoreParamString}, Result: CoreResultMatchNil, ErrorBehavior: ErrorFallible, Runtime: "hex_regex_capture", Components: []ComponentID{ComponentRegex}}},
-			{CoreTypeRegexPattern, CoreFunction{Name: "free", Params: []CoreParam{CoreParamHeap, CoreParamPattern}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_regex_free", Components: []ComponentID{ComponentRegex}}},
-			{CoreTypeRegexMatch, CoreFunction{Name: "free", Params: []CoreParam{CoreParamHeap, CoreParamMatch}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_regex_free_match", Components: []ComponentID{ComponentRegex}}},
+			{CoreTypeRegexPattern, 1, CoreFunction{Name: "test", Params: []CoreParam{CoreParamHeap, CoreParamPattern, CoreParamString}, Result: CoreResultBool, ErrorBehavior: ErrorFallible, Runtime: "hex_regex_test", Components: []ComponentID{ComponentRegex}}},
+			{CoreTypeRegexPattern, 1, CoreFunction{Name: "find", Params: []CoreParam{CoreParamHeap, CoreParamPattern, CoreParamString}, Result: CoreResultSpanNil, ErrorBehavior: ErrorFallible, Runtime: "hex_regex_find", Components: []ComponentID{ComponentRegex}}},
+			{CoreTypeRegexPattern, 1, CoreFunction{Name: "capture", Params: []CoreParam{CoreParamHeap, CoreParamPattern, CoreParamString}, Result: CoreResultMatchNil, ErrorBehavior: ErrorFallible, Runtime: "hex_regex_capture", Components: []ComponentID{ComponentRegex}}},
+			{CoreTypeRegexPattern, 1, CoreFunction{Name: "free", Params: []CoreParam{CoreParamHeap, CoreParamPattern}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_regex_free", Components: []ComponentID{ComponentRegex}}},
+			{CoreTypeRegexMatch, 1, CoreFunction{Name: "free", Params: []CoreParam{CoreParamHeap, CoreParamMatch}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_regex_free_match", Components: []ComponentID{ComponentRegex}}},
+		},
+	},
+	{
+		ID: "std/http",
+		Types: []CoreTypeExport{
+			{Name: "Request", TypeID: CoreTypeHttpRequest},
+			{Name: "Writer", TypeID: CoreTypeHttpWriter},
+			{Name: "Header", TypeID: CoreTypeHttpHeader},
+			{Name: "ServerConfig", TypeID: CoreTypeHttpServerConfig},
+		},
+		Generics: []CoreGenericExport{
+			{Name: "Router", TypeID: CoreTypeHttpRouter, Arity: 1},
+			{Name: "Server", TypeID: CoreTypeHttpServer, Arity: 1},
+		},
+		Functions: []CoreFunction{
+			{Name: "default_config", Params: []CoreParam{CoreParamString, CoreParamUInt16}, Result: CoreResultConfig, ErrorBehavior: ErrorNever, Runtime: "hex_http_default_config", Components: []ComponentID{ComponentServer}},
+			{Name: "Router", Params: []CoreParam{CoreParamHeap}, Result: CoreResultRouter, ErrorBehavior: ErrorNever, Runtime: "hex_http_router_new", Components: []ComponentID{ComponentServer}, TypeParams: 1, Constructs: CoreTypeHttpRouter},
+		},
+		Methods: []CoreMethod{
+			{CoreTypeHttpRouter, 0, CoreFunction{Name: "route", Params: []CoreParam{CoreParamRouter, CoreParamString, CoreParamString, CoreParamHandler}, Result: CoreResultNil, ErrorBehavior: ErrorFallible, Runtime: "hex_http_router_route", Components: []ComponentID{ComponentServer, ComponentHTTP}}},
+			{CoreTypeHttpRouter, 0, CoreFunction{Name: "free", Params: []CoreParam{CoreParamRouter, CoreParamHeap}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_http_router_free", Components: []ComponentID{ComponentServer}}},
 		},
 	},
 	{
@@ -400,7 +494,7 @@ func cloneCoreModule(module CoreModule) CoreModule {
 	}
 	module.Methods = make([]CoreMethod, len(methods))
 	for index, method := range methods {
-		module.Methods[index] = CoreMethod{method.Receiver, cloneCoreFunction(method.CoreFunction)}
+		module.Methods[index] = CoreMethod{method.Receiver, method.ReceiverIndex, cloneCoreFunction(method.CoreFunction)}
 	}
 	return module
 }
@@ -416,8 +510,8 @@ func cloneCoreFunction(function CoreFunction) CoreFunction {
 // validateCorelib checks one core-library registry for internal consistency:
 // unique module paths; unique export names inside a module; exactly one of a
 // builtin and a runtime entry point per function; methods that extend an
-// exported type, once per receiver and name, and take a Heap then the
-// receiver; runtime entry points unique across every module; and, for each
+// exported type, once per receiver and name, with a receiver slot; runtime
+// entry points unique across every module; and, for each
 // runtime function or method, a valid error behavior
 // consistent with its result and at least one known component demand. It
 // cannot check that a type identifier resolves, because resolution crosses the
@@ -453,10 +547,16 @@ func validateCorelib(modules []CoreModule) error {
 			if function.Name == "" {
 				return fmt.Errorf("specdata/corelib: module %q exports a function with an empty name", module.ID)
 			}
-			if exports[function.Name] {
+			if exports[function.Name] && function.Constructs == "" {
 				return fmt.Errorf("specdata/corelib: module %q exports %q twice", module.ID, function.Name)
 			}
-			exports[function.Name] = true
+			if function.Constructs != "" {
+				if !moduleExportsType(module, function.Constructs) {
+					return fmt.Errorf("specdata/corelib: constructor %q.%q builds a type the module does not export", module.ID, function.Name)
+				}
+			} else {
+				exports[function.Name] = true
+			}
 			if err := validateCoreFunction(module.ID, function, runtimes); err != nil {
 				return err
 			}
@@ -473,8 +573,8 @@ func validateCorelib(modules []CoreModule) error {
 				return fmt.Errorf("specdata/corelib: module %q declares method %q twice", module.ID, key)
 			}
 			methodNames[key] = true
-			if method.Runtime == "" || len(method.Params) < 2 || method.Params[0] != CoreParamHeap {
-				return fmt.Errorf("specdata/corelib: method %q.%q must name a runtime entry point taking Heap then its receiver", module.ID, method.Name)
+			if method.Runtime == "" || method.ReceiverIndex < 0 || method.ReceiverIndex >= len(method.Params) {
+				return fmt.Errorf("specdata/corelib: method %q.%q must name a runtime entry point with a receiver slot", module.ID, method.Name)
 			}
 			if err := validateCoreFunction(module.ID, method.CoreFunction, runtimes); err != nil {
 				return err
@@ -487,6 +587,11 @@ func validateCorelib(modules []CoreModule) error {
 // moduleExportsType reports whether module exports a type with identifier id.
 func moduleExportsType(module CoreModule, id CoreTypeID) bool {
 	for _, export := range module.Types {
+		if export.TypeID == id {
+			return true
+		}
+	}
+	for _, export := range module.Generics {
 		if export.TypeID == id {
 			return true
 		}
@@ -515,8 +620,7 @@ func validateCoreFunction(id CoreModuleID, function CoreFunction, runtimes map[s
 		return fmt.Errorf("specdata/corelib: runtime %q is declared by %q and %q", function.Runtime, owner, id)
 	}
 	runtimes[function.Runtime] = id
-	fallible := function.Result != CoreResultSize && function.Result != CoreResultNoValue
-	if (function.ErrorBehavior == ErrorFallible) != fallible {
+	if (function.ErrorBehavior == ErrorFallible) != coreResultFallible(function.Result) {
 		return fmt.Errorf("specdata/corelib: runtime %q.%q result and error behavior disagree", id, function.Name)
 	}
 	if len(function.Components) == 0 {

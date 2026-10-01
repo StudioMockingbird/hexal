@@ -2787,6 +2787,37 @@ var fixtureCatalog = []fixture{
 	},
 	jsonNestedOwnershipFixture(),
 	{
+		name:       "http-router-registration-runs",
+		entrypoint: "app.hex",
+		sources: map[string]string{"app.hex": "import\n    Http from std.http\nend\n" +
+			"type App is struct\n    count: Int32\nend\n" +
+			"fun home(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do\n    return nil\nend\n" +
+			"fun show(tag: String, r: Nil | Error) do\n" +
+			"    if r != nil then\n        print(tag, \": \", r.header(), \": \", r.message, \"\\n\")\n" +
+			"    else\n        print(tag, \": ok\\n\")\n    end\nend\n" +
+			"let heap = Heap()\n" +
+			"let config = Http.default_config(\"127.0.0.1\", 8080)\n" +
+			"print(config.port, \" \", config.max_body_bytes, \" \", config.tcp_nodelay, \"\\n\")\n" +
+			"let mut router = Http.Router<App>(heap)\n" +
+			"show(\"get\", router.route(\"GET\", \"/\", home))\n" +
+			"show(\"dup\", router.route(\"GET\", \"/\", home))\n" +
+			"show(\"post\", router.route(\"POST\", \"/\", home))\n" +
+			"show(\"badmethod\", router.route(\"get\", \"/\", home))\n" +
+			"show(\"badpath\", router.route(\"GET\", \"x\", home))\n" +
+			"show(\"query\", router.route(\"GET\", \"/a?b\", home))\n" +
+			"router.free(heap)\n"},
+		expectation: &processExpectation{
+			zeroExit: true,
+			exactStdout: "8080 8388608 true\n" +
+				"get: ok\n" +
+				"dup: invalid input: duplicate method and path route\n" +
+				"post: ok\n" +
+				"badmethod: invalid input: unknown HTTP method\n" +
+				"badpath: invalid input: route path must be an absolute path without query, fragment, or control bytes\n" +
+				"query: invalid input: route path must be an absolute path without query, fragment, or control bytes\n",
+		},
+	},
+	{
 		name:       "json-free-over-depth-traps",
 		entrypoint: "app.hex",
 		sources: map[string]string{"app.hex": "import\n    Json from std.json\nend\n" +

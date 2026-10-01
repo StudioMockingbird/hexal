@@ -98,6 +98,7 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 	emission.corelibState = discoverGeneratedCorelib(program, logicalKey, literals)
 	emission.jsonState = discoverGeneratedJSON(program, logicalKey, literals)
 	emission.regexState = discoverGeneratedRegex(program, logicalKey, literals)
+	emission.serverState = discoverGeneratedServer(program, logicalKey, literals)
 	emission.rootReturn = discoverGeneratedRootReturn(program)
 	emission.wrapState = discoverGeneratedWraps(program)
 	concurrencyState, concurrencyErr := discoverGeneratedConcurrency(program, functions, literals, canonicalID, owner, logicalKey)
@@ -168,6 +169,20 @@ func discoverModuleEmission(program checker.Program, canonicalID, logicalKey str
 		emission.errorUsed = true
 		heapState.required = true
 		forcedRegexCapture(listState)
+	}
+	if emission.serverState != nil && emission.serverState.used {
+		// The router and the config copy their text through the allocator,
+		// the config record names Duration and String, Header names a byte
+		// Slice, and every failure builds an owned-message Error.
+		literals.used = true
+		literals.requireErrorText()
+		emission.stringUsed = true
+		emission.errorUsed = true
+		heapState.required = true
+		sliceState.required = true
+		ensureSliceUInt8(sliceState)
+		ensureSliceHeader(sliceState)
+		emission.timeState.used = true
 	}
 	if len(dictState.order) > 0 {
 		// The dict component header declares its String dependency, so the

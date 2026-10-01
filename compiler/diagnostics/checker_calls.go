@@ -72,6 +72,11 @@ func FunctionArgumentTypeMismatch(callee string, index int, expected, actual str
 	return message("type.function-argument-mismatch", CategoryType, StageChecker, text)
 }
 
+func CorelibTypeArgumentCount(name string, expected, got int) Message {
+	return message("type.corelib-type-argument-count", CategoryType, StageChecker,
+		fmt.Sprintf("%s expects %d type argument(s); got %d", name, expected, got))
+}
+
 func CorelibFunctionArity(name string, expected, got int) Message {
 	return message("type.corelib-function-arity", CategoryType, StageChecker,
 		fmt.Sprintf("%s expects %d argument(s); got %d", name, expected, got))

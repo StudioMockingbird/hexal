@@ -38,7 +38,8 @@ func discoverModuleAddonAdapters(program checker.Program, path string) []corelib
 			}
 			if nodePath != path ||
 				function.Result == corelib.ResultNoValue ||
-				function.Result == corelib.ResultSize {
+				function.Result == corelib.ResultSize ||
+				corelibDirectResult(nodePath, function.Result) {
 				return nil
 			}
 			query := addonRawResultName(path, function.Result)
@@ -75,6 +76,15 @@ func addonRawResultName(path string, result corelib.Result) string {
 		case corelib.ResultString:
 			return "hex_json_string_result"
 		}
+	case "std/http":
+		switch result {
+		case corelib.ResultNil:
+			return "hex_http_status_result"
+		case corelib.ResultServer:
+			return "hex_http_server_result"
+		case corelib.ResultReadBody:
+			return "hex_http_read_result"
+		}
 	case "std/regex":
 		switch result {
 		case corelib.ResultPattern:
@@ -105,6 +115,14 @@ func writeRegexInlineHelpers(result *strings.Builder, input *moduleHeaderInput) 
 		return nil
 	}
 	return writeAddonInlineHelpers(result, input, input.regexState.adapters, input.regexState.fileLiteral)
+}
+
+// writeServerInlineHelpers renders the module-owned std/http adapters.
+func writeServerInlineHelpers(result *strings.Builder, input *moduleHeaderInput) error {
+	if input.serverState == nil || !input.serverState.used {
+		return nil
+	}
+	return writeAddonInlineHelpers(result, input, input.serverState.adapters, input.serverState.fileLiteral)
 }
 
 // writeAddonInlineHelpers is the shared std/json and std/regex header

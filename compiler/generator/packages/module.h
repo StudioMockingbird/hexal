@@ -725,7 +725,7 @@ static inline {{.CName}} {{.Runtime}}_{{.Suffix}}({{.Parameters}}size_t line, si
 }
 {{end}}{{define "corelib_nil_adapter"}}
 static inline {{.CName}} {{.Runtime}}_{{.Suffix}}({{.Parameters}}size_t line, size_t column) {
-    hex_entropy_fill_result query = {{.Call}}({{.Arguments}});
+    {{.Query}} query = {{.Call}}({{.Arguments}});
     if (query.ok) {
         return ({{.CName}}){ .tag = {{.Tag}} };
     }

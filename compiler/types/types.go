@@ -92,6 +92,9 @@ type Type struct {
 	// Pool holds the metadata of an independent typed fixed-capacity
 	// slot-allocator handle.
 	Pool *PoolInfo
+	// HttpGeneric holds the metadata of a generic std/http handle,
+	// Router<App> or Server<App>.
+	HttpGeneric *HttpGenericInfo
 	// Generic, when non-nil, identifies this type as a generic parameter
 	// placeholder; GenericIndex is the parameter's position.
 	Generic      *GenericDeclaration

@@ -26,6 +26,16 @@ type sliceComponentModel struct {
 	// included for the same cycle reason, so this file defines each struct
 	// under the same guard string.h uses and whichever is entered first wins.
 	InlineTexts []inlineStringModel
+	// HeaderBody holds the Slice<Header> specializations. Header is two byte
+	// slices, and a slice helper takes element addresses, so the record must
+	// be complete before these helpers: it is defined after every other
+	// specialization (hex_slice_UInt8 included) and before this group.
+	HeaderBody sliceBodyModel
+}
+
+// sliceBodyModel is the dot the shared slice body template ranges over.
+type sliceBodyModel struct {
+	Slices []sliceComponentRecord
 }
 
 // sliceComponentRecord is one reachable Slice specialization's spelling facts:
@@ -114,21 +124,31 @@ func sliceComponents(merged *programEmission) ([]componentArtifact, error) {
 		return nil, nil
 	}
 	records := make([]sliceComponentRecord, 0, len(merged.sliceState.slices))
+	var headerRecords []sliceComponentRecord
 	owned := make([]compilerTypes.Type, 0, len(merged.sliceState.slices))
 	for _, slice := range merged.sliceState.slices {
 		if collectionElementModuleTyped(slice) {
 			continue
 		}
+		if compilerTypes.IsHttpHeader(slice.Slice.Element) {
+			headerRecords = append(headerRecords, sliceComponentRecordFor(slice))
+			continue
+		}
 		records = append(records, sliceComponentRecordFor(slice))
 		owned = append(owned, slice)
 	}
-	if len(records) == 0 && !merged.sliceState.required {
+	if len(records) == 0 && len(headerRecords) == 0 && !merged.sliceState.required {
 		return nil, nil
 	}
 	return []componentArtifact{{
 		key:      "hexal/slice.h",
 		template: "slice.h",
-		model:    sliceComponentModel{Slices: records, NeedsHeapString: sliceRecordsNeedHeapString(records), InlineTexts: sliceInlineTexts(owned)},
+		model: sliceComponentModel{
+			Slices:          records,
+			NeedsHeapString: sliceRecordsNeedHeapString(records),
+			InlineTexts:     sliceInlineTexts(owned),
+			HeaderBody:      sliceBodyModel{Slices: headerRecords},
+		},
 	}}, nil
 }
 

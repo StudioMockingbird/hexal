@@ -43,6 +43,7 @@ type moduleHeaderInput struct {
 	// against the json/regex demand facts their states carry.
 	jsonState   *generatedJSONState
 	regexState  *generatedRegexState
+	serverState *generatedServerState
 	concurrency *generatedConcurrencyState
 	// event selects the Task-parking form of a core-library adapter,
 	// program-wide and compile-time, matching every other bridged family.
@@ -262,6 +263,9 @@ func moduleHeader(input moduleHeaderInput) (string, error) {
 		return "", err
 	}
 	if err := writeRegexInlineHelpers(&result, &input); err != nil {
+		return "", err
+	}
+	if err := writeServerInlineHelpers(&result, &input); err != nil {
 		return "", err
 	}
 	if err := renderInto(&result, "module.h", "module_header_close", moduleHeaderCloseModel{

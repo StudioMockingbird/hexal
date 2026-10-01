@@ -25,6 +25,7 @@ type Arena struct {
 	atomicTypes     map[string]Type
 	stashTypes      map[string]Type
 	poolTypes       map[string]Type
+	httpTypes       map[string]Type
 	unionTypes      map[string]Type
 	// definitionNames owns cross-family uniqueness for definition-keying
 	// generated C names: a name that a typedef introduces a type under. The
@@ -63,6 +64,7 @@ func NewArena() *Arena {
 		atomicTypes:      make(map[string]Type),
 		stashTypes:       make(map[string]Type),
 		poolTypes:        make(map[string]Type),
+		httpTypes:        make(map[string]Type),
 		unionTypes:       make(map[string]Type),
 		definitionNames:  make(map[string]Type),
 		collectionCNames: make(map[string]bool),
@@ -90,6 +92,13 @@ func NewArena() *Arena {
 	for _, list := range []Type{JsonValueListType(), JsonMemberListType(), RegexCaptureListType()} {
 		arena.listTypes[list.CanonicalKey] = list
 		arena.collectionCNames[list.CName] = true
+	}
+	// The std/http records name these slices in their members, so the arena
+	// resolves Slice<Byte> and Slice<Header> to the one identity and C spelling
+	// the members already carry.
+	for _, slice := range []Type{HttpByteSliceType(), HttpHeaderSliceType()} {
+		arena.sliceTypes[slice.CanonicalKey] = slice
+		arena.collectionCNames[slice.CName] = true
 	}
 	for _, union := range builtinStructuralUnions {
 		arena.unionTypes[union.CanonicalKey] = union

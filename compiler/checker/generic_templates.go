@@ -6,9 +6,11 @@ package checker
 import (
 	"strings"
 
+	"hexal/compiler/corelib"
 	diagnosticsPkg "hexal/compiler/diagnostics"
 	"hexal/compiler/lexer"
 	"hexal/compiler/parser"
+	"hexal/compiler/specdata"
 	compilerTypes "hexal/compiler/types"
 )
 
@@ -31,6 +33,9 @@ func resolveQualifiedGenericTypeUse(expression parser.QualifiedGenericTypeExpres
 	target, ok := generics.registry.importTarget(generics.moduleID, expression.Module.Lexeme)
 	if !ok {
 		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Module, diagnosticsPkg.UnknownModuleAlias(expression.Module.Lexeme)))
+	}
+	if corelib.IsModule(target) {
+		return resolveCorelibGenericTypeUse(expression, target, typeEnvironment, generics)
 	}
 	open, ok := generics.registry.genericType(target, expression.Name.Lexeme)
 	if !ok {
@@ -313,4 +318,35 @@ func specializeADTType(open *openGenericType, arguments []compilerTypes.Type, to
 		Span:    token.Span,
 	})
 	return completed, nil
+}
+
+// resolveCorelibGenericTypeUse resolves a generic type a core-library module
+// exports, such as std/http's Router<App>. The export names a family and an
+// argument count; the specialization is built from the resolved arguments in
+// the calling module's own type environment.
+func resolveCorelibGenericTypeUse(expression parser.QualifiedGenericTypeExpression, target string, typeEnvironment *compilerTypes.Environment, generics *genericTable) (compilerTypes.TypeUse, *compilerTypes.Diagnostic) {
+	family, arity, ok := corelib.LookupGenericType(target, expression.Name.Lexeme)
+	if !ok {
+		diagnostic := privateToModuleDiagnostic(expression.Name, expression.Name.Lexeme, target)
+		return compilerTypes.TypeUse{}, &diagnostic
+	}
+	if len(expression.Arguments) != arity {
+		return compilerTypes.TypeUse{}, diagnosticAt(messageAt(expression.Name, diagnosticsPkg.GenericTypeArgumentCount(expression.Name.Lexeme, arity, len(expression.Arguments))))
+	}
+	argumentUse, diagnostic := resolveTypeUse(expression.Arguments[0], expression.Name, typeEnvironment, generics)
+	if diagnostic != nil {
+		return compilerTypes.TypeUse{}, diagnostic
+	}
+	var typ compilerTypes.Type
+	switch family {
+	case specdata.TypeHttpRouter:
+		typ = typeEnvironment.HttpRouterType(argumentUse.Type)
+	case specdata.TypeHttpServer:
+		typ = typeEnvironment.HttpServerType(argumentUse.Type)
+	}
+	if typ == (compilerTypes.Type{}) {
+		diagnostic := unknownAt(expression.Name)
+		return compilerTypes.TypeUse{}, &diagnostic
+	}
+	return compilerTypes.NewTypeUse(typ), nil
 }

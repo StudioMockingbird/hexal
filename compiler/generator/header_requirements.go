@@ -319,6 +319,14 @@ func collectModuleRequirements(module *moduleEmission, requirements *cHeaderRequ
 		}
 		requirements.trap = true
 	}
+	if module.serverState != nil && module.serverState.used {
+		// The router and the ServerConfig copy allocate through the heap
+		// machinery and fail through structured Errors only.
+		if err := requirements.addComponentHeaders(specdata.ComponentServer); err != nil {
+			return err
+		}
+		requirements.trap = true
+	}
 	if module.regexState != nil && module.regexState.used {
 		// The regex adapter allocates its capture List through the heap
 		// machinery and builds owned-message Errors from its Hexal kinds.

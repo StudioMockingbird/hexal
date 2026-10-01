@@ -1,8 +1,9 @@
 # RFC 0198: Web Server — HTTP/1 Parser Integration
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion; llhttp selected for the first cut; upstream revision
-  and final qualification remain open
+- Status: Implementation in progress; Phases 0-3 complete (llhttp v9.4.3 pinned
+  and packed, adapter ABI written, adapter implemented and validated natively);
+  Phase 4 integration with RFC 0194 remains
 - Created: 2026-09-15
 - Updated: 2026-10-01
 - Depends on: implemented RFC 0039 (C interoperability) and RFC 0052 (C
@@ -220,12 +221,97 @@ Review reference impacts with 0210, synchronize only changed public rules, then
 close/archive only when all Validation is satisfied. Code handoff rebuilds hexal
 and restarts hexal play; native packaging evidence is retained in the spec.
 
+## Pinned records
+
+### Dependency pin (Phase 0)
+
+- Submodule `modules/llhttp`, upstream `https://github.com/nodejs/llhttp`, tag
+  `release/v9.4.3`, commit `0e815792b167a9bd8ace259b95b7da953776c288`. The release
+  branch ships the generated C, so no Node.js, npm, or generator runs.
+- Sources, three translation units, with SHA-256: `src/api.c`
+  `c4c1599434d5e10c1bba4fc509c2b9599911ed2edafb6c17048c0820aa2c4074`, `src/http.c`
+  `924ef08d9fbdfa5ae1ede5a2d50dad1365b9b9ff8acdac2d9681b54a34ae98e3`, `src/llhttp.c`
+  `899b7d1e420a62360dfc57e3b7e855530b171167438becd5f31a505f990acc20`; header
+  `include/llhttp.h`
+  `bea09fd94e87e55d717b01d850ad00dbdb670f6545cab0f8a102d52ec047f7c1`; license
+  (MIT) `LICENSE`
+  `279012e02a10acfd59a3f2d8f13a497332535d871c2b27c89988985b06a3a438`.
+- Packs: `lib/<profile>/llhttp_v9.4.3/{llhttp.a,include/llhttp.h,LICENSE}` for
+  `x86_64-linux-gnu` (115766 bytes, SHA-256 `7b83d61a...232e3e`) and
+  `x86_64-windows-gnu-ucrt` (81688 bytes, SHA-256 `1a270469...eed26`); compile
+  commands, producers, and full digests are in `lib/BUILD.md`. The dependency
+  declares no system library.
+- Registration: `DependencyLlhttp` in `compiler/specdata/components.go`,
+  `RuntimeLlhttp` in `compiler/runtime_dependency.go`, both `manifest.json` files,
+  and the `hexal doctor` combined probe, which links the archive and runs
+  `llhttp_execute`.
+- Verified behavior of the pinned snapshot, on the wire: the exported API used is
+  `llhttp_init`, `llhttp_execute`, `llhttp_resume`, `llhttp_get_error_pos`,
+  `llhttp_set_error_reason`, `llhttp_get_error_reason`, `llhttp_get_method`,
+  `llhttp_method_name`, `llhttp_get_http_major`, `llhttp_get_http_minor`, and
+  `llhttp_get_upgrade`; pauses come from callbacks returning `HPE_PAUSED`, and
+  `consumed` is `llhttp_get_error_pos` at that pause.
+  `llhttp_alloc`/`llhttp_free` are never called, so `llhttp_t` is caller-owned.
+  Duplicate `Content-Length` is rejected even when the values are identical.
+  `F_TRAILING` marks trailer fields. The method set is `HTTP_DELETE` through
+  `HTTP_QUERY` (46); tokens are case-sensitive.
+
+### Private adapter ABI (Phase 1)
+
+Owner: `compiler/corelib/runtime/http.h` and `http.c`, the only unit including
+`<llhttp.h>`. No Hexal, libuv, or Task dependency; no allocation. One parser per
+connection, driven only by that connection's Task.
+
+| Item | Contract |
+| --- | --- |
+| `hex_http_limits` | request line, header bytes, header count, trailer bytes, body bytes; caller-owned, must outlive the parser |
+| `hex_http_head` | caller-supplied `bytes` (capacity = request-line limit + header limit) and `fields` (capacity = header-count limit); the adapter packs method, target, then each field name and value in arrival order and records offsets; also path/query offsets, target form, method id, version, framing and connection facts |
+| `hex_http_parser_init` | binds limits and head storage; reuses no earlier state |
+| `hex_http_parser_feed` | `(parser, input, length, out, out_capacity) -> hex_http_step{state, consumed, produced, error, status}` |
+| `hex_http_parser_continue` | ends the pause at head completion |
+| `hex_http_parser_next` | ends the pause at message completion, clears the head, readies the next pipelined message |
+| `hex_http_parser_at_boundary` | true when no message is in progress; end of stream there is an idle close, anywhere else a truncated message |
+| `hex_http_method_known` | membership in the pinned method set, case-sensitive |
+
+States: `INCOMPLETE` (all input consumed), `HEAD_READY` (consumed counts through
+the final CRLF of the head; the body is untouched), `MESSAGE_COMPLETE` (consumed
+counts through the last body or trailer byte; paused until `next`), `ERROR`
+(terminal; `consumed` is the failure position, `status` the response code, 0 for
+truncated or internal). Errors: malformed 400, request line 414, headers 431,
+body too large 413, trailers 431, version 505, expectation 417, unsupported
+(CONNECT, Upgrade) 501, truncated, internal.
+
+Lifetimes: head offsets and bytes are valid from `HEAD_READY` until `next`.
+Decoded body bytes are written to `out` during each feed and are valid until the
+next feed. Input is never retained, so the receive buffer may be overwritten or
+compacted between feeds. A body-phase feed passes `length <= out_capacity`;
+decoded bytes never outnumber the raw bytes that produced them. A bodiless
+message completes with a zero-byte feed after `continue`. After `MESSAGE_COMPLETE`,
+unconsumed input belongs to the next message.
+
+Policy enforced in the adapter: HTTP/1.1 requires exactly one `Host`; HTTP/0.9 is
+malformed; versions other than 1.0 and 1.1 are 505; `Transfer-Encoding` with
+`Content-Length`, duplicate `Content-Length`, declared length above the body
+limit (413), CONNECT, `Upgrade`, and any `Expect` other than `100-continue` are
+rejected; trailers and chunk extensions are counted against distinct limits and
+discarded.
+
+### Validation record (Phases 2-3)
+
+`compiler/tests/c23validation/testdata/http_parser_cases.c` runs 2160 checks:
+every-byte splits, overwritten and compacted input, pipelined pairs with a split
+second head, EOF at every position, framing and Host errors, invalid lines,
+chunk sizes, extensions and trailers, and the method set. It passes on
+`x86_64-windows-gnu-ucrt` through `TestHTTPParserAdapterRuns` and natively on
+Linux (WSL, Clang 23.1.1). `TestHTTPParserAdapterAllocatesNothing` compiles the
+adapter against a header that poisons `malloc`, `calloc`, `realloc`, `free`,
+`llhttp_alloc`, and `llhttp_free`, and `nm -u` on the Linux object lists no
+allocator import.
+
 ## Remaining readiness work
 
-Pin the exact llhttp release/commit, generated C/header hashes, license and native
-build record; this is implementation preparation, not an author parser-choice
-question. Specify exact private result records and head/message pause offsets with
-0194 before coding. The approved method set is the pinned llhttp HTTP method set;
+Phase 4: hand the ABI above to RFC 0194 and exercise head and body pause
+integration there. The approved method set is the pinned llhttp HTTP method set;
 all duplicate Content-Length is rejected, trailers discarded, and HTTP/1.0 closes.
 
 ## Reference synchronization

@@ -88,6 +88,10 @@ const (
 	TypeRegexPattern        TypeID = TypeID(CoreTypeRegexPattern)
 	TypeRegexSpan           TypeID = TypeID(CoreTypeRegexSpan)
 	TypeRegexMatch          TypeID = TypeID(CoreTypeRegexMatch)
+	TypeHttpRequest         TypeID = TypeID(CoreTypeHttpRequest)
+	TypeHttpWriter          TypeID = TypeID(CoreTypeHttpWriter)
+	TypeHttpHeader          TypeID = TypeID(CoreTypeHttpHeader)
+	TypeHttpServerConfig    TypeID = TypeID(CoreTypeHttpServerConfig)
 )
 
 // The parameterized compiler-owned type constructors. Each identifier names a
@@ -104,6 +108,12 @@ const (
 	TypeAtomic       TypeID = "Atomic"
 	TypeStash        TypeID = "Stash"
 	TypePool         TypeID = "Pool"
+	// TypeHttpRouter and TypeHttpServer name the generic std/http handle
+	// families; a Router<App> is identified by its App argument. They are
+	// module exports, never bare source names, so they carry no constructor
+	// record and reserve no name.
+	TypeHttpRouter TypeID = TypeID(CoreTypeHttpRouter)
+	TypeHttpServer TypeID = TypeID(CoreTypeHttpServer)
 )
 
 // TypeFun is the structural function identity. It has no interned Type:
@@ -132,6 +142,7 @@ var concreteTypeIDs = []TypeID{
 	TypeSignal, TypeSignals, TypeTerminalSize,
 	TypeJsonValue, TypeJsonMember,
 	TypeRegexPattern, TypeRegexSpan, TypeRegexMatch,
+	TypeHttpRequest, TypeHttpWriter, TypeHttpHeader, TypeHttpServerConfig,
 }
 
 // Representation classifies how a specialization's value is stored, the rule

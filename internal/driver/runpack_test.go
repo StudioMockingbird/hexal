@@ -54,6 +54,9 @@ func validPackFiles() map[string]string {
 		"pcre2_v10.48/include/pcre2.h":        "pcre2",
 		"pcre2_v10.48/pcre2.a":                "pcre2-archive",
 		"pcre2_v10.48/LICENSE":                "pcre2-license",
+		"llhttp_v9.4.3/include/llhttp.h":      "llhttp",
+		"llhttp_v9.4.3/llhttp.a":              "llhttp-archive",
+		"llhttp_v9.4.3/LICENSE":               "llhttp-license",
 	}
 }
 
@@ -103,6 +106,13 @@ func validPackManifest() string {
       "archive": "pcre2_v10.48/pcre2.a",
       "system_libraries": [],
       "license_file": "pcre2_v10.48/LICENSE"
+    },
+    {
+      "name": "llhttp",
+      "include_root": "llhttp_v9.4.3/include",
+      "archive": "llhttp_v9.4.3/llhttp.a",
+      "system_libraries": [],
+      "license_file": "llhttp_v9.4.3/LICENSE"
     }
   ],
   "files": { ` + strings.Join(entries, ", ") + ` }
@@ -288,7 +298,7 @@ func TestManifestRejections(t *testing.T) {
 		{"bad abi", strings.Replace(valid, `"runtime_abi_version": 1`, `"runtime_abi_version": 2`, 1), "runtime pack ABI 2 is incompatible; this Hexal compiler requires ABI 1"},
 		{"wrong target", strings.Replace(valid, `"target_profile": "x86_64-linux-gnu"`, `"target_profile": "x86_64-windows-gnu-ucrt"`, 1), "does not match"},
 		{"malformed hash", strings.Replace(valid, hashOf("uv"), "not-a-hash", 1), "malformed hash"},
-		{"wrong order", strings.Replace(valid, `"name": "libuv"`, `"name": "mimalloc_x"`, 1), "must declare libuv, mimalloc, utf8proc, yyjson, pcre2 in order"},
+		{"wrong order", strings.Replace(valid, `"name": "libuv"`, `"name": "mimalloc_x"`, 1), "must declare libuv, mimalloc, utf8proc, yyjson, pcre2, llhttp in order"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			fsys := testPackFS(testCase.manifest, validPackFiles())

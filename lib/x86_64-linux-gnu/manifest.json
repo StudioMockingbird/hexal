@@ -41,6 +41,13 @@
       "archive": "pcre2_v10.48/pcre2.a",
       "system_libraries": [],
       "license_file": "pcre2_v10.48/LICENSE"
+    },
+    {
+      "name": "llhttp",
+      "include_root": "llhttp_v9.4.3/include",
+      "archive": "llhttp_v9.4.3/llhttp.a",
+      "system_libraries": [],
+      "license_file": "llhttp_v9.4.3/LICENSE"
     }
   ],
   "files": {
@@ -62,6 +69,9 @@
     "libuv_v1.52.1/include/uv/version.h": "a859f2c21f7887d45b0372109ebc91759a6f8c408c7cbf2a12f9bbe579be403b",
     "libuv_v1.52.1/include/uv/win.h": "9ad5dd7d5d4d51981f40edfc65a53ab94e91f6a2e73f2bf897e0e697fd9e8233",
     "libuv_v1.52.1/libuv.a": "4c72c7508907d1bb72c8247f645fdf9ebe04cda81790080a390bf3117be676a1",
+    "llhttp_v9.4.3/LICENSE": "279012e02a10acfd59a3f2d8f13a497332535d871c2b27c89988985b06a3a438",
+    "llhttp_v9.4.3/include/llhttp.h": "bea09fd94e87e55d717b01d850ad00dbdb670f6545cab0f8a102d52ec047f7c1",
+    "llhttp_v9.4.3/llhttp.a": "7b83d61a4f223145b0b73f5ce44c0dcf6c4c45b88bb4cd1046cca1445c232e3e",
     "mimalloc_v3.5.1/LICENSE": "82ade5d7d9b029044b5fbbc326207fc47c2d44ee4dd71e8a559c36d728217de9",
     "mimalloc_v3.5.1/include/mimalloc-new-delete.h": "1bc31e20fb0340d9d071c69eaac2f07d0dfe4cdf95849ed8d91fb2bd7538d55b",
     "mimalloc_v3.5.1/include/mimalloc-override.h": "21fcf61c4443341ac6bf6ea528af31dc7267e8e3456fc64bfd07704503032175",

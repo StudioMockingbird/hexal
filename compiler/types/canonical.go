@@ -106,6 +106,12 @@ func isCanonicalForEnvironment(environment *Environment, typ Type, state *canoni
 		}
 		return isCanonicalForEnvironment(environment, typ.Pool.Element, state, false)
 	}
+	if typ.HttpGeneric != nil {
+		if typ.identity.signature != "http-"+string(typ.HttpGeneric.Family)+":"+typ.HttpGeneric.App.CanonicalKey {
+			return false
+		}
+		return isCanonicalForEnvironment(environment, typ.HttpGeneric.App, state, false)
+	}
 	if IsUnknown(typ) {
 		// Unknown is canonical only behind a pointer layer: the erased
 		// object pointer types Ptr<Unknown> and Ptr<mut Unknown>.
@@ -147,6 +153,8 @@ func init() {
 		InstantType.identity:            true,
 		WallTimeType.identity:           true,
 		regexModelData.pattern.identity: true,
+		httpModelData.request.identity:  true,
+		httpModelData.writer.identity:   true,
 	}
 }
 

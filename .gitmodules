@@ -13,3 +13,6 @@
 [submodule "modules/pcre2"]
 	path = modules/pcre2
 	url = https://github.com/PCRE2Project/pcre2
+[submodule "modules/llhttp"]
+	path = modules/llhttp
+	url = https://github.com/nodejs/llhttp

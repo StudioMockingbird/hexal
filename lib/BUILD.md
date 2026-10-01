@@ -43,6 +43,10 @@ lib/
       pcre2.a
       include/pcre2.h
       LICENSE
+    llhttp_v9.4.3/
+      llhttp.a
+      include/llhttp.h
+      LICENSE
 ```
 
 Pack production is an explicit maintainer operation, never compiler setup, a
@@ -205,6 +209,41 @@ ar rcs pcre2_v10.48/pcre2.a <objects>
 - Header SHA-256: `d59dad66a9e77e5ccffe35ad51c3ca6000ce9afe77a58fafa3d66b4845db9a61`
 - License SHA-256: `4195c519dcfe4a4ffedc4b8ccc5d49e4dd02efd5ece6b69a4fba5d20080902a9`
 
+### Linux llhttp_v9.4.3
+
+- Source: `modules/llhttp` (git submodule) at commit
+  `0e815792b167a9bd8ace259b95b7da953776c288` (`release/v9.4.3`, upstream release
+  tag); the release branch ships the generated C, so no Node.js or TypeScript
+  generator participates in the build
+- Release: https://github.com/nodejs/llhttp/releases/tag/release%2Fv9.4.3
+- Source files (three translation units): `src/api.c`, `src/http.c`,
+  `src/llhttp.c`; public header `include/llhttp.h`
+- Source digests: `src/api.c`
+  `c4c1599434d5e10c1bba4fc509c2b9599911ed2edafb6c17048c0820aa2c4074`,
+  `src/http.c`
+  `924ef08d9fbdfa5ae1ede5a2d50dad1365b9b9ff8acdac2d9681b54a34ae98e3`,
+  `src/llhttp.c`
+  `899b7d1e420a62360dfc57e3b7e855530b171167438becd5f31a505f990acc20`
+- Public header: `llhttp_v9.4.3/include/llhttp.h` (the release's, copied
+  unchanged); only `hexal/http.c` includes it
+- License: `llhttp_v9.4.3/LICENSE` (MIT)
+- No system libraries and no allocator dependency: the caller owns every
+  `llhttp_t`, and `llhttp_alloc`/`llhttp_free`, the only allocating entry
+  points, are never called
+- Compile command (once per source):
+
+```text
+clang --target=x86_64-linux-gnu -std=c11 -O2 -DNDEBUG -fPIC -pthread \
+  -I modules/llhttp/include -c <source> -o llhttp.o
+ar rcs llhttp_v9.4.3/llhttp.a <objects>
+```
+
+- Producer: Clang 23.1.1, GNU ar (binutils) 2.45.0
+- Size: `115766` bytes
+- SHA-256: `7b83d61a4f223145b0b73f5ce44c0dcf6c4c45b88bb4cd1046cca1445c232e3e`
+- Header SHA-256: `bea09fd94e87e55d717b01d850ad00dbdb670f6545cab0f8a102d52ec047f7c1`
+- License SHA-256: `279012e02a10acfd59a3f2d8f13a497332535d871c2b27c89988985b06a3a438`
+
 ### Linux system libraries
 
 `manifest.json` declares `pthread`, `dl`, and `rt` on the libuv dependency, in
@@ -242,8 +281,8 @@ verification.
 
 ## Windows GNU/UCRT pack
 
-`lib/x86_64-windows-gnu-ucrt/` holds a complete five-archive pack: libuv,
-mimalloc, utf8proc, yyjson, and PCRE2, each with its public headers and
+`lib/x86_64-windows-gnu-ucrt/` holds a complete six-archive pack: libuv,
+mimalloc, utf8proc, yyjson, PCRE2, and llhttp, each with its public headers and
 upstream licenses. It is embedded in the compiler and `hexal doctor` can verify
 it, while ordinary builds in this release select the Linux profile only.
 
@@ -412,6 +451,26 @@ llvm-ar rcs pcre2_v10.48/pcre2.a <objects>
 - Archive SHA-256: `6d61a67c5d2d4d800d5c71ac7c4629a27996a0bf39631f0b594efb5dbf4adf5c`
 - Header SHA-256: `d59dad66a9e77e5ccffe35ad51c3ca6000ce9afe77a58fafa3d66b4845db9a61`
 - License SHA-256: `4195c519dcfe4a4ffedc4b8ccc5d49e4dd02efd5ece6b69a4fba5d20080902a9`
+
+### Windows llhttp_v9.4.3
+
+- Source: `modules/llhttp` (git submodule) at commit
+  `0e815792b167a9bd8ace259b95b7da953776c288` (`release/v9.4.3`); the three
+  source digests, the unchanged public header, the MIT license, and the
+  no-system-library, no-allocator contract are the Linux entry's
+- Producer: Clang 23.1.2, `llvm-ar`
+- Compile command (once per source):
+
+```text
+clang --target=x86_64-w64-windows-gnu -std=c11 -O2 -DNDEBUG \
+  -I modules/llhttp/include -c <source> -o llhttp.o
+llvm-ar rcs llhttp_v9.4.3/llhttp.a <objects>
+```
+
+- Archive size: `81688` bytes
+- Archive SHA-256: `1a2704696746fd9f91c166298264249ae7a4ebb1799c738e88dcaa409c8eed26`
+- Header SHA-256: `bea09fd94e87e55d717b01d850ad00dbdb670f6545cab0f8a102d52ec047f7c1`
+- License SHA-256: `279012e02a10acfd59a3f2d8f13a497332535d871c2b27c89988985b06a3a438`
 
 ### Windows yyjson + pcre2 reproducibility
 

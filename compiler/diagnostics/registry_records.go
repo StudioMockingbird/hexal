@@ -237,6 +237,7 @@ var declaredRecords = map[ID]record{
 	"type.conversion-value-not-scalar":                  {category: CategoryType, stage: StageChecker},
 	"type.conversion-value-out-of-range":                {category: CategoryType, stage: StageChecker},
 	"type.conversion-value-unrepresentable":             {category: CategoryType, stage: StageChecker},
+	"type.corelib-type-argument-count":                  {category: CategoryType, stage: StageChecker},
 	"type.corelib-function-arity":                       {category: CategoryType, stage: StageChecker},
 	"type.cursor-method-no-type-arguments":              {category: CategoryType, stage: StageChecker},
 	"type.cursor-method-no-value-arguments":             {category: CategoryType, stage: StageChecker},

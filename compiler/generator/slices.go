@@ -58,6 +58,21 @@ func ensureSliceUInt8(state *generatedSliceState) {
 	state.slices = append(state.slices, slice)
 }
 
+// ensureSliceHeader adds the Header slice to the slice state if missing: the
+// Header record is defined inside hexal/slice.h beside its slice, so any
+// reachable std/http name needs that definition.
+func ensureSliceHeader(state *generatedSliceState) {
+	if state == nil {
+		return
+	}
+	slice := compilerTypes.HttpHeaderSliceType()
+	if state.seen[slice.Slice] {
+		return
+	}
+	state.seen[slice.Slice] = true
+	state.slices = append(state.slices, slice)
+}
+
 // viewCName returns the C struct name of the slice type over one element.
 
 func validateSliceBridgeExpression(node checker.Expression, expected *compilerTypes.Type, state *expressionValidation) error {

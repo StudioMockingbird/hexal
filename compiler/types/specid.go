@@ -126,6 +126,14 @@ func ResolveSpecID(id specdata.TypeID) (Type, bool) {
 		return regexModelData.span, true
 	case specdata.TypeRegexMatch:
 		return regexModelData.match, true
+	case specdata.TypeHttpRequest:
+		return httpModelData.request, true
+	case specdata.TypeHttpWriter:
+		return httpModelData.writer, true
+	case specdata.TypeHttpHeader:
+		return httpModelData.header, true
+	case specdata.TypeHttpServerConfig:
+		return httpModelData.config, true
 	default:
 		return Type{}, false
 	}
