@@ -269,6 +269,7 @@ The normative grammar is maintained in [`GRAMMAR.ebnf`](../GRAMMAR.ebnf), using 
 | `std/terminal` | `TerminalSize` | `is_attached(stream)`, `size(stream)` |
 | `std/json` | `Value`, `Member` | `parse(heap, text)`; `Value` methods `stringify(heap)`, `free(heap)` |
 | `std/regex` | `Pattern`, `Span`, `Match` | `compile(heap, source)`; `Pattern` methods `test(heap, subject)`, `find(heap, subject)`, `capture(heap, subject)`, `free(heap)`; `Match` method `free(heap)` |
+| `std/http` | `Request`, `Writer`, `Header`, `ServerConfig`, `FileServer`; generic `Router<App>`, `Server<App>` | `default_config(host, port)`, `Router<App>(heap)`, `FileServer(heap, root, index, dotfiles, cache_control)`, `listen<App>(heap, config, router, app)`; `Router` methods `route`, `mount`, `free`; `Server` methods `run`, `wait`, `stop`, `free`; `Request` methods `method`, `target`, `path`, `headers`, `header`, `read`; `Writer` methods `status`, `header`, `content_length`, `write`; `FileServer` methods `serve_file`, `serve_directory`, `free` |
 
 - An ADT variant of a type declared in another module (user or std) is written
   `Alias.Adt.Variant(...)` in construction and `| Alias.Adt.Variant then` in a match pattern. The
@@ -354,6 +355,201 @@ match.free(heap: Heap) -> no value
   match limit 10,000,000, match depth limit 10,000, and match heap limit 8,192 KiB. These values
   are rendered from one `compiler/config` owner. Embedded `LIMIT_*` directives can lower but not
   raise the configured match limits.
+
+#### HTTP
+
+```text
+Http.default_config(host: String, port: UInt16) -> Http.ServerConfig
+Http.Router<App>(heap: Heap) -> Http.Router<App>
+router.route(method: String, path: String,
+             handler: Fun<(Ptr<App>, Http.Request, Http.Writer): Nil | Error>) -> Nil | Error
+router.free(heap: Heap) -> no value
+router.mount(prefix: String, files: Http.FileServer) -> Nil | Error
+Http.FileServer(heap: Heap, root: String, index: String, dotfiles: Bool,
+                cache_control: String) -> Http.FileServer | Error
+files.serve_file(request: Http.Request, response: Http.Writer, path: String) -> Nil | Error
+files.serve_directory(request: Http.Request, response: Http.Writer, path: String) -> Nil | Error
+files.free(heap: Heap) -> no value
+Http.listen<App>(heap: Heap, config: Http.ServerConfig, router: Http.Router<App>,
+                 app: Ptr<App>) -> Http.Server<App> | Error
+server.run() -> Nil | Error
+server.wait() -> Nil | Error
+server.stop() -> no value
+server.free(heap: Heap) -> no value
+request.method() -> Slice<Byte>
+request.target() -> Slice<Byte>
+request.path() -> Slice<Byte>
+request.headers() -> Slice<Http.Header>
+request.header(name: String) -> Slice<Byte> | Nil
+request.read(into: List<Byte>, max: Size) -> Size | EoS | Error
+response.status(code: UInt16) -> Nil | Error
+response.header(name: String, value: Slice<Byte>) -> Nil | Error
+response.content_length(length: Size) -> Nil | Error
+response.write(bytes: Slice<Byte>) -> Nil | Error
+```
+
+- `Request`, `Writer`, `Router<App>`, and `Server<App>` are compiler-owned handles with no
+  constructor, equality, ordering, print form, or Dict-key eligibility. `Header` is an ordinary
+  record `name: Slice<Byte>`, `value: Slice<Byte>`; `ServerConfig` is an ordinary record whose
+  fields are replaceable on a `mut` binding. `Router<App>` and `Server<App>` take exactly one
+  type argument, and a server accepts only a router of its own `App`.
+- `Request` and `Writer` are valid for one handler call. Every `Slice` a `Request` returns
+  borrows the connection's head storage for that call; copy with a Heap to retain bytes. Neither
+  handle may be sent to another Task. A copied `Writer` shares one response.
+- `method`, `target`, and `path` are the raw bytes of the request line; `path` is the target without
+  its query, never percent-decoded. `headers` preserves order and duplicates; `header` returns the
+  first field whose name matches ASCII case-insensitively.
+
+`ServerConfig` and defaults (each default is a `compiler/config` constant):
+
+| Field | Default |
+| --- | --- |
+| `host: String`, `port: UInt16` | the arguments of `default_config` |
+| `max_request_line_bytes`, `max_header_bytes`, `max_header_count` | 8 KiB, 32 KiB, 100 |
+| `max_body_bytes`, `max_trailer_bytes` | 8 MiB, 8 KiB |
+| `receive_buffer_bytes`, `write_buffer_bytes` | 32 KiB, 64 KiB |
+| `max_connections`, `backlog` | 4096, 512 |
+| `header_timeout`, `body_timeout`, `write_timeout`, `idle_timeout`, `shutdown_timeout` | 5 s, 30 s, 30 s, 60 s, 30 s |
+| `tcp_nodelay: Bool` | `true` |
+
+All numeric fields are `Size` except `port` and the five `Duration` timeouts; every `Size` and
+`Duration` field must be positive and `backlog` must fit `Int32`, otherwise `listen` returns
+`InvalidInput`.
+
+- **Routing.** `route` copies its method and path. The method is a token of the pinned llhttp
+  method set (`DELETE` through `QUERY`), case-sensitive; the path is an absolute raw path with no
+  query, fragment, space, or control byte. A duplicate method and path, an unknown method, or an
+  invalid path returns `InvalidInput`; a router attached to a server returns `Busy`. `router.free`
+  traps while a server is attached. Dispatch matches the raw path and method exactly. A path with
+  no route is `404`; a registered path under other methods is `405` with `Allow` listing them in
+  ascending byte order. There is no implicit `HEAD` route for a `GET` route.
+- **Lifecycle.** `listen` accepts a numeric IP `host` only (a name returns `InvalidInput`), copies
+  the configuration, binds and listens, and attaches the router until `server.free`; bind
+  failures return `AddressInUse`, `PermissionDenied`, or the classified kind. `run` parks its
+  calling Task, accepts on that Task, serves each connection on its own Task, and returns `Nil`
+  after `stop`; an accept failure ends it with `Error`. `run` is callable once; a second call
+  returns `InvalidInput`. `wait` parks until `run` finishes and returns its result to every
+  caller; before `run` was called it returns `InvalidInput`. `stop` is idempotent and callable
+  from any Task, including a handler; a `stop` before `run` makes `run` return without
+  accepting. `server.free` traps while `run` is running and is otherwise valid, including for a
+  server that never ran.
+- **Shutdown.** `stop` closes the listener and every connection waiting between requests, lets a
+  request in progress finish, and sets `Connection: close` on later responses. After
+  `shutdown_timeout` it closes every remaining connection, so a handler blocked in `read` or `write`
+  returns `Closed`. `run` returns only after every connection Task released its storage. At
+  `max_connections` accepting pauses and the kernel backlog holds arrivals.
+- **Connections.** One Task serves each connection for all its requests, in arrival order; pipelined
+  requests are served in order from the retained receive buffer. HTTP/1.1 connections persist
+  unless the request or the server says `Connection: close`; HTTP/1.0 connections always close.
+  A connection closes after a response when the request body was not fully read.
+- **Deadlines.** `header_timeout` bounds receiving a request head from its first byte;
+  `idle_timeout` bounds waiting for the first byte between requests (a close without response);
+  `body_timeout` bounds the whole body phase from the first `read`; `write_timeout` bounds each
+  write. An expired header deadline answers `408` and closes; an expired idle deadline closes
+  silently; an expired body or response deadline fails the handler's `read` or `write` with
+  `TimedOut`, and a write deadline also closes the connection.
+- **Request rejection** (answered before dispatch, with `Connection: close`, never exposing parser
+  text): malformed syntax, framing, `Host`, or `Content-Length` `400`; request line over limit
+  `414`; header bytes or count over limit, or trailers over limit, `431`; declared body over
+  `max_body_bytes` `413`; unsupported `Expect` value `417`; `CONNECT` or `Upgrade` `501`;
+  version other than 1.0 or 1.1 `505`. HTTP/1.1 requires exactly one `Host`; any duplicate
+  `Content-Length`, even equal, and `Transfer-Encoding` with `Content-Length` are `400`. Trailers
+  and chunk extensions are validated against their own limit and discarded. A protocol error
+  closes only its own connection.
+- **Request body.** `read` appends decoded body bytes to `into` and returns how many (at most
+  `max`, and at most `receive_buffer_bytes`), `EoS` once the message is complete, and `0` for
+  `max == 0` without I/O. A request with `Expect: 100-continue` and a body receives `100 Continue`
+  when the handler first reads. A body over `max_body_bytes` while chunked, a malformed chunk, an
+  early close, and an expired `body_timeout` return `Error` (`ResourceExhausted`, `InvalidInput`,
+  `ConnectionReset`, `TimedOut`) and the connection closes after the response.
+- **Response.** `status` (default `200`, range `200`-`599`), `header`, and `content_length` apply
+  before the first `write`; afterward they return `InvalidInput`. `header` appends and never
+  combines; the name must be a nonempty token, the value may not contain CR, LF, or NUL, and
+  `Content-Length`, `Transfer-Encoding`, and `Connection` belong to the server
+  (`InvalidInput`). Head storage is 8 KiB, a ceiling on status line, headers, and framing, and
+  overflow returns `ResourceExhausted`. `write` copies into the connection's output buffer and
+  flushes with backpressure when it fills; the caller may reuse its bytes on return. A declared
+  `content_length` is enforced: a write past it returns `InvalidInput`, and a response that ends
+  short is not sent and closes the connection. Without a declared length a response that fits
+  the buffer is sent with an exact `Content-Length`; a larger one is chunked for HTTP/1.1 and
+  close-delimited for HTTP/1.0. `HEAD` responses and statuses `1xx`, `204`, and `304` send no
+  body, and `HEAD` states the length the `GET` would have. The server adds `Date` unless the
+  handler set one. A handler returning `Error` before its first `write` produces a generic `500`
+  with no error text; after the first `write` the connection closes with no second status line.
+- **Errors.** `listen` and `run` failures use the ordinary `ErrorKind` of the native failure with
+  these messages: `address already in use`, `permission denied`, `host must be a numeric IP
+  address`, `server configuration values must be positive and in range`, `server already ran or is
+  running`, `server has not started`. Handler-visible failures: `connection reset by peer`,
+  `broken pipe`, `response write timed out`, `request body timed out`, `request body exceeds
+  limit`, `malformed request body`, `response already committed`.
+- **Static files.** `FileServer` is an opaque compiler-owned handle with no equality, ordering,
+  print form, or Dict-key eligibility. The constructor retains an open handle on the `root`
+  directory (a path relative to the working directory or absolute) and copies `index` and
+  `cache_control`; configuration is frozen. A missing root returns `NotFound`, an inaccessible one
+  `PermissionDenied`; a root that is not a directory or is a symbolic link or reparse point, an
+  `index` containing `/`, `\`, or `:`, or a `cache_control` containing CR, LF, or NUL returns
+  `InvalidInput`. An empty `index` disables index files. Renaming or replacing the root's pathname
+  later does not change what the file server serves.
+- **Mounts.** `mount` copies `prefix`, which is an absolute raw path with no trailing slash (except
+  `/`), query, fragment, space, or control byte; otherwise `InvalidInput`, as is a duplicate prefix.
+  A router attached to a server returns `Busy`. A mount counts against its `FileServer`;
+  `files.free` traps while any router still holds the mount, so free routers first. A mount
+  matches the raw path on a segment boundary (`/assets` matches `/assets` and `/assets/x`, never
+  `/assets2`); the longest matching prefix wins, and an exact route of any method on the same
+  path precedes every mount. Only requests whose path matches no route reach a mount.
+- **Serving.** `serve_file` and `serve_directory` answer the request through the `Writer` and
+  return `Nil` once the response is committed; they never return a body. Only `GET` and `HEAD` are
+  served; any other method is `405` with `Allow: GET, HEAD`. `path` is relative to the root and
+  percent-decoded exactly once; a mount passes the raw path after its prefix, without the query.
+  `serve_directory` serves the index file of a directory and also files; `serve_file` serves files
+  only. A directory without an index, for `serve_file` any directory, and a missing path are `404`.
+  Refusals are one-line `text/plain` bodies and never name a physical path.
+- **Containment.** Resolution opens each component relative to the retained root handle without
+  following links, so a link or reparse point at any component, a hidden component, and the forms
+  below are `403`: a `.` or `..` component, a component starting with `.` unless `dotfiles` is
+  `true`, a symbolic link or Windows reparse point (junction), and on Windows a component with
+  `:` (an alternate data stream). A malformed or truncated `%` escape, an encoded `/`, `\`, or NUL,
+  a raw `\`, and a query or fragment byte in `path` are `400`. Repeated slashes collapse.
+  A path that shares only the root's textual prefix is not inside the root. Metadata and transfer
+  use the one opened file.
+- **Representation.** `Content-Type` follows the extension of the final opened file name,
+  ASCII case-insensitively: `html`, `css`, `js`, `json`, `png`, `jpg`, `jpeg`, `gif`, `svg`, `woff`,
+  `woff2`, `ttf`, `mp4`, `webm`, `pdf`, `zip`, `txt`, `xml` map to the listed types (`text/html`,
+  `text/css`, `text/javascript`, `application/json`, `text/plain`, `application/xml` carry
+  `; charset=utf-8`; `image/png`, `image/jpeg`, `image/gif`, `image/svg+xml`, `font/woff`,
+  `font/woff2`, `font/ttf`, `video/mp4`, `video/webm`, `application/pdf`, `application/zip`), and
+  every other name is `application/octet-stream`; a directory request uses the index file's name.
+  A `200` or `206` carries `ETag: W/"<size>-<mtime>"` (decimal bytes and Unix seconds),
+  `Last-Modified` (IMF-fixdate, second precision), `Cache-Control` when `cache_control` is
+  nonempty, `Accept-Ranges: bytes`, `Content-Type`, and `Content-Length`. `HEAD` sends the `GET`
+  headers and no body, and ignores `Range`.
+- **Conditional and range requests.** `If-None-Match` decides alone when present: any listed
+  entity tag, or `*`, equal to the current tag under weak comparison (the `W/` prefix is ignored)
+  answers `304` with `ETag`, `Last-Modified`, and `Cache-Control` and no body. Otherwise
+  `If-Modified-Since` answers `304` when the file's time is not later than the date; a value that
+  is not the exact IMF-fixdate (including a weekday that does not match) is ignored. A `GET`
+  `Range` of one `bytes=first-last`, `bytes=first-`, or `bytes=-suffix` range answers `206` with
+  `Content-Range: bytes first-last/size`, the end clamped to the file and a suffix longer than the
+  file selecting all of it; a conditional `304` takes precedence. A valid range that starts at or
+  past the size, a zero-length suffix, and any range on an empty file answer `416` with
+  `Content-Range: bytes */size` and a short `text/plain` body; a number too large for the size is
+  beyond the file (`416` for a start, the whole file as `206` for a suffix). A malformed range,
+  another unit, or several ranges is ignored and the whole file answers `200`.
+- **Transfer.** The body is read in bounded chunks on the filesystem worker pool and written
+  through the `Writer`, so a slow reader is limited by `write_timeout` and memory never holds the
+  whole file. The announced length is the opened file's size: a file removed during a transfer
+  keeps being read to its end; a file that shrinks ends the response short and closes the
+  connection. A closed or timed-out connection fails the write and releases the opened file; every
+  terminal path closes it exactly once. Optimized transfer (`sendfile`, `TransmitFile`) is not
+  used.
+- **Components.** Naming the types selects nothing. `Http.default_config`, `Router<App>(heap)`,
+  `route`, and `free` select the server component and, for `route`, the private llhttp adapter and
+  `llhttp`. `listen`, the `Server` methods, and the `Request` and `Writer` methods select the
+  Task-aware TCP runtime, the scheduler, the handle registry, the clock, libuv, and `llhttp`. The
+  llhttp types appear only in one private generated adapter, never in a public header.
+  `FileServer`, `mount`, `serve_file`, and `serve_directory` additionally select the file server
+  component and the filesystem worker bridge; a program using none of them carries no file
+  server code and no mount table.
 
 ## C interoperability
 

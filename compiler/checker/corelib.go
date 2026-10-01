@@ -40,6 +40,10 @@ func corelibParamType(param corelib.Param, app compilerTypes.Type, ctx checkCont
 		return compilerTypes.HttpByteSliceType()
 	case corelib.ParamByteList:
 		return ctx.typeEnvironment.ListType(compilerTypes.UInt8)
+	case corelib.ParamBool:
+		return compilerTypes.Bool
+	case corelib.ParamFileServer:
+		return compilerTypes.HttpFileServerType()
 	case corelib.ParamConfig:
 		return compilerTypes.HttpServerConfigType()
 	case corelib.ParamRequest:
@@ -106,6 +110,8 @@ func corelibResultType(result corelib.Result, app compilerTypes.Type, ctx checkC
 		return ctx.typeEnvironment.UnionType([]compilerTypes.Type{ctx.typeEnvironment.HttpServerType(app), compilerTypes.ErrorType})
 	case corelib.ResultConfig:
 		return compilerTypes.HttpServerConfigType()
+	case corelib.ResultFileServer:
+		return ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.HttpFileServerType(), compilerTypes.ErrorType})
 	case corelib.ResultReadBody:
 		return ctx.typeEnvironment.UnionType([]compilerTypes.Type{compilerTypes.SizeType, compilerTypes.EoS, compilerTypes.ErrorType})
 	case corelib.ResultBytes:

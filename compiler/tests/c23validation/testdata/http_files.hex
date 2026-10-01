@@ -1,0 +1,289 @@
+-- Static file serving over the wire. The Go side builds the directory tree the
+-- program runs in (site/, site-other/, outside/) with every file's mtime fixed
+-- so validators are exact, then answers the stdin handshake at the end by
+-- swapping the root's pathname for a link before the last requests.
+
+type Site is struct
+    files: Http.FileServer
+end
+
+fun file_route(site: Ptr<Site>, request: Http.Request, response: Http.Writer): Nil | Error do
+    try (^site).files.serve_file(request, response, "a.txt")
+    return nil
+end
+
+fun dir_route(site: Ptr<Site>, request: Http.Request, response: Http.Writer): Nil | Error do
+    try (^site).files.serve_directory(request, response, "sub")
+    return nil
+end
+
+fun bare_route(site: Ptr<Site>, request: Http.Request, response: Http.Writer): Nil | Error do
+    try (^site).files.serve_directory(request, response, "bare")
+    return nil
+end
+
+fun dir_as_file_route(site: Ptr<Site>, request: Http.Request, response: Http.Writer): Nil | Error do
+    try (^site).files.serve_file(request, response, "sub")
+    return nil
+end
+
+fun backslash_route(site: Ptr<Site>, request: Http.Request, response: Http.Writer): Nil | Error do
+    try (^site).files.serve_file(request, response, "a\\b")
+    return nil
+end
+
+fun query_route(site: Ptr<Site>, request: Http.Request, response: Http.Writer): Nil | Error do
+    try (^site).files.serve_file(request, response, "a.txt?x")
+    return nil
+end
+
+fun exact_route(site: Ptr<Site>, request: Http.Request, response: Http.Writer): Nil | Error do
+    let text: String = "exact\n"
+    try response.content_length(text.length())
+    try response.write(text.bytes())
+    return nil
+end
+
+fun serve_site(server: Http.Server<Site>): Bool do
+    let result = server.run()
+    if result != nil then
+        print("run failed: ", result.header(), ": ", result.message, "\n")
+        return false
+    end
+    return true
+end
+
+fun report(label: String, result: Nil | Error) do
+    if result != nil then
+        print(label, ": ", result.header(), ": ", result.message, "\n")
+    else
+        print(label, ": ok\n")
+    end
+end
+
+fun try_root(heap: Heap, label: String, root: String, index: String, cache: String) do
+    let made = Http.FileServer(heap, root, index, false, cache)
+    if made is Error then
+        print(label, ": ", made.header(), ": ", made.message, "\n")
+        return
+    end
+    print(label, ": ok\n")
+    made.free(heap)
+end
+
+fun fetch(heap: Heap, label: String, address: Net.Address, verb: String, target: String, headers: String) do
+    let request = String.interpolate(heap, "{{ verb }} {{ target }} HTTP/1.1\r\nHost: x\r\n{{ headers }}Connection: close\r\n\r\n")
+    show(heap, label, address, request)
+    request.free(heap)
+end
+
+fun get(heap: Heap, label: String, address: Net.Address, target: String) do
+    fetch(heap, label, address, "GET", target, "")
+end
+
+fun head(heap: Heap, label: String, address: Net.Address, target: String) do
+    fetch(heap, label, address, "HEAD", target, "")
+end
+
+fun ranged(heap: Heap, label: String, address: Net.Address, target: String, range: String) do
+    let header = String.interpolate(heap, "Range: {{ range }}\r\n")
+    fetch(heap, label, address, "GET", target, header)
+    header.free(heap)
+end
+
+fun conditional(heap: Heap, label: String, address: Net.Address, verb: String, headers: String) do
+    fetch(heap, label, address, verb, "/static/a.txt", headers)
+end
+
+fun run(): Nil | Error do
+    let heap = Heap()
+
+    -- Construction: valid root, then every rejected input.
+    try_root(heap, "valid root", "site", "index.html", "")
+    try_root(heap, "missing root", "site/nowhere", "index.html", "")
+    try_root(heap, "file as root", "site/a.txt", "index.html", "")
+    try_root(heap, "link as root", "site/escape", "index.html", "")
+    try_root(heap, "slash in index", "site", "a/b", "")
+    try_root(heap, "backslash in index", "site", "a\\b", "")
+    try_root(heap, "line break in cache control", "site", "index.html", "a\nb")
+
+    let files = try Http.FileServer(heap, "site", "index.html", false, "public, max-age=60")
+    let inner = try Http.FileServer(heap, "inner", "index.html", false, "")
+    let open = try Http.FileServer(heap, "site", "index.html", true, "no-cache")
+    let site = Site(files = files)
+    let mut router = Http.Router<Site>(heap)
+    try router.route("GET", "/file", file_route)
+    try router.route("GET", "/dir", dir_route)
+    try router.route("GET", "/bare", bare_route)
+    try router.route("GET", "/dirfile", dir_as_file_route)
+    try router.route("GET", "/backslash", backslash_route)
+    try router.route("GET", "/query", query_route)
+    try router.route("GET", "/static/exact.txt", exact_route)
+    try router.mount("/static", files)
+    try router.mount("/static/deep", inner)
+    try router.mount("/open", open)
+    report("duplicate mount", router.mount("/static", open))
+    report("mount without leading slash", router.mount("static", open))
+    report("mount with trailing slash", router.mount("/other/", open))
+    report("mount with query", router.mount("/other?x", open))
+
+    let server = try Http.listen<Site>(heap, Http.default_config("127.0.0.1", 18940), router, @site)
+    report("mount after listen", router.mount("/late", open))
+    let runner = try spawn serve_site(server)
+    settle()
+    let address = try Net.parse_address("127.0.0.1", 18940)
+
+    -- Handler-driven serving.
+    get(heap, "serve_file", address, "/file")
+    get(heap, "serve_directory", address, "/dir")
+    get(heap, "serve_directory without index", address, "/bare")
+    get(heap, "serve_file on a directory", address, "/dirfile")
+    fetch(heap, "serve_file wrong method", address, "POST", "/file", "Content-Length: 0\r\n")
+
+    -- Mounts: boundaries, precedence, longest prefix.
+    get(heap, "mount root", address, "/static")
+    get(heap, "mount root slash", address, "/static/")
+    get(heap, "mount file", address, "/static/a.txt")
+    get(heap, "mount query is not a filename", address, "/static/a.txt?name=other")
+    get(heap, "mount subdirectory index", address, "/static/sub/")
+    get(heap, "mount directory without index", address, "/static/bare/")
+    get(heap, "exact route over mount", address, "/static/exact.txt")
+    fetch(heap, "exact route other method", address, "POST", "/static/exact.txt", "Content-Length: 0\r\n")
+    get(heap, "nested mount root", address, "/static/deep/")
+    get(heap, "nested mount no slash", address, "/static/deep")
+    get(heap, "nested mount longest prefix", address, "/static/deep/index.html")
+    get(heap, "sibling prefix is not a mount", address, "/static2/a.txt")
+    get(heap, "prefix extension is not a mount", address, "/staticx")
+    get(heap, "outer mount keeps its own directory", address, "/static/deepx/")
+    get(heap, "unmounted path", address, "/elsewhere/a.txt")
+
+    -- Cache-Control selection and the dotfile policy per file server.
+    head(heap, "cache control from the file server", address, "/static/a.txt")
+    head(heap, "no cache control when empty", address, "/static/deep/")
+    head(heap, "other cache control", address, "/open/a.txt")
+    get(heap, "dotfile refused", address, "/static/.hidden")
+    get(heap, "dotfile directory refused", address, "/static/.well/ok.txt")
+    get(heap, "dotfile served when enabled", address, "/open/.hidden")
+    get(heap, "dotfile directory served when enabled", address, "/open/.well/ok.txt")
+
+    -- MIME detection.
+    head(heap, "mime html", address, "/static/mime/x.html")
+    head(heap, "mime css", address, "/static/mime/x.css")
+    head(heap, "mime js", address, "/static/mime/x.js")
+    head(heap, "mime json", address, "/static/mime/x.json")
+    head(heap, "mime png", address, "/static/mime/x.png")
+    head(heap, "mime jpg", address, "/static/mime/x.jpg")
+    head(heap, "mime jpeg", address, "/static/mime/x.jpeg")
+    head(heap, "mime gif", address, "/static/mime/x.gif")
+    head(heap, "mime svg", address, "/static/mime/x.svg")
+    head(heap, "mime woff", address, "/static/mime/x.woff")
+    head(heap, "mime woff2", address, "/static/mime/x.woff2")
+    head(heap, "mime ttf", address, "/static/mime/x.ttf")
+    head(heap, "mime mp4", address, "/static/mime/x.mp4")
+    head(heap, "mime webm", address, "/static/mime/x.webm")
+    head(heap, "mime pdf", address, "/static/mime/x.pdf")
+    head(heap, "mime zip", address, "/static/mime/x.zip")
+    head(heap, "mime txt", address, "/static/mime/x.txt")
+    head(heap, "mime xml", address, "/static/mime/x.xml")
+    head(heap, "mime uppercase extension", address, "/static/mime/UPPER.HTML")
+    head(heap, "mime unknown extension", address, "/static/mime/x.xyz")
+    head(heap, "mime no extension", address, "/static/mime/noext")
+    head(heap, "mime extension only in directory", address, "/static/mime.d/plain")
+
+    -- Missing, traversal, link and encoding refusals.
+    get(heap, "missing file", address, "/static/nope.txt")
+    get(heap, "dot dot segment", address, "/static/../outside/secret.txt")
+    get(heap, "dot dot to the sibling with the root prefix", address, "/static/../site-other/secret.txt")
+    get(heap, "encoded dot dot", address, "/static/%2e%2e/outside/secret.txt")
+    get(heap, "mixed dot dot", address, "/static/%2E./outside/secret.txt")
+    get(heap, "dot segment", address, "/static/./a.txt")
+    get(heap, "dot dot inside a name", address, "/static/mime/../a.txt")
+    get(heap, "directory link escape", address, "/static/escape/secret.txt")
+    get(heap, "directory link itself", address, "/static/escape")
+    get(heap, "encoded slash", address, "/static/mime%2Fx.txt")
+    get(heap, "encoded backslash", address, "/static/mime%5Cx.txt")
+    get(heap, "encoded NUL", address, "/static/a.txt%00.png")
+    get(heap, "bad escape digits", address, "/static/a%zz")
+    get(heap, "truncated escape", address, "/static/a%2")
+    get(heap, "raw backslash in a handler path", address, "/backslash")
+    get(heap, "query byte in a handler path", address, "/query")
+    get(heap, "decoded once", address, "/static/%2561.txt")
+    get(heap, "encoded letters", address, "/static/%61.txt")
+    get(heap, "alternate data stream", address, "/static/a.txt:stream")
+    get(heap, "alternate stream default", address, "/static/a.txt::$DATA")
+
+    -- Representation metadata.
+    get(heap, "full response", address, "/static/a.txt")
+    head(heap, "head response", address, "/static/a.txt")
+    get(heap, "digits", address, "/static/digits.bin")
+    get(heap, "zero-length file", address, "/static/empty.txt")
+    head(heap, "head zero-length file", address, "/static/empty.txt")
+    fetch(heap, "post refused", address, "POST", "/static/a.txt", "Content-Length: 0\r\n")
+    fetch(heap, "delete refused", address, "DELETE", "/static/a.txt", "")
+
+    -- Conditional GET.
+    conditional(heap, "none-match weak match", address, "GET", "If-None-Match: W/\"11-1704164645\"\r\n")
+    conditional(heap, "none-match strong form is a weak match", address, "GET", "If-None-Match: \"11-1704164645\"\r\n")
+    conditional(heap, "none-match list", address, "GET", "If-None-Match: \"1-1\", W/\"11-1704164645\"\r\n")
+    conditional(heap, "none-match star", address, "GET", "If-None-Match: *\r\n")
+    conditional(heap, "none-match mismatch", address, "GET", "If-None-Match: W/\"11-1704164646\"\r\n")
+    conditional(heap, "none-match head", address, "HEAD", "If-None-Match: W/\"11-1704164645\"\r\n")
+    conditional(heap, "modified-since equal", address, "GET", "If-Modified-Since: Tue, 02 Jan 2024 03:04:05 GMT\r\n")
+    conditional(heap, "modified-since later", address, "GET", "If-Modified-Since: Wed, 03 Jan 2024 03:04:05 GMT\r\n")
+    conditional(heap, "modified-since earlier", address, "GET", "If-Modified-Since: Tue, 02 Jan 2024 03:04:04 GMT\r\n")
+    conditional(heap, "modified-since invalid", address, "GET", "If-Modified-Since: yesterday\r\n")
+    conditional(heap, "modified-since wrong weekday", address, "GET", "If-Modified-Since: Mon, 02 Jan 2024 03:04:05 GMT\r\n")
+    conditional(heap, "none-match mismatch beats modified-since", address, "GET", "If-None-Match: \"x\"\r\nIf-Modified-Since: Wed, 03 Jan 2024 03:04:05 GMT\r\n")
+    conditional(heap, "none-match match beats modified-since", address, "GET", "If-None-Match: W/\"11-1704164645\"\r\nIf-Modified-Since: Mon, 01 Jan 2024 00:00:00 GMT\r\n")
+    conditional(heap, "validator beats range", address, "GET", "If-None-Match: W/\"11-1704164645\"\r\nRange: bytes=0-3\r\n")
+
+    -- Ranges over the ten bytes 0123456789.
+    ranged(heap, "range inner", address, "/static/digits.bin", "bytes=2-5")
+    ranged(heap, "range first byte", address, "/static/digits.bin", "bytes=0-0")
+    ranged(heap, "range suffix", address, "/static/digits.bin", "bytes=-3")
+    ranged(heap, "range suffix longer than the file", address, "/static/digits.bin", "bytes=-100")
+    ranged(heap, "range open ended", address, "/static/digits.bin", "bytes=7-")
+    ranged(heap, "range end clamped", address, "/static/digits.bin", "bytes=5-100")
+    ranged(heap, "range whole file", address, "/static/digits.bin", "bytes=0-9")
+    ranged(heap, "range start at size", address, "/static/digits.bin", "bytes=10-")
+    ranged(heap, "range start beyond size", address, "/static/digits.bin", "bytes=50-60")
+    ranged(heap, "range zero suffix", address, "/static/digits.bin", "bytes=-0")
+    ranged(heap, "range end before start", address, "/static/digits.bin", "bytes=5-2")
+    ranged(heap, "range not numbers", address, "/static/digits.bin", "bytes=a-b")
+    ranged(heap, "range missing unit separator", address, "/static/digits.bin", "bytes 2-5")
+    ranged(heap, "range unknown unit", address, "/static/digits.bin", "items=1-2")
+    ranged(heap, "range several", address, "/static/digits.bin", "bytes=0-1,3-4")
+    ranged(heap, "range overflowing start", address, "/static/digits.bin", "bytes=99999999999999999999-")
+    ranged(heap, "range overflowing suffix", address, "/static/digits.bin", "bytes=-99999999999999999999")
+    ranged(heap, "range on a zero-length file", address, "/static/empty.txt", "bytes=0-0")
+    ranged(heap, "range suffix on a zero-length file", address, "/static/empty.txt", "bytes=-5")
+    fetch(heap, "range ignored by head", address, "HEAD", "/static/digits.bin", "Range: bytes=2-5\r\n")
+
+    -- Handshake: the Go side replaces the root's pathname with a link to a
+    -- directory holding a different tree, then answers; the retained root
+    -- still serves the original directory.
+    let out = try Io.stdout()
+    let input = try Io.stdin()
+    let ready: String = "ready\n"
+    try out.write(ready.bytes())
+    let answer: List<Byte> = List<Byte>(heap)
+    let waited = input.read(answer, 1)
+    answer.free(heap)
+    get(heap, "root retained after the pathname changed", address, "/static/a.txt")
+    get(heap, "swapped tree is not reachable", address, "/static/secret.txt")
+    get(heap, "swapped link is not followed", address, "/static/escape/secret.txt")
+
+    server.stop()
+    print("served: ", runner.join(), "\n")
+    server.free(heap)
+    router.free(heap)
+    inner.free(heap)
+    open.free(heap)
+    files.free(heap)
+    return nil
+end
+
+let outcome = run()
+if outcome != nil then
+    print("failed: ", outcome.header(), ": ", outcome.message, "\n")
+end

@@ -80,6 +80,7 @@ var trapLedger = map[string]trapDisposition{
 	"JSON value nests too deeply":                               {dispositionExecutable, "json-free-over-depth-traps"},
 	"router freed while attached to a server":                   {dispositionExecutable, "http-router-free-while-attached-traps"},
 	"server freed while running":                                {dispositionExecutable, "http-server-free-while-running-traps"},
+	"file server freed while mounted":                           {dispositionExecutable, "http-files-free-while-mounted-traps"},
 	"byte list length does not match numeric width":             {dispositionExecutable, "byte-list-width-traps"},
 	"inline List capacity exceeded":                             {dispositionExecutable, "inline-list-capacity-traps"},
 	"inline List is empty":                                      {dispositionExecutable, "empty-inline-list-pop-traps"},

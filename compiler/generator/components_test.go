@@ -21,7 +21,7 @@ func TestComponentTemplatesCompleteAndUnique(t *testing.T) {
 		"module.h", "types.h",
 		"json.h", "json_value.c", "json_adapter.c",
 		"regex.h", "regex.c",
-		"http.h", "http.c", "server.h", "server.c",
+		"http.h", "http.c", "server.h", "server.c", "fileserver.h", "fileserver.c",
 	}
 	seen := make(map[string]int)
 	for _, name := range componentTemplateNames() {

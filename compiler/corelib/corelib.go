@@ -38,6 +38,8 @@ const (
 	ParamHandler      Param = specdata.CoreParamHandler
 	ParamSize         Param = specdata.CoreParamSize
 	ParamByteList     Param = specdata.CoreParamByteList
+	ParamBool         Param = specdata.CoreParamBool
+	ParamFileServer   Param = specdata.CoreParamFileServer
 )
 
 // Result is one runtime function's success shape. Every Result except
@@ -63,6 +65,7 @@ const (
 	ResultBytes       Result = specdata.CoreResultBytes
 	ResultBytesNil    Result = specdata.CoreResultBytesNil
 	ResultHeaders     Result = specdata.CoreResultHeaders
+	ResultFileServer  Result = specdata.CoreResultFileServer
 )
 
 // Function is one exported module function, the registry record a lookup

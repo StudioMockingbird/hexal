@@ -325,6 +325,10 @@ func corelibParamSpellings(params []corelib.Param) ([]corelibParamSpelling, erro
 			declaration, base = "size_t %s", "count"
 		case corelib.ParamByteList:
 			declaration, base = "hex_list_UInt8 *%s", "into"
+		case corelib.ParamBool:
+			declaration, base = "bool %s", "enabled"
+		case corelib.ParamFileServer:
+			declaration, base = "hex_http_files %s", "files"
 		case corelib.ParamBytes:
 			declaration, base = "hex_slice_UInt8 %s", "bytes"
 		case corelib.ParamConfig:
@@ -499,7 +503,7 @@ func writeAdapterHelpers(result *strings.Builder, adapters []corelibAdapter, fil
 			if err := renderInto(result, "module.h", block, model); err != nil {
 				return err
 			}
-		case corelib.ResultServer:
+		case corelib.ResultServer, corelib.ResultFileServer:
 			if err := renderInto(result, "module.h", adapterBlock(adapter.result), model); err != nil {
 				return err
 			}
@@ -581,6 +585,8 @@ func adapterBlock(result corelib.Result) string {
 		return "corelib_match_nil_adapter"
 	case corelib.ResultServer:
 		return "corelib_server_adapter"
+	case corelib.ResultFileServer:
+		return "corelib_files_adapter"
 	case corelib.ResultReadBody:
 		return "corelib_read_adapter"
 	default:

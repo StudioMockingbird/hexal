@@ -155,6 +155,7 @@ func init() {
 		regexModelData.pattern.identity: true,
 		httpModelData.request.identity:  true,
 		httpModelData.writer.identity:   true,
+		httpModelData.files.identity:    true,
 	}
 }
 

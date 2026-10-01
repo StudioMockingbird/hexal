@@ -15,6 +15,7 @@ var httpModelData = buildHTTPModel()
 type httpModeler struct {
 	request     Type
 	writer      Type
+	files       Type
 	header      Type
 	config      Type
 	bytes       Type
@@ -33,6 +34,14 @@ func HttpRequestType() Type { return httpModelData.request }
 
 // HttpWriterType is the handler-scoped response writer handle.
 func HttpWriterType() Type { return httpModelData.writer }
+
+// HttpFileServerType is the opaque static-file server handle.
+func HttpFileServerType() Type { return httpModelData.files }
+
+// IsHttpFileServer reports whether typ is the canonical FileServer handle.
+func IsHttpFileServer(typ Type) bool {
+	return typ.identity != nil && typ.identity == httpModelData.files.identity
+}
 
 // HttpHeaderType is the ordinary record of one borrowed header field.
 func HttpHeaderType() Type { return httpModelData.header }
@@ -120,6 +129,12 @@ func buildHTTPModel() httpModeler {
 		CanonicalKey: "HttpWriter",
 		identity:     newTypeIdentity(),
 	}
+	files := Type{
+		Name:         "FileServer",
+		CName:        "hex_http_files",
+		CanonicalKey: "HttpFileServer",
+		identity:     newTypeIdentity(),
+	}
 	bytes := staticSliceType(UInt8, "hex_slice_UInt8")
 	header := builtinObject("Header", "hex_t_Header", []ObjectMember{
 		{Name: "name", Type: bytes, Use: NewTypeUse(bytes)},
@@ -148,7 +163,7 @@ func buildHTTPModel() httpModeler {
 		member("shutdown_timeout", DurationType),
 		member("tcp_nodelay", Bool),
 	})
-	return httpModeler{request: request, writer: writer, header: header, config: config, bytes: bytes, headerSlice: headerSlice}
+	return httpModeler{request: request, writer: writer, files: files, header: header, config: config, bytes: bytes, headerSlice: headerSlice}
 }
 
 // httpGenericType constructs or retrieves one canonical generic std/http

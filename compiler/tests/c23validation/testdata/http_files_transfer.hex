@@ -1,0 +1,158 @@
+-- Bounded transfer of files larger than any socket buffer: a complete
+-- download, a ranged read in the middle, a reader that stalls past the write
+-- deadline, a reader that leaves early, and files that disappear or shrink
+-- while a transfer is blocked on a reader. After each the server must still
+-- serve. The Go side acts at the handshakes: it changes a served file while a
+-- transfer is in flight and, at the end, inspects the process for descriptors
+-- left open on the served files.
+
+type Site is struct
+    files: Http.FileServer
+end
+
+fun serve_site(server: Http.Server<Site>): Bool do
+    let result = server.run()
+    if result != nil then
+        print("run failed: ", result.header(), ": ", result.message, "\n")
+        return false
+    end
+    return true
+end
+
+-- Writes one handshake line straight to the stdout descriptor and waits for the
+-- Go side to answer on stdin.
+fun handshake(heap: Heap, line: String): Nil | Error do
+    let out = try Io.stdout()
+    let input = try Io.stdin()
+    try out.write(line.bytes())
+    let answer: List<Byte> = List<Byte>(heap)
+    let waited = input.read(answer, 1)
+    answer.free(heap)
+    return nil
+end
+
+-- Reads the whole response, optionally pausing after the first chunk for the
+-- Go side to change the file, and returns how many bytes arrived.
+fun download(address: Net.Address, request: String, silent_for: UInt64, pause_line: String): Size do
+    let heap = Heap()
+    let connected = Net.connect(address)
+    if connected is Error then
+        return 0
+    end
+    let sent = connected.write(request.bytes())
+    if sent != nil then
+        connected.close()
+        return 0
+    end
+    Time.sleep(Time.milliseconds(silent_for))
+    let buffer: List<Byte> = List<Byte>(heap)
+    let mut total: Size = 0
+    let mut paused = pause_line.length() == 0
+    let mut finished = false
+    while finished == false do
+        buffer.clear()
+        let step = connected.read(buffer, 65536)
+        if step is Error then
+            finished = true
+        end
+        if step is EoS then
+            finished = true
+        end
+        if step is Size then
+            total = total + step
+            if paused == false then
+                paused = true
+                let outcome = handshake(heap, pause_line)
+            end
+        end
+    end
+    connected.close()
+    buffer.free(heap)
+    return total
+end
+
+-- Reads one chunk and hangs up with the rest of the file unsent.
+fun leave_early(address: Net.Address, request: String): Size do
+    let heap = Heap()
+    let connected = Net.connect(address)
+    if connected is Error then
+        return 0
+    end
+    let sent = connected.write(request.bytes())
+    if sent != nil then
+        connected.close()
+        return 0
+    end
+    let buffer: List<Byte> = List<Byte>(heap)
+    let mut total: Size = 0
+    let step = connected.read(buffer, 4096)
+    if step is Size then
+        total = step
+    end
+    connected.close()
+    buffer.free(heap)
+    return total
+end
+
+fun run(): Nil | Error do
+    let heap = Heap()
+    let files = try Http.FileServer(heap, "site", "index.html", false, "")
+    let site = Site(files = files)
+    let mut router = Http.Router<Site>(heap)
+    try router.mount("/files", files)
+    let server = try Http.listen<Site>(heap, Http.default_config("127.0.0.1", 18941), router, @site)
+    let runner = try spawn serve_site(server)
+
+    -- A second server over the same files with a short write deadline.
+    let mut impatient_router = Http.Router<Site>(heap)
+    try impatient_router.mount("/files", files)
+    let mut impatient_config = Http.default_config("127.0.0.1", 18942)
+    impatient_config.write_timeout = Time.milliseconds(300)
+    let impatient = try Http.listen<Site>(heap, impatient_config, impatient_router, @site)
+    let impatient_runner = try spawn serve_site(impatient)
+    Time.sleep(Time.milliseconds(100))
+
+    let address = try Net.parse_address("127.0.0.1", 18941)
+    let impatient_address = try Net.parse_address("127.0.0.1", 18942)
+    let whole: Size = 33554432
+    let get_big: String = "GET /files/big.bin HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+
+    let full = download(address, get_big, 0, "")
+    print("whole file: ", full > whole, " ", full < (whole + 512), "\n")
+
+    show(heap, "middle of the file", address, "GET /files/big.bin HTTP/1.1\r\nHost: x\r\nRange: bytes=8388608-8388639\r\nConnection: close\r\n\r\n")
+
+    let stalled = download(impatient_address, get_big, 1200, "")
+    print("stalled reader: ", stalled > 0, " ", stalled < whole, "\n")
+
+    let early = leave_early(address, get_big)
+    print("early reader: ", early > 0, "\n")
+
+    let vanished = download(address, "GET /files/vanish.bin HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n", 0, "ready remove\n")
+    print("removed while transferring: ", vanished > whole, " ", vanished < (whole + 512), "\n")
+
+    let shrunk = download(address, "GET /files/shrink.bin HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n", 0, "ready truncate\n")
+    print("truncated while transferring: ", shrunk > 0, " ", shrunk < whole, "\n")
+
+    show(heap, "served after every reader", address, "GET /files/small.txt HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+
+    -- Every transfer above has finished or failed; the Go side now looks for
+    -- descriptors left on the served files.
+    Time.sleep(Time.milliseconds(500))
+    let released = handshake(heap, "ready\n")
+
+    server.stop()
+    impatient.stop()
+    print("served: ", runner.join(), " ", impatient_runner.join(), "\n")
+    server.free(heap)
+    impatient.free(heap)
+    router.free(heap)
+    impatient_router.free(heap)
+    files.free(heap)
+    return nil
+end
+
+let outcome = run()
+if outcome != nil then
+    print("failed: ", outcome.header(), ": ", outcome.message, "\n")
+end

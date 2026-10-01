@@ -17,6 +17,7 @@ typedef struct hex_http_exchange *hex_http_request;
 typedef struct hex_http_exchange *hex_http_writer;
 typedef struct hex_http_router_state *hex_http_router;
 typedef struct hex_http_server_state *hex_http_server;
+typedef struct hex_http_files_state *hex_http_files;
 
 // A handler is stored behind one erased function pointer, and an invoke thunk
 // the application's module builds restores the typed signature and reports
@@ -62,7 +63,12 @@ typedef struct hex_http_status_result {
 {{end}}{{if .NeedRouter}}extern hex_http_router hex_http_router_new_raw(hex_heap h);
 {{end}}{{if .NeedRoute}}extern hex_http_status_result hex_http_router_route_raw(hex_http_router router, const hex_string *method, const hex_string *path, hex_http_handler handler, hex_http_invoke invoke);
 {{end}}{{if .NeedFree}}extern void hex_http_router_free_raw(hex_http_router router, hex_heap h);
-{{end}}{{if .NeedRuntime}}
+{{end}}{{if .NeedFiles}}extern hex_http_status_result hex_http_router_mount_raw(hex_http_router router, const hex_string *prefix, hex_http_files files);
+{{end}}{{if .NeedRuntime}}// The HTTP date forms shared with the file server: an IMF-fixdate of a Unix
+// time (29 bytes) and its inverse, which accepts nothing else.
+extern size_t hex_http_format_date(uint8_t *buffer, int64_t seconds);
+extern bool hex_http_parse_date(const uint8_t *text, size_t length, int64_t *seconds);
+
 typedef struct hex_http_server_result {
     bool ok;
     hex_http_server server;

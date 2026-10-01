@@ -64,6 +64,10 @@ const (
 	CoreParamSize
 	// CoreParamByteList is a List<Byte> the call appends to.
 	CoreParamByteList
+	// CoreParamBool is a Bool parameter.
+	CoreParamBool
+	// CoreParamFileServer is a FileServer handle parameter.
+	CoreParamFileServer
 )
 
 // CoreResult is one function's success shape. The Error union a fallible
@@ -101,6 +105,8 @@ const (
 	CoreResultBytesNil
 	// CoreResultHeaders is a Slice<Header>, produced directly.
 	CoreResultHeaders
+	// CoreResultFileServer is FileServer | Error.
+	CoreResultFileServer
 )
 
 // coreResultFallible reports whether a result shape unions with Error. The
@@ -228,6 +234,7 @@ const (
 	// families: a Router<App> is identified by its App argument.
 	CoreTypeHttpRequest      CoreTypeID = "HttpRequest"
 	CoreTypeHttpWriter       CoreTypeID = "HttpWriter"
+	CoreTypeHttpFileServer   CoreTypeID = "HttpFileServer"
 	CoreTypeHttpHeader       CoreTypeID = "HttpHeader"
 	CoreTypeHttpServerConfig CoreTypeID = "HttpServerConfig"
 	CoreTypeHttpRouter       CoreTypeID = "HttpRouter"
@@ -240,6 +247,9 @@ const (
 // httpRuntime is the demand of every std/http operation that needs the
 // connection runtime: the server component and its private parser adapter.
 var httpRuntime = []ComponentID{ComponentServer, ComponentHTTP}
+
+// fileRuntime adds the static file server to the connection runtime.
+var fileRuntime = []ComponentID{ComponentServer, ComponentHTTP, ComponentFileServer}
 
 // coreModules is the registry. It is unexported so no importer can rewrite a
 // record, and every query clones the slices it returns, so a caller can never
@@ -373,6 +383,7 @@ var coreModules = []CoreModule{
 		Types: []CoreTypeExport{
 			{Name: "Request", TypeID: CoreTypeHttpRequest},
 			{Name: "Writer", TypeID: CoreTypeHttpWriter},
+			{Name: "FileServer", TypeID: CoreTypeHttpFileServer},
 			{Name: "Header", TypeID: CoreTypeHttpHeader},
 			{Name: "ServerConfig", TypeID: CoreTypeHttpServerConfig},
 		},
@@ -384,10 +395,15 @@ var coreModules = []CoreModule{
 			{Name: "default_config", Params: []CoreParam{CoreParamString, CoreParamUInt16}, Result: CoreResultConfig, ErrorBehavior: ErrorNever, Runtime: "hex_http_default_config", Components: []ComponentID{ComponentServer}},
 			{Name: "Router", Params: []CoreParam{CoreParamHeap}, Result: CoreResultRouter, ErrorBehavior: ErrorNever, Runtime: "hex_http_router_new", Components: []ComponentID{ComponentServer}, TypeParams: 1, Constructs: CoreTypeHttpRouter},
 			{Name: "listen", Params: []CoreParam{CoreParamHeap, CoreParamConfig, CoreParamRouter, CoreParamAppPtr}, Result: CoreResultServer, ErrorBehavior: ErrorFallible, Runtime: "hex_http_listen", Components: httpRuntime, TypeParams: 1},
+			{Name: "FileServer", Params: []CoreParam{CoreParamHeap, CoreParamString, CoreParamString, CoreParamBool, CoreParamString}, Result: CoreResultFileServer, ErrorBehavior: ErrorFallible, Runtime: "hex_http_files_open", Components: fileRuntime, Constructs: CoreTypeHttpFileServer},
 		},
 		Methods: []CoreMethod{
 			{CoreTypeHttpRouter, 0, CoreFunction{Name: "route", Params: []CoreParam{CoreParamRouter, CoreParamString, CoreParamString, CoreParamHandler}, Result: CoreResultNil, ErrorBehavior: ErrorFallible, Runtime: "hex_http_router_route", Components: []ComponentID{ComponentServer, ComponentHTTP}}},
 			{CoreTypeHttpRouter, 0, CoreFunction{Name: "free", Params: []CoreParam{CoreParamRouter, CoreParamHeap}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_http_router_free", Components: []ComponentID{ComponentServer}}},
+			{CoreTypeHttpRouter, 0, CoreFunction{Name: "mount", Params: []CoreParam{CoreParamRouter, CoreParamString, CoreParamFileServer}, Result: CoreResultNil, ErrorBehavior: ErrorFallible, Runtime: "hex_http_router_mount", Components: fileRuntime}},
+			{CoreTypeHttpFileServer, 0, CoreFunction{Name: "serve_file", Params: []CoreParam{CoreParamFileServer, CoreParamRequest, CoreParamWriter, CoreParamString}, Result: CoreResultNil, ErrorBehavior: ErrorFallible, Runtime: "hex_http_files_serve_file", Components: fileRuntime}},
+			{CoreTypeHttpFileServer, 0, CoreFunction{Name: "serve_directory", Params: []CoreParam{CoreParamFileServer, CoreParamRequest, CoreParamWriter, CoreParamString}, Result: CoreResultNil, ErrorBehavior: ErrorFallible, Runtime: "hex_http_files_serve_directory", Components: fileRuntime}},
+			{CoreTypeHttpFileServer, 0, CoreFunction{Name: "free", Params: []CoreParam{CoreParamFileServer, CoreParamHeap}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_http_files_free", Components: fileRuntime}},
 			{CoreTypeHttpServer, 0, CoreFunction{Name: "run", Params: []CoreParam{CoreParamServer}, Result: CoreResultNil, ErrorBehavior: ErrorFallible, Runtime: "hex_http_server_run", Components: httpRuntime}},
 			{CoreTypeHttpServer, 0, CoreFunction{Name: "wait", Params: []CoreParam{CoreParamServer}, Result: CoreResultNil, ErrorBehavior: ErrorFallible, Runtime: "hex_http_server_wait", Components: httpRuntime}},
 			{CoreTypeHttpServer, 0, CoreFunction{Name: "stop", Params: []CoreParam{CoreParamServer}, Result: CoreResultNoValue, ErrorBehavior: ErrorNever, Runtime: "hex_http_server_stop", Components: httpRuntime}},

@@ -1,0 +1,26 @@
+whole file: true true
+== middle of the file
+HTTP/1.1 206 Partial Content
+ETag: W/"33554432-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Content-Range: bytes 8388608-8388639/33554432
+Connection: close
+Content-Length: 32
+
+uvwxyzabcdefghijklmnopqrstuvwxyzstalled reader: true true
+early reader: true
+removed while transferring: true true
+truncated while transferring: true true
+== served after every reader
+HTTP/1.1 200 OK
+ETag: W/"6-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 6
+
+small
+served: true true

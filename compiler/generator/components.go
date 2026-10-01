@@ -178,6 +178,7 @@ func componentDemands(config Config) []componentDemand {
 		{ids: []specdata.ComponentID{specdata.ComponentRegex}, build: regexComponents},
 		{ids: []specdata.ComponentID{specdata.ComponentServer}, build: httpServerComponents},
 		{ids: []specdata.ComponentID{specdata.ComponentHTTP}, build: httpParserComponents},
+		{ids: []specdata.ComponentID{specdata.ComponentFileServer}, build: httpFilesComponents},
 	}
 }
 

@@ -84,6 +84,8 @@ func addonRawResultName(path string, result corelib.Result) string {
 			return "hex_http_status_result"
 		case corelib.ResultServer:
 			return "hex_http_server_result"
+		case corelib.ResultFileServer:
+			return "hex_http_files_result"
 		case corelib.ResultReadBody:
 			return "hex_http_read_result"
 		case corelib.ResultBytesNil:

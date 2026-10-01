@@ -130,6 +130,8 @@ func ResolveSpecID(id specdata.TypeID) (Type, bool) {
 		return httpModelData.request, true
 	case specdata.TypeHttpWriter:
 		return httpModelData.writer, true
+	case specdata.TypeHttpFileServer:
+		return httpModelData.files, true
 	case specdata.TypeHttpHeader:
 		return httpModelData.header, true
 	case specdata.TypeHttpServerConfig:

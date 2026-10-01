@@ -1,0 +1,1018 @@
+valid root: ok
+missing root: not found: file server root was not found
+file as root: invalid input: file server root must name an existing directory
+link as root: invalid input: file server root must not be a symbolic link
+slash in index: invalid input: index must be a file name without separators
+backslash in index: invalid input: index must be a file name without separators
+line break in cache control: invalid input: cache control must not contain CR, LF, or NUL
+duplicate mount: invalid input: duplicate mount prefix
+mount without leading slash: invalid input: mount prefix must be an absolute path without a trailing slash, query, fragment, or control bytes
+mount with trailing slash: invalid input: mount prefix must be an absolute path without a trailing slash, query, fragment, or control bytes
+mount with query: invalid input: mount prefix must be an absolute path without a trailing slash, query, fragment, or control bytes
+mount after listen: busy: router is attached to a running server
+== serve_file
+HTTP/1.1 200 OK
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 11
+
+hello world== serve_directory
+HTTP/1.1 200 OK
+ETag: W/"10-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/html; charset=utf-8
+Connection: close
+Content-Length: 10
+
+sub index
+== serve_directory without index
+HTTP/1.1 404 Not Found
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Not Found
+== serve_file on a directory
+HTTP/1.1 404 Not Found
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Not Found
+== serve_file wrong method
+HTTP/1.1 405 Method Not Allowed
+Allow: GET
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 19
+
+Method Not Allowed
+== mount root
+HTTP/1.1 200 OK
+ETag: W/"14-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/html; charset=utf-8
+Connection: close
+Content-Length: 14
+
+<h1>home</h1>
+== mount root slash
+HTTP/1.1 200 OK
+ETag: W/"14-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/html; charset=utf-8
+Connection: close
+Content-Length: 14
+
+<h1>home</h1>
+== mount file
+HTTP/1.1 200 OK
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 11
+
+hello world== mount query is not a filename
+HTTP/1.1 200 OK
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 11
+
+hello world== mount subdirectory index
+HTTP/1.1 200 OK
+ETag: W/"10-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/html; charset=utf-8
+Connection: close
+Content-Length: 10
+
+sub index
+== mount directory without index
+HTTP/1.1 404 Not Found
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Not Found
+== exact route over mount
+HTTP/1.1 200 OK
+Connection: close
+Content-Length: 6
+
+exact
+== exact route other method
+HTTP/1.1 405 Method Not Allowed
+Allow: GET
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 19
+
+Method Not Allowed
+== nested mount root
+HTTP/1.1 200 OK
+ETag: W/"12-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Accept-Ranges: bytes
+Content-Type: text/html; charset=utf-8
+Connection: close
+Content-Length: 12
+
+inner index
+== nested mount no slash
+HTTP/1.1 200 OK
+ETag: W/"12-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Accept-Ranges: bytes
+Content-Type: text/html; charset=utf-8
+Connection: close
+Content-Length: 12
+
+inner index
+== nested mount longest prefix
+HTTP/1.1 200 OK
+ETag: W/"12-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Accept-Ranges: bytes
+Content-Type: text/html; charset=utf-8
+Connection: close
+Content-Length: 12
+
+inner index
+== sibling prefix is not a mount
+HTTP/1.1 404 Not Found
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 10
+
+Not Found
+== prefix extension is not a mount
+HTTP/1.1 404 Not Found
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 10
+
+Not Found
+== outer mount keeps its own directory
+HTTP/1.1 200 OK
+ETag: W/"12-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/html; charset=utf-8
+Connection: close
+Content-Length: 12
+
+deepx index
+== unmounted path
+HTTP/1.1 404 Not Found
+Connection: close
+Content-Type: text/plain; charset=utf-8
+Content-Length: 10
+
+Not Found
+== cache control from the file server
+HTTP/1.1 200 OK
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 11
+
+== no cache control when empty
+HTTP/1.1 200 OK
+ETag: W/"12-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Accept-Ranges: bytes
+Content-Type: text/html; charset=utf-8
+Connection: close
+Content-Length: 12
+
+== other cache control
+HTTP/1.1 200 OK
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: no-cache
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 11
+
+== dotfile refused
+HTTP/1.1 403 Forbidden
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Forbidden
+== dotfile directory refused
+HTTP/1.1 403 Forbidden
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Forbidden
+== dotfile served when enabled
+HTTP/1.1 200 OK
+ETag: W/"6-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: no-cache
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Connection: close
+Content-Length: 6
+
+secret== dotfile directory served when enabled
+HTTP/1.1 200 OK
+ETag: W/"13-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: no-cache
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 13
+
+dot dir file
+== mime html
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/html; charset=utf-8
+Connection: close
+Content-Length: 1
+
+== mime css
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/css; charset=utf-8
+Connection: close
+Content-Length: 1
+
+== mime js
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/javascript; charset=utf-8
+Connection: close
+Content-Length: 1
+
+== mime json
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/json; charset=utf-8
+Connection: close
+Content-Length: 1
+
+== mime png
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: image/png
+Connection: close
+Content-Length: 1
+
+== mime jpg
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: image/jpeg
+Connection: close
+Content-Length: 1
+
+== mime jpeg
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: image/jpeg
+Connection: close
+Content-Length: 1
+
+== mime gif
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: image/gif
+Connection: close
+Content-Length: 1
+
+== mime svg
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: image/svg+xml
+Connection: close
+Content-Length: 1
+
+== mime woff
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: font/woff
+Connection: close
+Content-Length: 1
+
+== mime woff2
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: font/woff2
+Connection: close
+Content-Length: 1
+
+== mime ttf
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: font/ttf
+Connection: close
+Content-Length: 1
+
+== mime mp4
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: video/mp4
+Connection: close
+Content-Length: 1
+
+== mime webm
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: video/webm
+Connection: close
+Content-Length: 1
+
+== mime pdf
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/pdf
+Connection: close
+Content-Length: 1
+
+== mime zip
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/zip
+Connection: close
+Content-Length: 1
+
+== mime txt
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 1
+
+== mime xml
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/xml; charset=utf-8
+Connection: close
+Content-Length: 1
+
+== mime uppercase extension
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/html; charset=utf-8
+Connection: close
+Content-Length: 1
+
+== mime unknown extension
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Connection: close
+Content-Length: 1
+
+== mime no extension
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Connection: close
+Content-Length: 1
+
+== mime extension only in directory
+HTTP/1.1 200 OK
+ETag: W/"1-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Connection: close
+Content-Length: 1
+
+== missing file
+HTTP/1.1 404 Not Found
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Not Found
+== dot dot segment
+HTTP/1.1 403 Forbidden
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Forbidden
+== dot dot to the sibling with the root prefix
+HTTP/1.1 403 Forbidden
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Forbidden
+== encoded dot dot
+HTTP/1.1 403 Forbidden
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Forbidden
+== mixed dot dot
+HTTP/1.1 403 Forbidden
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Forbidden
+== dot segment
+HTTP/1.1 403 Forbidden
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Forbidden
+== dot dot inside a name
+HTTP/1.1 403 Forbidden
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Forbidden
+== directory link escape
+HTTP/1.1 403 Forbidden
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Forbidden
+== directory link itself
+HTTP/1.1 403 Forbidden
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Forbidden
+== encoded slash
+HTTP/1.1 400 Bad Request
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 12
+
+Bad Request
+== encoded backslash
+HTTP/1.1 400 Bad Request
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 12
+
+Bad Request
+== encoded NUL
+HTTP/1.1 400 Bad Request
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 12
+
+Bad Request
+== bad escape digits
+HTTP/1.1 400 Bad Request
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 12
+
+Bad Request
+== truncated escape
+HTTP/1.1 400 Bad Request
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 12
+
+Bad Request
+== raw backslash in a handler path
+HTTP/1.1 400 Bad Request
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 12
+
+Bad Request
+== query byte in a handler path
+HTTP/1.1 400 Bad Request
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 12
+
+Bad Request
+== decoded once
+HTTP/1.1 404 Not Found
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Not Found
+== encoded letters
+HTTP/1.1 200 OK
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 11
+
+hello world== alternate data stream
+HTTP/1.1 403 Forbidden
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Forbidden
+== alternate stream default
+HTTP/1.1 403 Forbidden
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Forbidden
+== full response
+HTTP/1.1 200 OK
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 11
+
+hello world== head response
+HTTP/1.1 200 OK
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 11
+
+== digits
+HTTP/1.1 200 OK
+ETag: W/"10-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Connection: close
+Content-Length: 10
+
+0123456789== zero-length file
+HTTP/1.1 200 OK
+ETag: W/"0-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 0
+
+== head zero-length file
+HTTP/1.1 200 OK
+ETag: W/"0-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 0
+
+== post refused
+HTTP/1.1 405 Method Not Allowed
+Allow: GET, HEAD
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 19
+
+Method Not Allowed
+== delete refused
+HTTP/1.1 405 Method Not Allowed
+Allow: GET, HEAD
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 19
+
+Method Not Allowed
+== none-match weak match
+HTTP/1.1 304 Not Modified
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Connection: close
+
+== none-match strong form is a weak match
+HTTP/1.1 304 Not Modified
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Connection: close
+
+== none-match list
+HTTP/1.1 304 Not Modified
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Connection: close
+
+== none-match star
+HTTP/1.1 304 Not Modified
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Connection: close
+
+== none-match mismatch
+HTTP/1.1 200 OK
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 11
+
+hello world== none-match head
+HTTP/1.1 304 Not Modified
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Connection: close
+
+== modified-since equal
+HTTP/1.1 304 Not Modified
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Connection: close
+
+== modified-since later
+HTTP/1.1 304 Not Modified
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Connection: close
+
+== modified-since earlier
+HTTP/1.1 200 OK
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 11
+
+hello world== modified-since invalid
+HTTP/1.1 200 OK
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 11
+
+hello world== modified-since wrong weekday
+HTTP/1.1 200 OK
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 11
+
+hello world== none-match mismatch beats modified-since
+HTTP/1.1 200 OK
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 11
+
+hello world== none-match match beats modified-since
+HTTP/1.1 304 Not Modified
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Connection: close
+
+== validator beats range
+HTTP/1.1 304 Not Modified
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Connection: close
+
+== range inner
+HTTP/1.1 206 Partial Content
+ETag: W/"10-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Content-Range: bytes 2-5/10
+Connection: close
+Content-Length: 4
+
+2345== range first byte
+HTTP/1.1 206 Partial Content
+ETag: W/"10-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Content-Range: bytes 0-0/10
+Connection: close
+Content-Length: 1
+
+0== range suffix
+HTTP/1.1 206 Partial Content
+ETag: W/"10-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Content-Range: bytes 7-9/10
+Connection: close
+Content-Length: 3
+
+789== range suffix longer than the file
+HTTP/1.1 206 Partial Content
+ETag: W/"10-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Content-Range: bytes 0-9/10
+Connection: close
+Content-Length: 10
+
+0123456789== range open ended
+HTTP/1.1 206 Partial Content
+ETag: W/"10-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Content-Range: bytes 7-9/10
+Connection: close
+Content-Length: 3
+
+789== range end clamped
+HTTP/1.1 206 Partial Content
+ETag: W/"10-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Content-Range: bytes 5-9/10
+Connection: close
+Content-Length: 5
+
+56789== range whole file
+HTTP/1.1 206 Partial Content
+ETag: W/"10-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Content-Range: bytes 0-9/10
+Connection: close
+Content-Length: 10
+
+0123456789== range start at size
+HTTP/1.1 416 Range Not Satisfiable
+Content-Range: bytes */10
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 22
+
+Range Not Satisfiable
+== range start beyond size
+HTTP/1.1 416 Range Not Satisfiable
+Content-Range: bytes */10
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 22
+
+Range Not Satisfiable
+== range zero suffix
+HTTP/1.1 416 Range Not Satisfiable
+Content-Range: bytes */10
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 22
+
+Range Not Satisfiable
+== range end before start
+HTTP/1.1 200 OK
+ETag: W/"10-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Connection: close
+Content-Length: 10
+
+0123456789== range not numbers
+HTTP/1.1 200 OK
+ETag: W/"10-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Connection: close
+Content-Length: 10
+
+0123456789== range missing unit separator
+HTTP/1.1 200 OK
+ETag: W/"10-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Connection: close
+Content-Length: 10
+
+0123456789== range unknown unit
+HTTP/1.1 200 OK
+ETag: W/"10-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Connection: close
+Content-Length: 10
+
+0123456789== range several
+HTTP/1.1 200 OK
+ETag: W/"10-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Connection: close
+Content-Length: 10
+
+0123456789== range overflowing start
+HTTP/1.1 416 Range Not Satisfiable
+Content-Range: bytes */10
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 22
+
+Range Not Satisfiable
+== range overflowing suffix
+HTTP/1.1 206 Partial Content
+ETag: W/"10-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Content-Range: bytes 0-9/10
+Connection: close
+Content-Length: 10
+
+0123456789== range on a zero-length file
+HTTP/1.1 416 Range Not Satisfiable
+Content-Range: bytes */0
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 22
+
+Range Not Satisfiable
+== range suffix on a zero-length file
+HTTP/1.1 416 Range Not Satisfiable
+Content-Range: bytes */0
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 22
+
+Range Not Satisfiable
+== range ignored by head
+HTTP/1.1 200 OK
+ETag: W/"10-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: application/octet-stream
+Connection: close
+Content-Length: 10
+
+== root retained after the pathname changed
+HTTP/1.1 200 OK
+ETag: W/"11-1704164645"
+Last-Modified: Tue, 02 Jan 2024 03:04:05 GMT
+Cache-Control: public, max-age=60
+Accept-Ranges: bytes
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 11
+
+hello world== swapped tree is not reachable
+HTTP/1.1 404 Not Found
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Not Found
+== swapped link is not followed
+HTTP/1.1 403 Forbidden
+Content-Type: text/plain; charset=utf-8
+Connection: close
+Content-Length: 10
+
+Forbidden
+served: true

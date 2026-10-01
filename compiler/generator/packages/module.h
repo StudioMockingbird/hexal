@@ -731,6 +731,14 @@ static inline {{.CName}} {{.Runtime}}_{{.Suffix}}({{.Parameters}}size_t line, si
     }
     return {{.Failure}};
 }
+{{end}}{{define "corelib_files_adapter"}}
+static inline {{.CName}} {{.Runtime}}_{{.Suffix}}({{.Parameters}}size_t line, size_t column) {
+    {{.Query}} query = {{.Call}}({{.Arguments}});
+    if (query.ok) {
+        return ({{.CName}}){ .tag = {{.Tag}}, .payload.{{.Field}} = query.files };
+    }
+    return {{.Failure}};
+}
 {{end}}{{define "corelib_read_adapter"}}
 static inline {{.CName}} {{.Runtime}}_{{.Suffix}}({{.Parameters}}size_t line, size_t column) {
     {{.Query}} query = {{.Call}}({{.Arguments}});

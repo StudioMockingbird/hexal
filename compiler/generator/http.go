@@ -34,6 +34,9 @@ type generatedServerState struct {
 	// listen, the Server operations, and the Request and Writer operations. It
 	// selects the Task-aware network, scheduler, and clock machinery.
 	runtime bool
+	// files is set by the static file server operations and router mounts: it
+	// selects the file server component and the router's mount table.
+	files bool
 	// parser is set by every operation that validates a method token or
 	// parses a request: route registration and the listening server.
 	parser   bool
@@ -76,6 +79,13 @@ func discoverGeneratedServer(program checker.Program, logicalKey string, literal
 				state.route = true
 			case "hex_http_router_free":
 				state.free = true
+			case "hex_http_router_mount", "hex_http_files_open", "hex_http_files_serve_file", "hex_http_files_serve_directory", "hex_http_files_free":
+				// The mount table shares the route registration's validation and
+				// attachment helpers, and serving needs the connection runtime.
+				state.files = true
+				state.route = true
+				state.runtime = true
+				state.router = true
 			default:
 				// Every other registered operation belongs to the connection
 				// runtime, which owns the router record it dispatches over.
@@ -151,6 +161,18 @@ func httpParserComponents(merged *programEmission) ([]componentArtifact, error) 
 	}, nil
 }
 
+// httpFilesComponents returns the static file server pair when a file server
+// operation or a mount is reachable; it renders no template directive.
+func httpFilesComponents(merged *programEmission) ([]componentArtifact, error) {
+	if merged == nil || merged.serverState == nil || !merged.serverState.files {
+		return nil, nil
+	}
+	return []componentArtifact{
+		{key: "hexal/fileserver.h", template: "fileserver.h", model: struct{}{}},
+		{key: "hexal/fileserver.c", template: "fileserver.c", model: struct{}{}},
+	}, nil
+}
+
 // httpParserSelected reports whether the parser adapter and the pinned llhttp
 // archive are reachable.
 func httpParserSelected(merged *programEmission) bool {
@@ -194,6 +216,7 @@ func mergeServerInto(merged, state *generatedServerState) {
 	merged.route = merged.route || state.route
 	merged.free = merged.free || state.free
 	merged.runtime = merged.runtime || state.runtime
+	merged.files = merged.files || state.files
 	merged.parser = merged.parser || state.parser
 }
 
@@ -202,6 +225,9 @@ func mergeServerInto(merged, state *generatedServerState) {
 func moduleServerComponent(emission *moduleEmission) []string {
 	if emission.serverState == nil || !emission.serverState.used {
 		return nil
+	}
+	if emission.serverState.files {
+		return []string{"hexal/server.h", "hexal/fileserver.h"}
 	}
 	return []string{"hexal/server.h"}
 }
@@ -215,4 +241,5 @@ func (model serverSourceModel) NeedRouter() bool  { return model.Program.router 
 func (model serverSourceModel) NeedRoute() bool   { return model.Program.route }
 func (model serverSourceModel) NeedFree() bool    { return model.Program.free }
 func (model serverSourceModel) NeedRuntime() bool { return model.Program.runtime }
+func (model serverSourceModel) NeedFiles() bool   { return model.Program.files }
 func (model serverSourceModel) NeedParser() bool  { return model.Program.parser }

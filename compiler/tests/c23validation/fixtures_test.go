@@ -54,6 +54,9 @@ var httpTrapRouterSource string
 //go:embed testdata/http_trap_server.hex
 var httpTrapServerSource string
 
+//go:embed testdata/http_trap_files.hex
+var httpTrapFilesSource string
+
 // httpWireFixture builds one std/http wire fixture: the shared client helpers
 // and a body, run to completion, with the expected output normalized to LF.
 func httpWireFixture(name, body, stdout string) fixture {
@@ -2864,6 +2867,12 @@ var fixtureCatalog = []fixture{
 		entrypoint:  "app.hex",
 		sources:     map[string]string{"app.hex": httpTrapServerSource},
 		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] server freed while running"},
+	},
+	{
+		name:        "http-files-free-while-mounted-traps",
+		entrypoint:  "app.hex",
+		sources:     map[string]string{"app.hex": httpTrapFilesSource},
+		expectation: &processExpectation{requiredStderrSubstring: "[Runtime Error] file server freed while mounted"},
 	},
 	{
 		name:       "http-router-registration-runs",

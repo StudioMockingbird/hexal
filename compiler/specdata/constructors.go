@@ -90,6 +90,7 @@ const (
 	TypeRegexMatch          TypeID = TypeID(CoreTypeRegexMatch)
 	TypeHttpRequest         TypeID = TypeID(CoreTypeHttpRequest)
 	TypeHttpWriter          TypeID = TypeID(CoreTypeHttpWriter)
+	TypeHttpFileServer      TypeID = TypeID(CoreTypeHttpFileServer)
 	TypeHttpHeader          TypeID = TypeID(CoreTypeHttpHeader)
 	TypeHttpServerConfig    TypeID = TypeID(CoreTypeHttpServerConfig)
 )
@@ -142,7 +143,7 @@ var concreteTypeIDs = []TypeID{
 	TypeSignal, TypeSignals, TypeTerminalSize,
 	TypeJsonValue, TypeJsonMember,
 	TypeRegexPattern, TypeRegexSpan, TypeRegexMatch,
-	TypeHttpRequest, TypeHttpWriter, TypeHttpHeader, TypeHttpServerConfig,
+	TypeHttpRequest, TypeHttpWriter, TypeHttpFileServer, TypeHttpHeader, TypeHttpServerConfig,
 }
 
 // Representation classifies how a specialization's value is stored, the rule

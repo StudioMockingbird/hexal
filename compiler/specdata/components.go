@@ -57,6 +57,7 @@ const (
 	ComponentRegex       ComponentID = "regex"
 	ComponentHTTP        ComponentID = "http"
 	ComponentServer      ComponentID = "server"
+	ComponentFileServer  ComponentID = "fileserver"
 )
 
 // Dependency identities. These are the sole declarations of the native input
@@ -347,6 +348,14 @@ var componentRegistry = []ComponentSpec{
 		// connection state machine over the Task-aware network component.
 		ID:               ComponentServer,
 		Files:            []string{"hexal/server.h", "hexal/server.c"},
+		RequiredCHeaders: []string{"stddef.h", "stdint.h"},
+	},
+	{
+		// The std/http static file server: containment-checked, handle-relative
+		// file opens and the conditional, range, and MIME logic over the
+		// Writer. Its blocking file work runs on the event bridge.
+		ID:               ComponentFileServer,
+		Files:            []string{"hexal/fileserver.h", "hexal/fileserver.c"},
 		RequiredCHeaders: []string{"stddef.h", "stdint.h"},
 	},
 }

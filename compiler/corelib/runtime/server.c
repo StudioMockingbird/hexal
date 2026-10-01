@@ -4,7 +4,8 @@
 #include "hexal/handle.h"
 #include "hexal/list.h"
 #include "hexal/network.h"
-#include <limits.h>
+{{if .NeedFiles}}#include "hexal/fileserver.h"
+{{end}}#include <limits.h>
 #include <time.h>
 {{end}}#include <stdatomic.h>
 #include <stdckdint.h>
@@ -65,10 +66,22 @@ typedef struct hex_http_route {
     hex_http_invoke invoke;
 } hex_http_route;
 
+// A mount routes every path under its prefix, on a segment boundary, to a
+// file server; the router counts it against that file server until it is
+// freed.
+typedef struct hex_http_mount {
+    uint8_t *prefix;
+    size_t prefix_length;
+    hex_http_files files;
+} hex_http_mount;
+
 struct hex_http_router_state {
     hex_http_route *routes;
     size_t count;
     size_t capacity;
+    hex_http_mount *mounts;
+    size_t mount_count;
+    size_t mount_capacity;
     atomic_size_t attached;
 };
 
@@ -199,7 +212,63 @@ void hex_http_router_free_raw(hex_http_router router, hex_heap h) {
     if (router->routes != NULL) {
         hex_heap_free(router->routes);
     }
-    hex_heap_free(router);
+{{if .NeedFiles}}    for (size_t index = 0; index < router->mount_count; index++) {
+        hex_http_files_detach(router->mounts[index].files);
+        hex_heap_free(router->mounts[index].prefix);
+    }
+    if (router->mounts != NULL) {
+        hex_heap_free(router->mounts);
+    }
+{{end}}    hex_heap_free(router);
+}
+{{end}}
+{{if .NeedFiles}}
+HEX_HTTP_MESSAGE(hex_http_message_bad_mount, "mount prefix must be an absolute path without a trailing slash, query, fragment, or control bytes");
+HEX_HTTP_MESSAGE(hex_http_message_duplicate_mount, "duplicate mount prefix");
+
+hex_http_status_result hex_http_router_mount_raw(hex_http_router router, const hex_string *prefix, hex_http_files files) {
+    if (atomic_load(&router->attached) != 0) {
+        return hex_http_status_failure((hex_t_ErrorKind){ .tag = hex_tag_ErrorKind_Busy }, &hex_http_message_router_attached);
+    }
+    bool valid = prefix->byte_length != 0 && prefix->data[0] == '/' && (prefix->byte_length == 1 || prefix->data[prefix->byte_length - 1] != '/');
+    for (size_t index = 0; valid && index < prefix->byte_length; index++) {
+        uint8_t byte = prefix->data[index];
+        valid = !(byte <= 0x20 || byte == 0x7f || byte == '?' || byte == '#');
+    }
+    if (!valid) {
+        return hex_http_status_failure(hex_http_kind_invalid_input(), &hex_http_message_bad_mount);
+    }
+    for (size_t index = 0; index < router->mount_count; index++) {
+        if (router->mounts[index].prefix_length == prefix->byte_length && memcmp(router->mounts[index].prefix, prefix->data, prefix->byte_length) == 0) {
+            return hex_http_status_failure(hex_http_kind_invalid_input(), &hex_http_message_duplicate_mount);
+        }
+    }
+    if (router->mount_count == router->mount_capacity) {
+        size_t capacity = router->mount_capacity == 0 ? 4 : router->mount_capacity;
+        size_t bytes;
+        if ((router->mount_capacity != 0 && ckd_mul(&capacity, capacity, (size_t)2)) || ckd_mul(&bytes, capacity, sizeof(hex_http_mount))) {
+            return hex_http_status_failure(hex_http_kind_resource(), &hex_http_message_route_memory);
+        }
+        hex_http_mount *grown = hex_heap_allocate_or_null(bytes);
+        if (grown == NULL) {
+            return hex_http_status_failure(hex_http_kind_resource(), &hex_http_message_route_memory);
+        }
+        if (router->mount_count != 0) {
+            memcpy(grown, router->mounts, router->mount_count * sizeof(hex_http_mount));
+        }
+        if (router->mounts != NULL) {
+            hex_heap_free(router->mounts);
+        }
+        router->mounts = grown;
+        router->mount_capacity = capacity;
+    }
+    uint8_t *copy = hex_http_copy_bytes(prefix);
+    if (copy == NULL) {
+        return hex_http_status_failure(hex_http_kind_resource(), &hex_http_message_route_memory);
+    }
+    hex_http_files_attach(files);
+    router->mounts[router->mount_count++] = (hex_http_mount){ .prefix = copy, .prefix_length = prefix->byte_length, .files = files };
+    return (hex_http_status_result){ .ok = true };
 }
 {{end}}
 {{if .NeedRuntime}}
@@ -480,15 +549,14 @@ static inline size_t hex_http_append_decimal(uint8_t *buffer, size_t length, uin
     return length;
 }
 
-// hex_http_append_date writes the IMF-fixdate of the current time. The
-// calendar comes from the civil-from-days conversion below: C23's gmtime_r was
-// considered, but the qualified Windows headers do not declare it and their
-// gmtime_s takes its arguments in the opposite order, so no one standard call
-// serves every target.
-static size_t hex_http_append_date(uint8_t *buffer, size_t length) {
+// hex_http_format_date writes the IMF-fixdate of a Unix time into buffer, which
+// must hold 29 bytes, and returns its length. The calendar comes from the
+// civil-from-days conversion below: C23's gmtime_r was considered, but the
+// qualified Windows headers do not declare it and their gmtime_s takes its
+// arguments in the opposite order, so no one standard call serves every target.
+size_t hex_http_format_date(uint8_t *buffer, int64_t seconds) {
     static const char days[7][4] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
     static const char months[12][4] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
-    int64_t seconds = (int64_t)time(nullptr);
     int64_t day_count = seconds / 86400;
     int64_t second_of_day = seconds % 86400;
     if (second_of_day < 0) {
@@ -513,8 +581,7 @@ static size_t hex_http_append_date(uint8_t *buffer, size_t length) {
     unsigned minute = (unsigned)(second_of_day % 3600 / 60);
     unsigned second = (unsigned)(second_of_day % 60);
 
-    length = hex_http_append(buffer, length, "Date: ");
-    length = hex_http_append(buffer, length, days[weekday]);
+    size_t length = hex_http_append(buffer, 0, days[weekday]);
     length = hex_http_append(buffer, length, ", ");
     buffer[length++] = (uint8_t)('0' + day / 10);
     buffer[length++] = (uint8_t)('0' + day % 10);
@@ -531,7 +598,60 @@ static size_t hex_http_append_date(uint8_t *buffer, size_t length) {
     buffer[length++] = ':';
     buffer[length++] = (uint8_t)('0' + second / 10);
     buffer[length++] = (uint8_t)('0' + second % 10);
-    return hex_http_append(buffer, length, " GMT\r\n");
+    return hex_http_append(buffer, length, " GMT");
+}
+
+static size_t hex_http_append_date(uint8_t *buffer, size_t length) {
+    length = hex_http_append(buffer, length, "Date: ");
+    length += hex_http_format_date(buffer + length, (int64_t)time(nullptr));
+    return hex_http_append(buffer, length, "\r\n");
+}
+
+// hex_http_parse_date reads an IMF-fixdate ("Sun, 06 Nov 1994 08:49:37 GMT").
+// Anything else, including the obsolete date forms, is not a date: callers
+// ignore the header instead of guessing.
+bool hex_http_parse_date(const uint8_t *text, size_t length, int64_t *seconds) {
+    static const char months[12][4] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+    if (length != 29 || text[3] != ',' || text[4] != ' ' || text[7] != ' ' || text[11] != ' ' || text[16] != ' ' ||
+        text[19] != ':' || text[22] != ':' || memcmp(text + 25, " GMT", 4) != 0) {
+        return false;
+    }
+    static const unsigned digit_positions[] = { 5, 6, 12, 13, 14, 15, 17, 18, 20, 21, 23, 24 };
+    for (size_t index = 0; index < sizeof(digit_positions) / sizeof(digit_positions[0]); index++) {
+        if (text[digit_positions[index]] < '0' || text[digit_positions[index]] > '9') {
+            return false;
+        }
+    }
+    unsigned day = (unsigned)((text[5] - '0') * 10 + (text[6] - '0'));
+    unsigned month = 0;
+    for (unsigned index = 0; index < 12; index++) {
+        if (memcmp(text + 8, months[index], 3) == 0) {
+            month = index + 1;
+        }
+    }
+    int64_t year = (text[12] - '0') * 1000 + (text[13] - '0') * 100 + (text[14] - '0') * 10 + (text[15] - '0');
+    unsigned hour = (unsigned)((text[17] - '0') * 10 + (text[18] - '0'));
+    unsigned minute = (unsigned)((text[20] - '0') * 10 + (text[21] - '0'));
+    unsigned second = (unsigned)((text[23] - '0') * 10 + (text[24] - '0'));
+    if (month == 0 || day < 1 || day > 31 || hour > 23 || minute > 59 || second > 60) {
+        return false;
+    }
+    // days-from-civil, the inverse of the conversion in hex_http_format_date.
+    int64_t shifted_year = month <= 2 ? year - 1 : year;
+    int64_t era = (shifted_year >= 0 ? shifted_year : shifted_year - 399) / 400;
+    unsigned year_of_era = (unsigned)(shifted_year - era * 400);
+    unsigned day_of_year = (153 * (month > 2 ? month - 3 : month + 9) + 2) / 5 + day - 1;
+    unsigned day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    int64_t days = era * 146097 + (int64_t)day_of_era - 719468;
+    int64_t value = days * 86400 + (int64_t)hour * 3600 + (int64_t)minute * 60 + (int64_t)second;
+    // Formatting the result back rejects what the field ranges alone admit: a
+    // weekday that does not match the date and a day past the month's end.
+    uint8_t canonical[29];
+    if (hex_http_format_date(canonical, value) != sizeof(canonical) || memcmp(canonical, text, sizeof(canonical)) != 0) {
+        return false;
+    }
+    *seconds = value;
+    return true;
 }
 
 static inline bool hex_http_status_has_body(uint16_t status) {
@@ -1087,6 +1207,26 @@ static bool hex_http_complete_body(struct hex_http_exchange *exchange) {
     return true;
 }
 
+{{if .NeedFiles}}
+// hex_http_find_mount picks the longest mount prefix that matches the raw path
+// on a segment boundary: /assets matches /assets and /assets/x, never /assets2.
+static const hex_http_mount *hex_http_find_mount(const struct hex_http_router_state *router, const hex_http_head *head) {
+    const uint8_t *path = head->bytes + head->path_offset;
+    const hex_http_mount *best = nullptr;
+    for (size_t index = 0; index < router->mount_count; index++) {
+        const hex_http_mount *mount = &router->mounts[index];
+        size_t size = mount->prefix_length;
+        if (head->path_length < size || memcmp(path, mount->prefix, size) != 0) {
+            continue;
+        }
+        bool boundary = size == 1 || head->path_length == size || path[size] == '/';
+        if (boundary && (best == nullptr || size > best->prefix_length)) {
+            best = mount;
+        }
+    }
+    return best;
+}
+{{end}}
 // hex_http_find_route matches the raw path and method exactly. When the path
 // is registered under other methods only, allow receives their sorted names.
 static const hex_http_route *hex_http_find_route(const struct hex_http_router_state *router, const hex_http_head *head, char *allow, size_t allow_size, bool *path_known) {
@@ -1236,10 +1376,14 @@ static void hex_http_serve(hex_http_connection *connection) {
         bool path_known;
         const hex_http_route *route = hex_http_find_route(server->router, head, allow, sizeof(allow), &path_known);
         bool reusable;
-        if (route != nullptr) {
+{{if .NeedFiles}}        const hex_http_mount *mount = route == nullptr && !path_known ? hex_http_find_mount(server->router, head) : nullptr;
+{{end}}        if (route != nullptr) {
             bool handler_ok = route->invoke(route->handler, server->app, exchange, exchange);
             reusable = hex_http_finish(connection, handler_ok);
-        } else {
+{{if .NeedFiles}}        } else if (mount != nullptr) {
+            bool served = hex_http_files_serve_mounted(mount->files, exchange, exchange, head->bytes + head->path_offset + mount->prefix_length, head->path_length - mount->prefix_length);
+            reusable = hex_http_finish(connection, served);
+{{end}}        } else {
             if (!hex_http_complete_body(exchange)) {
                 exchange->keep_alive = false;
             }

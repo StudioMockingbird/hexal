@@ -1,0 +1,19 @@
+import
+    Http from std.http
+end
+
+type App is struct
+    hits: Int32
+end
+
+fun run(): Nil | Error do
+    let heap = Heap()
+    let files = try Http.FileServer(heap, ".", "index.html", false, "")
+    let mut router = Http.Router<App>(heap)
+    try router.mount("/static", files)
+    files.free(heap)
+    router.free(heap)
+    return nil
+end
+
+let outcome = run()
