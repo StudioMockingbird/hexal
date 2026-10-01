@@ -4,7 +4,7 @@
 - Status: Open Discussion; llhttp selected for the first cut; upstream revision
   and final qualification remain open
 - Created: 2026-09-15
-- Updated: 2026-09-29
+- Updated: 2026-10-01
 - Depends on: implemented RFC 0039 (C interoperability) and RFC 0052 (C
   compiler backend)
 - Coordinates with: RFC 0210 (built-in HTTP types), RFC 0194 (default server
@@ -47,7 +47,7 @@ Node.js/npm nor a network fetch or code-generation step.
 
 - Parse HTTP/1.0 and HTTP/1.1 requests incrementally, including request line,
   headers, and message framing. RFC 0194 owns connection and response-write
-  behavior; RFC 0210 owns public Request/Response types and body streams.
+  behavior; RFC 0210 owns public Request/Writer types and body streaming.
 - Keep one mutable llhttp parser state per connection. Only that connection's
   Task may call or reset it, after resuming from I/O.
 - Treat callback data as borrowed from the input range. Retain or copy every
@@ -70,356 +70,58 @@ Node.js/npm nor a network fetch or code-generation step.
 
 - Parsing HTTP responses or serializing HTTP requests; client-side HTTP is not
   part of the first server cut.
-- Public parser objects or duplicate public definitions of `Request`,
-  `Response`, or `Headers`.
+- Public parser objects or duplicate public definitions of Request/Writer or
+  Header records.
 - A handwritten start-line/header parser or independent message-framing rules.
-
-### First-cut validation
-
-- pinned generated source builds in the generated C23 component on supported
-  targets without Node.js, npm, a network fetch, or package manager;
-- each connection has independent parser state; partial request lines,
-  headers, and bodies resume correctly across arbitrary read boundaries;
-- socket-runtime callbacks never call llhttp or user handlers; parser callbacks
-  execute only while the connection Task owns the parser;
-- callback data is not used after its input range is released or recycled;
-- completed requests pause parsing until their response completes, preserving
-  any bytes already read for a later request;
-- malformed lines, invalid headers, excessive limits, invalid lengths, and
-  ambiguous transfer-framing combinations are rejected;
-- fixed-length and chunked framing deliver the expected body bytes through the
-  adapter; trailer fields are validated and discarded, never merged into
-  request Headers;
-- connection reuse and response serialization remain owned by RFC 0194;
-- no parser allocation or libuv call occurs;
-- ordinary and tagged C23 suites pass.
-
-The legacy proposal from `Scope decision` through `C23 lowering` below is
-historical only and is not an implementation requirement. The later Demand
-rules, Required sweep, Validation, and Open questions sections state the
-current contract.
-
-## Scope decision
-
-| Capability | Disposition | Rationale |
-| --- | --- | --- |
-| HTTP/1.0 request parsing | Pick up | Backward compatibility |
-| HTTP/1.1 request parsing | Pick up | Primary use case |
-| HTTP/1.0 response parsing | Pick up | Client-side testing |
-| HTTP/1.1 response parsing | Pick up | Client-side testing |
-| Header parsing (case-insensitive) | Pick up | Required for HTTP |
-| Chunked transfer encoding | Pick up | Required for streaming |
-| Content-Length body | Pick up | Required for fixed bodies |
-| Transfer-Encoding: chunked | Pick up | Required for streaming |
-| Request body parsing | Pick up | Required for POST/PUT |
-| Response body parsing | Pick up | Required for client |
-| Trailer headers | Skip in v1 | Rare, can be added later |
-| HTTP/2 framing | Skip in v1 | Different wire protocol |
-| HTTP/3 (QUIC) | Skip in v1 | Different transport |
-| WebSocket framing | Skip in v1 | Different protocol |
-| HTTP digest authentication | Skip in v1 | Deprecated |
-| HTTP basic authentication | Skip in v1 | Library concern |
-
-## Source surface
-
-### Parser
-
-```hexal
-import
-    Http from "std/http"
-end
-
-parser := Http.Parser.new()
-```
-
-```text
-type Parser is struct
-    -- internal representation
-end
-
-fun Parser.new() -> Parser
-```
-
-### Parsing
-
-```text
-method Parser.execute(data: String) -> ParseResult
-```
-
-```text
-type ParseResult is
-    Complete(Request) |
-    Partial |
-    Error(ParseError)
-end
-```
-
-- `Complete(request)`: a full request was parsed.
-- `Partial`: more data is needed.
-- `Error(error)`: a parse error occurred.
-
-### Request
-
-```text
-type Request is struct
-    method: String,
-    path: String,
-    version: (UInt8, UInt8),
-    headers: Headers,
-    body_start: String,
-    body_complete: Bool,
-    content_length: Size | Nil,
-    transfer_encoding_chunked: Bool,
-end
-```
-
-### Headers
-
-```text
-type Headers is struct
-    entries: Slice<Header>,
-end
-
-type Header is struct
-    name: String,
-    value: String,
-end
-
-method Headers.get(name: String) -> String | Nil
-method Headers.get_all(name: String) -> Slice<String>
-method Headers.set(name: String, value: String)
-method Headers.add(name: String, value: String)
-method Headers.contains(name: String) -> Bool
-method Headers.remove(name: String)
-method Headers.iter() -> Headers.Iterator
-method Headers.len() -> Size
-```
-
-- Header lookup is case-insensitive.
-- `get` returns the first matching header.
-- `get_all` returns all matching headers (for `Set-Cookie`).
-- Headers are stored as a flat array; O(n) lookup.
-
-### Body reading
-
-For `Content-Length` bodies:
-
-```text
-method Parser.read_body(
-    request: Request,
-    data: String,
-) -> BodyResult
-```
-
-```text
-type BodyResult is
-    Complete(String) |
-    Partial(String) |
-    Error(ParseError)
-end
-```
-
-- `Complete(body)`: the full body was read.
-- `Partial(partial_body)`: more data is needed; returns what was read
-  so far.
-- `Error(error)`: a read error occurred.
-
-For chunked bodies:
-
-```text
-method Parser.read_chunked_body(
-    request: Request,
-    data: String,
-) -> ChunkedResult
-```
-
-```text
-type ChunkedResult is
-    Complete(String, Headers) |
-    Partial(String) |
-    Chunk(String) |
-    Error(ParseError)
-end
-```
-
-- `Complete(body, trailers)`: the full chunked body was read, including
-  trailer headers.
-- `Partial(partial_body)`: more data is needed.
-- `Chunk(chunk)`: one complete chunk was decoded.
-- `Error(error)`: a decode error occurred.
-
-### Response parsing
-
-```text
-type Response is struct
-    version: (UInt8, UInt8),
-    status: UInt16,
-    reason: String,
-    headers: Headers,
-    body_start: String,
-    body_complete: Bool,
-    content_length: Size | Nil,
-    transfer_encoding_chunked: Bool,
-end
-
-method ResponseParser.execute(data: String) -> ResponseParseResult
-```
-
-- `ResponseParser` is identical to `Parser` but parses HTTP responses
-  instead of requests.
-
-### Serialization
-
-```text
-fun serialize_request(
-    method: String,
-    path: String,
-    version: (UInt8, UInt8),
-    headers: Headers,
-    body: String | Nil,
-) -> String
-
-fun serialize_response(
-    version: (UInt8, UInt8),
-    status: UInt16,
-    reason: String,
-    headers: Headers,
-    body: String | Nil,
-) -> String
-```
-
-- `serialize_request` produces a complete HTTP request message.
-- `serialize_response` produces a complete HTTP response message.
-- `Content-Length` is added automatically when `body` is provided.
-- `Transfer-Encoding: chunked` is added when `body` is `Nil` and the
-  caller uses chunked writing.
-
-### Chunked serialization
-
-```text
-fun serialize_chunk(data: String) -> String
-fun serialize_chunks_end() -> String
-```
-
-- `serialize_chunk` produces one chunk with size prefix.
-- `serialize_chunks_end` produces the zero-length terminator.
-
-## Parser state machine
-
-The parser is a byte-at-a-time state machine that processes input
-incrementally. It does not allocate memory, call libuv, or depend on
-any runtime facility.
-
-### States
-
-```text
-START -> METHOD -> PATH -> VERSION -> HEADER_KEY -> HEADER_VALUE
-     -> HEADERS_DONE -> BODY_CONTENT_LENGTH -> BODY_CHUNKED -> BODY_DONE
-     | ERROR
-```
-
-### State transitions
-
-| State | Condition | Next state |
-| --- | --- | --- |
-| START | First byte of request line | METHOD |
-| METHOD | Space | PATH |
-| PATH | Space | VERSION |
-| VERSION | `\r` | HEADER_KEY |
-| HEADER_KEY | `:` | HEADER_VALUE |
-| HEADER_VALUE | `\r` | HEADER_KEY (next header) or HEADERS_DONE |
-| HEADERS_DONE | `Content-Length` present | BODY_CONTENT_LENGTH |
-| HEADERS_DONE | `Transfer-Encoding: chunked` | BODY_CHUNKED |
-| HEADERS_DONE | Neither | COMPLETE |
-| BODY_CONTENT_LENGTH | Read `content_length` bytes | COMPLETE |
-| BODY_CHUNKED | Read chunk size | BODY_CHUNKED (read chunk) |
-| BODY_CHUNKED | Chunk size is 0 | COMPLETE |
-| Any | Invalid byte | ERROR |
-
-### Error types
-
-```text
-type ParseError is
-    InvalidRequestLine |
-    InvalidHeaderName |
-    InvalidHeaderValue |
-    InvalidChunkSize |
-    BodyTooLarge |
-    HeadersTooLarge |
-    InvalidVersion
-end
-```
-
-### Limits
-
-| Limit | Default | Configurable |
-| --- | --- | --- |
-| Maximum request line length | 8 KiB | Yes |
-| Maximum header name length | 8 KiB | Yes |
-| Maximum header value length | 8 KiB | Yes |
-| Maximum total header size | 64 KiB | Yes |
-| Maximum body size | 1 MiB | Yes |
-| Maximum chunk size | 64 KiB | Yes |
-
-## Incremental parsing
-
-The parser supports incremental input across multiple calls:
-
-```hexal
-parser := Http.Parser.new()
-result := parser.execute(chunk1)
--- result is Partial
-result := parser.execute(chunk2)
--- result is Partial
-result := parser.execute(chunk3)
--- result is Complete(request)
-```
-
-- The parser maintains internal state between calls.
-- Partial results include any data consumed from the input.
-- The caller is responsible for buffering incomplete data between calls.
-
-## C23 lowering
-
-The parser is a pure C library. It does not call libuv, malloc, or any
-runtime facility. All state is held in caller-provided buffers or on the
-stack.
-
-```c
-typedef struct hex_http_parser {
-    int state;
-    size_t bytes_parsed;
-    size_t content_length;
-    int transfer_encoding;
-    /* internal fields */
-} hex_http_parser;
-
-void hex_http_parser_init(hex_http_parser *parser);
-int hex_http_parser_execute(hex_http_parser *parser,
-                            const char *data, size_t len,
-                            hex_http_request *request);
-```
-
-- The parser is re-entrant; multiple parsers can exist simultaneously.
-- The parser does not allocate memory; all output is written to
-  caller-provided structures.
 
 ## Demand rules
 
 - The private parser adapter and pinned parser source are selected by the
-  default server backend when `Http.serve` is reachable. A custom backend
-  selects them only if it declares that dependency.
+  default server backend when Http.listen/Server.run are reachable. Public
+  backend substitution is deferred; there is no custom-backend dependency gate.
 - The parser component has no Hexal public API and does not select libuv,
   native bootstrap, or the event bridge by itself.
-- Programs that do not use the default backend or an adapter declaring llhttp
+- Programs that do not use the default HTTP backend
   do not select this parser component.
+
+## Adapter and packaging requirements
+
+The private adapter reports consumed offset, head-ready, body progress, complete,
+incomplete, paused, or parser error. Define its concrete C record/signatures before
+implementation; do not use a single complete/incomplete flag for streaming requests.
+Pause at head completion for dispatch and at message completion for response ordering.
+Resume only under the owning connection Task; EOF invokes the pinned parser's finish
+operation and distinguishes an idle connection from an incomplete message.
+
+Header names/values can be split over callback invocations. Retained head storage
+is bounded by the total-header ceiling; body and pipeline bytes remain in the
+connection's bounded buffer under 0194 ownership. Record offsets or copy before
+compaction; do not retain invalidated pointers. Trailers are validated, bounded,
+and discarded, not merged into public Headers. Public Header combination cannot
+be used to erase original framing evidence before validation.
+
+0194 owns persistence policy; the adapter reports version, Connection tokens and
+framing facts. HTTP/1.0 persistence is not an independent parser policy.
+
+The current upstream method recognizer is a finite METHODS selection ending in
+INVALID_METHOD. RFC 0210 limits v1 to the pinned supported method set; arbitrary extension-token
+support and parser patches are deferred. Test the
+exact pinned snapshot, not a claim about all llhttp versions.
+
+Retain llhttp as the selected baseline. Package reproducible generated sources
+for maintainers without npm in user builds, and integrate a profile-keyed native
+artifact through the existing runtime-pack/dependency path. Checked-in upstream
+sources and prebuilt release artifacts serve different roles; neither forces
+users to rebuild the dependency per program. Specify symbols, license, hashes
+and ABI/build inputs at the pinning phase. No network access enters core Compile.
 
 ## Required sweep
 
 - pin, license, vendor, and hash the exact llhttp release, commit, and generated
   source snapshot;
 - keep the parser adapter private to the server component;
-- remove the competing handwritten parser and public parser/serializer API;
+- remove obsolete parser sketches from the work order; inventory production code
+  before claiming there is a competing parser/API to delete;
 - feed new byte ranges into per-connection parser state and enforce RFC 0210
   limits;
 - validate framing before dispatch and hand body ownership to RFC 0194;
@@ -443,23 +145,88 @@ This section is exhaustive for the private server parser integration:
 - malformed request lines, invalid headers, configured limit violations,
   invalid lengths, unsupported transfer codings, and ambiguous framing are
   rejected before handler dispatch;
-- equal duplicate Content-Length values are handled per RFC 9112, while
-  conflicting values and Transfer-Encoding plus Content-Length are rejected;
+- all duplicate Content-Length fields/combined values, including identical ones,
+  and Transfer-Encoding plus Content-Length are rejected with 400 and close;
 - callback data is copied or retained before its backing input range is
   released or recycled;
+- an input split at every byte boundary reconstructs method/target/header fields;
+  input overwritten or compacted between feeds cannot change retained fields;
+- head-ready pauses before dispatch/body consumption; message-complete pause and
+  consumed offsets preserve two pipelined requests including a split second head;
+- EOF before a complete head, fixed body or chunked terminator fails without reuse;
+- TE plus CL, conflicting CL, CL overflow/negative forms, whitespace before colon,
+  obs-fold, forbidden CR/LF forms and malformed/overflowing chunk sizes are rejected;
+- HTTP/1.1 missing/duplicate/invalid Host fails; request-target forms and
+  Expect/unsupported upgrade behavior follow 0210's approved policy;
+- chunk extensions and trailer bytes/count obey distinct bounded limits;
+  trailers are validated and discarded, never exposed as ordinary Headers;
+- the exact pinned method set and duplicate-equal-CL policy are tested on the wire;
 - fixed-length and chunked request bodies produce the exact byte sequence;
   trailer fields are not merged into ordinary request headers;
 - parser state and settings are caller-owned; llhttp performs no parser-owned
   dynamic allocation and makes no libuv calls;
 - client response parsing and request serialization are not exposed as APIs;
-- ordinary and tagged C23 suites pass.
+- ordinary gates, focused C23 fixtures and short C23 pass; exhaustive C23 runs
+  require separate user consent.
 
-## Open questions
+## Implementation plan
 
-1. Pin the exact llhttp release/commit and its generated C/header source list,
-   hashes, and license before implementation.
-2. Confirm whether HTTP/1.0 connection persistence is reported by the parser
-   adapter or derived by the RFC 0194 connection state machine.
+### Phase 0: pin and package the dependency
+
+Select an exact llhttp release/commit; record generated source/header names,
+SHA-256s, license, generation provenance, exported symbols and HTTP method set
+in this spec. Inspect strict flags and duplicate-CL behavior on that snapshot.
+Maintain sources for reproducibility and profile-keyed native artifacts for user
+builds; register through compiler/runtime_dependency.go and existing dependency/
+runtime-pack machinery. Keep build/filesystem work outside core Compile.
+Exit: a minimal focused C23 artifact builds on each claimed qualified profile
+without npm, generation or network access during a user build.
+
+### Phase 1: pin the private adapter ABI
+
+Write the concrete header/record definitions here before implementing callbacks.
+Define init/feed/resume/finish/reset, caller-owned state, consumed offset and
+head-ready/body-progress/message-complete/incomplete/paused/error results.
+Specify offset behavior at both pauses, error position and EOF. Identify 0194's
+head/body/pipeline buffers and exactly when pointers cease to be valid.
+Exit: 0194 can consume the written ABI without guessing parser statuses or ownership.
+
+### Phase 2: implement callbacks and bounded state
+
+Implement the private adapter in the existing C runtime component model. Accumulate
+fragmented names/values into bounded head storage; keep framing fields distinct
+from public duplicate Headers. Pause after the head and after the message; expose
+decoded body spans synchronously and consume/reset only under the connection Task.
+Apply 0210's request-line/head/body/trailer limits, method set and reject-all
+duplicate CL policy. EOF calls finish, never silently completes a short body.
+Exit: valid fragmented input produces exact offsets/bytes and malformed input
+produces one terminal parser error, with no libuv or parser-owned allocation.
+
+### Phase 3: validate the entire parser contract
+
+Map every Validation bullet to a fixture: every-byte splits, overwritten/compacted
+input, two pipelined requests, EOF positions, Host/CL/TE errors, invalid lines,
+chunk sizes/extensions/trailers and exact method policy. Compile/run the adapter
+in focused C23 fixtures; ordinary tests assert dependency selection and emitted
+include/declaration order. Do not add a public parser API for test convenience.
+Exit: each exhaustive case passes and parser-only native testing selects no reactor.
+
+### Phase 4: integration and closure
+
+Hand the ABI and pinned native build record to 0194; exercise its head/body pause
+integration there. Review legitimate output/dependency/manifest changes. Run
+ordinary gates, focused parser C23 and short C23, not automatic exhaustive C23.
+Review reference impacts with 0210, synchronize only changed public rules, then
+close/archive only when all Validation is satisfied. Code handoff rebuilds hexal
+and restarts hexal play; native packaging evidence is retained in the spec.
+
+## Remaining readiness work
+
+Pin the exact llhttp release/commit, generated C/header hashes, license and native
+build record; this is implementation preparation, not an author parser-choice
+question. Specify exact private result records and head/message pause offsets with
+0194 before coding. The approved method set is the pinned llhttp HTTP method set;
+all duplicate Content-Length is rejected, trailers discarded, and HTTP/1.0 closes.
 
 ## Reference synchronization
 

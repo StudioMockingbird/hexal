@@ -4,9 +4,9 @@
 - Status: Open Discussion; active design for the default HTTP backend;
   implementation not started
 - Created: 2026-09-15
-- Updated: 2026-09-29
+- Updated: 2026-10-01
 - Depends on: RFC 0144 (Task-aware socket runtime contract and adapter), RFC
-  0198 (HTTP parsing and serialization), RFC 0208 (backend contract), RFC 0210
+  0198 (HTTP parsing and serialization), RFC 0210
   (web server surface), and the implemented RFCs 0145 (libuv runtime), 0146
   (mimalloc), 0168 (libuv capability arc), and 0184 (atomic print)
 - Coordinates with: RFC 0195 (TLS 1.3 integration) for HTTP connection policy;
@@ -37,13 +37,13 @@ It does not own libuv handles, callbacks, or Task wait-record mechanics.
 
 ## First-cut backend contract
 
-- `Http.serve(config, router)` uses this backend by default. It implements the
-  RFC 0208 backend contract; it is not a privileged alternate API.
-- `ServerConfig`, route dispatch, built-in `Request`/`Response`, and body
+- Http.listen/Server.run use the single default backend. RFC 0208 is deferred;
+  neither serve_with nor a public substitution ABI gates this implementation.
+- `ServerConfig`, route dispatch, opaque `Request`/`Writer`, and body
   streams are defined by RFC 0210. This RFC owns their HTTP-specific runtime
   behavior over RFC 0144's socket operations.
 - A connection Task parses the request head, creates a one-shot byte body
-  stream, dispatches through the Router, writes the returned Response, and
+  stream, dispatches through Router<App> with explicit context and Writer, and
   then reuses the connection only when HTTP framing permits it.
 - A connection has at most one handler and one response write in flight.
   Requests already buffered for that connection are processed in arrival
@@ -83,65 +83,6 @@ handler code. The parser has no libuv dependency. The C structs, custom state
 machine, and parser-owned body helpers in the earlier subsections below are
 superseded by RFC 0198 and must not be implemented.
 
-### Parser interface
-
-```c
-typedef struct hex_http_parser {
-    int state;
-    size_t bytes_parsed;
-    /* internal fields */
-} hex_http_parser;
-
-typedef struct hex_http_request {
-    hex_string method;
-    hex_string path;
-    hex_http_version version;
-    hex_http_headers headers;
-    int content_length;       /* -1 for chunked */
-    int transfer_encoding;    /* 0 = none, 1 = chunked */
-} hex_http_request;
-
-void hex_http_parser_init(hex_http_parser *parser);
-int hex_http_parser_execute(hex_http_parser *parser,
-                            const char *data, size_t len,
-                            hex_http_request *request);
-```
-
-### Parse states
-
-```text
-INIT -> METHOD -> PATH -> VERSION -> HEADER_KEY -> HEADER_VALUE
-     -> HEADERS_DONE -> BODY_CONTENT_LENGTH -> BODY_CHUNKED -> COMPLETE
-     | ERROR
-```
-
-- `hex_http_parser_execute` returns:
-  - `0`: more data needed
-  - `1`: request complete
-  - `-1`: parse error
-
-- On parse error, the caller sends a 400 response and closes the
-  connection.
-
-### Header storage
-
-```c
-typedef struct hex_http_headers {
-    hex_http_header *entries;
-    size_t count;
-    size_t capacity;
-} hex_http_headers;
-
-typedef struct hex_http_header {
-    hex_string key;
-    hex_string value;
-} hex_http_header;
-```
-
-- Headers are stored as a flat array; O(n) case-insensitive lookup.
-- Maximum header count and maximum header size are configurable per
-  server; defaults are 100 headers and 8 KiB per header.
-
 ### Request body streams
 
 The request body is not accumulated into one `String`. The backend exposes a
@@ -164,7 +105,7 @@ or expose socket handles.
 
 ## Response writing
 
-The backend serializes the built-in Response. It honors HTTP body-forbidden
+The backend serializes the handler's Writer state. It honors HTTP body-forbidden
 statuses and HEAD requests, and does not emit both `Content-Length` and
 `Transfer-Encoding`. A known-length body uses `Content-Length`; an unknown-size
 stream uses chunked transfer coding for HTTP/1.1. Each Task-aware write
@@ -198,9 +139,10 @@ No separate public setters are added by this backend specification.
 
 ## Memory model
 
-- HTTP parser state is stack-resident or Stash-allocated per connection.
-- Public Request/Response storage follows RFC 0210's opaque built-in
-  representation and explicit manual cleanup contract.
+- HTTP parser state is connection-owned. A typed Stash is not a general
+  byte allocator for String/List; no new allocator-polymorphism is implied.
+- Request/Writer borrow connection state for the handler call under 0210;
+  the server owns buffers and the handler owns its explicit Heap allocations.
 - Parser spans borrow the read buffer; no span survives buffer reuse. A body
   stream owns or pins its backing buffer until consumed, cancelled, or closed.
 - Response stream chunks remain live until the corresponding runtime write
@@ -215,24 +157,58 @@ No separate public setters are added by this backend specification.
 - Each accepted connection is handled by one ordinary Task.
 - Task-aware reads and writes park without holding a scheduler worker; RFC 0144
   owns event delivery and wake publication.
-- The Task is completed (`hex_task_complete`) after the connection closes.
-- Concurrent connection Tasks share no mutable state; each has its own
-  parser, headers, and buffers.
+- The connection Task returns after connection resources and pending native operations are quiescent.
+- Connection parser and buffers are isolated. Router/configuration/application
+  state may be shared; mutation follows the ordinary synchronization contract.
 
 ## Demand rules
 
-- `Http.serve` selects the default server and HTTP parser components and
+- Http.listen/Server.run select the default server and HTTP parser components and
   depends on RFC 0144's Task-aware TCP runtime.
-- `Http.serve_with` selects only its specified custom backend and that
-  backend's declared dependencies; it does not imply llhttp or libuv.
-- Merely naming or constructing built-in `Request`/`Response` values does not
+- Merely naming Request/Writer types does not
   select the network backend.
 - The HTTP parser adapter selects the pinned llhttp component; it does not
   select TCP operations, timers, or libuv independently.
 - A program using only raw TCP (without HTTP) does not select the HTTP
   parser.
-- A program using only the HTTP parser (without a server) does not select
-  the server lifecycle component.
+- No public parser-only API exists; private adapter tests can select parsing
+  without listener/connection lifecycle.
+
+## Tightened backend contract
+
+One Task is created per connection, not per keep-alive request. The receive buffer
+retains unconsumed pipeline bytes; no unbounded request queue is built. Stop
+reading at the configured buffer bound and resume only when space exists. A
+header may span reads without exceeding its separate protocol limit.
+
+The parser stops at head completion before handler dispatch. Body reads drive
+that same parser; after body/message completion, the connection Task serializes
+the response before admitting the next request. EOF and short bodies prevent reuse.
+Unread body on handler return closes the connection, without draining. Emit
+100 Continue only when the accepted handler starts body reads; unsupported
+expectations -> 417, CONNECT/Upgrade -> 501 and close; HTTP/1.0 closes by default.
+
+Protocol failures before dispatch produce the specified HTTP error response and
+close that connection; they do not terminate the whole server. Handler-visible
+body failures return Error. Listener/startup failures reach the serving caller.
+After response commitment, failure closes the connection instead of writing a
+second status line or substituting a 500. Internal diagnostics are not response text.
+
+Head fields share bounded storage rather than requiring an owned allocation per
+field. Request/head borrowing and synchronous Writer buffer lifetime follow 0210. Use the
+existing allocator boundary; a request Stash is not silently passed where Heap
+is required. Common header metadata may be cached while parsing. Gather head/body
+writes and bounded buffering are candidates for reducing submissions; obey the
+socket owner and completion lifetime. Evaluate whether existing write-all already
+provides sufficient backpressure before adding a separate producer queue.
+
+HTTP method-specific behavior and response status framing are centralized here,
+including HEAD suppression and body-forbidden statuses. Request limits are not
+applied to chunk framing or trailers accidentally; each has a bounded category.
+Unknown-length HTTP/1.0 responses close-delimit; never send HTTP/1.1 chunked framing
+to HTTP/1.0. 0198 reports parsed version/framing/connection facts; this backend
+decides reuse and shutdown. Date formatting belongs to serialization; caching its
+formatted value is a measured optimization, not one allocation per response by design.
 
 ## Required sweep
 
@@ -252,7 +228,7 @@ No separate public setters are added by this backend specification.
 This section is exhaustive for the default backend; parser details are owned
 by RFC 0198 and public behavior by RFC 0210:
 
-- `Http.serve` selects the HTTP server and parser adapter and depends on the
+- Http.listen/Server.run select the HTTP server and parser adapter and depend on the
   Task-aware TCP runtime; unrelated programs do not select those components;
 - each accepted connection is handled by an ordinary Task with isolated
   parser and buffer state;
@@ -276,14 +252,95 @@ by RFC 0198 and public behavior by RFC 0210:
   closes remaining handles without stale Task wakeups;
 - demand rules select no unrelated HTTP or network components;
 - HTTP parsing has no libuv dependency and uses no parser-owned allocation;
+- two pipelined requests, partial heads/bodies and input-buffer compaction preserve
+  bytes and response order without an unbounded request queue or a Task per request;
+- unread body, Expect handling and HTTP/1.0 persistence follow the approved policy;
+- slow headers, slow uploads, stalled writes and idle keep-alive enforce separate
+  configured deadlines; normal slow-client backpressure does not grow storage;
+- exceeding connection/buffer bounds follows the approved admission policy;
+- after response commitment, length mismatch or producer/native failure closes
+  the connection, without a replacement 500 or stale access to source buffers;
+- protocol errors isolate one connection; a later valid connection is served;
+- the benchmark record includes allocations/copies/submissions per plaintext
+  request and memory per idle connection, without an invented zero-allocation claim;
 - existing Task, Channel, Mutex, IO, and print behavior is unchanged;
-- ordinary and tagged C23 suites pass.
+- ordinary gates, focused C23 fixtures and short C23 pass; exhaustive C23 runs
+  require separate user consent.
 
-## Open questions
+## Implementation plan
 
-1. Whether the server yields after each response or after a bounded batch of
-   immediately available requests; this is HTTP scheduling policy, not socket
-   runtime behavior.
+### Phase 0: pin connection/server records
+
+Consume the written 0144 deadline ABI, 0198 parser ABI and 0210 resource signatures.
+Write a C ownership table and state diagram here: accepted, reading-head,
+dispatching, reading-body, writing/committed, reusable, closing, quiescent.
+Specify receive offsets/compaction, separate retained head storage, output buffer,
+parser state, context/handler pointer, deadlines and active-connection accounting.
+Define every error exit and exactly one owner for each allocation/native handle.
+Exit: no state can resume a handler or recycle storage before native quiescence.
+
+### Phase 1: admission and connection Tasks
+
+Implement default listen/run over existing TCP and Task primitives. Freeze Router/
+config at attachment, set TCP_NODELAY, enforce backlog/active limits, pause accepts
+at capacity and return the slot on terminal cleanup. Create one Task per accepted
+connection; no Task per keep-alive request and no libuv callback invokes a handler.
+Exit: startup/accept failure, connection bounds and stopped admission satisfy the
+named Validation cases without leaking the server or a connection slot.
+
+### Phase 2: parsing and handler dispatch
+
+Feed only new bytes to 0198; retain pipeline remainders and compact only safe
+ranges. Stop at head-ready and call the typed handler with Ptr<App>, Request and
+Writer. Request.read drives decoded body progress on the same connection parser.
+Implement limits, 100-continue on first accepted read, unsupported expectations/
+CONNECT/Upgrade, unread-body close, HTTP/1.0 close and deterministic route errors.
+Exit: fragmented/pipelined inputs dispatch once in order, within bounded storage;
+invalid protocol input isolates one connection rather than failing run globally.
+
+### Phase 3: response serialization and backpressure
+
+Implement Writer precommit head storage, status, header validation and exclusive
+serializer ownership of CL/TE. First output commits; successful handler return
+finalizes chunking/length. Suppress HEAD/body-forbidden payloads, detect length
+mismatch and close on postcommit failures. Use one bounded synchronous producer
+and existing write-all before considering a second queue or gathering fast path.
+Exit: response bytes/framing are exact, input buffers are reusable after write
+returns, and slow clients do not cause unbounded output or premature frees.
+
+### Phase 4: deadlines, stop and teardown
+
+Apply 0210's absolute phase deadlines through 0144. stop halts admission, lets
+handlers finish until grace expires, then closes I/O without killing Tasks.
+Join/quiesce handlers and native operations before publishing run/wait completion.
+Release head/body/output/parser/connection storage and active slots exactly once.
+Yield once after each reusable response; batching is a later measured change.
+Exit: repeated stop, close/deadline races and CPU-cooperative shutdown obey the
+approved lifecycle, with no stale wake or replacement postcommit status line.
+
+### Phase 5: exhaustive validation and performance record
+
+Map each Validation bullet to generated-text/unit or focused wire execution:
+reuse/order, slow head/body/write/idle, committed errors, bounds, shutdown and
+dependency isolation. Record 0144's release baseline including allocation/copy/
+submission counts and idle-connection memory; do not invent competitive thresholds.
+Exit: all named cases pass, generated C actually builds/runs in the focused lane,
+and the recorded benchmark explains remaining measured costs separately.
+
+### Phase 6: conformance and handoff
+
+Review manifest movement for HTTP/server/network artifacts only; investigate
+unrelated output movement. Run ordinary test/vet/build, focused HTTP/network C23
+then short C23 with repository platform parallelism. Update the stabilized public
+reference once with 0210; remove status work only when Validation is satisfied.
+No exhaustive C23 run without consent. Rebuild hexal and restart hexal play.
+
+## Remaining readiness work
+
+Design choices are settled by 0210. Pin concrete connection/C record layout,
+state transitions, deadline integration and resource owners before implementation.
+Start with one explicit Task.yield after each reusable response; batching is a
+measured follow-up, not an assumed optimum. The fairness baseline is conservative.
 
 ## Reference synchronization
 

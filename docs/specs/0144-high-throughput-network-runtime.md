@@ -1,17 +1,17 @@
 # RFC 0144: High-Throughput Network Runtime
 
 - Kind: Architecture Decision Record (ADR)
-- Status: Open Discussion; owns the Task-aware socket and timer runtime contract;
+- Status: Open Discussion; existing Task-aware TCP/timers are reused; owns remaining deadline and qualification work;
   implementation not started
 - Created: 2026-09-07
-- Updated: 2026-09-29
+- Updated: 2026-10-01
 - Scope: Task-aware socket and timer operations built on the libuv foundation
 - Depends on: RFC 0132 (root scheduler bootstrap) and RFC 0145 (libuv async
   runtime backend)
 - Coordinates with: RFC 0039 (C interoperability), RFC 0052 (C compiler
   backend), RFC 0055 (filesystem/build driver), RFC 0118 (concurrency safety),
   RFC 0145 (libuv async runtime backend), and the current Task, IO, Stash,
-  Pool, String, List, and View contracts in `docs/reference.md`
+  Pool, String, List, and Slice contracts in `docs/reference.md`
 - Does not define: final socket syntax, an HTTP API, HTTP parsing, routing,
   middleware, TLS, HTTP/2, HTTP/3, or a benchmark-derived performance promise
 
@@ -64,12 +64,57 @@ an optimization program, not a prerequisite:
   event loop instead of that pool.
 - Task stacks have explicit reserve/commit settings and overflow guards.
 - RFC 0132 keeps the initial-process root fiber on worker zero.
-- Views and byte collections permit parsers to work without immediately
+- Slices and byte collections permit parsers to work without immediately
   converting every input field into an owned String.
 - Stash and Pool provide future request-lifetime allocation strategies.
 
 These properties should be retained unless a benchmark and replacement design
 show a material benefit.
+
+## Reconciled implementation baseline
+
+The current TCP component already submits accept, read, write, shutdown, and
+close through the event bridge and parks Tasks. Task-aware sleep also exists.
+This ADR does not authorize implementing these foundations twice. The remaining
+work is deadline/terminal cleanup, target qualification, and measured throughput.
+Existing handle aliasing, busy-operation, and half-close semantics in
+docs/reference.md are the starting contract; changing them needs an explicit decision.
+
+The source probe finds uv_read_start/uv_read_stop per completed read, uv_write
+with one buffer, and hex_event_submit for writes. event submission arms and
+suspends the Task. The ready queue uses one mutex, signals ordinary Tasks, and
+broadcasts root. libuv's async pending flag coalesces notifications. These facts
+establish cross-thread submission and wake costs, not five syscalls per read or
+a demonstrated bottleneck. POSIX mmap plus mprotect also consumes mappings;
+connection-scale qualification measures actual map count and committed memory,
+not just reserved address space. No universal OS map-count default is assumed.
+
+## Review disposition and performance acceptance
+
+Keep llhttp and the current event/scheduler architecture as the baseline.
+Thread-per-core loops, connection affinity, assembly context switches, stack
+caches, and smaller stack classes are comparative candidates, not mandatory
+optimizations justified solely by source inspection. Pinning network Tasks does
+not remove migration or cross-thread wakes for the rest of the language.
+A loop per CPU worker also needs an explicit event-polling/fairness protocol;
+a CPU-bound handler must not prevent that worker's loop servicing other sockets.
+
+Record release echo and HTTP keep-alive plaintext baselines, streaming/slow-client
+loads, and connection churn on a named host/toolchain with fixed workers,
+concurrency, payloads, warmup and repeated runs. Record throughput, p50/p99,
+CPU by thread, allocation/copy counts, submissions and resumes per request,
+bytes per idle connection, mapping count, and spawn/switch/wake latency.
+Record variance before proposing a performance-regression tolerance; neither an
+invented percentage nor an Axum/may ranking is a completion gate.
+
+Do not replace swapcontext before measuring the pinned libc implementation and
+qualifying migration/stack guards. An alternative must preserve ABI registers,
+stack alignment, overflow reporting and sanitizer hooks on each qualified target.
+Unsupported target qualification is a release blocker, not a performance waiver.
+Current source does not prove comparative picohttpparser/llhttp throughput.
+
+Shared review decisions are indexed in RFC 0210. This ADR remains not ready
+until its exact deadline and terminal-cleanup contract is written.
 
 ## Required network architecture
 
@@ -85,7 +130,9 @@ implementation-ready.
 
 Sockets use non-blocking or asynchronous native APIs. A socket operation:
 
-1. attempts the native operation immediately;
+1. consumes already buffered data or attempts an owner-thread immediate operation
+   when the backend supports it; no direct worker-thread access to a libuv handle
+   is implied;
 2. returns immediately when it completes;
 3. on would-block, registers one live wait record with the network driver;
 4. parks the current Task through the common Task protocol;
@@ -273,7 +320,7 @@ strings and request-lifetime allocation remain with their language contracts.
 | Root broadcast on hot path | thundering wakeups | ordinary acceptor/connection Tasks |
 | Unconditional per-request yield | excess context switching | bounded batching |
 | Never-yielding ready connection | unfairness and tail latency | explicit yield initially; measure budget later |
-| Owned String per header | allocation and copying | byte Views and request-lifetime storage |
+| Owned String per header | allocation and copying | byte Slices and request-lifetime storage |
 | Unbounded queues/buffers | memory exhaustion and latency collapse | backpressure and hard bounds |
 | No deadlines/cancellation | slow-client resource retention | timer-integrated waits |
 | Central reactor | cross-worker wake contention | measure before sharding |
@@ -322,97 +369,130 @@ keep-alive behavior, response bodies, logging, TLS state, worker counts, and
 client load. Do not compare a minimal HTTP/1 server to a framework configuration
 performing materially more work.
 
-## Staged implementation plan
+## Implementation plan
 
-### Stage 0: scheduler correctness
+### Phase 0: inventory and establish the baseline
 
-1. Implement RFC 0132.
-2. Execute Task, Channel, Mutex, and libuv-backed blocking-operation fixtures.
-3. Establish spawn, switch, yield, park/wake, worker-scaling, and memory
-   baselines before changing scheduling architecture.
+Inspect packages/network.c/.h, event.c/.h, handle.c/.h and concurrency.c, plus
+generator/network.go, network_render.go and event_component.go. List existing
+accept/read/write/shutdown/close/sleep entrypoints, resource owners and demand
+flags. Reuse the implemented root bootstrap; do not implement RFC 0132 again.
+Run the existing bounded Task/network fixtures named by Validation. Record the
+Measurement contract's named workloads, release flags, host, workers and variance.
+Exit: an implementation map in this spec distinguishes reused code from required
+deadline/cleanup changes, and there is a reproducible baseline before optimization.
 
-### Stage 1: Task-aware network contract
+### Phase 1: pin the private operation contract before code changes
 
-1. Define target-neutral socket operations, ownership, and Error results.
-2. Define one active wait record per blocked operation and exact close/read/
-   write/timeout/cancel race ownership.
-3. Define which operations are Task-aware and which blocking operations use
-   RFC 0145's worker-pool path.
-4. Keep filesystem access and native linking in the driver/backend layers,
-   not the in-memory compiler.
+Add concrete C request/terminal-state records to this spec: operation kind, Task,
+native request, result/status, deadline/timer, native ownership and cleanup state.
+Write transition tables for completion-before-park, park-before-completion and
+completion/timeout/close winners. Identify who arms/disarms each timer and who
+acknowledges native quiescence. A logical timeout is not permission to resume a
+stack-owning Task before the final native acknowledgment. Map every row to an
+existing Validation case; no general select/cancel/Task-interrupt API is added.
+Exit: signatures, record lifetime and exact cleanup/wake owners are written here;
+the implementation does not discover them by trial and error.
 
-### Stage 2: libuv-backed Task adapter
+### Phase 2: implement deadline cleanup on the existing event bridge
 
-1. Implement the contract using RFC 0145's libuv loop for non-blocking
-   accept/connect/read/write.
-2. Integrate registration and wakeup with the common Task protocol.
-3. Prove socket waits consume no libuv worker-pool thread.
-4. Qualify the Task adapter on each supported target before the HTTP backend
-   claims that target.
-5. Run echo, idle-connection, wake-race, and close-race tests.
+Change the smallest existing network/event paths; keep libuv calls on the loop
+thread and the shared arm/commit/wake protocol. Carry absolute monotonic deadlines
+from the HTTP layer. Timer callbacks record terminal intent; read/write/accept
+cleanup completes before the one result/wake publication. Handle immediate native
+failure, close in flight and timer-init failure through the same ownership table.
+Do not add a second reactor, blocking socket job or competing wait protocol.
+Exit: ordinary generated-text/unit checks prove demand isolation and the selected
+state layout; focused native fixtures prove the specified first-winner paths.
 
-### Stage 3: timers and lifecycle
+### Phase 3: qualify lifecycle and context behavior
 
-1. Add monotonic timers and deadline cancellation.
-2. Resolve readiness/timeout/cancel/close races with one terminal owner.
-3. Define operation-close behavior so native requests and buffers remain live
-   until the backend can no longer access them.
-4. Test stale-event rejection and wait-record lifetime under repeated races.
+Run repeated completion/park and timeout/close orderings for the qualified target
+profiles, retaining guards, root affinity and valid native buffer lifetime.
+Record which migration/context combinations were actually qualified. A failed
+correctness qualification blocks that target; a green ordinary suite is not C
+execution evidence. Keep all fixture additions inside this spec's Validation.
+Exit: no stale wake/native access in the named matrix and explicit per-target
+qualification evidence; remaining targets remain unqualified, not implied support.
 
-### Stage 4: first HTTP/1 server
+### Phase 4: hand off to the HTTP arc
 
-RFCs 0198, 0210, 0208, and 0194 own the parser, public surface, backend
-contract, and default HTTP behavior. Their design work may proceed in parallel,
-but settle the public and adapter contracts before implementing the default
-backend. After Stages 1-3 establish and qualify the Task-aware runtime, execute
-in dependency order: pin and integrate the parser; implement the public
-request/response and router surface; implement the backend adapter; then
-implement the default server in RFC 0194 over RFC 0144 operations. Qualify the
-combined path for bounded request bodies, keep-alive, response framing,
-backpressure, and shutdown. Keep root off accept and connection hot paths.
-Record a baseline; do not make a cross-language performance comparison a
-completion criterion.
+Publish the private signatures/layout and timeout ownership to 0194/0198/0210.
+0198 pins parsing; 0210 registers the approved public resources; 0194 integrates
+the connection state machine. They may prepare in parallel but cannot invent
+different native request lifetimes. 0208 and 0200 do not gate the dynamic server.
+Exit: the default HTTP fixtures and benchmark can use one qualified network path.
 
-### Stage 5: measured runtime optimization
+### Phase 5: conformance and measured follow-ups
 
-1. Profile queue contention, fiber switching, allocation, stacks, parsing, and
-   copies separately.
-2. Introduce local queues/work stealing only if the global FIFO is material.
-3. Introduce Task/stack caches only if creation or churn is material.
-4. Replace `ucontext` only if qualification fails or switch cost is material.
-5. Add buffer, vectored-I/O, and send-file optimizations only when the data path
-   remains material.
-6. Repeat all correctness and end-to-end measurements after each independent
-   change; retain only demonstrated wins.
+Run ordinary test/vet/build, then the actual bounded Task/network C23 fixture set
+and short C23 gate under repository parallelism rules. Review legitimate snippet
+manifest changes by artifact family; do not regenerate to conceal failures.
+Sync affected reference contracts once and remove completed status entries only
+after Validation is satisfied. Rebuild hexal/restart hexal play as handoff.
+Re-run the baseline and record throughput, latency, allocations/copies, submissions,
+mapping/idle memory and worker scaling. Scheduler sharding, assembly switching,
+stack caches and vectored I/O require separately bounded, measured follow-up work;
+they are not unfinished mandatory phases of this first implementation.
 
 ## Follow-up ownership
 
 RFC 0145 owns the libuv event-loop foundation; this RFC owns the Task-aware
 socket/timer contract and adapter; RFC 0194 owns HTTP server behavior and
-consumes that adapter; RFCs 0198, 0210, and 0208 own parsing, public semantics,
-and backend pluggability. No separate generic network-runtime specification is
+consumes that adapter; RFCs 0198 and 0210 own parsing and public semantics.
+Deferred RFC 0208 owns future backend pluggability and is not a prerequisite.
+No separate generic network-runtime specification is
 needed. Scheduler local queues/work stealing, Task/stack reuse, and POSIX
 context replacement remain conditional follow-ups: specify and implement them
 only if qualification fails or measurement shows a material bottleneck.
 
 This RFC does not authorize general async syntax or a futures system.
 
-## Open decisions
+## Validation
 
-1. Socket handle ownership, aliasing, close, and half-close semantics.
-2. Deadline-bearing operations versus a general wait/select surface.
-3. Which timer/deadline primitives belong in the private runtime boundary;
-   protocol-specific deadlines and defaults remain with the owning feature.
-4. Whether POSIX Tasks may migrate with the existing context backend.
-5. A fixed workload for recording comparable runtime and server baselines; no
-   cross-language competitiveness threshold gates the first server release.
+This section is exhaustive for this ADR's eventual implementation. Before coding,
+close the signature/record-layout decisions and replace design gates with exact
+fixtures; this draft does not authorize inventing those contracts mid-implementation.
+
+- Existing TCP and timer behavior is reused, with no second loop or wait protocol.
+- Generated artifacts select networking only on actual network demand.
+- For read, write, accept and close, completion-before-park and park-before-completion
+  resume once; close/deadline races do not reclaim native-accessible buffers or
+  stack wait records before the final native completion/cleanup acknowledgment.
+- Deadline and close tests cover each allowed first-winner ordering, no duplicate
+  ready publication, and no stale callback touching a resumed/freed frame.
+- Reactor callbacks never execute handlers; socket waiting uses no blocking-pool job.
+- Qualified context backends retain stack guards and root affinity; migration is
+  either qualified or explicitly restricted by the approved runtime contract.
+- The named baseline above is recorded without unsupported syscall or speed claims.
+- Ordinary gates and bounded focused plus short C23 gates pass; exhaustive C23
+  execution requires separate user consent.
+
+## Approved direction and remaining readiness work
+
+Use the existing single reactor, ordinary M:N Tasks and current scheduler as the
+measured baseline. No thread-per-core rewrite, custom assembly, smaller stack class
+or stack cache is required merely by source inspection. Existing target migration
+must be qualified; failed correctness qualification blocks release regardless of
+performance. Ordinary socket ownership/half-close/busy behavior follows reference.
+
+Use private monotonic per-operation deadlines for HTTP read/accept/write waits;
+do not add a general wait/select surface or Task interruption. Timeout/close must
+not release a Task frame or buffer until the native owner acknowledges quiescence.
+The loop thread owns timer arm/disarm and terminal native-operation cleanup.
+No raw worker-thread libuv operations. Protocol timeout values belong to 0210.
+
+The benchmark contract names echo, keep-alive plaintext, streaming/slow clients
+and churn; host/load/variance are recorded before interpreting results. Pin concrete
+deadline request records and target cleanup transitions before implementation.
+These are remaining engineering/qualification gates, not reopened author choices.
 
 ## Implementation readiness
 
 This umbrella RFC is not implementation-ready. It records the target
 architecture, constraints, risks, staging, and measurement discipline. The
 first HTTP server milestone is gated by this RFC's Task-aware runtime contract
-and adapter, plus the contracts in RFCs 0198, 0208, 0210, and 0194. RFC 0145 is
+and adapter, plus the contracts in RFCs 0198, 0210, and 0194. RFC 0145 is
 the required libuv foundation. Scheduler optimizations are not prerequisites
 unless measurement or target qualification establishes a need.
 

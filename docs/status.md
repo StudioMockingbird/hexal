@@ -13,6 +13,11 @@ gets deleted.
 
 | Work | Spec | Effort | ROI |
 | --- | --- | --- | --- |
+| Qualify existing networking and specify deadline/terminal cleanup plus performance baselines | [0144](specs/0144-high-throughput-network-runtime.md) | High | High |
+| Define bounded HTTP connection processing and response lifecycle | [0194](specs/0194-web-server-lowering-and-libuv-usage.md) | High | High |
+| Pin and integrate llhttp with exact buffer, framing and pause contracts | [0198](specs/0198-web-server-parsing-request-and-response.md) | Medium | High |
+| Define secure static-file containment and qualified transfer paths | [0200](specs/0200-web-server-static-file-serving.md) | High | Medium |
+| Implement approved stateful HTTP writer API and pin native resource records | [0210](specs/0210-web-server-syntax-and-semantics.md) | High | High |
 | Select a layered compile-time and runtime memory-diagnostic strategy without adding ownership semantics | [0247](specs/0247-compile-time-and-runtime-memory-diagnostics.md) | High | High |
 | Audit Float edge semantics and decide whether classification, total ordering, or collection eligibility needs more surface | [0248](specs/0248-float-semantics-and-collection-eligibility.md) | Medium | Medium |
 

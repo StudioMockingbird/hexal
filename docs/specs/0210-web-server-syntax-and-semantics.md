@@ -1,16 +1,16 @@
 # RFC 0210: Web Server — Syntax and Semantics
 
 - Kind: Feature Specification (Rust-Style RFC)
-- Status: Open Discussion; active design for the minimum HTTP server surface;
+- Status: Design decisions approved; API and runtime qualification work remains;
   implementation not started
 - Created: 2026-09-15
-- Updated: 2026-09-29
+- Updated: 2026-10-01
 - Depends on: RFC 0144 (Task-aware socket runtime contract) and RFC 0198 (HTTP
   parsing and serialization)
 - Coordinates with: RFC 0168 (libuv capability arc) for Event and Task
   integration, RFC 0186 (stdlib boundary) for module placement, RFC 0194
-  (default backend), RFC 0195 (TLS), RFC 0200 (static file serving), RFC 0208
-  (backend contract), and the current Task, Channel, Mutex, String, Slice,
+  (default backend), RFC 0195 (TLS), RFC 0200 (subsequent static file serving),
+  deferred RFC 0208 (future backend substitution), and the current Task, Channel, Mutex, String, Slice,
   Error, and IO contracts in `docs/reference.md`
 - Does not add: HTTP/2, HTTP/3, WebSocket, Server-Sent Events, gRPC, or a
   routing framework
@@ -46,253 +46,177 @@ shut down.
 | Middleware pipeline | Skip in v1 | Library concern |
 | WebSocket upgrade | Skip in v1 | Separate protocol, own spec |
 | Server-Sent Events | Skip in v1 | Library concern |
-| Static file serving | Pick up | Common HTTP feature; specified by RFC 0200 |
+| Static file serving | Separate subsequent milestone | Safe buffered serving under RFC 0200; not a dynamic-server prerequisite |
 | Compression (gzip, brotli) | Skip in v1 | Library concern, uses C interop |
 | Connection pooling | Skip in v1 | Client concern, separate RFC |
 | Graceful shutdown | Pick up | Required for production servers |
 | Timeout/deadline | Pick up | Required for production servers |
 
-## Current design direction
+## Approved public contract
 
-- `Request` and `Response` are built-in standard runtime types whose public
-  behavior follows the server-relevant Web Fetch contract: URL, method,
-  headers, status, and one-shot streaming bodies. Browser-only behavior is not
-  added merely for API resemblance.
-- Their representations are opaque to source code. `Request.method` is an
-  extensible method-token string; `Request.url` is the absolute request URL;
-  request and response bodies are byte streams and are consumed at most once.
-- `Headers` follows Fetch `Headers` semantics: case-insensitive valid names,
-  `append`, `set`, `delete`, and `get`; ordinary duplicate values are combined
-  as the standard specifies, while `Set-Cookie` remains separately
-  retrievable. It is not a `Dict`.
-- `ServerConfig` carries transport-neutral listener settings, beginning with
-  required `host` and `port`. Backend-specific controls do not belong in this
-  type. Request-size limits and timeouts have one owner here and are passed
-  unchanged to every backend.
-- `Router` is a basic standard-library router. Its canonical registration
-  operation is `route(method, path, handler)`; per-verb aliases are not part
-  of the initial surface.
-- `Router.mount(prefix, file_server)` registers RFC 0200's static file server
-  at a path prefix. Prefix matching and file-path resolution are owned by RFC
-  0200; ordinary `route` registrations retain their exact method/path behavior.
-- Ordinary routes match the request URL's path and method token exactly; they
-  have no path parameters, wildcard syntax, or implicit method aliases. RFC
-  0200's `mount` is the sole prefix-based dispatch operation in v1. An unknown
-  path produces 404; a known ordinary route with no matching method produces
-  405 and an `Allow` header.
-- A handler has type `Fun<(Request): Response | Error>`. Network body reads
-  and writes are synchronous-looking Task operations that park rather than
-  block a scheduler worker; no async/await syntax is introduced.
-- A handler Error becomes a generic 500 response; internal Error details are
-  not sent to the client. A disconnected client closes its request/response
-  streams; whether it also cancels the handler Task remains open.
-- `Http.serve(config, router)` selects Hexal's default HTTP backend.
-  `Http.serve_with(backend, config, router)` selects a statically linked
-  library backend that satisfies RFC 0208's backend contract.
-- The entrypoint module executes at module scope. Hexal source does not require
-  or define a `main` function.
+Use std.http and the existing minimal corelib mechanism for opaque Request,
+Writer, Router<App> and Server<App> resources. ServerConfig and Header are ordinary
+records. No Response-returning handler, ResponseBuilder, serve_with, language-wide
+interface, async syntax, closure or generic allocator feature is added.
+Header is an ordinary record with name: Slice<Byte> and value: Slice<Byte>;
+both fields borrow the handler's head storage. Header count/bytes bound the record
+table as well as retained field bytes. Server construction copies host and config
+values once; it does not depend on caller string storage after listen returns.
 
-Illustrative surface:
+The handler type is Fun<(Ptr<App>, Request, Writer): Nil | Error>. Each server
+receives an initialized Ptr<App> explicitly; it remains live until run/wait finish
+and server resources are freed. Concurrent handlers may read it; shared mutable
+resources require existing Mutex/Atomic synchronization. Entry-environment functions
+are not valid handlers. Configuration and router registrations freeze at listen;
+duplicate method/path routes return InvalidInput. No registration mutation while
+attached to a server. Router/free and application destruction follow server teardown.
+
+### API signatures
+
+Signatures below are contracts, not new function declaration syntax:
+
+- Http.default_config(host: String, port: UInt16) -> ServerConfig.
+- Http.Router<App>(heap: Heap) -> Router<App>.
+- Router<App>.route(method: String, path: String,
+  handler: Fun<(Ptr<App>, Request, Writer): Nil | Error>) -> Nil | Error.
+- Router<App>.free(heap: Heap) -> Nil, only after all attached servers are freed.
+- Http.listen<App>(heap: Heap, config: ServerConfig, router: Router<App>,
+  app: Ptr<App>) -> Server<App> | Error.
+- Server<App>.run() -> Nil | Error; runs once, parks its calling Task and returns
+  after listener/connection native operations quiesce.
+- Server<App>.stop() -> Nil; shared-handle, thread-safe, idempotent graceful stop.
+- Server<App>.wait() -> Nil | Error; waits for run completion, observes its result;
+  before run starts reports InvalidInput. stop before run causes run to finish
+  without accepting. Only the run caller or post-run callers use free.
+- Server<App>.free(heap: Heap) -> Nil, after run/wait and native cleanup.
+- Request.method(), Request.target(), Request.path() -> Slice<Byte>.
+- Request.headers() -> Slice<Header>, preserving ordered duplicate fields.
+- Request.header(name: String) -> Slice<Byte> | Nil, first matching field;
+  names compare ASCII case-insensitively; inspect headers() for all duplicates.
+- Request.read(into: List<Byte>, max: Size) -> Size | EoS | Error; append decoded
+  body bytes through the connection parser. max == 0 returns zero without I/O.
+- Writer.status(code: UInt16) -> Nil | Error, before commitment; default 200.
+- Writer.header(name: String, value: Slice<Byte>) -> Nil | Error; append, never
+  eagerly combine. Validate token name and reject CR/LF/NUL in values. Copy into
+  bounded response-head storage during this call; Set-Cookie stays separate.
+- Writer.content_length(length: Size) -> Nil | Error, before commitment.
+- Writer.write(bytes: Slice<Byte>) -> Nil | Error, bounded write-all with backpressure.
+
+These are per-instance methods under the current call-shape and explicit-mutating
+method rules. A copied Writer shares the same response state; no copy duplicates
+commitment. Runtime serialization is single-producer: cross-Task writer use is
+unsupported, not an implied concurrent streaming API.
+
+Request, its Header slices and Writer are borrowed for this handler invocation.
+They do not own connection storage and cannot be used after handler return or
+sent to another Task. Apply local escape checks where provable; opaque aliases and
+foreign escapes remain programmer responsibility, not a new lifetime system.
+Explicitly copy bytes with Heap to retain them. Request head storage is separate
+from reusable body/pipeline storage so body reads do not invalidate head access.
+No per-header String allocation is required. Stash<T> is not a general byte Heap.
+
+Writer.write either copies bounded bytes into connection output storage or waits
+until native access finishes; after it returns the caller may reuse its input.
+The handler owns and explicitly frees its allocated response/scratch values;
+the server never silently takes ownership of String/List allocations. Before first
+write, error returns permit generic 500. After commitment, any handler/native/length
+failure closes the connection. Successful handler return finalizes the response;
+there is no second public finish operation. Enforce declared byte length; unknown
+length uses chunked HTTP/1.1 and close-delimited HTTP/1.0. HEAD and body-forbidden
+statuses emit no body. User Headers cannot independently set CL/TE; framing is
+owned by the serializer and content_length().
+
+### Routing, parsing and lifecycle
+
+Route on raw request-target path bytes minus query, without percent decoding or
+absolute-URL allocation. Method tokens are case-sensitive and restricted to the
+pinned llhttp supported method set. Exact routes precede mounts; longest matching
+segment-boundary mount wins. Unknown path -> 404, known exact path/wrong method ->
+405 with deterministic sorted Allow. No implicit GET-to-HEAD route alias.
+Public Header access is lazy, preserves duplicates, and never merges framing evidence.
+Absolute URI targets are parsed as needed under HTTP rules without building an owned
+absolute URL per request; path/query extraction preserves raw encoded bytes.
+
+Unread body on handler return closes the connection; no automatic drain. HTTP/1.0
+closes by default. Reject all duplicate Content-Length, including identical values.
+Send 100 Continue when an accepted handler first reads a nonempty expected body;
+reject unsupported expectations with 417. CONNECT/tunneling receives 501 and close;
+Upgrade is unsupported in v1 and receives 501 and close. No handler Task interrupt.
+Disconnect closes I/O and returns Error; a CPU-bound handler remains cooperative.
+
+Server.stop closes admission, lets in-flight handlers finish until the finite
+shutdown deadline, then closes their I/O. It does not kill Tasks or free buffers
+still in use. run/wait cannot return until those handlers and native operations
+quiesce; a handler that never cooperates may delay completion beyond the I/O grace
+period. ServerConfig and Router are immutable while attached to the server.
+
+### Config defaults
+
+Default values live in compiler/config, remain conservative resource ceilings,
+and are copied by default_config into an ordinary ServerConfig. Required host and
+port plus all fields below are supplied by default_config; config fields are
+declared replaceable and users replace fields
+before listen. Reject zero/invalid bounds and arithmetic-overflow combinations.
+Timeouts use the existing Duration type, monotonic time and round-up conversion.
+
+| ServerConfig field | Default |
+| --- | --- |
+| max_request_line_bytes | 8 KiB |
+| max_header_bytes | 32 KiB |
+| max_header_count | 100 |
+| max_body_bytes | 8 MiB |
+| max_trailer_bytes | 8 KiB |
+| receive_buffer_bytes | 32 KiB |
+| write_buffer_bytes | 64 KiB |
+| max_connections | 4096 |
+| backlog | 512 |
+| header_timeout | 5 seconds |
+| body_timeout | 30 seconds |
+| write_timeout | 30 seconds |
+| idle_timeout | 60 seconds |
+| shutdown_timeout | 30 seconds |
+| tcp_nodelay | true |
+
+Header/body deadlines bound the whole corresponding phase, not sliding per-byte
+timeouts. write_timeout bounds each response from first commitment; idle_timeout
+applies between requests. Shutdown timeout bounds grace, not forced Task destruction.
+At the active-connection ceiling pause accepting until a slot returns; the kernel
+backlog remains bounded. Body limits count decoded payload; trailer/head bounds
+also bound chunk-extension/framing storage with incremental processing.
+
+### End-to-end source example
+
+This is proposed std.http usage; it becomes an executable acceptance fixture when
+the module is implemented. It uses existing syntax and no source main:
 
 ```hexal
-import Http from std.http
-
-fun home(request: Request): Response | Error do
-    return Response("Hello, world!", status = 200)
-end
-
-let mut router = Http.Router()
-router.route("GET", "/", home)
-
-let config = Http.ServerConfig(host = "127.0.0.1", port = 8080)
-match Http.serve(config, router) is
-    Nil then
-        print("server stopped")
-    Error as err then
-        print(err)
-end
-```
-
-The example uses the entrypoint module's root statements; it intentionally has
-no source-level `main` function. The root explicitly handles `Http.serve`'s
-`Nil | Error` result because entry-module root has no Error result to propagate.
-
-These decisions supersede conflicting examples and API sketches later in this
-draft. Those sketches are historical discussion material, not current syntax
-or normative behavior.
-
-## Earlier source-surface sketch (superseded)
-
-### Listener
-
-```text
 import
-    Net from "std/net"
+    Http from std.http
 end
 
-listener: Net.TcpListener := try Net.listen(address, backlog)
-```
-
-The existing `TcpListener` and `TcpConnection` types from `std/net` are the
-foundation. This RFC does not add new types for listeners or connections.
-
-### Request
-
-A request is a value produced by the server's accept loop:
-
-```hexal
-type Request is struct
-    method: Net.HttpMethod,
-    path: String,
-    version: Net.HttpVersion,
-    headers: Net.Headers,
-    body: Net.RequestBody,
-end
-```
-
-`Net.HttpMethod` is a protected enum:
-
-```text
-type HttpMethod is
-    Get | Post | Put | Delete | Patch | Head | Options | Trace
-end
-```
-
-`Net.HttpVersion` is:
-
-```text
-type HttpVersion is
-    Http10 | Http11
-end
-```
-
-`Net.Headers` is an ordered key-value store with case-insensitive key lookup:
-
-```text
-type Headers is struct
-    -- internal representation
+type App is struct
+    greeting: String<32>
 end
 
-method Headers.get(name: String) -> String | Nil
-method Headers.get_all(name: String) -> List<String>
-method Headers.set(name: String, value: String)
-method Headers.add(name: String, value: String)
-method Headers.contains(name: String) -> Bool
-method Headers.remove(name: String)
-method Headers.iter() -> Headers.Iterator
-```
-
-`Net.RequestBody` supports incremental reading:
-
-```text
-type RequestBody is struct
-    -- internal representation
+fun home(app: Ptr<App>, request: Http.Request, response: Http.Writer): Nil | Error do
+    try response.content_length((^app).greeting.bytes().length())
+    try response.write((^app).greeting.bytes())
+    return nil
 end
 
-method RequestBody.read(max: Size) -> String | Nil | Error
-method RequestBody.read_all() -> String | Error
-method RequestBody.is_complete() -> Bool
-method RequestBody.content_length() -> Size | Nil
+let heap = Heap()
+let app = App(greeting = "Hello, world!")
+let mut router = Http.Router<App>(heap)
+defer router.free(heap)
+try router.route("GET", "/", home)
+let config = Http.default_config("127.0.0.1", 8080)
+let server = try Http.listen<App>(heap, config, router, @app)
+defer server.free(heap)
+try server.run()
 ```
 
-### Response
-
-A response is built and sent explicitly:
-
-```hexal
-type Response is struct
-    status: Net.StatusCode,
-    headers: Net.Headers,
-    body: Net.ResponseBody,
-end
-
-type ResponseBody is struct
-    -- internal representation
-end
-```
-
-Construction and sending:
-
-```hexal
-response := Response(
-    status = Net.StatusCode.Ok,
-    headers = Net.Headers(),
-    body = Net.ResponseBody.from_string("Hello, World!")
-)
-response.headers.set("Content-Type", "text/plain")
-response.send(connection)
-```
-
-Or as a builder:
-
-```hexal
-response := Net.ResponseBuilder()
-    .status(Net.StatusCode.Ok)
-    .header("Content-Type", "text/plain")
-    .body("Hello, World!")
-    .build()
-response.send(connection)
-```
-
-`Net.StatusCode` is a protected enum covering standard HTTP status codes:
-
-```text
-type StatusCode is
-    Ok,               -- 200
-    Created,          -- 201
-    Accepted,         -- 202
-    NoContent,        -- 204
-    MovedPermanently, -- 301
-    Found,            -- 302
-    NotModified,      -- 304
-    BadRequest,       -- 400
-    Unauthorized,     -- 401
-    Forbidden,        -- 403
-    NotFound,         -- 404
-    MethodNotAllowed, -- 405
-    InternalServerError, -- 500
-    ServiceUnavailable,  -- 503
-    Other(code: UInt16)
-end
-```
-
-### Superseded server-lifecycle sketch
-
-The earlier sample used a source-level `main` function and a connection-level
-handler. Both are withdrawn: the entrypoint module runs its root statements,
-and application handlers consume built-in `Request` values and return built-in
-`Response` values through the Router and selected backend described above.
-
-### Graceful shutdown
-
-The server supports graceful shutdown:
-
-```hexal
-server := Net.Server.new(listener, handler)
--- start in a Task
-spawn fun() do
-    server.serve()
-end
-
--- signal handler or timer triggers shutdown
-server.shutdown()
-```
-
-Shutdown completes in-flight requests, stops accepting new connections, and
-returns. A hard timeout forces termination if connections do not close in time.
-
-### Deadlines and timeouts
-
-Connection-level deadlines are set on the server:
-
-```text
-method Server.set_timeout(timeout: Duration)
-method Server.set_header_timeout(timeout: Duration)
-method Server.set_body_timeout(timeout: Duration)
-```
-
-A deadline that expires during a read or write returns Error with kind
-`Timeout`.
+Another Task can call server.stop() through its shared handle while run is parked.
+No callback from libuv directly invokes a Hexal handler.
 
 ## HTTP parsing
 
@@ -323,21 +247,23 @@ existing `ErrorKind` contract:
 | Invalid request line | `InvalidInput` | `malformed request line` |
 | Header too large | `ResourceExhausted` | `request header exceeds limit` |
 | Body too large | `ResourceExhausted` | `request body exceeds limit` |
-| Connection timeout | `Timeout` | `connection timed out` |
-| Header timeout | `Timeout` | `request header timed out` |
-| Body timeout | `Timeout` | `request body timed out` |
+| Connection timeout | `TimedOut` | `connection timed out` |
+| Header timeout | `TimedOut` | `request header timed out` |
+| Body timeout | `TimedOut` | `request body timed out` |
 | Connection reset | `ConnectionReset` | `connection reset by peer` |
 | Broken pipe | `BrokenPipe` | `broken pipe` |
-| Address in use | `Busy` | `address already in use` |
+| Address in use | `AddressInUse` | `address already in use` |
 | Permission denied | `PermissionDenied` | `permission denied` |
 
 ## C23 lowering
 
-The HTTP server is a library, not a language feature. The checker and generator
-emit no special C for HTTP concepts. All types lower to existing Hexal
-representations (structs, enums, function pointers). The HTTP parsing and
-response writing are library functions that call through the existing TCP
-socket operations.
+Use existing corelib registration for std.http's native opaque resources and
+ordinary config/Header records. No new syntax, analyzer, general interface or
+foreign-callback feature is introduced. Router<App> specializes its context and
+handler pointer statically; it needs no erased application context or closure.
+Parsing and transport reuse llhttp and existing TCP. The current single reactor
+is the baseline; context switching, stack reuse and loop sharding remain measured
+and target-qualified follow-ups.
 
 ## Non-goals
 
@@ -354,14 +280,39 @@ socket operations.
 - Request/response body caching.
 - Load balancing or reverse proxy functionality.
 
+## Approved decision record
+
+All twelve review recommendations were approved. The public contract above is
+authoritative for this arc: single-reactor measured baseline; opaque corelib
+resources/ordinary config; Router<App> and explicit Ptr<App>; writer-based handlers;
+handler-scoped request borrowing/explicit Heap copies; shared server run/stop/wait;
+raw paths/lazy duplicate headers; finite configurable defaults with TCP_NODELAY;
+deferred 0208; subsequent safe buffered static files; pinned llhttp methods and
+reject-all duplicate CL; unread-body close/HTTP1.0 close/explicit expectations.
+
+RFC 0208 is deferred, not a prerequisite of this milestone. RFC 0200 is the
+subsequent buffered-file milestone; zero-copy is excluded from its initial scope.
+Remaining specification work is concrete runtime records, parser pinning and
+target qualification, not reopening these approved design choices.
+
+## Review findings retained without overclaiming
+
+Current source proves event submissions, Task suspension, ready-queue locking and
+ucontext/Fiber use. It does not prove relative server throughput, five syscalls per
+read, a universal mapping limit, or superiority of picohttpparser. Reject those
+claims as unmeasured, retaining the associated benchmark/qualification questions.
+Static-file metadata does not prove strong content identity. The packet path and
+buffer lifecycle, not Fetch resemblance, determine the common-path allocation cost.
+Zig/Odin comparisons distinguish standard APIs from third-party HTTP frameworks;
+do not import an entire ownership/interface model to imitate their surface.
+
 ## Required sweep
 
-- built-in `Request` and `Response` runtime types and their Web Fetch-aligned
-  body, header, URL, and status contracts;
+- opaque Request/Writer resources, borrowed Header spans and writer-owned framing;
 - standard-library `Headers`, `Router`, `ServerConfig`, handler, and serving
   APIs;
 - generic route registration and method/path dispatch;
-- default backend selection and explicit backend selection through RFC 0208;
+- a single default backend; no serve_with or dependency on deferred RFC 0208;
 - server lifecycle, graceful shutdown, and deadline management;
 - integration with RFC 0144's non-blocking socket operations;
 - workbench snippet and manifest entries;
@@ -374,41 +325,106 @@ This section is exhaustive for the source-level contract; wire parsing is
 validated by RFC 0198, HTTP server behavior by RFC 0194, and Task-aware socket
 lifecycle by RFC 0144:
 
-- the entry-module example compiles without a source-level `main` and handles
-  both `Nil` and `Error` from `Http.serve`;
-- Request and Response expose only the selected server-side Fetch semantics;
-- Header lookup compares names case-insensitively, ordinary appended values combine
-  per Fetch, and `Set-Cookie` values remain separately retrievable;
-- Request and Response bodies are byte-oriented, one-shot streams;
-- ServerConfig host, port, request limits, and deadlines reach either backend
-  unchanged;
-- route registration accepts standard and extension method tokens;
+- the entry-module example compiles/runs without source main; server.run returns
+  Nil on stop and Error on startup/runtime failure without leaking resources;
+- Request/Writer and Server/Router use the approved opaque corelib model;
+- Header lookup compares names case-insensitively and returns the first raw field;
+  ordered duplicates and Set-Cookie remain separate without eager concatenation;
+- Request body is byte-oriented and consumed once; Writer permits multiple bounded
+  writes to the one response and is finalized by handler return;
+- every config default equals the compiler/config constant; pre-listen overrides
+  reach the backend unchanged, including TCP_NODELAY and finite shutdown grace;
+- routes accept the pinned method set, reject other method tokens, preserve method
+  case, reject duplicates and forbid mutation while attached;
 - exact path-and-method match invokes the registered handler;
 - unknown path returns 404; known path with an unsupported method returns 405
   with `Allow` listing the registered methods;
-- `Http.serve` selects the default backend and `Http.serve_with` selects only
-  the explicitly supplied static backend;
-- `Router.mount` dispatches requests under its prefix to the mounted
-  FileServer, while ordinary routes retain exact method/path matching;
+- listen/run select only the default backend; serve_with and Response-returning
+  handler forms are not exposed;
 - handler Error details are not exposed in the generated 500 response;
+- the approved context-bearing handler can access initialized application state
+  without becoming an entry-environment function value; shared mutation obeys
+  existing synchronization rules;
+- the approved construction, body, cleanup, stop and route-registration signatures
+  have exact acceptance/rejection tests and a working stateful server example;
+- request retention, response buffer lifetime, copies and cross-Task use follow
+  the approved ownership table; no unproven opaque-resource lifetime is claimed;
+- no response Error after commitment emits a second status line;
+- raw versus normalized paths, method case, duplicate routes, mount precedence,
+  limits/default overrides, and stream-close behavior follow the closed decisions;
 - existing TCP, IO, Task, and Channel behavior is unchanged;
-- ordinary and tagged C23 suites pass.
+- ordinary gates, focused C23 fixtures and short C23 pass; exhaustive C23 runs
+  require separate user consent.
 
-## Open questions
+## Implementation plan
 
-1. The exact source signatures for Request/Response construction, body-stream
-   reads/writes, and Header accessors; these must be a deliberately small
-   server subset of Fetch, not a claim to implement the whole web platform.
-2. Required ServerConfig fields and defaults for header/body limits, read/write
-   queue bounds, timeouts, backlog, and connection bounds.
-3. Whether exact route matching uses the raw request-target path or the
-   normalized URL pathname, including percent-encoding and query handling.
-4. Duplicate route registration behavior.
-5. Whether disconnect cancels a handler Task or only closes its I/O streams.
-   Recommend the first cut close streams and surface I/O failure, without
-   introducing general Task cancellation semantics.
-6. The static C backend adapter ABI, including callback lifetime and memory
-   ownership across Hexal/C boundaries (RFC 0208).
+### Phase 0: implementation map and private ABI agreement
+
+Map new std.http types/functions into compiler/specdata/corelib.go,
+compiler/corelib/, checker/corelib.go, generator/corelib.go and
+generator/corelib_results.go patterns.
+Locate config defaults in compiler/config/config.go, native source embedding and
+component-demand discovery before adding parallel registries. Use 0194's written
+resource layouts and 0144/0198 ABIs; do not invent separate timeout/parser state.
+Exit: a per-type/function map identifies checker metadata, lowering, native owner,
+declaration order, cleanup and the corresponding existing Validation bullet.
+
+### Phase 1: register the exact public surface
+
+Register Request, Writer, Router<App>, Server<App>, ordinary Header/ServerConfig,
+default_config and listen. Implement only the approved signatures, generic App
+identity and explicit-mutating call shapes; no Response/serve/serve_with aliases.
+Place every default in compiler/config and copy it into default_config; validate
+overrides at listen. Keep unsupported forms fail-closed rather than emitting stubs.
+Exit: ordinary source tests cover exact calls, type errors, method set and config
+validation; generated text contains the right native declarations and demand.
+
+### Phase 2: router/context and resource lifetimes
+
+Implement typed handler registration, copied registration bytes, duplicate errors,
+freeze/attachment accounting and sorted Allow behavior. Store explicit Ptr<App>;
+do not wrap an entry-environment function as Fun or erase the context type.
+Implement Request head/header spans, body read lowering, Writer status/header/
+length/write, and shared server handle operations through 0194's native state.
+Apply local provable escape checks without claiming a general borrow checker.
+Exit: context initialization, shared mutation rules, registration freeze and
+borrow/write-return lifetime cases meet the approved Validation contract.
+
+### Phase 3: integrate run/stop/wait and streaming
+
+Land connected native behavior with 0194 rather than success-returning placeholders.
+Verify one run caller, idempotent stop, pre-run wait error, stop-before-run,
+completion result sharing and cleanup ordering. Handler return finalizes Writer;
+precommit Error -> generic 500, postcommit Error -> close. No automatic frees of
+handler-owned Heap values or general Task cancellation.
+Exit: the stateful example and streaming/shutdown fixtures execute through the
+same public API, with exact output and resource-lifetime assertions.
+
+### Phase 4: source and generated-artifact conformance
+
+Map all Validation bullets to tests in the existing integration facet and C23
+fixture catalog; assert emitted declaration/include order, demand isolation,
+typed handler/context representation, all defaults/overrides and omitted old APIs.
+Mount behavior belongs to 0200 and cannot block closing the dynamic-server surface.
+Exit: every accepted case is present, all rejection cases use the earliest phase,
+and focused C23 runs prove the example/writer lifecycle beyond compiler success.
+
+### Phase 5: reference, regression baseline and handoff
+
+Review grammar changes explicitly: no new syntax is approved, so do not alter
+GRAMMAR.ebnf merely to expose std.http. Update current signatures, memory/sharing,
+config, routing and generated-C rules in reference.md once behavior stabilizes.
+Add the stateful snippet and regenerate manifests only for verified intended output
+changes; review artifacts by family. Run ordinary test/vet/build, focused C23 then
+short C23. Preserve exhaustive-consent policy. Record common-path cost with 0194,
+close only after Validation, rebuild hexal and restart hexal play at handoff.
+
+## Remaining readiness work
+
+No author design choices remain from the review. Before claiming implementation
+readiness, pin the private C records and deadline-cleanup protocol in 0144/0194,
+the parser snapshot/build record in 0198, and qualify required target primitives.
+The signatures, borrowed resource rules and config table above are settled.
 
 ## Reference synchronization
 
